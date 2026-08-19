@@ -17,6 +17,7 @@ from app.config import (
     is_module_enabled,
 )
 from app.auth.security import verify_admin
+from app.db import dberrors
 from app.db.connection import get_db_connection
 from app.db.queries import save_dataset, save_questions
 
@@ -182,8 +183,19 @@ async def create_dataset_item(item: dict):
                  item.get("title_en", ""), item.get("text_en", ""), nxt),
             )
             conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="ID already exists")
+    except Exception as exc:  # noqa: BLE001 — narrowed immediately below
+        # Backend-neutral. This used to catch `sqlite3.IntegrityError`, which
+        # PostgreSQL never raises — it raises `psycopg.errors.UniqueViolation`,
+        # so on the production backend a duplicate id fell through as an
+        # unhandled 500 instead of a clean refusal. Anything that is NOT a
+        # unique violation is re-raised untouched, so a real database fault
+        # still surfaces rather than being mislabelled "ID already exists".
+        if not dberrors.is_unique_violation(exc):
+            raise
+        # 409, not 400: the request is well-formed, it conflicts with the
+        # current state of the resource. The existing row is left untouched —
+        # no upsert, no silent overwrite of someone else's entry.
+        raise HTTPException(status_code=409, detail="ID already exists")
     _trigger_reindex()
     return {"status": "created"}
 

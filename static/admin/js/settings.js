@@ -277,9 +277,16 @@ async function loadAIConnection() {
         document.getElementById('ai-conn-base').placeholder = d.api_base_default || 'https://...';
         document.getElementById('ai-conn-key-state').textContent =
             d.has_key ? 'کلید ذخیره شده است.' : 'هنوز کلیدی ذخیره نشده.';
-        document.getElementById('ai-conn-model-chat').value = d.model_chat || '';
-        document.getElementById('ai-conn-model-classify').value = d.model_classify || '';
+        // The chat / classification model inputs were removed from this page:
+        // routing owns those now, and writing them here changed nothing at
+        // runtime while telling the operator it had saved.
         document.getElementById('ai-conn-model-stt').value = d.model_stt || '';
+        const sttNote = document.getElementById('ai-stt-status');
+        if (sttNote && d.stt) {
+            sttNote.textContent = d.stt.configured
+                ? `${d.stt.detail_fa} ${d.stt.provider_display_name || ''}`.trim()
+                : (d.stt.detail_fa || 'رونویسی تنظیم نشده است.');
+        }
         document.getElementById('ai-conn-stt').checked = !!d.feature_stt;
         document.getElementById('ai-conn-tts').checked = !!d.feature_tts;
         const langSel = document.getElementById('ai-conn-lang');
@@ -308,8 +315,6 @@ function initAIConnection() {
             body: JSON.stringify({
                 api_base: document.getElementById('ai-conn-base').value.trim(),
                 api_key: document.getElementById('ai-conn-key').value.trim(),
-                model_chat: document.getElementById('ai-conn-model-chat').value.trim(),
-                model_classify: document.getElementById('ai-conn-model-classify').value.trim(),
                 model_stt: document.getElementById('ai-conn-model-stt').value.trim(),
                 feature_stt: document.getElementById('ai-conn-stt').checked,
                 feature_tts: document.getElementById('ai-conn-tts').checked,

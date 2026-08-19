@@ -355,6 +355,22 @@ async def test_sms(req: SmsTestRequest):
     return {"status": "queued", "destination": mask_destination(destination), "msgid": msgid}
 
 
+def _stt_status() -> dict:
+    """Transcription binding summary for the settings page.
+
+    Never returns a secret — only which provider serves transcription, which
+    model, and whether it resolves at all. Failure to introspect must not take
+    the whole settings page down, so it degrades to "unknown".
+    """
+    try:
+        from app.services.ai import stt
+        return stt.status()
+    except Exception:  # noqa: BLE001
+        return {"configured": False, "source": "", "model": "",
+                "instance_id": "", "provider_display_name": "",
+                "detail_fa": "وضعیت رونویسی قابل تشخیص نیست."}
+
+
 @router.get("/admin/api/ai-connection", dependencies=[Depends(verify_admin)])
 async def get_ai_connection():
     from app.config import OPENAI_API_BASE
@@ -363,9 +379,18 @@ async def get_ai_connection():
         "api_base_default": OPENAI_API_BASE,
         # The key itself never leaves the server — only whether one exists.
         "has_key": bool((get_setting("ai_api_key", "") or "").strip()),
+        # `model_chat` / `model_classify` are DEPRECATED and no longer read by
+        # the runtime — the AI Control Plane's routes decide those. They are
+        # still returned so an older cached admin page does not break on a
+        # missing key, but they are reported as inert rather than as settings.
         "model_chat": get_setting("ai_model_chat", ""),
         "model_classify": get_setting("ai_model_classify", ""),
+        "model_chat_deprecated": True,
+        "model_classify_deprecated": True,
+        "routing_url": "/secure-panel-inotex/ai/routing",
         "model_stt": get_setting("ai_model_stt", ""),
+        # Where transcription actually gets its credential. Never the secret.
+        "stt": _stt_status(),
         "feature_tts": get_setting("tts_enabled", "true") == "true",
         "feature_stt": get_setting("voice_enabled", "true") == "true",
         "search_backend": get_setting("search_backend", "tfidf"),
@@ -379,8 +404,12 @@ async def save_ai_connection(req: AIConnectionRequest):
     set_setting("ai_api_base", req.api_base.strip())
     if req.api_key.strip():
         set_setting("ai_api_key", req.api_key.strip())
-    set_setting("ai_model_chat", req.model_chat.strip())
-    set_setting("ai_model_classify", req.model_classify.strip())
+    # `model_chat` / `model_classify` are accepted for backward compatibility
+    # with an older client, but deliberately NOT persisted: the runtime reads
+    # route targets from the AI Control Plane, so storing them would recreate
+    # exactly the bug this removes — a form that reports success and changes
+    # nothing. `model_stt` IS still meaningful; it names the transcription
+    # model (see app/services/ai/stt.py).
     set_setting("ai_model_stt", req.model_stt.strip())
     set_setting("tts_enabled", "true" if req.feature_tts else "false")
     set_setting("voice_enabled", "true" if req.feature_stt else "false")

@@ -99,20 +99,33 @@
                                 autocomplete="new-password" placeholder="برای نگه‌داشتن کلید فعلی خالی بگذارید">
                             <small class="text-muted" id="ai-conn-key-state"></small>
                         </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">مدل گفتگو</label>
-                            <input type="text" id="ai-conn-model-chat" class="form-control" dir="ltr"
-                                placeholder="gpt-4.1">
+                        {# The "chat model" and "classification model" inputs used
+                           to live here. They wrote `ai_model_chat` /
+                           `ai_model_classify`, which the runtime STOPPED reading
+                           when routing moved to the AI Control Plane — the page
+                           said "saved" and nothing changed. A control that lies
+                           is worse than no control, so they are replaced by a
+                           pointer to the page that actually decides. #}
+                        <div class="col-12 mb-3">
+                            <div class="alert alert-info d-flex align-items-center justify-content-between mb-0"
+                                 role="status">
+                                <div>
+                                    <strong>انتخاب مدل گفتگو و دسته‌بندی از این صفحه انجام نمی‌شود.</strong>
+                                    <div class="text-muted small mt-1">
+                                        مدل هر وظیفه در «هوش مصنوعی ← مسیریابی» تعیین می‌شود،
+                                        جایی که ترتیب سرویس‌دهنده‌ها و مدل پشتیبان هم مشخص می‌شود.
+                                    </div>
+                                </div>
+                                <a href="/secure-panel-inotex/ai/routing" class="btn btn-primary ms-3 flex-shrink-0">
+                                    رفتن به مسیریابی
+                                </a>
+                            </div>
                         </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">مدل دسته‌بندی</label>
-                            <input type="text" id="ai-conn-model-classify" class="form-control" dir="ltr"
-                                placeholder="gpt-5-nano">
-                        </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-6 mb-3">
                             <label class="form-label">مدل تبدیل گفتار به متن</label>
                             <input type="text" id="ai-conn-model-stt" class="form-control" dir="ltr"
                                 placeholder="whisper-1">
+                            <small class="text-muted" id="ai-stt-status"></small>
                         </div>
                         <div class="col-md-6 mb-2">
                             <div class="form-check form-switch">

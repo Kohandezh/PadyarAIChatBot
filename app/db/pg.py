@@ -188,6 +188,46 @@ def _primary_key(conn, table: str):
 _INSERT_RE = re.compile(
     r"INSERT\s+INTO\s+([A-Za-z_][\w.]*)\s*\(([^)]*)\)", re.I)
 
+_GENERATED_ID_CACHE = {}
+
+
+def _generated_id_column(conn, table: str):
+    """The auto-generated key column of `table`, or None. Cached per process.
+
+    "Auto-generated" means a serial/identity column — one with a sequence
+    behind it (`pg_get_serial_sequence` is non-null) or declared
+    `GENERATED ... AS IDENTITY`. Those are the only inserts that can produce a
+    new id worth reporting as `lastrowid`.
+
+    Tables keyed on supplied values — `settings` on (key), `synonyms` on
+    (source, target), `dataset` on a TEXT id — have no such column, and for
+    them `lastrowid` must be None rather than some other table's number.
+    """
+    key = table.lower()
+    if key in _GENERATED_ID_CACHE:
+        return _GENERATED_ID_CACHE[key]
+    col = None
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.attname
+              FROM pg_attribute a
+              JOIN pg_class c ON c.oid = a.attrelid
+             WHERE a.attrelid = to_regclass(%s)
+               AND a.attnum > 0
+               AND NOT a.attisdropped
+               AND (a.attidentity IN ('a', 'd')
+                    OR pg_get_serial_sequence(%s, a.attname) IS NOT NULL)
+             ORDER BY a.attnum
+             LIMIT 1""", (table, table))
+        row = cur.fetchone()
+        if row:
+            col = row["attname"]
+    except Exception:  # noqa: BLE001 — unknown table, or no permission
+        col = None
+    _GENERATED_ID_CACHE[key] = col
+    return col
+
 
 def _upsert_clause(conn, translated: str) -> str:
     """Build the ON CONFLICT clause an `INSERT OR REPLACE` needs."""
@@ -269,30 +309,43 @@ class Connection:
                 translated += _upsert_clause(self._conn, translated)
             else:
                 translated += needs_on_conflict(query)
+        # sqlite3 exposes `lastrowid`; PostgreSQL has no equivalent, so it is
+        # emulated with RETURNING — appended to THIS statement, so the value
+        # can only ever describe the row THIS insert created.
+        #
+        # It previously ran `SELECT lastval()` after the insert. `lastval()` is
+        # SESSION-scoped, not statement-scoped: it reports the last sequence
+        # touched anywhere on the connection. Because connections are pooled and
+        # reused, an insert into a sequence-less table (`settings`, `synonyms`,
+        # `dataset` — all keyed on supplied values) would return the id of some
+        # earlier, unrelated insert on that same connection instead of None.
+        # Proven in review: insert into `ai_provider_models`, then into
+        # `ai_circuit_state`, and the second reported the model row's id.
+        #
+        # RETURNING also removes the SAVEPOINT that used to wrap the probe. That
+        # savepoint existed only because `lastval()` raises on a sequence-less
+        # table, and a raised statement aborts the entire PostgreSQL
+        # transaction. Asking the catalog first means nothing has to fail.
+        returning_col = None
+        if re.match(r"\s*INSERT", translated, re.I) and \
+                not re.search(r"\bRETURNING\b", translated, re.I):
+            m = _INSERT_RE.search(translated)
+            if m:
+                returning_col = _generated_id_column(self._conn, m.group(1))
+                if returning_col:
+                    translated += f' RETURNING "{returning_col}"'
+
         cur = self._conn.cursor()
         cur.execute(translated, tuple(params) if params else None)
 
         lastrowid = None
-        if cur.rowcount and re.match(r"\s*INSERT", translated, re.I):
-            # sqlite3 exposes lastrowid; PostgreSQL needs RETURNING. Only
-            # attempt it when the table actually has an `id`, and never let a
-            # failure here break the insert that already succeeded.
-            # lastval() raises on a table with no sequence, and in PostgreSQL a
-            # raised statement ABORTS THE WHOLE TRANSACTION — every subsequent
-            # command then fails with InFailedSqlTransaction. Emulating
-            # sqlite3's lastrowid must never be able to do that, so the probe
-            # runs inside a SAVEPOINT that is rolled back on failure.
+        if returning_col and cur.rowcount:
             try:
-                cur.execute("SAVEPOINT _lastrowid_probe")
-                try:
-                    cur.execute("SELECT lastval()")
-                    row = cur.fetchone()
-                    lastrowid = row["lastval"] if row else None
-                    cur.execute("RELEASE SAVEPOINT _lastrowid_probe")
-                except Exception:  # noqa: BLE001 — no sequence on this table
-                    cur.execute("ROLLBACK TO SAVEPOINT _lastrowid_probe")
-                    lastrowid = None
-            except Exception:  # noqa: BLE001 — savepoints unavailable; skip
+                row = cur.fetchone()
+                # An `ON CONFLICT DO NOTHING` that skipped returns no row, so
+                # lastrowid is correctly None — nothing was inserted.
+                lastrowid = row[returning_col] if row else None
+            except Exception:  # noqa: BLE001 — no result set to read
                 lastrowid = None
         return Cursor(cur, lastrowid)
 

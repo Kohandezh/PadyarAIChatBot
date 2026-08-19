@@ -127,9 +127,18 @@ def test_create_question_does_not_drop_rows_from_another_worker(client):
 # --- CRUD edge cases -------------------------------------------------------
 
 def test_duplicate_dataset_id_rejected(client):
+    """409, not the previous 400.
+
+    The request is well-formed; it conflicts with the current state of the
+    resource, which is what 409 means. The status changed as part of making
+    this path backend-neutral — it previously relied on `sqlite3.IntegrityError`
+    and returned 500 on PostgreSQL, so the handler had to be rewritten anyway.
+    See tests/test_p1_closure.py for the full behaviour, including that the
+    existing row survives the attempt.
+    """
     payload = {"id": "dup", "title": "t", "text": "x", "video_url": ""}
     assert client.post("/admin/api/dataset", json=payload).status_code == 200
-    assert client.post("/admin/api/dataset", json=payload).status_code == 400
+    assert client.post("/admin/api/dataset", json=payload).status_code == 409
 
 
 def test_update_and_delete_dataset_round_trip(client):

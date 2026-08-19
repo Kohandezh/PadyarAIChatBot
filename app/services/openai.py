@@ -313,11 +313,19 @@ def _transcribe_sync(audio_bytes: bytes, filename: str) -> str:
     """Synchronous transcription matching the GapGPT example exactly."""
     import httpx as sync_httpx
     from openai import OpenAI
+    from app.services.ai import stt
 
-    base, key = provider_config()
-    stt_model = model_for("stt")
-    logger.info(f"[Transcribe] Using model={stt_model}, filename={filename}, size={len(audio_bytes)} bytes")
-    logger.info(f"[Transcribe] API base_url={base}")
+    # Credentials come from the AI Control Plane, not the legacy `ai_api_key`
+    # setting. Before this, rotating the key in Admin → AI fixed chat and left
+    # transcription returning 401 against the old secret — two sources of truth
+    # for one credential, with the working one hiding the stale one.
+    # `stt.resolve()` falls back to the legacy settings only when no control
+    # plane instance can serve transcription; see app/services/ai/stt.py.
+    base, key, stt_model, source = stt.resolve()
+    # `source` and base URL are operational facts, not secrets. The key is
+    # never logged here or anywhere else on this path.
+    logger.info(f"[Transcribe] model={stt_model}, credential_source={source}, "
+                f"filename={filename}, size={len(audio_bytes)} bytes")
 
     client = OpenAI(
         base_url=base,
@@ -336,18 +344,34 @@ def _transcribe_sync(audio_bytes: bytes, filename: str) -> str:
             model=stt_model,
             file=audio_file,
         )
-        logger.info(f"[Transcribe] Success! Response text: {response.text[:200]}")
+        # Everything provider-originated below goes through `scrub_text`.
+        # These lines wrote raw vendor output straight to the stdlib logger,
+        # bypassing the redaction that protects every other provider path — and
+        # a rejected-credential response commonly quotes the key it rejected.
+        # `scrub_text` also strips the exact secret value in play, so a vendor
+        # whose key shape nobody enumerated is still covered.
+        from app.services.applog import scrub_text
+        logger.info("[Transcribe] Success! Response text: %s",
+                    scrub_text(response.text[:200]))
         return response.text
     except Exception as e:
-        logger.error(f"[Transcribe] Error type: {type(e).__name__}")
-        logger.error(f"[Transcribe] Error message: {e}")
+        from app.services.applog import scrub_text
+        logger.error("[Transcribe] Error type: %s", type(e).__name__)
+        logger.error("[Transcribe] Error message: %s", scrub_text(str(e)))
         if hasattr(e, 'response'):
             resp = e.response
-            logger.error(f"[Transcribe] HTTP status: {resp.status_code}")
-            logger.error(f"[Transcribe] Response headers: {dict(resp.headers)}")
-            logger.error(f"[Transcribe] Response body: {resp.text[:500]}")
+            logger.error("[Transcribe] HTTP status: %s", resp.status_code)
+            # Headers are NOT dumped wholesale any more: an echoed
+            # `authorization` header would be a live credential in the log.
+            logger.error("[Transcribe] Response headers: %s",
+                         scrub_text(str({k: v for k, v in dict(resp.headers).items()
+                                         if k.lower() not in ("authorization",
+                                                              "x-api-key",
+                                                              "set-cookie")})))
+            logger.error("[Transcribe] Response body: %s",
+                         scrub_text(resp.text[:500]))
         if hasattr(e, 'body'):
-            logger.error(f"[Transcribe] Error body: {e.body}")
+            logger.error("[Transcribe] Error body: %s", scrub_text(str(e.body)))
         raise
     finally:
         client.close()
