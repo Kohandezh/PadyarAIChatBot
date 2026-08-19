@@ -1,0 +1,172 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}مدیریت دیتاست{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">مدیریت دیتاست</h5>
+    <div class="user-profile">
+        <span class="text-muted small">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <input type="text" id="dataset-search" class="form-control" placeholder="جستجو در دیتاست..." style="width: 300px; display: inline-block;">
+    </div>
+    <div class="d-flex gap-2">
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fas fa-download me-1"></i> خروجی</button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="#" onclick="window.exportDataset('json');return false;">فایل JSON</a></li>
+                <li><a class="dropdown-item" href="#" onclick="window.exportDataset('csv');return false;">فایل CSV (اکسل)</a></li>
+            </ul>
+        </div>
+        <button class="btn btn-outline-secondary" onclick="window.openImportModal()"><i class="fas fa-upload me-1"></i> ورودی</button>
+        <button class="btn btn-primary" onclick="window.openDatasetModal()"><i class="fas fa-plus me-1"></i> افزودن مورد جدید</button>
+    </div>
+</div>
+<div class="content-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th style="width:50px">#</th>
+                        <th style="width:120px">شناسه</th>
+                        <th>عنوان</th>
+                        <th>پاسخ (خلاصه)</th>
+                        <th style="width:100px">ویدیو</th>
+                        <th style="width:120px">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody id="dataset-table"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<div id="dataset-msg" class="text-center fw-bold mt-2"></div>
+
+<!-- Dataset Edit Modal -->
+<div class="modal fade" id="datasetModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="datasetModalTitle">افزودن مورد جدید</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="ds-edit-id">
+                <div class="mb-3">
+                    <label class="form-label">شناسه (id)</label>
+                    <input type="text" id="ds-edit-key" class="form-control" placeholder="مثلا vid_77">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">عنوان</label>
+                    <input type="text" id="ds-edit-title" class="form-control" dir="rtl">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">متن پاسخ</label>
+                    <textarea id="ds-edit-text" class="form-control" rows="5" dir="rtl"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">عنوان انگلیسی</label>
+                    <input type="text" id="ds-edit-title-en" class="form-control" dir="ltr">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">متن پاسخ انگلیسی</label>
+                    <textarea id="ds-edit-text-en" class="form-control" rows="5" dir="ltr"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">ویدیو</label>
+                    <input type="hidden" id="ds-edit-video">
+                    <div id="ds-video-preview" class="mb-2" style="display:none">
+                        <video id="ds-preview-player" style="max-width:100%;max-height:160px;border-radius:8px;background:#000" controls></video>
+                        <button type="button" class="btn btn-sm btn-outline-danger mt-1" onclick="window.removeVideo()"><i class="fas fa-times me-1"></i>حذف ویدیو</button>
+                    </div>
+                    <div id="ds-video-empty" class="text-center py-3 border rounded" style="cursor:pointer;border-style:dashed!important" onclick="window.openMediaBrowser()">
+                        <i class="fas fa-film fa-2x text-muted"></i>
+                        <p class="text-muted mb-0 mt-1 small">انتخاب از کتابخانه یا آپلود ویدیو جدید</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-primary" onclick="window.saveDatasetItem()">ذخیره</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-upload me-2"></i>وارد کردن دیتاست</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">فایل (JSON یا CSV)</label>
+                    <input type="file" id="import-file" class="form-control" accept=".json,.csv">
+                </div>
+                <label class="form-label">این فایل چه کاری انجام دهد؟</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="import-mode" id="import-mode-add" value="add">
+                    <label class="form-check-label" for="import-mode-add">
+                        <strong>افزودن به موارد موجود</strong>
+                        <span class="d-block text-muted small">موارد جدید اضافه و موارد تکراری (با شناسه یکسان) به‌روزرسانی می‌شوند. چیزی حذف نمی‌شود.</span>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="radio" name="import-mode" id="import-mode-replace" value="replace">
+                    <label class="form-check-label" for="import-mode-replace">
+                        <strong class="text-danger">جایگزینی کامل</strong>
+                        <span class="d-block text-muted small">تمام داده‌های فعلی پاک و فقط محتوای این فایل جایگزین می‌شود. این عمل قابل بازگشت نیست.</span>
+                    </label>
+                </div>
+                <div id="import-msg" class="mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-primary" onclick="window.submitImport()">شروع وارد کردن</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Media Browser Modal -->
+<div class="modal fade" id="mediaBrowserModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-film me-2"></i>کتابخانه ویدیوها</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <input type="text" id="media-search" class="form-control" placeholder="جستجو..." style="width:250px">
+                    <div>
+                        <button class="btn btn-primary" onclick="document.getElementById('media-upload-input').click()">
+                            <i class="fas fa-upload me-1"></i> آپلود ویدیو جدید
+                        </button>
+                        <input type="file" id="media-upload-input" accept="video/mp4,video/webm,video/quicktime,video/avi" style="display:none" onchange="window.uploadFromMediaBrowser(this)">
+                    </div>
+                </div>
+                <div id="media-upload-status" class="mb-2"></div>
+                <div id="media-grid" class="row g-2" style="max-height:400px;overflow-y:auto"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initDataset } from '/static/admin/js/dataset.js';
+    initDataset();
+</script>
+{% endblock %}

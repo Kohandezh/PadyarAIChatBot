@@ -1,0 +1,37 @@
+<!-- Video Chat View. Local INOTEX media can be connected by an administrator. -->
+<div id="video-view" class="tab-view" role="tabpanel" aria-label="چت ویدیویی">
+    <div class="avatar-container">
+        <div class="video-placeholder" id="video-placeholder">
+            <div class="video-placeholder-card">
+                <div class="video-placeholder-mark" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" width="56" height="56">
+                        <path d="M32 3 57 17.5v29L32 61 7 46.5v-29Z" fill="#1E2D52"
+                            stroke="#2D5CA7" stroke-width="3" stroke-linejoin="round" />
+                        <path d="M32 17 45 24.5v15L32 47 19 39.5v-15Z" fill="#2D5CA7" />
+                        <path d="M32 17 45 24.5 32 32 19 24.5Z" fill="#5B8AD9" />
+                        <path d="M32 47 45 39.5v-6.2L32 40.8Z" fill="#FCB715" />
+                    </svg>
+                </div>
+                <p data-i18n="videoReady">ویدیوهای راهنمای اینوتکس در این بخش نمایش داده می‌شوند</p>
+                <span data-i18n="videoReadyHint">برای گفتگو یا دریافت راهنمایی، تب چت را انتخاب کنید.</span>
+            </div>
+        </div>
+        <!-- Two clips, one element. `data-waiting-src` is the idle loop the
+             shared core.js returns to after any answer; the welcome clip is
+             played once on demand by the Start button below. -->
+        <video id="avatar-video" muted loop playsinline
+            data-waiting-src="/media/videos/idle.mp4"
+            data-welcome-src="/media/videos/welcome.mp4"></video>
+
+        <!-- Start: plays the welcome once, then hands back to the idle loop.
+             It is the visitor's first gesture on the page, which is also what
+             lets the browser play the welcome with sound. -->
+        <button type="button" class="video-start" id="video-start">
+            <span class="video-start-ring" aria-hidden="true"></span>
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+                <path d="M8 5v14l11-7z" />
+            </svg>
+            <span class="video-start-label" data-i18n="startVideo">شروع</span>
+        </button>
+    </div>
+</div>

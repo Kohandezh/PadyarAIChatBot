@@ -1,0 +1,10 @@
+# Test-only dependencies — NOT needed for a customer install.
+# Install with:  pip install -r requirements-dev.txt
+# Then, for browser e2e tests:  playwright install chromium
+#
+# Kept separate from requirements.txt so customer deployments don't pull in
+# pytest, Playwright, and ~150MB of browser binaries.
+
+pytest
+pytest-asyncio
+pytest-playwright

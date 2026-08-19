@@ -1,0 +1,100 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}مدیریت قالب‌ها{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">مدیریت قالب‌ها (Themes)</h5>
+    <div class="user-profile">
+        <span class="text-muted small">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div class="content-card">
+    <div class="card-header">
+        <span><i class="fas fa-palette me-2"></i>قالب‌های موجود</span>
+    </div>
+    <div class="card-body">
+        <div id="theme-msg" class="text-center fw-bold mb-3"></div>
+        <div class="row" id="themes-grid">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+</div>
+
+<style>
+    .theme-card {
+        border: 2px solid #e3e6f0;
+        border-radius: 12px;
+        overflow: hidden;
+        transition: all 0.25s ease;
+        background: #fff;
+    }
+    .theme-card:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+    .theme-card.active-theme {
+        border-color: var(--success-color, #1cc88a);
+        box-shadow: 0 0 0 3px rgba(28, 200, 138, 0.2);
+    }
+    .theme-card .screenshot {
+        width: 100%;
+        height: 180px;
+        object-fit: cover;
+        background: #f0f0f0;
+        display: block;
+    }
+    .theme-card .card-info {
+        padding: 1rem;
+    }
+    .theme-card .theme-name {
+        font-weight: 700;
+        font-size: 1.05rem;
+        margin-bottom: 0.25rem;
+        color: #333;
+    }
+    .theme-card .theme-desc {
+        font-size: 0.85rem;
+        color: #858796;
+        margin-bottom: 0.75rem;
+        line-height: 1.6;
+    }
+    .theme-card .color-dots {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 0.75rem;
+    }
+    .theme-card .color-dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #e3e6f0;
+    }
+    .theme-card .theme-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .active-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0.35rem 0.85rem;
+        border-radius: 20px;
+        background: #e8f5e9;
+        color: #2e7d32;
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+</style>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initThemes } from '/static/admin/js/themes.js';
+    initThemes();
+</script>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}پشتیبان‌گیری از اطلاعات{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">پشتیبان‌گیری از اطلاعات</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<!-- Database Backups -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-database me-2"></i>پشتیبان‌گیری از اطلاعات</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    از همه‌ی اطلاعات (سوال‌ها، ویدیوها، تنظیمات و تاریخچه) یک نسخه پشتیبان گرفته می‌شود.
+                    می‌توانید همین حالا پشتیبان بگیرید یا زمان‌بندی خودکار را تنظیم کنید.
+                </p>
+
+                <!-- Schedule -->
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label">پشتیبان‌گیری خودکار</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="backup-enabled" role="switch">
+                            <label class="form-check-label" for="backup-enabled" id="backup-enabled-label">روشن</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">هر چند وقت یک‌بار؟</label>
+                        <select id="backup-interval" class="form-select">
+                            <option value="6">هر ۶ ساعت</option>
+                            <option value="12">هر ۱۲ ساعت</option>
+                            <option value="24" selected>روزانه</option>
+                            <option value="48">هر ۲ روز</option>
+                            <option value="168">هفتگی</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3" id="backup-time-wrap">
+                        <label class="form-label">ساعت اجرا</label>
+                        <input type="time" id="backup-time" class="form-control" value="03:00">
+                    </div>
+                    <div class="col-md-3">
+                        <button id="save-schedule-btn" class="btn btn-primary w-100">ذخیره زمان‌بندی</button>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-3 text-muted small mb-3">
+                    <span>آخرین پشتیبان: <b id="backup-last">—</b></span>
+                    <span>پشتیبان بعدی: <b id="backup-next">—</b></span>
+                </div>
+                <div id="schedule-msg" class="text-center fw-bold mb-2"></div>
+
+                <hr>
+
+                <!-- Manual + list -->
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="m-0">نسخه‌های پشتیبان</h6>
+                    <div class="d-flex gap-2">
+                        <button id="restore-upload-btn" class="btn btn-outline-secondary">
+                            <i class="fas fa-upload me-1"></i>بازگردانی از فایل
+                        </button>
+                        <input type="file" id="restore-file-input" accept=".db" style="display:none">
+                        <button id="create-backup-btn" class="btn btn-success">
+                            <i class="fas fa-plus me-1"></i>پشتیبان جدید
+                        </button>
+                    </div>
+                </div>
+                <div id="restore-msg" class="text-center fw-bold mb-2"></div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>تاریخ</th>
+                                <th>حجم</th>
+                                <th class="text-end">عملیات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backup-list">
+                            <tr><td colspan="3" class="text-center text-muted">در حال بارگذاری...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initBackup } from '/static/admin/js/settings.js';
+    initBackup();
+</script>
+{% endblock %}

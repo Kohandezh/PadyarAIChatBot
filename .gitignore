@@ -1,0 +1,92 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test caches
+.pytest_cache/
+
+# Environment variables (if you have .env file)
+.env
+
+# Virtual Environment
+venv/
+env/
+
+# Database (Local data should usually not be committed)
+chat_history.db
+chat_history*.db
+application_logs.db
+application_logs*.db
+*.sqlite3
+
+# WAL sidecar files
+*.db-wal
+*.db-shm
+
+# Automatic DB backups (runtime data)
+backups/
+
+# One-time JSON->DB migration snapshot (survives git pull; not source)
+migration_snapshot/
+
+# Auto-generated admin credentials (first-run only)
+ADMIN_CREDENTIALS.txt
+
+# Provider credential files.
+#
+# `.env` above is an EXACT name match, so it never covered a file like
+# `ASANAK-CREDENTIALS.env` — which sits at the repo root holding the live
+# Asanak username, password, API key and SECRET_KEY. It was untracked but not
+# ignored, so a single `git add .` would have committed production SMS
+# credentials into history.
+#
+# Deliberately NOT a blanket `*.env`: `.env.example` is tracked on purpose and
+# a wildcard would start ignoring a file that is already in the repo. The
+# negation below makes that explicit so nobody widens this later by accident.
+ASANAK-CREDENTIALS.env
+*-CREDENTIALS.env
+*_CREDENTIALS.env
+*.credentials
+!.env.example
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.vscode/
+.idea/
+.venv/
+
+# Claude Code worktrees (transient)
+.claude/worktrees/
+
+# Large model archives (downloaded, not source)
+*.tar.bz2
+
+# Large media files
+media/videos/
+.gstack/
+
+# Graphify code-graph output (regenerated, not source)
+graphify-out/
+
+# Local embedding model cache (regenerable, ~100MB)
+data/models/
+
+# Knowledge snapshots are runtime state (hashes tracked via freshness-report)
+content/snapshots/
+
+# OTP dev-only outbox (never in production)
+data/otp-dev-outbox.log
+
+# Copies of .env taken before the admin panel rewrites it. `.env` above only
+# ignores that exact name, so a timestamped copy would otherwise be committable
+# — and it holds the same credentials.
+.env.backup.*
+.env.*.backup
+
+# Timestamped taxonomy backups written by the admin editor (runtime state).
+# data/visit-taxonomy.json itself stays tracked — it is the real taxonomy.
+data/visit-taxonomy.backup.*.json

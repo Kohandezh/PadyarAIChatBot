@@ -1,0 +1,13 @@
+{
+  "name": "liquid-glass",
+  "display_name": "INOTEX Glass",
+  "description": "قالب شیشه‌ای: پس‌زمینه پرتوهای متحرک، لهجه بنفش/نیلی، ویدیو و چت، دوزبانه و واکنش‌گرا",
+  "version": "3.0.0",
+  "author": "INOTEX",
+  "screenshot": "screenshot.png",
+  "preview_colors": {
+    "primary": "#4F46E5",
+    "secondary": "#8B5CF6",
+    "accent": "#EEF2FF"
+  }
+}

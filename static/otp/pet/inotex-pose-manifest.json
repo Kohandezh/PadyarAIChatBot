@@ -1,0 +1,26 @@
+{
+  "source": "Avatar/generated-pose-sheet.png",
+  "frameSize": 384,
+  "columns": 4,
+  "rows": 3,
+  "poses": {
+    "idle-neutral": 0,
+    "idle-smile": 1,
+    "welcome-wave": 2,
+    "attentive-hands": 3,
+    "thinking": 4,
+    "not-found": 5,
+    "success": 6,
+    "sleep": 7,
+    "tablet-work": 8,
+    "typing": 9,
+    "walk": 10,
+    "run": 11
+  },
+  "identitySources": [
+    "Avatar/main.PNG",
+    "Avatar/animation.PNG",
+    "Avatar/animation2.PNG",
+    "Avatar/detail.PNG"
+  ]
+}

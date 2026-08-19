@@ -1,0 +1,630 @@
+<!-- INOTEX startup loader: modular bricks assembling the hexagon mark.
+     Shown from first paint until the app is interactive. -->
+<div id="inx-loader" class="inx-loader" role="status" aria-live="polite" aria-busy="true">
+    <div class="inx-loader-inner">
+        <svg class="inx-loader-mark" viewBox="0 0 64 64" width="84" height="84" aria-hidden="true">
+            <path class="inx-hex-outline" d="M32 3 57 17.5v29L32 61 7 46.5v-29Z" fill="none"
+                stroke="#2D5CA7" stroke-width="3" stroke-linejoin="round" />
+            <path class="inx-brick inx-brick-1" d="M32 17 45 24.5v15L32 47 19 39.5v-15Z" fill="#2D5CA7" />
+            <path class="inx-brick inx-brick-2" d="M32 17 45 24.5 32 32 19 24.5Z" fill="#5B8AD9" />
+            <path class="inx-brick inx-brick-3" d="M32 47 45 39.5v-6.2L32 40.8Z" fill="#FCB715" />
+        </svg>
+        <div class="inx-loader-studs" aria-hidden="true"><i></i><i></i><i></i></div>
+        <p class="inx-loader-label">اینوتکس</p>
+    </div>
+</div>
+
+<!-- Voice stage: shown while the assistant is listening, thinking or speaking. -->
+<div id="voice-stage" class="voice-stage" hidden role="status" aria-live="polite">
+    <div class="voice-orb-wrap">
+        <span class="voice-ring" aria-hidden="true"></span>
+        <div class="voice-orb">
+            <svg class="voice-ic voice-ic-listen" viewBox="0 0 24 24" width="34" height="34" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+            </svg>
+            <svg class="voice-ic voice-ic-think" viewBox="0 0 24 24" width="34" height="34" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <svg class="voice-ic voice-ic-speak" viewBox="0 0 24 24" width="34" height="34" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                <path d="M19 5a10 10 0 0 1 0 14" />
+            </svg>
+        </div>
+    </div>
+    <div class="voice-wave" id="voice-wave" aria-hidden="true"></div>
+    <p class="voice-status" id="voice-status"></p>
+    <p class="voice-timer" id="voice-timer">۰۰:۰۰</p>
+    <button type="button" class="voice-stop" id="voice-stop" data-i18n="voiceStop">توقف</button>
+</div>
+
+<!-- Pet-INOTEX companion. Theme level, so it is present on both tabs.
+     Ported from the Pet-Inotex module: control rail (hide / − / +), pointer
+     drag, tap to open the chat panel, double-tap for one energetic reaction.
+     The character never carries information on its own — the chat text and
+     #pet-status always do. -->
+<div class="pet-slot" id="pet-slot" data-open="false" data-hidden="false">
+    <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه اینوتکس">
+        <button type="button" class="pet-rail-btn" id="pet-eye" aria-pressed="false"
+            title="مخفی‌کردن همراه" aria-label="مخفی‌کردن همراه">
+            <svg class="eye-open" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
+            </svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.7 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.4 3.4" />
+                <path d="M6.6 6.6A17.2 17.2 0 0 0 2 12s3.6 7 10 7a10.4 10.4 0 0 0 5.4-1.5" />
+                <path d="m2 2 20 20" />
+            </svg>
+        </button>
+        <button type="button" class="pet-rail-btn" id="pet-larger" title="بزرگ‌تر" aria-label="بزرگ‌تر کردن همراه">+</button>
+        <button type="button" class="pet-rail-btn" id="pet-smaller" title="کوچک‌تر" aria-label="کوچک‌تر کردن همراه">−</button>
+    </div>
+
+    <canvas id="pet-canvas" width="512" height="512" aria-hidden="true"
+        data-atlas="/static/otp/pet/inotex-pose-atlas-hd.webp" data-cell="512"
+        data-fallback="/static/otp/pet/inotex-fallback-hd.webp"
+        data-hide-strip="/static/otp/pet/inotex-hide-strip.webp"></canvas>
+
+    <button type="button" class="pet-hit" id="pet-hit" aria-expanded="false"
+        aria-controls="pet-panel" aria-label="گفت‌وگو با دستیار اینوتکس"></button>
+
+</div>
+
+<!-- Smart-visit CTA. A SIBLING of the companion, not a child: it stands to
+     the character's right at waist height with a fixed gap, the way the two
+     are composed in the scene. The brick face is a rendered image; the label
+     stays real HTML text so it can be translated, selected and read aloud. -->
+<button type="button" class="lego-btn" id="visit-btn" data-state="guest">
+    <img class="lego-brick" src="/static/companion/button/lego-btn-rest.webp"
+         alt="" aria-hidden="true" width="900" height="279" />
+    <span class="lego-label" id="visit-btn-label" data-i18n="smartVisit">بازدید هوشمند</span>
+</button>
+
+
+<!-- Mini chat: a compact VIEW of the same conversation, not a second one. -->
+<section class="pet-panel" id="pet-panel" hidden aria-labelledby="pet-panel-title">
+    <header class="pet-panel-head">
+        <div>
+            <p class="pet-panel-eyebrow">راهنمای رسمی اینوتکس ۲۰۲۶</p>
+            <h2 class="pet-panel-title" id="pet-panel-title">از اینوتکس بپرسید</h2>
+        </div>
+        <button type="button" class="pet-panel-close" id="pet-close" title="بستن گفت‌وگو"
+            aria-label="بستن گفت‌وگو">×</button>
+    </header>
+
+    <div class="pet-chips" id="pet-chips" aria-label="پیشنهادهای سریع"></div>
+
+    <ol class="pet-log" id="pet-log" role="log" aria-live="polite" aria-relevant="additions"
+        aria-label="تاریخچهٔ گفت‌وگو"></ol>
+
+    <form class="pet-form" id="pet-form">
+        <label class="sr-only" for="pet-input">پرسش شما دربارهٔ اینوتکس</label>
+        <textarea id="pet-input" rows="1" maxlength="500" dir="auto" autocomplete="off"
+            enterkeyhint="send" placeholder="سوال خود را بنویسید..."
+            aria-describedby="pet-status"></textarea>
+        <button type="submit" class="pet-send" aria-label="ارسال">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" />
+            </svg>
+        </button>
+    </form>
+
+    <p class="pet-status" id="pet-status" role="status" aria-live="polite"></p>
+</section>
+
+<script src="/static/companion/companion.js?v={{ asset_version | default('0', true) }}"></script>
+<script src="/static/chat/core.js?v={{ asset_version | default('0', true) }}"></script>
+<script>
+    // ── INOTEX: message bubbles are stacked brick cards ──
+    ChatConfig.addMessageFn = function (content, type, save = true, instant = false) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${type}`;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.setAttribute('dir', 'auto');
+
+        if (type === 'bot') {
+            const mark = document.createElement('span');
+            mark.className = 'bubble-mark';
+            mark.setAttribute('aria-hidden', 'true');
+            bubble.appendChild(mark);
+        }
+        const textLayer = document.createElement('div');
+        textLayer.className = 'bubble-text';
+        bubble.appendChild(textLayer);
+        msgDiv.appendChild(bubble);
+
+        if (loadingBubble) chatContent.insertBefore(msgDiv, loadingBubble);
+        else chatContent.appendChild(msgDiv);
+
+        if (type === 'bot' && !instant) {
+            typeWriter(textLayer, content);
+        } else {
+            if (typeof marked !== 'undefined') {
+                textLayer.innerHTML = marked.parse(content);
+                textLayer.querySelectorAll('a').forEach(a => a.target = '_blank');
+            } else {
+                textLayer.textContent = content;
+            }
+        }
+        chatContent.scrollTop = chatContent.scrollHeight;
+        if (save) saveToHistory(content, type);
+
+        if (type === 'bot') InotexTTS.speak(content);
+    };
+
+    // ── Tab switcher keeps the segmented control in sync ──
+    ChatConfig.switchTabFn = function (tabName) {
+        const radioInput = document.querySelector(`.switcher__input[value="${tabName}"]`);
+        if (radioInput && !radioInput.checked) {
+            radioInput.checked = true;
+            radioInput.dispatchEvent(new Event('change'));
+            return;
+        }
+        switchTabInternal(tabName);
+    };
+
+    (function initSwitcher() {
+        const switcher = document.querySelector('.switcher');
+        if (!switcher) return;
+        switcher.querySelectorAll('input[type="radio"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                if (radio.checked) switchTabInternal(radio.value);
+            });
+        });
+    })();
+
+    // ── Text-to-speech (browser SpeechSynthesis — no key, no network) ──
+    const InotexTTS = (function () {
+        const supported = 'speechSynthesis' in window;
+        const btn = document.getElementById('tts-btn');
+        let on = localStorage.getItem('inotex-tts') === '1';
+
+        function paint() {
+            if (!btn) return;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
+        function speak(text) {
+            if (!on || !supported || !text) return;
+            const plain = String(text)
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/https?:\/\/\S+/g, ' ')
+                .replace(/[*_`#>\[\]()]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!plain) return;
+
+            const en = document.documentElement.lang === 'en';
+            speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(plain);
+            u.lang = en ? 'en-US' : 'fa-IR';
+            const want = en ? 'en' : 'fa';
+            const v = (speechSynthesis.getVoices() || [])
+                .find(x => x.lang && x.lang.toLowerCase().startsWith(want));
+            if (v) u.voice = v;
+            u.rate = 0.98;
+            u.onstart = function () { InotexVoice.set('speaking'); };
+            u.onend = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
+            u.onerror = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
+            speechSynthesis.speak(u);
+        }
+
+        if (btn && !supported) {
+            btn.disabled = true;
+            btn.title = 'مرورگر شما خواندن صوتی را پشتیبانی نمی‌کند';
+        } else if (btn) {
+            btn.addEventListener('click', function () {
+                // One speaker button, two surfaces: on the video tab it is the
+                // video's mute/unmute (that is the sound the visitor can hear
+                // there); on the chat tab it toggles reading answers aloud.
+                // A second sound control elsewhere on screen only raises the
+                // question of which one is "the" sound button.
+                if (document.body.classList.contains('video-mode')) {
+                    toggleVideoSound();
+                    return;
+                }
+                on = !on;
+                localStorage.setItem('inotex-tts', on ? '1' : '0');
+                if (!on) { speechSynthesis.cancel(); InotexVoice.set('idle'); }
+                paint();
+            });
+        }
+        paint();
+
+        /** Keep the button's look and label describing whichever sound it
+            currently controls, so switching tabs never leaves a stale state. */
+        function syncButton() {
+            if (!btn) return;
+            const fa = document.documentElement.lang !== 'en';
+            const video = document.getElementById('avatar-video');
+            if (document.body.classList.contains('video-mode') && video) {
+                const audible = !video.muted;
+                btn.classList.toggle('active', audible);
+                btn.setAttribute('aria-pressed', audible ? 'true' : 'false');
+                btn.title = audible ? (fa ? 'قطع صدای ویدیو' : 'Mute video')
+                                    : (fa ? 'پخش صدای ویدیو' : 'Unmute video');
+            } else {
+                btn.title = fa ? 'خواندن پاسخ‌ها با صدا' : 'Read answers aloud';
+                paint();
+            }
+            btn.setAttribute('aria-label', btn.title);
+        }
+
+        function toggleVideoSound() {
+            const video = document.getElementById('avatar-video');
+            if (!video) return;
+            const turningOn = video.muted;
+            video.muted = !turningOn;
+            if (turningOn) {
+                video.volume = 1;
+                // Some browsers pause on an unmute that lost its gesture;
+                // resume explicitly so sound-on never means picture-stopped.
+                video.play().catch(function () { });
+            }
+            localStorage.setItem('inotex-video-sound', turningOn ? '1' : '0');
+            syncButton();
+        }
+
+        // Re-describe the button whenever the surface it controls changes.
+        new MutationObserver(syncButton).observe(document.body,
+            { attributes: true, attributeFilter: ['class'] });
+        const videoEl = document.getElementById('avatar-video');
+        if (videoEl) videoEl.addEventListener('volumechange', syncButton);
+        syncButton();
+
+        return { speak: speak };
+    })();
+
+    // ── Chat column: centre a short conversation, scroll a long one ──
+    (function () {
+        const content = document.getElementById('chat-view-content');
+        if (!content) return;
+        function sync() {
+            const short = content.scrollHeight <= content.clientHeight + 1;
+            content.classList.toggle('is-short', short);
+        }
+        new ResizeObserver(sync).observe(content);
+        new MutationObserver(sync).observe(content, { childList: true, subtree: true });
+        window.addEventListener('resize', sync);
+        sync();
+    })();
+
+    // ── Voice stage: listening / thinking / speaking ──
+    const InotexVoice = (function () {
+        const stage = document.getElementById('voice-stage');
+        const wave = document.getElementById('voice-wave');
+        const statusEl = document.getElementById('voice-status');
+        const timerEl = document.getElementById('voice-timer');
+        const stopBtn = document.getElementById('voice-stop');
+        if (!stage) return { set: function () { }, state: function () { return 'idle'; } };
+
+        const BARS = 28;
+        const LABEL = {
+            fa: { listening: 'در حال شنیدن…', thinking: 'در حال فکر کردن…', speaking: 'در حال پاسخ…' },
+            en: { listening: 'Listening…', thinking: 'Thinking…', speaking: 'Speaking…' }
+        };
+
+        const bars = [];
+        for (let i = 0; i < BARS; i++) {
+            const b = document.createElement('span');
+            wave.appendChild(b);
+            bars.push(b);
+        }
+
+        let state = 'idle', raf = 0, t0 = 0, timerId = 0;
+        let audioCtx = null, analyser = null, data = null, srcNode = null;
+
+        function fa(n) {
+            return String(n).padStart(2, '0').replace(/\d/g, function (d) {
+                return document.documentElement.lang === 'en' ? d : '۰۱۲۳۴۵۶۷۸۹'[d];
+            });
+        }
+
+        function tick() {
+            const s = Math.floor((Date.now() - t0) / 1000);
+            timerEl.textContent = fa(Math.floor(s / 60)) + ':' + fa(s % 60);
+        }
+
+        function attachAnalyser() {
+            try {
+                const rec = (typeof mediaRecorder !== 'undefined') ? mediaRecorder : null;
+                if (!rec || !rec.stream) return false;
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                srcNode = audioCtx.createMediaStreamSource(rec.stream);
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 64;
+                analyser.smoothingTimeConstant = 0.75;
+                srcNode.connect(analyser);
+                data = new Uint8Array(analyser.frequencyBinCount);
+                return true;
+            } catch (e) { return false; }
+        }
+
+        function detachAnalyser() {
+            try { if (srcNode) srcNode.disconnect(); } catch (e) { }
+            try { if (audioCtx) audioCtx.close(); } catch (e) { }
+            audioCtx = analyser = data = srcNode = null;
+        }
+
+        function render() {
+            const now = Date.now() / 1000;
+            for (let i = 0; i < BARS; i++) {
+                let v;
+                if (analyser && data) {
+                    analyser.getByteFrequencyData(data);
+                    v = (data[i % data.length] / 255) * 46 + 4;
+                } else {
+                    const a = Math.sin(now * 3.1 + i * 0.42);
+                    const b = Math.sin(now * 1.7 + i * 0.19);
+                    v = 6 + Math.abs(a * 0.6 + b * 0.4) * (state === 'thinking' ? 16 : 34);
+                }
+                bars[i].style.height = Math.max(4, v) + 'px';
+            }
+            raf = requestAnimationFrame(render);
+        }
+
+        function set(next) {
+            if (state === next) return;
+            state = next;
+
+            stage.classList.remove('is-listening', 'is-thinking', 'is-speaking');
+            if (next === 'idle') {
+                stage.hidden = true;
+                if (raf) { cancelAnimationFrame(raf); raf = 0; }
+                clearInterval(timerId); timerId = 0;
+                detachAnalyser();
+                return;
+            }
+
+            stage.hidden = false;
+            stage.classList.add('is-' + next);
+            const lang = document.documentElement.lang === 'en' ? 'en' : 'fa';
+            statusEl.textContent = LABEL[lang][next];
+
+            if (next === 'listening') attachAnalyser(); else detachAnalyser();
+
+            if (!timerId) { t0 = Date.now(); tick(); timerId = setInterval(tick, 1000); }
+            if (!raf) raf = requestAnimationFrame(render);
+        }
+
+        if (stopBtn) {
+            stopBtn.addEventListener('click', function () {
+                if (state === 'listening') {
+                    const mic = document.getElementById('mic-btn');
+                    if (mic) mic.click();
+                } else if (state === 'speaking' && 'speechSynthesis' in window) {
+                    speechSynthesis.cancel();
+                }
+                set('idle');
+            });
+        }
+
+        const mic = document.getElementById('mic-btn');
+        if (mic) {
+            new MutationObserver(function () {
+                if (mic.classList.contains('recording')) set('listening');
+                else if (state === 'listening') set('idle');
+            }).observe(mic, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        const loader = document.getElementById('loading-bubble');
+        if (loader) {
+            new MutationObserver(function () {
+                const busy = loader.style.opacity === '1';
+                if (busy && state !== 'listening') set('thinking');
+                else if (!busy && state === 'thinking') set('idle');
+            }).observe(loader, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        return { set: set, state: function () { return state; } };
+    })();
+
+    // ── Light / dark mode ──
+    // A per-visitor preference stored locally: a kiosk visitor switching to
+    // light must not change what the next visitor sees, so this never touches
+    // the install-wide active_theme setting.
+    (function () {
+        const btn = document.getElementById('theme-btn');
+        if (!btn) return;
+        const KEY = 'inotex-light-mode';
+
+        function apply(light) {
+            document.body.classList.toggle('light-mode', light);
+            btn.setAttribute('aria-pressed', light ? 'true' : 'false');
+            const fa = document.documentElement.lang !== 'en';
+            btn.title = light ? (fa ? 'حالت تاریک' : 'Dark mode')
+                              : (fa ? 'حالت روشن' : 'Light mode');
+            btn.setAttribute('aria-label', btn.title);
+            localStorage.setItem(KEY, light ? '1' : '0');
+        }
+
+        btn.addEventListener('click', function () {
+            apply(!document.body.classList.contains('light-mode'));
+        });
+
+        // Saved choice wins; otherwise follow the device preference.
+        const saved = localStorage.getItem(KEY);
+        apply(saved === null
+            ? window.matchMedia('(prefers-color-scheme: light)').matches
+            : saved === '1');
+    })();
+
+    // ── Video tab: the placeholder is a fallback, not a permanent overlay ──
+    // It hides only once the waiting clip is actually playing, so a missing or
+    // unplayable file leaves the explanatory card on screen instead of a black
+    // rectangle.
+    (function () {
+        const video = document.getElementById('avatar-video');
+        const placeholder = document.getElementById('video-placeholder');
+        if (!video || !placeholder) return;
+
+        // Hide as soon as there are real frames to show. 'playing' alone is
+        // not enough: autoplay may be blocked, or the clip may already be
+        // buffered and playing before this listener attaches, and either way
+        // the card would stay on top of the picture.
+        const hide = function () { placeholder.hidden = true; };
+        const show = function () { placeholder.hidden = false; };
+        ['playing', 'loadeddata', 'canplay'].forEach(function (evt) {
+            video.addEventListener(evt, hide);
+        });
+        video.addEventListener('error', show);
+        video.addEventListener('emptied', show);
+        if (video.readyState >= 2) hide();   // already buffered before we bound
+
+        // ── Welcome → idle cycle ──
+        // The idle clip loops as the resting state. Start plays the welcome
+        // ONCE (loop off), and its `ended` event hands control back to the
+        // idle loop. core.js owns `data-waiting-src`, so returning to idle
+        // reuses the same path an answered video question takes — there is
+        // one definition of "resting", not two.
+        const startBtn = document.getElementById('video-start');
+        const welcomeSrc = video.getAttribute('data-welcome-src') || '';
+        const idleSrc = video.getAttribute('data-waiting-src') || '';
+        let playingWelcome = false;
+
+        function toIdle() {
+            playingWelcome = false;
+            // The Start button is a one-time entry point: once the welcome has
+            // played, the stage simply idles and waits for the conversation to
+            // drive it. Bringing the button back would invite the visitor to
+            // replay an intro they have already seen instead of asking a
+            // question.
+            if (!idleSrc) return;
+            video.loop = true;
+            if (!video.currentSrc.endsWith(idleSrc)) video.src = idleSrc;
+            video.play().catch(function () { });
+        }
+
+        function playWelcome() {
+            if (!welcomeSrc) return;
+            playingWelcome = true;
+            if (startBtn) startBtn.hidden = true;
+            video.loop = false;
+            video.src = welcomeSrc;
+            // The click is a user gesture, so sound is permitted here.
+            video.muted = false;
+            video.volume = 1;
+            video.play().catch(function () {
+                // Sound refused for some other reason — still show the clip.
+                video.muted = true;
+                video.play().catch(function () { });
+            });
+            syncButton();
+        }
+
+        video.addEventListener('ended', function () {
+            // Only the welcome ends (the idle loops), so this is the handover.
+            if (playingWelcome) toIdle();
+        });
+
+        if (startBtn) startBtn.addEventListener('click', playWelcome);
+
+        // Sound toggle. Muted is the only state autoplay allows, so the button
+        // starts pressed-off and the visitor's click is what unlocks audio.
+        // The choice is remembered, but a remembered "on" is only re-applied
+        // after the visitor interacts again — a page that starts making noise
+        // on load is the thing this control exists to prevent.
+        const soundBtn = document.getElementById('video-sound');
+        if (soundBtn) {
+            const label = function (on) {
+                const fa = document.documentElement.lang !== 'en';
+                soundBtn.title = on ? (fa ? 'قطع صدا' : 'Mute') : (fa ? 'پخش صدا' : 'Unmute');
+                soundBtn.setAttribute('aria-label', soundBtn.title);
+                soundBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                soundBtn.classList.toggle('is-on', on);
+            };
+            label(false);
+            soundBtn.addEventListener('click', function () {
+                const turningOn = video.muted;
+                video.muted = !turningOn;
+                if (turningOn) {
+                    video.volume = 1;
+                    // Some browsers pause on an unmute that lost its gesture;
+                    // resume explicitly so sound-on never means picture-stopped.
+                    video.play().catch(function () { });
+                }
+                localStorage.setItem('inotex-video-sound', turningOn ? '1' : '0');
+                label(turningOn);
+            });
+            video.addEventListener('volumechange', function () { label(!video.muted); });
+        }
+    })();
+
+    // ── Companion reacts to the assistant's state ──
+    // Driven by the same signals the voice stage uses, so the character is
+    // always showing what the app is actually doing — never a decorative
+    // animation running on its own timer.
+    (function () {
+        const pet = window.PetCompanion;
+        if (!pet) return;
+        pet.set('greet');
+
+        const loader = document.getElementById('loading-bubble');
+        if (loader) {
+            new MutationObserver(function () {
+                const busy = loader.style.opacity === '1';
+                pet.set(busy ? 'working' : 'idle');
+            }).observe(loader, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        const mic = document.getElementById('mic-btn');
+        if (mic) {
+            new MutationObserver(function () {
+                if (mic.classList.contains('recording')) pet.set('attentive');
+            }).observe(mic, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        const input = document.getElementById('user-input');
+        if (input) {
+            let t = 0;
+            input.addEventListener('input', function () {
+                pet.set('typing');
+                clearTimeout(t);
+                t = setTimeout(function () { pet.set('idle'); }, 2200);
+            });
+        }
+    })();
+
+    // ── Startup loader lifecycle ──
+    // Visible from first paint; dismissed when the app is interactive. Never
+    // blocks longer than 4s even if a resource stalls. Timers are cleaned up,
+    // and prefers-reduced-motion is honoured in CSS (static mark, no motion).
+    (function () {
+        const el = document.getElementById('inx-loader');
+        if (!el) return;
+        let dismissed = false;
+        function dismiss() {
+            if (dismissed) return;
+            dismissed = true;
+            el.setAttribute('aria-busy', 'false');
+            el.classList.add('is-done');
+            // Remove from the tree after the exit fade so it can't trap focus.
+            setTimeout(function () { el.remove(); }, 450);
+        }
+        if (document.readyState === 'complete') {
+            setTimeout(dismiss, 250);
+        } else {
+            window.addEventListener('load', function () { setTimeout(dismiss, 250); });
+        }
+        setTimeout(dismiss, 4000); // hard ceiling — never hold the UI hostage
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible' && document.readyState === 'complete') dismiss();
+        });
+    })();
+
+    initChat();
+</script>
+<!-- Loaded after initChat so the panel can reuse sendPreset/getDisplayQuestions. -->
+<script src="/static/companion/companion-ui.js?v={{ asset_version | default('0', true) }}"></script>
+<script src="/static/companion/registration.js?v={{ asset_version | default('0', true) }}"></script>

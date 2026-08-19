@@ -1,0 +1,110 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="page-header"><h2 class="page-title">تنظیمات لاگ</h2></div>
+<div id="logs-msg"></div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">نگهداشت و سطح ثبت</h3></div>
+  <div class="card-body">
+    <form id="logs-settings-form" class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label" for="s-retention">نگهداشت لاگ عملیاتی (روز)</label>
+        <input type="number" id="s-retention" class="form-control" dir="ltr" min="0" max="3650">
+        <small class="text-muted">پیش‌فرض ۹۰ روز. مقدار ۰ یعنی نگهداری همیشگی.</small>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="s-audit">نگهداشت رخدادهای حساس (روز)</label>
+        <input type="number" id="s-audit" class="form-control" dir="ltr" min="0" max="3650">
+        <small class="text-muted">جدا و بلندتر از لاگ عملیاتی — عمدی.</small>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="s-security">نگهداشت رخدادهای امنیتی (روز)</label>
+        <input type="number" id="s-security" class="form-control" dir="ltr" min="0" max="3650">
+        <small class="text-muted">کم‌کردن نگهداشت عملیاتی این دو را پاک نمی‌کند.</small>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label" for="s-min-level">کمینه سطح ثبت</label>
+        <select id="s-min-level" class="form-select">
+          <option value="debug">اشکال‌زدایی</option>
+          <option value="info">اطلاع</option>
+          <option value="notice">توجه</option>
+          <option value="warning">هشدار</option>
+          <option value="error">خطا</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="s-policy">سیاست ثبت محتوا</label>
+        <select id="s-policy" class="form-select">
+          <option value="metadata">فقط فراداده (امن‌ترین)</option>
+          <option value="redacted">محتوای کوتاه و پاک‌سازی‌شده</option>
+          <option value="full">محتوای کامل</option>
+        </select>
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <label class="form-check form-switch">
+          <input type="checkbox" id="s-debug" class="form-check-input">
+          <span class="form-check-label">ثبت رخدادهای اشکال‌زدایی</span>
+        </label>
+      </div>
+
+      <div class="col-12">
+        <div class="alert alert-warning d-none" id="policy-warning">
+          با انتخاب «محتوای کامل»، متن گفتگوی بازدیدکنندگان در پایگاه لاگ ذخیره می‌شود.
+          اعتبارنامه‌ها و کد تأیید هرگز ذخیره نمی‌شوند، ولی این گزینه یک تصمیم حریم خصوصی است
+          و در رخدادهای حساس ثبت می‌شود.
+        </div>
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">ذخیره تنظیمات</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mt-3 border-danger">
+  <div class="card-header"><h3 class="card-title text-danger">حذف لاگ‌ها</h3></div>
+  <div class="card-body">
+    <p class="text-muted">
+      حذف بازگشت‌پذیر نیست. پیش از اجرا، تعداد دقیق رکوردها نمایش داده می‌شود و
+      خودِ این اقدام در «رخدادهای حساس» ثبت می‌گردد.
+      <strong>رخدادهای حساس از این صفحه پاک نمی‌شوند</strong> — تا سابقهٔ اقدامات مدیر قابل حذف نباشد.
+    </p>
+    <div class="row g-2">
+      <div class="col-md-3">
+        <label class="form-label" for="t-category">دسته</label>
+        <select id="t-category" class="form-select">
+          <option value="">همه (به‌جز حساس)</option>
+          {% for slug, label in categories.items() %}{% if slug != 'audit' %}
+          <option value="{{ slug }}">{{ label }}</option>
+          {% endif %}{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="t-level">سطح</label>
+        <select id="t-level" class="form-select">
+          <option value="">همه</option>
+          <option value="debug">اشکال‌زدایی</option>
+          <option value="info">اطلاع</option>
+          <option value="warning">هشدار</option>
+          <option value="error">خطا</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="t-older">قدیمی‌تر از (روز)</label>
+        <input type="number" id="t-older" class="form-control" dir="ltr" min="0">
+      </div>
+      <div class="col-md-3 d-flex align-items-end gap-2">
+        <button type="button" class="btn btn-outline-danger" id="t-preview">شمارش</button>
+        <button type="button" class="btn btn-danger" id="t-execute" disabled>حذف</button>
+      </div>
+    </div>
+    <div class="d-none" id="t-confirm"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { initLogsSettings } from '/static/admin/js/logs_settings.js';
+  initLogsSettings();
+</script>
+{% endblock %}

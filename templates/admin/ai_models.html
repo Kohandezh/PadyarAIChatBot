@@ -1,0 +1,68 @@
+{% extends "admin/layout.html" %}
+{% block page_content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">مدل‌های هوش مصنوعی</h2>
+      <div class="text-muted mt-1">کاتالوگ هر نمونهٔ سرویس‌دهنده — کشف‌شده از API رسمی، راه‌انداز، یا دستی.</div>
+    </div>
+    <div class="col-auto d-flex gap-2">
+      <button class="btn btn-outline-primary" id="btn-refresh-models">تازه‌سازی فهرست</button>
+      <button class="btn btn-primary" id="btn-add-model"><i class="fas fa-plus ms-1"></i>مدل دستی</button>
+    </div>
+  </div>
+</div>
+<div id="ai-models-msg"></div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">نمونهٔ سرویس‌دهنده</h3>
+    <div class="card-actions"><select class="form-select form-select-sm" id="sel-instance"></select></div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-vw card-table">
+      <thead><tr>
+        <th>شناسهٔ مدل</th><th>نام</th><th>منبع</th><th>چرخهٔ عمر</th>
+        <th>پنجرهٔ متن</th><th>حد خروجی</th><th>قابلیت‌ها</th><th>قیمت (دلار/میلیون)</th>
+        <th class="text-end">عملیات</th>
+      </tr></thead>
+      <tbody id="models-body"><tr><td colspan="9" class="text-center text-muted py-4">—</td></tr></tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    «راه‌انداز» یعنی دادهٔ اولیهٔ مستندات؛ با «تازه‌سازی» برای سرویس‌هایی که API فهرست مدل دارند به‌روز می‌شود.
+    مدل «دستی» هرگز خودکار تغییر نمی‌کند. ناشناخته خالی می‌ماند — حدس زده نمی‌شود.
+  </div>
+</div>
+
+<div class="modal fade" id="model-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">افزودن مدل دستی</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="model-form-msg"></div>
+        <div class="mb-3"><label class="form-label">شناسهٔ مدل (دقیقاً مثل API)</label>
+          <input class="form-control" id="m-model-id" dir="ltr"></div>
+        <div class="mb-3"><label class="form-label">نام نمایشی</label>
+          <input class="form-control" id="m-display"></div>
+        <div class="row">
+          <div class="col mb-3"><label class="form-label">پنجرهٔ متن (اختیاری)</label>
+            <input class="form-control" id="m-ctx" type="number" dir="ltr"></div>
+          <div class="col mb-3"><label class="form-label">حد خروجی (اختیاری)</label>
+            <input class="form-control" id="m-maxout" type="number" dir="ltr"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-bs-dismiss="modal">انصراف</button>
+        <button class="btn btn-primary" id="btn-save-model">ذخیره</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block page_js %}
+<script type="module">
+  import { initAIModels } from '/static/admin/js/ai_models.js';
+  initAIModels();
+</script>
+{% endblock %}

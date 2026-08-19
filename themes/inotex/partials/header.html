@@ -1,0 +1,105 @@
+<header class="inx-header">
+    <div class="logo-container">
+        <div class="the-logo">
+            <!-- INOTEX hexagon-cube interface motif (conceptual mark from the
+                 coordinated visual system — not the official event logo). -->
+            <svg class="brand-mark" viewBox="0 0 64 64" width="38" height="38"
+                role="img" aria-label="INOTEX">
+                <defs>
+                    <linearGradient id="inxHex" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#2D5CA7" />
+                        <stop offset="0.72" stop-color="#1E2D52" />
+                        <stop offset="1" stop-color="#FCB715" />
+                    </linearGradient>
+                </defs>
+                <path d="M32 3 57 17.5v29L32 61 7 46.5v-29Z" fill="#1E2D52"
+                    stroke="url(#inxHex)" stroke-width="3" stroke-linejoin="round" />
+                <path d="M32 17 45 24.5v15L32 47 19 39.5v-15Z" fill="#2D5CA7" />
+                <path d="M32 17 45 24.5 32 32 19 24.5Z" fill="#5B8AD9" />
+                <path d="M32 32v15L19 39.5v-15Z" fill="#24487F" />
+                <path d="M32 47 45 39.5v-6.2L32 40.8Z" fill="#FCB715" />
+            </svg>
+        </div>
+        <div class="the-slogan">
+            <div class="header-title" data-i18n="app_title">دستیار پادیار</div>
+            <div class="header-subtitle">INOTEX</div>
+        </div>
+    </div>
+
+    <!-- Chat / Video segmented switcher (brick pill) -->
+    <fieldset class="switcher" c-previous="1">
+        <legend class="switcher__legend">انتخاب نما</legend>
+        <label class="switcher__option">
+            <input class="switcher__input" type="radio" name="tab" value="text" c-option="1" checked="">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path
+                    d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" />
+            </svg>
+            <span data-i18n="textTab">چت</span>
+        </label><label class="switcher__option">
+            <input class="switcher__input" type="radio" name="tab" value="video" c-option="2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
+                <rect x="2" y="6" width="14" height="12" rx="2" />
+            </svg>
+            <span data-i18n="videoTab">ویدیو</span>
+        </label>
+    </fieldset>
+
+    <div class="header-tools">
+        <!-- Light / dark switch. Present in the previous theme and carried
+             forward here: the icon shows the mode currently ACTIVE. -->
+        <button class="theme-btn" id="theme-btn" type="button" aria-pressed="false"
+            title="حالت روشن" data-i18n-title="themeToggle" aria-label="Switch to light mode">
+            <span class="theme-icon-moon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />
+                </svg>
+            </span>
+            <span class="theme-icon-sun" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v2" /><path d="M12 20v2" />
+                    <path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
+                    <path d="M2 12h2" /><path d="M20 12h2" />
+                    <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
+                </svg>
+            </span>
+        </button>
+
+        <!-- Language switch -->
+        <div class="lang-switch">
+            <button class="lang-btn" id="lang-btn" type="button" aria-label="Switch to English"
+                title="Switch to English">EN</button>
+        </div>
+
+        <div class="accessibility-controls">
+            <button class="a11y-hamburger" id="a11y-hamburger" title="تنظیمات دسترسی‌پذیری"
+                data-i18n-title="a11yTitle" aria-label="Accessibility settings" aria-expanded="false">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    aria-hidden="true">
+                    <line x1="4" x2="20" y1="6" y2="6" />
+                    <line x1="4" x2="20" y1="12" y2="12" />
+                    <line x1="4" x2="20" y1="18" y2="18" />
+                </svg>
+            </button>
+            <div class="a11y-dropdown" id="a11y-dropdown">
+                <div class="a11y-dropdown-content">
+                    <button class="a11y-btn" onclick="adjustFontSize(1)" title="افزایش سایز متن"
+                        data-i18n-title="fontInc" aria-label="Increase font size">A+</button>
+                    <button class="a11y-btn" onclick="adjustFontSize(-1)" title="کاهش سایز متن"
+                        data-i18n-title="fontDec" aria-label="Decrease font size">A-</button>
+                    <button class="a11y-btn" onclick="toggleHighContrast()" title="تغییر کنتراست"
+                        data-i18n-title="contrast" aria-label="Toggle high contrast">◐</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>

@@ -1,0 +1,266 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}ثبت‌نام و پیامک{% endblock %}
+
+{% block page_content %}
+<style>
+    /* Gateway tabs. The tab must read as a tab at a glance — the <select> it
+       replaced looked exactly like the text inputs beside it. */
+    #sms-provider-tabs .nav-link {
+        color: var(--tblr-secondary, #667382);
+        font-weight: 600;
+        border: 1px solid transparent;
+        border-bottom: none;
+    }
+
+    #sms-provider-tabs .nav-link:hover { color: var(--tblr-primary, #206bc4); }
+
+    #sms-provider-tabs .nav-link.active {
+        color: var(--tblr-primary, #206bc4);
+        background: #fff;
+        border-color: var(--tblr-border-color, #dadfe5);
+        border-bottom-color: #fff;
+    }
+
+    .sms-tab-body {
+        border: 1px solid var(--tblr-border-color, #dadfe5);
+        border-top: none;
+        border-radius: 0 0 .5rem .5rem;
+        padding: 1.25rem;
+        margin-bottom: .5rem;
+    }
+
+    /* Only the active gateway's fields are in the layout — an inactive pane's
+       inputs must not be reachable by keyboard or submitted by mistake. */
+    .sms-pane { display: none; }
+    .sms-pane.active { display: block; }
+</style>
+
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">ثبت‌نام و پیامک</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+
+        <!-- Registration switch + SMS gateway (one form, one save button) -->
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-comment-sms me-2"></i>ثبت‌نام بازدیدکنندگان و ارسال پیامک</span>
+            </div>
+            <div class="card-body">
+                <form id="sms-form">
+
+                    <!-- 1) The on/off switch -->
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" role="switch" id="sms-enabled">
+                        <label class="form-check-label fw-bold" for="sms-enabled" id="sms-enabled-label">خاموش</label>
+                    </div>
+                    <p class="text-muted small mb-4">
+                        وقتی روشن باشد، دکمه‌ی «بازدید هوشمند» به بازدیدکننده نشان داده می‌شود و او
+                        می‌تواند با شماره موبایل خود ثبت‌نام کند. وقتی خاموش باشد، این دکمه اصلاً
+                        دیده نمی‌شود.
+                    </p>
+
+                    <hr>
+
+                    <!-- 2) Gateway credentials -->
+                    <h6 class="mt-3 mb-2">اتصال به سامانه پیامک</h6>
+                    <p class="text-muted small mb-3">
+                        برای فرستادن کد تأیید، اطلاعات حساب پیامکی خود را اینجا وارد کنید.
+                        این اطلاعات فقط روی همین سرور نگهداری می‌شود و هرگز در صفحه یا کد نمایش
+                        داده نمی‌شود. رمز عبور و کلید API به‌صورت رمزگذاری‌شده ذخیره می‌شوند؛
+                        حتی اگر کسی فایل تنظیمات سرور را باز کند، آن‌ها را نمی‌تواند بخواند.
+                    </p>
+
+                    <!-- One tab per gateway. The active tab IS the saved provider, so
+                         adding a gateway later is: one <button> here, one pane below,
+                         and its fields — no change to the save/encrypt/env path.
+                         (This replaced a <select>, which rendered identically to the
+                         text inputs beside it and was missed entirely.) -->
+                    <ul class="nav nav-tabs mb-0" id="sms-provider-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" type="button" role="tab" data-provider="asanak">
+                                آسانک
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" type="button" role="tab" data-provider="dev">
+                                حالت آزمایشی
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="sms-tab-body">
+                        <!-- Asanak -->
+                        <div class="sms-pane" data-provider-pane="asanak">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label" for="sms-source">شماره فرستنده</label>
+                                    <input type="text" id="sms-source" class="form-control" dir="ltr"
+                                        placeholder="مثلا: 98200049">
+                                    <small class="text-muted">همان شماره‌ای که در پنل آسانک به شما داده شده
+                                        است. فقط شمارهٔ فرستنده — نه شمارهٔ گیرنده.</small>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label" for="sms-template-id">شناسه قالب تأییدشده</label>
+                                    <input type="text" id="sms-template-id" class="form-control" dir="ltr"
+                                        inputmode="numeric" placeholder="مثلا: 1654">
+                                    <small class="text-muted">اگر خط شما <b>خدماتی</b> است، فقط متن قالبِ
+                                        تأییدشده به گوشی می‌رسد. با پر کردن این فیلد، کد تأیید به‌جای متن آزاد
+                                        از طریق قالب فرستاده می‌شود. خالی بگذارید تا متن آزاد ارسال شود.</small>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-username">نام کاربری</label>
+                                    <input type="text" id="sms-username" class="form-control" dir="ltr"
+                                        autocomplete="off" placeholder="نام کاربری حساب پیامکی">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-password">رمز عبور</label>
+                                    <input type="password" id="sms-password" class="form-control" dir="ltr"
+                                        autocomplete="new-password"
+                                        placeholder="برای نگه‌داشتن رمز فعلی خالی بگذارید">
+                                    <small class="text-muted" id="sms-password-state"></small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-api-key">کلید API <span
+                                            class="text-muted">(اختیاری)</span></label>
+                                    <input type="password" id="sms-api-key" class="form-control" dir="ltr"
+                                        autocomplete="new-password"
+                                        placeholder="برای نگه‌داشتن کلید فعلی خالی بگذارید">
+                                    <small class="text-muted d-block">ارسال پیامک آسانک فقط با نام کاربری و رمز
+                                        عبور انجام می‌شود؛ این کلید لازم نیست. اگر آسانک برای سرویس دیگری به شما
+                                        کلید داده، اینجا نگه داشته می‌شود.</small>
+                                    <small class="text-muted" id="sms-api-key-state"></small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Dev -->
+                        <div class="sms-pane" data-provider-pane="dev">
+                            <p class="mb-1"><strong>هیچ پیامک واقعی فرستاده نمی‌شود.</strong></p>
+                            <p class="text-muted small mb-0">
+                                کد تأیید به‌جای پیامک، در فایل <code
+                                    dir="ltr">data/otp-dev-outbox.log</code> نوشته می‌شود. برای توسعه و
+                                آزمایش مناسب است. برای رویداد واقعی، تب «آسانک» را انتخاب کنید.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="sms-status" class="small mt-3"></div>
+
+                    <!-- 3) Advanced — hidden by default, everything works without it -->
+                    <details class="mt-4">
+                        <summary class="text-muted small" style="cursor: pointer;">تنظیمات پیشرفته (معمولاً نیازی
+                            نیست)</summary>
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-6">
+                                <label class="form-label" for="sms-url">آدرس ارسال پیامک</label>
+                                <input type="text" id="sms-url" class="form-control" dir="ltr">
+                                <small class="text-muted">خالی بگذارید تا آدرس پیش‌فرض آسانک استفاده شود.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="sms-status-url">آدرس بررسی وضعیت پیامک</label>
+                                <input type="text" id="sms-status-url" class="form-control" dir="ltr">
+                                <small class="text-muted">خالی بگذارید تا آدرس پیش‌فرض آسانک استفاده شود.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="sms-host">دامنه سایت برای تکمیل خودکار کد</label>
+                                <input type="text" id="sms-host" class="form-control" dir="ltr"
+                                    placeholder="مثلا: inotex.example.com">
+                                <small class="text-muted">اگر پر شود، گوشی‌های اندروید کد را خودشان در فرم
+                                    می‌نویسند.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="sms-credit-url">آدرس بررسی اعتبار</label>
+                                <input type="text" id="sms-credit-url" class="form-control" dir="ltr">
+                                <small class="text-muted">خالی بگذارید تا آدرس پیش‌فرض آسانک استفاده شود.</small>
+                            </div>
+                            <div class="col-md-6 d-flex align-items-center">
+                                <div class="form-check form-switch mt-3">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="sms-trim">
+                                    <label class="form-check-label" for="sms-trim">حذف فاصله‌های ابتدا و انتهای
+                                        پیام</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6 d-flex align-items-center">
+                                <div class="form-check form-switch mt-3">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                        id="sms-send-to-blacklist">
+                                    <label class="form-check-label" for="sms-send-to-blacklist">ارسال به شماره‌های
+                                        فهرست سیاه</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <small class="text-muted">اگر خاموش باشد، به شماره‌هایی که در فهرست سیاه آسانک
+                                    هستند پیامکی فرستاده نمی‌شود. حالت پیش‌فرض آسانک روشن است.</small>
+                            </div>
+                        </div>
+                    </details>
+
+                    <button type="submit" class="btn btn-primary mt-4">ذخیره تنظیمات</button>
+                    <div id="sms-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Credit check — proves the account works without sending anything -->
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-wallet me-2"></i>اعتبار حساب پیامکی</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    بدون فرستادن هیچ پیامکی بررسی می‌کند که نام کاربری و رمز عبور درست باشند و
+                    چند پیامک اعتبار باقی مانده است. پیش از هر رویداد یک‌بار بزنید.
+                </p>
+                <button type="button" class="btn btn-outline-primary" id="sms-credit-btn">بررسی اعتبار</button>
+                <div id="sms-credit-msg" class="fw-bold mt-3"></div>
+            </div>
+        </div>
+
+        <!-- Test message -->
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-paper-plane me-2"></i>ارسال پیامک آزمایشی</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    یک شماره موبایل بنویسید تا یک پیامک آزمایشی برایش فرستاده شود.
+                    اگر پیامک رسید، یعنی همه‌چیز درست تنظیم شده است.
+                    اول تنظیمات بالا را ذخیره کنید.
+                </p>
+                <form id="sms-test-form">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-6">
+                            <label class="form-label" for="sms-test-number">شماره موبایل</label>
+                            <input type="text" id="sms-test-number" class="form-control" dir="ltr"
+                                placeholder="مثلا: 09121234567">
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-success w-100" id="sms-test-btn">ارسال پیامک
+                                آزمایشی</button>
+                        </div>
+                    </div>
+                    <div id="sms-test-msg" class="text-center fw-bold mt-3"></div>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initSms } from '/static/admin/js/settings_sms.js';
+    initSms();
+</script>
+{% endblock %}

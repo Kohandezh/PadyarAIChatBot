@@ -1,0 +1,14 @@
+<meta charset="UTF-8">
+<meta name="chat-token" content="{{ chat_token }}">
+<meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<title>{{ app_title }}</title>
+<!-- ?v= is a cache-buster: the value is the newest mtime of the two stylesheets
+     (see _asset_version in app/routers/public.py). Without it browsers keep
+     serving the pre-upgrade CSS, so customers see broken styling after a theme
+     update. The token changes only when a stylesheet changes, so normal visits
+     still hit the browser cache. -->
+<link href="/static/chat/base.css?v={{ asset_version | default('0', true) }}" rel="stylesheet" type="text/css" />
+<link href="/themes/{{ theme_name }}/static/style.css?v={{ asset_version | default('0', true) }}" rel="stylesheet" type="text/css" />
+<link href="/static/vendor/vazirmatn/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+<script src="/static/vendor/marked/marked.min.js"></script>

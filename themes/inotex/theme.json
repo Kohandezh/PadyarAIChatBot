@@ -1,0 +1,12 @@
+{
+  "name": "inotex",
+  "display_name": "INOTEX",
+  "description": "تم رسمی اینوتکس — طراحی مینیمال ماژولار آجری با پالت رسمی رویداد",
+  "version": "1.0.0",
+  "author": "Padyar",
+  "preview_colors": {
+    "primary": "#FCB715",
+    "secondary": "#2D5CA7",
+    "accent": "#1E2D52"
+  }
+}

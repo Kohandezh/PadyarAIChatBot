@@ -1,0 +1,106 @@
+{
+  "manifest_version": "1.0",
+  "project_instance": "inotex",
+  "primary_source_of_truth": "https://inotex.com/",
+  "knowledge_version": "inotex-kb-2026-08-14.1",
+  "retrieved_at": "2026-08-14",
+  "policy": {
+    "robots_txt": "checked 2026-08-14 — no restrictions returned",
+    "no_authentication_bypass": true,
+    "no_fabrication": "facts absent from official pages are answered as unknown with a referral to the secretariat",
+    "historical_separation": "answers about past editions must be labeled historical; current-edition facts come only from pages listed here"
+  },
+  "sources": [
+    {
+      "source_id": "inotex-home",
+      "url": "https://inotex.com/",
+      "title": "INOTEX 2026 — صفحه اصلی",
+      "language": "fa",
+      "content_type": "event_overview",
+      "retrieved_at": "2026-08-14",
+      "facts_supplied": [
+        "brand INOTEX 2026",
+        "largest international innovation & technology exhibition in Iran",
+        "stats: 450+ companies, 30000+ visitors, 150+ investors, 400+ B2B meetings, 30+ events",
+        "secretariat: Pardis Technology Park, Seraj Building, Unit 125, postal code 1657163871",
+        "email secretary@inotex.com, phone 021-88503030",
+        "booth prices: https://panel.inotex.com/booth/prices",
+        "volunteer form: https://panel.inotex.com/f/id/19",
+        "app: https://inotex.com/dlapp and https://on-time.app/"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-faq",
+      "url": "https://inotex.com/fa/Faq",
+      "title": "سوالات متداول اینوتکس ۲۰۲۶",
+      "language": "fa",
+      "content_type": "faq",
+      "retrieved_at": "2026-08-14",
+      "facts_supplied": [
+        "15th edition (پانزدهمین رویداد)",
+        "dates: 11–14 Shahrivar 1405",
+        "venue: Pardis Technology Park",
+        "visiting hours 14:00–20:00 on all four days",
+        "INOTEX Pitch preliminaries from Dey 1404 in the provinces",
+        "exhibitor eligibility: knowledge-based companies, startups, investors, accelerators, inventors, consultants, startup media",
+        "booth types: physical, virtual, 3D; booth desk 021-76250250 ext 2338"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-events",
+      "url": "https://inotex.com/fa/events",
+      "title": "رویدادهای اینوتکس ۲۰۲۶",
+      "language": "fa",
+      "content_type": "programs",
+      "retrieved_at": "2026-08-14",
+      "facts_supplied": [
+        "INOTEX Stage, Governance & Legislation Forum, INOTEX Pitch & Battle, Capital Café, Consultants Pavilion, Crowdfunding platform, Reverse Pitch, Pioneers Festival, Media Hub, National AI & IoT Conference, Investors Pavilion, Technology Experience, Work Station, INOTEX Demo, tours",
+        "most programs free admission"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news",
+      "url": "https://inotex.com/fa/allnews",
+      "title": "اخبار اینوتکس",
+      "language": "fa",
+      "content_type": "news_index",
+      "retrieved_at": "2026-08-14",
+      "facts_supplied": ["news index location only — individual articles not ingested yet"],
+      "freshness_status": "reference",
+      "approval_status": "approved_as_pointer"
+    },
+    {
+      "source_id": "inotex-blog",
+      "url": "https://inotex.com/fa/blogs",
+      "title": "بلاگ اینوتکس",
+      "language": "fa",
+      "content_type": "blog_index",
+      "retrieved_at": "2026-08-14",
+      "facts_supplied": ["blog index location only — individual posts not ingested yet"],
+      "freshness_status": "reference",
+      "approval_status": "approved_as_pointer"
+    }
+  ],
+  "derived_facts": [
+    {
+      "fact": "11–14 Shahrivar 1405 = 2–5 September 2026",
+      "method": "calendar conversion computed locally",
+      "status": "derived_not_quoted"
+    }
+  ],
+  "conflicts": [
+    {
+      "conflict_id": "hours-conflict-1",
+      "description": "FAQ page states visiting hours 14:00–20:00; the home-page fetch summary indicated 10:00–18:00. The FAQ statement is explicit and quoted; the home-page figure could not be verified verbatim.",
+      "resolution": "answers follow the FAQ (14–20) with an inline advisory to confirm on the official site",
+      "status": "pending_human_review",
+      "logged_in": "content/review-queue.md"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{% extends "admin/layout.html" %}
+{% block page_content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">مصرف و هزینهٔ هوش مصنوعی</h2>
+      <div class="text-muted mt-1">جمع‌بندی سمت سرور — توکن‌ها و هزینه در لحظهٔ درخواست ثبت و تاریخ‌سازی می‌شوند.</div>
+    </div>
+    <div class="col-auto d-flex gap-2 align-items-center">
+      <select class="form-select form-select-sm" id="sel-days">
+        <option value="1">امروز</option>
+        <option value="7" selected>۷ روز</option>
+        <option value="30">۳۰ روز</option>
+        <option value="custom">بازهٔ دلخواه…</option>
+      </select>
+      <input class="form-control form-control-sm d-none" id="custom-from" type="date"
+             dir="ltr" title="از این تاریخ تا امروز" style="max-width:11rem">
+      <select class="form-select form-select-sm" id="sel-group">
+        <option value="provider_instance">نمونهٔ سرویس‌دهنده</option>
+        <option value="provider_type">نوع سرویس‌دهنده</option>
+        <option value="model">مدل</option>
+        <option value="task">وظیفه</option>
+      </select>
+    </div>
+  </div>
+</div>
+<div id="ai-usage-msg"></div>
+
+<div class="row row-cards mt-2">
+  {% for t in [('u-requests','درخواست'),('u-success','موفق'),('u-failed','ناموفق'),
+               ('u-failovers','جابه‌جایی'),('u-tokens','توکن'),('u-cost','هزینه (تخمینی)'),
+               ('u-avg','تأخیر میانگین (ms)'),('u-p95','تأخیر P95 (ms)')] %}
+  <div class="col-6 col-md-3 col-xl-2">
+    <div class="card card-sm"><div class="card-body text-center">
+      <div class="h3 m-0" id="{{ t[0] }}" dir="ltr">—</div>
+      <div class="text-muted small mt-1">{{ t[1] }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mt-3">
+  <div class="table-responsive">
+    <table class="table table-vw card-table">
+      <thead><tr>
+        <th id="g-col-name">گروه</th><th>درخواست</th><th>موفق</th><th>ناموفق</th>
+        <th>جابه‌جایی</th><th>توکن ورودی</th><th>توکن خروجی</th><th>توکن کش</th>
+        <th>تأخیر میانگین</th><th>هزینه</th>
+      </tr></thead>
+      <tbody id="usage-body"><tr><td colspan="10" class="text-center text-muted py-4">—</td></tr></tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    هزینه از جدول قیمتِ دارای تاریخ اثبات محاسبه و روی ردیف مصرف ذخیره می‌شود؛ تغییر قیمت‌های بعدی تاریخ را بازنویسی نمی‌کند.
+    «ناموجود» یعنی قیمت این مدل در جدول نیست — نه صفر و نه عددی حدسی.
+    اگر بخشی از درخواست‌های یک گروه قیمت‌گذاری‌نشده باشد، عدد نمایش‌داده‌شده فقط جمعِ ردیف‌های قیمت‌دار است و کفِ هزینهٔ واقعی را نشان می‌دهد، نه کل آن.
+    همهٔ جمع‌بندی‌ها (شمارش، توکن، هزینه، میانگین و P95 تأخیر) در پایگاه‌داده انجام می‌شود؛ این صفحه فقط نمایش می‌دهد.
+  </div>
+</div>
+{% endblock %}
+{% block page_js %}
+<script type="module">
+  import { initAIUsage } from '/static/admin/js/ai_usage.js';
+  initAIUsage();
+</script>
+{% endblock %}

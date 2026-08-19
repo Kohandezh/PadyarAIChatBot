@@ -1,0 +1,43 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">نشست‌ها و حساب‌های مدیر</h2>
+      <div class="text-muted mt-1">نشست فعال: <strong id="session-count">—</strong></div>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-outline-danger" id="btn-revoke-others">ابطال همهٔ نشست‌های دیگر</button>
+    </div>
+  </div>
+</div>
+<div id="sessions-msg"></div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">نشست‌های فعال</h3></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead><tr><th>شناسه</th><th>کاربر</th><th>انقضا</th><th></th><th></th></tr></thead>
+      <tbody id="sessions-body"></tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    توکن نشست هرگز به مرورگر بازگردانده نمی‌شود — فقط هشت نویسهٔ ابتدایی برای شناسایی.
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">حساب‌های مدیر</h3></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead><tr><th>نام کاربری</th><th>پرسش امنیتی</th><th>نشست فعال</th><th>ورود ناموفق</th><th>آخرین ورود</th></tr></thead>
+      <tbody id="admins-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script type="module">
+  import { initSessions } from '/static/admin/js/security_sessions.js';
+  initSessions();
+</script>
+{% endblock %}

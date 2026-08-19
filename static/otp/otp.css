@@ -1,0 +1,499 @@
+/* ══════════════════════════════════════════════════════════════════════
+   INOTEX OTP verification — brick design on the official palette.
+   Reference: image/otp.PNG (design board; recreated semantically).
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --inotex-primary: #FCB715;
+    --inotex-yellow-light: #FEBE27;
+    --inotex-blue: #2D5CA7;
+    --inotex-navy: #1E2D52;
+    --inotex-teal: #04A584;
+    --inotex-dark-teal: #00644F;
+    --inotex-background: #000000;
+    --inotex-white: #FFFFFF;
+
+    --surface-sunken: #141F3A;
+    --text-muted: #B8C4DE;
+    --border-subtle: #2D5CA74D;
+    --focus-ring: var(--inotex-yellow-light);
+    /* Semantic error color — deliberately outside the base brand palette:
+       the brand has no accessible red, and error states must not rely on
+       yellow (used for focus/CTA). Defined once, used everywhere. */
+    --otp-error: #E5484D;
+
+    --stud: 6px;
+    --radius-card: 18px;
+    --radius-digit: 12px;
+    --depth: 0 2px 0 rgba(0, 0, 0, .55), 0 10px 26px rgba(0, 0, 0, .5);
+    --motion-fast: 160ms;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; min-height: 100%; }
+
+body {
+    background-color: var(--inotex-background);
+    background-image: url("/themes/inotex/static/bg-bricks.jpg");
+    background-size: cover;
+    background-position: center bottom;
+    color: var(--inotex-white);
+    font-family: "Vazirmatn", system-ui, sans-serif;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* Steps share [hidden] semantics with dynamic display values */
+.step[hidden] { display: none; }
+
+/* ── Stage ────────────────────────────────────────────────────────── */
+.otp-stage {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    position: relative;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────── */
+.otp-card {
+    position: relative;
+    width: min(420px, 100%);
+    background: linear-gradient(180deg, #223258F5, #17233FF5);
+    border: 1.5px solid var(--inotex-blue);
+    border-radius: var(--radius-card);
+    box-shadow: var(--depth);
+    padding: 18px 26px 22px;
+    text-align: center;
+}
+
+.card-studs {
+    position: absolute;
+    top: 10px;
+    inset-inline-start: 14px;
+    display: flex;
+    gap: 5px;
+}
+
+.card-studs i {
+    width: var(--stud); height: var(--stud);
+    border-radius: 50%;
+    background: var(--inotex-blue);
+    opacity: .8;
+}
+
+.otp-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.brand { display: flex; align-items: center; gap: 8px; }
+
+.brand-name {
+    font-weight: 800;
+    letter-spacing: .3em;
+    font-size: 13px;
+    color: var(--inotex-white);
+}
+
+.back-btn, .lang-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-subtle);
+    background: var(--surface-sunken);
+    color: var(--inotex-white);
+    font-size: 12.5px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background var(--motion-fast) ease;
+}
+
+.back-btn:hover, .lang-btn:hover { background: var(--inotex-blue); }
+
+.hex-lock { margin: 4px auto 8px; }
+
+.otp-title {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.otp-subtitle {
+    margin: 0 0 18px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 2;
+}
+
+.dest-masked {
+    display: inline-block;
+    margin-inline-start: 6px;
+    color: var(--inotex-white);
+    font-weight: 700;
+}
+
+/* ── Destination step ─────────────────────────────────────────────── */
+.dest-row { margin-bottom: 16px; }
+
+.dest-input {
+    width: 100%;
+    padding: 13px 16px;
+    border-radius: var(--radius-digit);
+    border: 1.5px solid var(--inotex-blue);
+    background: var(--surface-sunken);
+    color: var(--inotex-white);
+    font-family: inherit;
+    font-size: 16px;
+    text-align: center;
+    letter-spacing: .06em;
+}
+
+.dest-input:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-color: var(--inotex-primary);
+}
+
+/* ── Digit group (always LTR) ─────────────────────────────────────── */
+/* The bricks are DECORATION. One transparent input covers the row and holds
+   the real value — a row of maxlength="1" inputs makes the browser truncate an
+   autofilled SMS code to its first digit. */
+.otp-digits {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    gap: 9px;
+    margin: 4px 0 14px;
+}
+
+.otp-code-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    border: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    text-align: center;
+    font-family: inherit;
+    /* 16px is the floor that stops iOS Safari zooming the page on focus. */
+    font-size: 16px;
+    letter-spacing: 2em;
+}
+
+.otp-code-input:focus { outline: none; }
+.otp-code-input:disabled { cursor: not-allowed; }
+
+/* Never hide it with display:none / visibility / opacity:0 — a field the
+   browser treats as invisible is skipped by autofill, which is the whole
+   reason this markup exists. */
+
+.otp-digit {
+    position: relative;
+    width: 48px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-digit);
+    border: 1.5px solid var(--inotex-blue);
+    background: linear-gradient(180deg, #24396B, var(--surface-sunken));
+    color: var(--inotex-white);
+    font-family: inherit;
+    font-size: 24px;
+    font-weight: 800;
+    text-align: center;
+    caret-color: var(--inotex-primary);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, .5);
+    transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+    /* stud pair on top of each digit brick */
+    background-image:
+        radial-gradient(circle at 30% 12%, #3A5C9E 3px, transparent 3.6px),
+        radial-gradient(circle at 70% 12%, #3A5C9E 3px, transparent 3.6px),
+        linear-gradient(180deg, #24396B, var(--surface-sunken));
+}
+
+.otp-digit.is-active {
+    border-color: var(--inotex-primary);
+    box-shadow: 0 0 0 3px #FEBE2755, 0 2px 0 rgba(0, 0, 0, .5);
+}
+
+.otp-digit.filled { border-color: #3A6FC2; }
+
+.otp-digit.error {
+    border-color: var(--otp-error);
+    box-shadow: 0 0 0 3px #E5484D40, 0 2px 0 rgba(0, 0, 0, .5);
+}
+
+.otp-digit.success {
+    border-color: var(--inotex-teal);
+    color: var(--inotex-teal);
+}
+
+.otp-code-input:disabled ~ .otp-digit {
+    opacity: .45;
+    box-shadow: none;
+}
+
+/* ── Timer ────────────────────────────────────────────────────────── */
+.otp-timer {
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.timer-value {
+    display: inline-block;
+    margin-inline-start: 6px;
+    color: var(--inotex-primary);
+    font-weight: 800;
+    min-width: 44px;
+}
+
+.otp-timer.expiring .timer-value { color: var(--otp-error); }
+
+/* ── Primary button (yellow brick) ────────────────────────────────── */
+.verify-btn {
+    position: relative;
+    width: 100%;
+    padding: 14px 18px;
+    border: none;
+    border-radius: 14px;
+    background: var(--inotex-primary);
+    color: var(--inotex-background);
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 3px 0 #00000090, 0 6px 18px #FCB71545;
+    transition: background var(--motion-fast) ease, transform 80ms ease;
+}
+
+.verify-btn:hover:not(:disabled) { background: var(--inotex-yellow-light); }
+.verify-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.verify-btn:disabled {
+    background: #6B5A22;
+    color: #000000A0;
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+.verify-btn:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 3px;
+}
+
+.btn-studs {
+    position: absolute;
+    top: 6px;
+    inset-inline-start: 12px;
+    display: flex;
+    gap: 5px;
+}
+
+.btn-studs i {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #00000038;
+}
+
+.btn-spinner {
+    display: none;
+    width: 16px; height: 16px;
+    margin-inline-start: 8px;
+    border: 2.5px solid #00000045;
+    border-top-color: var(--inotex-background);
+    border-radius: 50%;
+    vertical-align: -3px;
+    animation: otp-spin .8s linear infinite;
+}
+
+.otp-stage[data-state="verifying"] #verify-btn .btn-spinner,
+.otp-stage[data-state="sending"] #send-code-btn .btn-spinner,
+.otp-stage[data-state="resending"] #verify-btn ~ .secondary-actions .btn-spinner {
+    display: inline-block;
+}
+
+@keyframes otp-spin { to { transform: rotate(360deg); } }
+
+/* ── Secondary actions ────────────────────────────────────────────── */
+.secondary-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 14px;
+    font-size: 13.5px;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    color: var(--inotex-teal);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 6px 4px;
+    border-bottom: 1px dashed transparent;
+}
+
+.link-btn:hover:not(:disabled) { border-bottom-color: var(--inotex-teal); }
+
+.link-btn:disabled {
+    color: #4C5F84;
+    cursor: not-allowed;
+}
+
+.link-btn:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.resend-count { font-weight: 800; }
+
+.or-sep { color: var(--text-muted); }
+
+/* ── Feedback chips ───────────────────────────────────────────────── */
+.feedback[hidden] { display: none; }
+
+.feedback {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 16px auto 0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1.5px solid;
+    font-size: 13px;
+    text-align: start;
+}
+
+.feedback[data-kind="info"]    { border-color: var(--inotex-blue);  background: #2D5CA722; }
+.feedback[data-kind="warning"] { border-color: var(--inotex-primary); background: #FCB71518; }
+.feedback[data-kind="error"]   { border-color: var(--otp-error);   background: #E5484D1C; }
+.feedback[data-kind="success"] { border-color: var(--inotex-teal); background: #04A5841C; }
+
+.feedback-icon { font-size: 15px; line-height: 1; }
+.feedback[data-kind="info"] .feedback-icon::before    { content: "ℹ"; color: #7FA8E8; }
+.feedback[data-kind="warning"] .feedback-icon::before { content: "⚠"; color: var(--inotex-primary); }
+.feedback[data-kind="error"] .feedback-icon::before   { content: "✕"; color: var(--otp-error); }
+.feedback[data-kind="success"] .feedback-icon::before { content: "✓"; color: var(--inotex-teal); }
+
+.feedback-text { flex: 1; }
+
+.feedback-close {
+    background: none; border: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 4px;
+}
+
+/* ── Secure note ──────────────────────────────────────────────────── */
+.secure-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
+.secure-note strong {
+    display: block;
+    color: var(--inotex-white);
+    font-size: 13px;
+}
+
+/* ── Pet-INOTEX slot ──────────────────────────────────────────────── */
+.pet-slot {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+    /* Desktop: beside the card, standing on its inline-start side, never
+       over inputs (the card has its own stacking context above the page). */
+    width: 190px;
+    height: 190px;
+}
+
+.pet-slot canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55));
+}
+
+@media (min-width: 900px) {
+    .pet-slot {
+        inset-inline-start: calc(50% + 218px);
+        bottom: calc(50% - 260px);
+    }
+
+    /* teal base-plate glow under the pet's feet — its brick platform */
+    .pet-slot::after {
+        content: "";
+        position: absolute;
+        bottom: 6px;
+        left: 12%;
+        right: 12%;
+        height: 5px;
+        border-radius: 4px;
+        background: linear-gradient(90deg, transparent, var(--inotex-teal), transparent);
+        opacity: .65;
+    }
+}
+
+@media (max-width: 899px) {
+    /* Mobile/tablet: compact companion above the card, centered; it shares
+       the flow so it can never cover inputs or shrink them. */
+    .otp-stage { flex-direction: column; gap: 2px; }
+
+    .pet-slot {
+        position: static;
+        width: 108px;
+        height: 108px;
+        order: -1;
+    }
+}
+
+/* ── Responsive digits ────────────────────────────────────────────── */
+@media (max-width: 430px) {
+    .otp-card { padding: 16px 16px 18px; }
+    .otp-digit { width: 44px; height: 56px; font-size: 21px; }
+    .otp-digits { gap: 7px; }
+}
+
+@media (max-width: 370px) {
+    .otp-digit { width: 40px; height: 52px; font-size: 19px; }
+    .otp-digits { gap: 6px; }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .btn-spinner { animation-duration: 1.6s; }
+    * { transition-duration: 1ms !important; }
+}

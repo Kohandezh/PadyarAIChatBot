@@ -1,0 +1,12 @@
+fastapi
+jinja2
+uvicorn
+scikit-learn
+openai
+python-multipart
+numpy
+httpx
+python-dotenv
+bcrypt
+cryptography
+model2vec

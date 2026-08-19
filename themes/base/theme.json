@@ -1,0 +1,8 @@
+{
+  "name": "base",
+  "display_name": "Base",
+  "description": "Base theme providing default templates. Not user-selectable.",
+  "version": "1.0.0",
+  "author": "INOTEX",
+  "selectable": false
+}

@@ -1,0 +1,213 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}داشبورد{% endblock %}
+
+{% block head %}
+<!-- Chart.js — only loaded on dashboard -->
+<script src="/static/vendor/chartjs/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">داشبورد مدیریتی</h5>
+    <div class="user-profile">
+        <span class="text-muted small">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<!-- Stats Row -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4" style="display: none;">
+        <div class="stat-card primary">
+            <div class="stat-info">
+                <h6>کل توکن‌ها</h6>
+                <h3 id="total-tokens">0</h3>
+                <button id="clear-tokens" class="btn btn-sm mt-1"
+                    style="background: rgba(78,115,223,0.15); color: #4e73df; border: none; padding: 4px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                    پاک‌سازی
+                </button>
+            </div>
+            <div class="stat-icon"><i class="fas fa-database"></i></div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4" style="display: none;">
+        <div class="stat-card success">
+            <div class="stat-info">
+                <h6>هزینه (دلار)</h6>
+                <h3 id="total-cost">$0.00</h3>
+                <button id="clear-cost" class="btn btn-sm mt-1"
+                    style="background: rgba(29,185,84,0.15); color: #1db954; border: none; padding: 4px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                    پاک‌سازی
+                </button>
+            </div>
+            <div class="stat-icon"><i class="fas fa-dollar-sign"></i></div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stat-card info">
+            <div class="stat-info">
+                <h6>کل پیام‌ها</h6>
+                <h3 id="total-msgs">0</h3>
+                <button id="clear-history" class="btn btn-sm mt-1"
+                    style="background: rgba(54,185,204,0.15); color: #36b9cc; border: none; padding: 4px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                    پاک‌سازی
+                </button>
+            </div>
+            <div class="stat-icon"><i class="fas fa-comments"></i></div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stat-card warning">
+            <div class="stat-info">
+                <h6>وضعیت هوش مصنوعی</h6>
+                <div class="form-check form-switch p-0 mt-1">
+                    <input class="form-check-input m-0" type="checkbox" id="openai-toggle">
+                    <span id="openai-status" class="small ms-2 text-muted"
+                        style="vertical-align: super;">...</span>
+                </div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-robot"></i></div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stat-card warning">
+            <div class="stat-info">
+                <h6>وضعیت تایپ صوتی</h6>
+                <div class="form-check form-switch p-0 mt-1">
+                    <input class="form-check-input m-0" type="checkbox" id="voice-toggle">
+                    <span id="voice-status" class="small ms-2 text-muted"
+                        style="vertical-align: super;">...</span>
+                </div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-microphone"></i></div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="stat-card warning">
+            <div class="stat-info">
+                <h6>وضعیت خواندن صوتی</h6>
+                <div class="form-check form-switch p-0 mt-1">
+                    <input class="form-check-input m-0" type="checkbox" id="tts-toggle">
+                    <span id="tts-status" class="small ms-2 text-muted"
+                        style="vertical-align: super;">...</span>
+                </div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-volume-up"></i></div>
+        </div>
+    </div>
+</div>
+
+<!-- AI control-plane summary — concise, drills down to AI pages -->
+<div class="row mb-4" id="ai-summary-row">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <a href="/secure-panel-inotex/ai/providers" class="text-decoration-none">
+            <div class="stat-card primary">
+                <div class="stat-info">
+                    <h6>سرویس‌دهنده‌های هوش مصنوعی</h6>
+                    <h3 id="ai-providers-active">—</h3>
+                    <small class="text-muted" id="ai-providers-health">—</small>
+                </div>
+                <div class="stat-icon"><i class="fas fa-robot"></i></div>
+            </div>
+        </a>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <a href="/secure-panel-inotex/ai/usage" class="text-decoration-none">
+            <div class="stat-card info">
+                <div class="stat-info">
+                    <h6>درخواست هوش مصنوعی (امروز)</h6>
+                    <h3 id="ai-requests-today">—</h3>
+                    <small class="text-muted" id="ai-requests-detail">—</small>
+                </div>
+                <div class="stat-icon"><i class="fas fa-bolt"></i></div>
+            </div>
+        </a>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <a href="/secure-panel-inotex/ai/usage" class="text-decoration-none">
+            <div class="stat-card warning">
+                <div class="stat-info">
+                    <h6>توکن امروز</h6>
+                    <h3 id="ai-tokens-today">—</h3>
+                    <small class="text-muted" id="ai-failovers-today">—</small>
+                </div>
+                <div class="stat-icon"><i class="fas fa-coins"></i></div>
+            </div>
+        </a>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <a href="/secure-panel-inotex/ai/usage" class="text-decoration-none">
+            <div class="stat-card success">
+                <div class="stat-info">
+                    <h6>هزینهٔ تخمینی امروز</h6>
+                    <h3 id="ai-cost-today">—</h3>
+                    <small class="text-muted" id="ai-latency-today">—</small>
+                </div>
+                <div class="stat-icon"><i class="fas fa-dollar-sign"></i></div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-lg-8">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-chart-bar me-2"></i>آمار پیام‌ها (۷ روز گذشته)</span>
+            </div>
+            <div class="card-body">
+                <canvas id="msgChart" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-chart-line me-2"></i>روند هزینه</span>
+            </div>
+            <div class="card-body">
+                <canvas id="costChart" height="220"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Low Confidence Table -->
+<div class="content-card">
+    <div class="card-header border-0">
+        <span class="text-danger"><i class="fas fa-exclamation-triangle me-2"></i>سوالات با اطمینان پایین
+            (نیاز به بررسی)</span>
+        <button class="btn btn-sm btn-outline-primary" onclick="window.loadLowConf()">
+            <i class="fas fa-sync"></i>
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">زمان</th>
+                        <th>سوال کاربر</th>
+                        <th>اطمینان</th>
+                        <th>نوع پاسخ</th>
+                    </tr>
+                </thead>
+                <tbody id="low-conf-table">
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="action-msg" class="text-center fw-bold mt-2"></div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initDashboard } from '/static/admin/js/dashboard.js';
+    initDashboard();
+</script>
+{% endblock %}

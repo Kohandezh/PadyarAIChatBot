@@ -1,0 +1,79 @@
+{% extends "admin/layout.html" %}
+{% block page_content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">مسیریابی هوش مصنوعی</h2>
+      <div class="text-muted mt-1">ترتیب تلاش برای هر وظیفه — اولویت ۱ نخست امتحان می‌شود؛ در خطای قابلِ جابه‌جایی، مقصد بعدی.</div>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary" id="btn-add-target"><i class="fas fa-plus ms-1"></i>افزودن هدف</button>
+    </div>
+  </div>
+</div>
+<div id="ai-routing-msg"></div>
+
+<div class="row mt-3" id="routes-container"></div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">کلید بیرونی ( قطع کنندهٔ اضطراری )</h3></div>
+  <div class="card-body">
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="kill-switch">
+      <label class="form-check-label" for="kill-switch">هوش مصنوعی بیرونی <b>فعال</b> باشد</label>
+    </div>
+    <div class="text-muted small mt-1">با خاموش کردن، هیچ درخواستی به سرویس‌دهنده‌های بیرونی ارسال نمی‌شود؛ بازیابی محلی (RAG) به کار خود ادامه می‌دهد.</div>
+    <div class="text-muted small mt-1">این کلید پیش از انتخاب مسیر بررسی می‌شود، پس همهٔ وظیفه‌ها (گفتگو و دسته‌بندی) و همهٔ سرویس‌دهنده‌ها را با هم قطع می‌کند.</div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body text-muted small">
+    ستون «مدار» وضعیت قطع‌کنندهٔ خودکار سرویس‌دهندهٔ هر هدف است:
+    <span class="badge bg-success-lt">بسته</span> یعنی در حال سرویس‌دهی،
+    <span class="badge bg-danger-lt">باز</span> یعنی موقتاً کنار گذاشته شده،
+    <span class="badge bg-warning-lt">نیم‌باز</span> یعنی در حال آزمایش دوباره،
+    و <span class="badge bg-secondary-lt">نامعلوم</span> یعنی وضعیتی خوانده نشد.
+    دکمهٔ «مدار» آن را بازنشانی می‌کند و این کار در گزارش‌های ممیزی ثبت می‌شود.
+    تغییر ترتیب در یک تراکنش انجام می‌شود؛ هیچ لحظه‌ای وظیفه بدون مسیر معتبر نمی‌ماند.
+  </div>
+</div>
+
+<div class="modal fade" id="target-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">افزودن هدف به مسیر</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="target-form-msg"></div>
+        <div class="mb-3"><label class="form-label">وظیفه</label>
+          <select class="form-select" id="t-task">
+            <option value="chat">گفتگو (CHAT)</option>
+            <option value="classify">دسته‌بندی (CLASSIFICATION)</option>
+          </select></div>
+        <div class="mb-3"><label class="form-label">نمونهٔ سرویس‌دهنده</label>
+          <select class="form-select" id="t-instance"></select></div>
+        <div class="mb-3"><label class="form-label">مدل</label>
+          <input class="form-control" id="t-model" dir="ltr" list="t-model-list" placeholder="از کاتالوگ انتخاب یا تایپ کنید">
+          <datalist id="t-model-list"></datalist></div>
+        <div class="row">
+          <div class="col mb-3"><label class="form-label">حداکثر تلاش (اختیاری)</label>
+            <input class="form-control" id="t-attempts" type="number" min="1" dir="ltr"></div>
+          <div class="col mb-3"><label class="form-label">مهلت (ثانیه، اختیاری)</label>
+            <input class="form-control" id="t-timeout" type="number" step="0.5" min="1" dir="ltr"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-bs-dismiss="modal">انصراف</button>
+        <button class="btn btn-primary" id="btn-save-target">ذخیره</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block page_js %}
+<script type="module">
+  import { initAIRouting } from '/static/admin/js/ai_routing.js';
+  initAIRouting();
+</script>
+{% endblock %}

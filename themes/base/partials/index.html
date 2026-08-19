@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+
+<head>
+    {% include "head.html" %}
+</head>
+
+<!-- Chat is the default view: it is the part of the product that actually
+     answers people. The video tab opens only once INOTEX media is connected. -->
+<body>
+
+    <div class="app-layout">
+        {% include "header.html" %}
+
+        <div class="view-container">
+            {% include "messages.html" %}
+            {% include "video.html" %}
+        </div>
+
+        {% include "input.html" %}
+    </div>
+
+    {% include "footer.html" %}
+</body>
+
+</html>

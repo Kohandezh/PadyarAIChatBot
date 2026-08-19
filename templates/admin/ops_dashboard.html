@@ -1,0 +1,73 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="page-header"><h2 class="page-title">مرکز عملیات</h2></div>
+
+<div class="row row-cards mt-3">
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body text-center">
+        <div class="text-muted small">سلامت سامانه</div>
+        <div id="health-ring" class="h1 m-0"><span id="health-score">—</span><small class="text-muted"> / ۱۰۰</small></div>
+        <div id="health-label" class="text-muted">—</div>
+      </div>
+    </div>
+  </div>
+  {% for t in [('t-svc-healthy','سرویس سالم','green'),('t-svc-degraded','کاهش کیفیت','orange'),('t-svc-down','قطع','red')] %}
+  <div class="col-md-3">
+    <div class="card card-sm"><div class="card-body text-center">
+      <div class="h1 m-0 text-{{ t[2] }}" id="{{ t[0] }}">—</div>
+      <div class="text-muted small mt-1">{{ t[1] }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<h3 class="mt-4 mb-2">ترافیک و هوش مصنوعی <small class="text-muted">(۲۴ ساعت)</small></h3>
+<div class="row row-cards">
+  {% for t in [('t-messages','پیام‌های چت','blue'),('t-api','درخواست API','blue'),
+               ('t-api-err','خطای API','red'),('t-llm','درخواست هوش مصنوعی','blue'),
+               ('t-llm-err','خطای هوش مصنوعی','red'),('t-llm-rate','نرخ خطای مدل','orange'),
+               ('t-llm-latency','میانگین تأخیر مدل','secondary'),('t-tokens','مصرف توکن','secondary')] %}
+  <div class="col-6 col-md-3 col-xl-2">
+    <div class="card card-sm"><div class="card-body text-center">
+      <div class="h2 m-0 text-{{ t[2] }}" id="{{ t[0] }}">—</div>
+      <div class="text-muted small mt-1">{{ t[1] }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<h3 class="mt-4 mb-2">پیامک و امنیت <small class="text-muted">(۲۴ ساعت)</small></h3>
+<div class="row row-cards">
+  {% for t in [('t-sms','رخداد پیامک','blue'),('t-sms-err','خطای پیامک','red'),
+               ('t-failed-logins','ورود ناموفق مدیر','red'),('t-security','رخداد امنیتی','orange'),
+               ('t-sessions','نشست فعال','azure'),('t-audit','اقدام حساس','azure')] %}
+  <div class="col-6 col-md-3 col-xl-2">
+    <div class="card card-sm"><div class="card-body text-center">
+      <div class="h2 m-0 text-{{ t[2] }}" id="{{ t[0] }}">—</div>
+      <div class="text-muted small mt-1">{{ t[1] }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row row-cards mt-4">
+  <div class="col-md-6"><div class="card"><div class="card-body">
+    <div class="row">
+      <div class="col-6"><div class="text-muted small">کل رخدادهای ثبت‌شده</div><div class="h3" id="t-log-total">—</div></div>
+      <div class="col-6"><div class="text-muted small">حجم پایگاه لاگ</div><div class="h3" id="t-log-storage">—</div></div>
+    </div>
+  </div></div></div>
+  <div class="col-md-6"><div class="card"><div class="card-body">
+    <div class="row">
+      <div class="col-6"><div class="text-muted small">مدت اجرا</div><div class="h3" id="t-uptime">—</div></div>
+      <div class="col-6"><div class="text-muted small">زمان اجرا</div><div id="t-runtime" dir="ltr">—</div></div>
+    </div>
+  </div></div></div>
+</div>
+
+<script type="module">
+  import { initOpsDashboard } from '/static/admin/js/ops_dashboard.js';
+  initOpsDashboard();
+</script>
+{% endblock %}

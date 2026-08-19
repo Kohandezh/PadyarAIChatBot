@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-08-14T21:23:31+00:00",
+  "knowledge_version": "inotex-kb-2026-08-14.1",
+  "results": [
+    {
+      "source_id": "inotex-home",
+      "url": "https://inotex.com/",
+      "checked_at": "2026-08-14T21:23:31+00:00",
+      "status": "first_snapshot",
+      "hash": "5a3f83b03f8626d0"
+    },
+    {
+      "source_id": "inotex-faq",
+      "url": "https://inotex.com/fa/Faq",
+      "checked_at": "2026-08-14T21:23:31+00:00",
+      "status": "first_snapshot",
+      "hash": "68c792e8f0a68701"
+    },
+    {
+      "source_id": "inotex-events",
+      "url": "https://inotex.com/fa/events",
+      "checked_at": "2026-08-14T21:23:31+00:00",
+      "status": "first_snapshot",
+      "hash": "e69a01172ea8e67a"
+    },
+    {
+      "source_id": "inotex-news",
+      "url": "https://inotex.com/fa/allnews",
+      "checked_at": "2026-08-14T21:23:31+00:00",
+      "status": "first_snapshot",
+      "hash": "6180d20f6033161e"
+    },
+    {
+      "source_id": "inotex-blog",
+      "url": "https://inotex.com/fa/blogs",
+      "checked_at": "2026-08-14T21:23:31+00:00",
+      "status": "first_snapshot",
+      "hash": "980e544f1849fdde"
+    }
+  ],
+  "changed": false,
+  "errors": false,
+  "next_step": "No action needed."
+}

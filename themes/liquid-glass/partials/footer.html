@@ -1,0 +1,627 @@
+<svg style="display: none">
+    <filter id="glass-distortion" x="0%" y="0%" width="100%" height="100%" filterUnits="objectBoundingBox">
+        <feTurbulence type="fractalNoise" baseFrequency="0.01 0.01" numOctaves="1" seed="5"
+            result="turbulence" />
+        <feComponentTransfer in="turbulence" result="mapped">
+            <feFuncR type="gamma" amplitude="1" exponent="10" offset="0.5" />
+            <feFuncG type="gamma" amplitude="0" exponent="1" offset="0" />
+            <feFuncB type="gamma" amplitude="0" exponent="1" offset="0.5" />
+        </feComponentTransfer>
+        <feGaussianBlur in="turbulence" stdDeviation="3" result="softMap" />
+        <feSpecularLighting in="softMap" surfaceScale="5" specularConstant="1" specularExponent="100"
+            lighting-color="white" result="specLight">
+            <fePointLight x="-200" y="-200" z="300" />
+        </feSpecularLighting>
+        <feComposite in="specLight" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="litImage" />
+        <feDisplacementMap in="SourceGraphic" in2="softMap" scale="150" xChannelSelector="R"
+            yChannelSelector="G" />
+    </filter>
+</svg>
+
+<!-- Page background: light beams drifting upward behind everything. -->
+<canvas id="bg-beams" class="bg-beams" aria-hidden="true"></canvas>
+
+<!-- Voice stage: shown while the assistant is listening, thinking or speaking.
+     Driven by real state, not a timer — the bars are real audio levels when we
+     can read them. -->
+<div id="voice-stage" class="voice-stage" hidden role="status" aria-live="polite">
+    <div class="voice-stage-glow" aria-hidden="true"></div>
+    <div class="voice-orb-wrap">
+        <span class="voice-ring" aria-hidden="true"></span>
+        <span class="voice-ring voice-ring-2" aria-hidden="true"></span>
+        <div class="voice-orb">
+            <svg class="voice-ic voice-ic-listen" viewBox="0 0 24 24" width="34" height="34" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+            </svg>
+            <svg class="voice-ic voice-ic-think" viewBox="0 0 24 24" width="34" height="34" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <svg class="voice-ic voice-ic-speak" viewBox="0 0 24 24" width="34" height="34" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                <path d="M19 5a10 10 0 0 1 0 14" />
+            </svg>
+        </div>
+    </div>
+
+    <div class="voice-wave" id="voice-wave" aria-hidden="true"></div>
+
+    <p class="voice-status" id="voice-status"></p>
+    <p class="voice-timer" id="voice-timer">۰۰:۰۰</p>
+
+    <button type="button" class="voice-stop" id="voice-stop" data-i18n="voiceStop">توقف</button>
+</div>
+
+<script src="/static/chat/core.js?v={{ asset_version | default('0', true) }}"></script>
+<script>
+    // ── Liquid Glass: message bubbles carry the full glass stack ──
+    ChatConfig.addMessageFn = function (content, type, save = true, instant = false) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${type}`;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble liquidGlass-wrapper';
+        bubble.setAttribute('dir', 'auto');
+        bubble.innerHTML = `
+            <div class="liquidGlass-effect"></div>
+            <div class="liquidGlass-tint"></div>
+            <div class="liquidGlass-shine"></div>
+            <div class="liquidGlass-text"></div>
+        `;
+        msgDiv.appendChild(bubble);
+
+        const textLayer = bubble.querySelector('.liquidGlass-text');
+        if (loadingBubble) chatContent.insertBefore(msgDiv, loadingBubble);
+        else chatContent.appendChild(msgDiv);
+
+        if (type === 'bot' && !instant) {
+            typeWriter(textLayer, content);
+        } else {
+            if (typeof marked !== 'undefined') {
+                textLayer.innerHTML = marked.parse(content);
+                textLayer.querySelectorAll('a').forEach(a => a.target = '_blank');
+            } else {
+                textLayer.textContent = content;
+            }
+        }
+        chatContent.scrollTop = chatContent.scrollHeight;
+        if (save) saveToHistory(content, type);
+
+        if (type === 'bot') CompanionTTS.speak(content);
+    };
+
+    // ── Liquid Glass: switchTab keeps the segmented control in sync ──
+    ChatConfig.switchTabFn = function (tabName) {
+        const radioInput = document.querySelector(`.switcher__input[value="${tabName}"]`);
+        if (radioInput && !radioInput.checked) {
+            radioInput.checked = true;
+            const switcher = document.querySelector('.switcher');
+            const prev = switcher.querySelector(
+                'input[type="radio"]:checked:not([value="' + tabName + '"])');
+            switcher.setAttribute('c-previous', prev ? prev.getAttribute('c-option') : '');
+            radioInput.dispatchEvent(new Event('change'));
+            return;
+        }
+        switchTabInternal(tabName);
+    };
+
+    // ── Liquid Glass: morph transition between avatar clips ──
+    ChatConfig.playVideoTransitionFn = function (videoUrl, muted = false) {
+        const container = document.querySelector('.avatar-container');
+        if (!avatarVideo || !container) return;
+
+        isResponsePlaying = true;
+        updateSendButtonState();
+
+        const transitionEl = document.createElement('div');
+        transitionEl.className = 'morph-transition';
+
+        const indicator = document.createElement('div');
+        indicator.className = 'morph-spinner';
+        transitionEl.appendChild(indicator);
+        container.appendChild(transitionEl);
+
+        setTimeout(() => {
+            avatarVideo.src = videoUrl;
+            avatarVideo.loop = false;
+            avatarVideo.muted = muted;
+            const p = avatarVideo.play();
+            if (p !== undefined) {
+                p.catch(() => {
+                    if (!muted) {
+                        avatarVideo.muted = true;
+                        avatarVideo.play().catch(e => console.error('Muted play also failed', e));
+                    }
+                });
+            }
+        }, 400);
+
+        setTimeout(() => transitionEl.remove(), 1200);
+    };
+
+    // ── Segmented switcher init ──
+    (function initSwitcher() {
+        const switcher = document.querySelector('.switcher');
+        if (!switcher) return;
+
+        const radios = switcher.querySelectorAll('input[type="radio"]');
+        let previousValue = null;
+
+        const initiallyChecked = switcher.querySelector('input[type="radio"]:checked');
+        if (initiallyChecked) {
+            previousValue = initiallyChecked.getAttribute('c-option');
+            switcher.setAttribute('c-previous', previousValue);
+        }
+
+        radios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                if (!radio.checked) return;
+                switcher.setAttribute('c-previous', previousValue ?? '');
+                previousValue = radio.getAttribute('c-option');
+                switchTabInternal(radio.value);
+            });
+        });
+    })();
+
+    // ── Text-to-speech (browser SpeechSynthesis — no key, no network) ──
+    const CompanionTTS = (function () {
+        const supported = 'speechSynthesis' in window;
+        const btn = document.getElementById('tts-btn');
+        let on = localStorage.getItem('inotex-tts') === '1';
+
+        function paint() {
+            if (!btn) return;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
+        function speak(text) {
+            if (!on || !supported || !text) return;
+            const plain = String(text)
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/https?:\/\/\S+/g, ' ')
+                .replace(/[*_`#>\[\]()]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!plain) return;
+
+            const en = document.documentElement.lang === 'en';
+            speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(plain);
+            u.lang = en ? 'en-US' : 'fa-IR';
+            const want = en ? 'en' : 'fa';
+            const v = (speechSynthesis.getVoices() || [])
+                .find(x => x.lang && x.lang.toLowerCase().startsWith(want));
+            if (v) u.voice = v;
+            u.rate = 0.98;
+            u.onstart = function () { InotexVoice.set('speaking'); };
+            u.onend = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
+            u.onerror = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
+            speechSynthesis.speak(u);
+        }
+
+        if (btn && !supported) {
+            btn.disabled = true;
+            btn.title = 'مرورگر شما خواندن صوتی را پشتیبانی نمی‌کند';
+        } else if (btn) {
+            btn.addEventListener('click', function () {
+                on = !on;
+                localStorage.setItem('inotex-tts', on ? '1' : '0');
+                if (!on) { speechSynthesis.cancel(); InotexVoice.set('idle'); }
+                paint();
+            });
+        }
+        paint();
+
+        return { speak: speak };
+    })();
+
+    // ── Chat column: centre a short conversation, scroll a long one ──
+    // Deliberately explicit rather than relying on flexbox: `justify-content:
+    // center` and auto margins both strand the overflow out of reach once the
+    // transcript grows past the column height.
+    (function () {
+        const content = document.getElementById('chat-view-content');
+        if (!content) return;
+
+        function sync() {
+            const short = content.scrollHeight <= content.clientHeight + 1;
+            content.classList.toggle('is-short', short);
+        }
+
+        new ResizeObserver(sync).observe(content);
+        new MutationObserver(sync).observe(content, { childList: true, subtree: true });
+        window.addEventListener('resize', sync);
+        sync();
+    })();
+
+    // ── Voice stage: listening / thinking / speaking ──
+    const InotexVoice = (function () {
+        const stage = document.getElementById('voice-stage');
+        const wave = document.getElementById('voice-wave');
+        const statusEl = document.getElementById('voice-status');
+        const timerEl = document.getElementById('voice-timer');
+        const stopBtn = document.getElementById('voice-stop');
+        if (!stage) return { set: function () { } };
+
+        const BARS = 28;
+        const LABEL = {
+            fa: { listening: 'در حال شنیدن…', thinking: 'در حال فکر کردن…', speaking: 'در حال پاسخ…' },
+            en: { listening: 'Listening…', thinking: 'Thinking…', speaking: 'Speaking…' }
+        };
+
+        const bars = [];
+        for (let i = 0; i < BARS; i++) {
+            const b = document.createElement('span');
+            wave.appendChild(b);
+            bars.push(b);
+        }
+
+        let state = 'idle', raf = 0, t0 = 0, timerId = 0;
+        let audioCtx = null, analyser = null, data = null, srcNode = null;
+
+        function fa(n) {
+            return String(n).padStart(2, '0').replace(/\d/g, function (d) {
+                return document.documentElement.lang === 'en' ? d : '۰۱۲۳۴۵۶۷۸۹'[d];
+            });
+        }
+
+        function tick() {
+            const s = Math.floor((Date.now() - t0) / 1000);
+            timerEl.textContent = fa(Math.floor(s / 60)) + ':' + fa(s % 60);
+        }
+
+        // Real levels when the mic is open; a smooth synthetic envelope otherwise
+        // (speechSynthesis exposes no audio stream to measure).
+        function attachAnalyser() {
+            try {
+                const rec = (typeof mediaRecorder !== 'undefined') ? mediaRecorder : null;
+                if (!rec || !rec.stream) return false;
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                srcNode = audioCtx.createMediaStreamSource(rec.stream);
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 64;
+                analyser.smoothingTimeConstant = 0.75;
+                srcNode.connect(analyser);
+                data = new Uint8Array(analyser.frequencyBinCount);
+                return true;
+            } catch (e) { return false; }
+        }
+
+        function detachAnalyser() {
+            try { if (srcNode) srcNode.disconnect(); } catch (e) { }
+            try { if (audioCtx) audioCtx.close(); } catch (e) { }
+            audioCtx = analyser = data = srcNode = null;
+        }
+
+        function render() {
+            const now = Date.now() / 1000;
+            for (let i = 0; i < BARS; i++) {
+                let v;
+                if (analyser && data) {
+                    analyser.getByteFrequencyData(data);
+                    v = (data[i % data.length] / 255) * 46 + 4;
+                } else {
+                    // Synthetic: layered sines so it breathes instead of jittering.
+                    const a = Math.sin(now * 3.1 + i * 0.42);
+                    const b = Math.sin(now * 1.7 + i * 0.19);
+                    v = 6 + Math.abs(a * 0.6 + b * 0.4) * (state === 'thinking' ? 16 : 34);
+                }
+                bars[i].style.height = Math.max(4, v) + 'px';
+            }
+            raf = requestAnimationFrame(render);
+        }
+
+        function set(next) {
+            if (state === next) return;
+            state = next;
+
+            stage.classList.remove('is-listening', 'is-thinking', 'is-speaking');
+            if (next === 'idle') {
+                stage.hidden = true;
+                if (raf) { cancelAnimationFrame(raf); raf = 0; }
+                clearInterval(timerId); timerId = 0;
+                detachAnalyser();
+                return;
+            }
+
+            stage.hidden = false;
+            stage.classList.add('is-' + next);
+            const lang = document.documentElement.lang === 'en' ? 'en' : 'fa';
+            statusEl.textContent = LABEL[lang][next];
+
+            if (next === 'listening') attachAnalyser(); else detachAnalyser();
+
+            if (!timerId) { t0 = Date.now(); tick(); timerId = setInterval(tick, 1000); }
+            if (!raf) raf = requestAnimationFrame(render);
+        }
+
+        if (stopBtn) {
+            stopBtn.addEventListener('click', function () {
+                if (state === 'listening') {
+                    const mic = document.getElementById('mic-btn');
+                    if (mic) mic.click();          // let core.js close the recorder
+                } else if (state === 'speaking' && 'speechSynthesis' in window) {
+                    speechSynthesis.cancel();
+                }
+                set('idle');
+            });
+        }
+
+        // Listening follows the mic button's own state — no duplicate recorder.
+        const mic = document.getElementById('mic-btn');
+        if (mic) {
+            new MutationObserver(function () {
+                if (mic.classList.contains('recording')) set('listening');
+                else if (state === 'listening') set('idle');
+            }).observe(mic, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        // Thinking follows the existing loading bubble core.js already toggles.
+        const loader = document.getElementById('loading-bubble');
+        if (loader) {
+            new MutationObserver(function () {
+                const busy = loader.style.opacity === '1';
+                if (busy && state !== 'listening') set('thinking');
+                else if (!busy && state === 'thinking') set('idle');
+            }).observe(loader, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        return { set: set, state: function () { return state; } };
+    })();
+
+    // ── Page background: light beams drifting upward ──
+    (function () {
+        const canvas = document.getElementById('bg-beams');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const COUNT = 14;
+        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let beams = [], raf = 0, w = 0, h = 0;
+
+        function makeBeam(i) {
+            // Indigo → violet band, matching the theme's primitive scale.
+            const violet = i % 7 === 3;
+            return {
+                x: Math.random() * w,
+                y: Math.random() * h * 1.5 - h * 0.25,
+                width: 60 + Math.random() * 90,
+                length: h * 2.5,
+                angle: -35 + Math.random() * 10,
+                speed: 0.5 + Math.random() * 0.5,
+                opacity: 0.22 + Math.random() * 0.16,
+                hue: violet ? 262 : 232 + (i * 26) / COUNT,
+                sat: violet ? 70 : 74,
+                pulse: Math.random() * Math.PI * 2,
+                pulseSpeed: 0.02 + Math.random() * 0.03,
+            };
+        }
+
+        function resetBeam(beam, i) {
+            const column = i % 3, spacing = w / 3;
+            beam.y = h + 100;
+            beam.x = column * spacing + spacing / 2 + (Math.random() - 0.5) * spacing * 0.5;
+            beam.width = 60 + Math.random() * 90;
+            beam.speed = 0.5 + Math.random() * 0.4;
+            beam.opacity = 0.22 + Math.random() * 0.16;
+        }
+
+        function size() {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            w = window.innerWidth; h = window.innerHeight;
+            canvas.width = w * dpr; canvas.height = h * dpr;
+            canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            beams = Array.from({ length: COUNT }, function (_, i) { return makeBeam(i); });
+        }
+
+        function draw(beam) {
+            ctx.save();
+            ctx.translate(beam.x, beam.y);
+            ctx.rotate((beam.angle * Math.PI) / 180);
+            const o = beam.opacity * (0.8 + Math.sin(beam.pulse) * 0.2);
+            const g = ctx.createLinearGradient(0, 0, 0, beam.length);
+            const c = function (a) { return 'hsla(' + beam.hue + ', ' + beam.sat + '%, 66%, ' + a + ')'; };
+            g.addColorStop(0, c(0));
+            g.addColorStop(0.1, c(o * 0.5));
+            g.addColorStop(0.4, c(o));
+            g.addColorStop(0.6, c(o));
+            g.addColorStop(0.9, c(o * 0.5));
+            g.addColorStop(1, c(0));
+            ctx.fillStyle = g;
+            ctx.fillRect(-beam.width / 2, 0, beam.width, beam.length);
+            ctx.restore();
+        }
+
+        function paint(step) {
+            ctx.clearRect(0, 0, w, h);
+            ctx.filter = 'blur(18px)';
+            beams.forEach(function (beam, i) {
+                if (step) {
+                    beam.y -= beam.speed;
+                    beam.pulse += beam.pulseSpeed;
+                    if (beam.y + beam.length < -100) resetBeam(beam, i);
+                }
+                draw(beam);
+            });
+        }
+
+        function frame() { paint(true); raf = requestAnimationFrame(frame); }
+
+        function sync() {
+            const run = !reduced.matches && document.visibilityState !== 'hidden';
+            if (run && !raf) raf = requestAnimationFrame(frame);
+            if (!run && raf) { cancelAnimationFrame(raf); raf = 0; }
+            if (!run) paint(false);   // one static frame, so it is never blank
+        }
+
+        let resizeTimer = 0;
+        window.addEventListener('resize', function () {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function () { size(); paint(false); }, 150);
+        });
+        document.addEventListener('visibilitychange', sync);
+        reduced.addEventListener('change', sync);
+
+        size();
+        sync();
+    })();
+
+    // ── Border beam: comets orbiting the panel's border ring ──
+    // The angular VELOCITY is sprung, not the angle, so the comets wind up on
+    // hover and coast back instead of snapping between two speeds.
+    (function () {
+        const IDLE = 42, HOVER = 240, K = 30, D = 11, PARKED = 40;
+        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+        document.querySelectorAll('.beam-panel').forEach(function (panel) {
+            let angle = 137.5;          // deterministic start, never Math.random
+            let speed = IDLE, target = IDLE, vel = 0;
+            let raf = 0, last = 0, onScreen = true, tabVisible = true;
+
+            function paint(a) {
+                panel.style.setProperty('--beam-angle', (((a % 360) + 360) % 360).toFixed(2) + 'deg');
+            }
+
+            function frame(now) {
+                if (!last) last = now;
+                const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+                last = now;
+                // spring the speed, then integrate it into the angle
+                vel += (K * (target - speed) - D * vel) * dt;
+                speed += vel * dt;
+                angle += speed * dt;
+                paint(angle);
+                raf = requestAnimationFrame(frame);
+            }
+
+            function running() {
+                return !reduced.matches && onScreen && tabVisible && !panel.hidden;
+            }
+
+            function sync() {
+                if (running()) {
+                    if (!raf) { last = 0; raf = requestAnimationFrame(frame); }
+                } else {
+                    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+                    if (reduced.matches) paint(PARKED);
+                }
+            }
+
+            panel.addEventListener('pointerenter', function () { target = HOVER; });
+            panel.addEventListener('pointerleave', function () { target = IDLE; });
+            panel.addEventListener('focusin', function () { target = HOVER; });
+            panel.addEventListener('focusout', function () { target = IDLE; });
+
+            if (typeof IntersectionObserver !== 'undefined') {
+                new IntersectionObserver(function (entries) {
+                    onScreen = entries.some(function (e) { return e.isIntersecting; });
+                    sync();
+                }, { threshold: 0.05 }).observe(panel);
+            }
+            document.addEventListener('visibilitychange', function () {
+                tabVisible = document.visibilityState !== 'hidden';
+                sync();
+            });
+            reduced.addEventListener('change', sync);
+            // The panel is toggled via the `hidden` attribute — park the loop with it.
+            new MutationObserver(sync).observe(panel, {
+                attributes: true, attributeFilter: ['hidden']
+            });
+
+            paint(angle);
+            sync();
+        });
+    })();
+
+    // ── One-click question menu in the main chat ──
+    (function () {
+        const menu = document.getElementById('suggest-menu');
+        const chips = document.getElementById('suggest-chips');
+        const title = document.getElementById('suggest-title');
+        if (!menu || !chips) return;
+
+        const LABEL = {
+            fa: 'می‌توانید یکی از این‌ها را انتخاب کنید:',
+            en: 'Pick one to get started:'
+        };
+
+        function render() {
+            const lang = document.documentElement.lang === 'en' ? 'en' : 'fa';
+            if (title) title.textContent = LABEL[lang];
+            if (typeof getDisplayQuestions !== 'function') { menu.hidden = true; return; }
+
+            Promise.resolve(getDisplayQuestions()).then(function (list) {
+                chips.innerHTML = '';
+                (list || []).slice(0, 8).forEach(function (item) {
+                    const label = (item && (item.question || item.title)) || '';
+                    if (!label) return;
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'suggest-chip';
+                    btn.setAttribute('role', 'listitem');
+                    btn.setAttribute('dir', 'auto');
+                    btn.textContent = label;
+                    // The menu stays put — picking one should not take the
+                    // other one-click options away.
+                    btn.addEventListener('click', function () { sendPreset(label); });
+                    chips.appendChild(btn);
+                });
+                menu.hidden = chips.children.length === 0;
+            }).catch(function () { menu.hidden = true; });
+        }
+
+        render();
+        new MutationObserver(render).observe(document.documentElement, {
+            attributes: true, attributeFilter: ['lang']
+        });
+    })();
+
+    // ── Light / dark theme ──────────────────────────────────────────────
+    // `toggleHighContrast()` in core.js is the accessibility high-contrast
+    // mode (it forces white-on-black), NOT a light theme — so this is a real
+    // second theme: a body class plus a semantic-token swap in style.css.
+    (function () {
+        const KEY = 'inotex-theme';
+        const btn = document.getElementById('theme-btn');
+        const COPY = {
+            fa: { toLight: 'حالت روشن', toDark: 'حالت تیره' },
+            en: { toLight: 'Switch to light mode', toDark: 'Switch to dark mode' }
+        };
+
+        function paint(light) {
+            document.body.classList.toggle('light-mode', light);
+            if (!btn) return;
+            const lang = document.documentElement.lang === 'en' ? 'en' : 'fa';
+            const label = light ? COPY[lang].toDark : COPY[lang].toLight;
+            btn.setAttribute('aria-pressed', light ? 'true' : 'false');
+            btn.setAttribute('title', label);
+            btn.setAttribute('aria-label', light ? COPY.en.toDark : COPY.en.toLight);
+        }
+
+        paint(localStorage.getItem(KEY) === 'light');
+
+        if (btn) {
+            btn.addEventListener('click', function () {
+                const next = !document.body.classList.contains('light-mode');
+                localStorage.setItem(KEY, next ? 'light' : 'dark');
+                paint(next);
+            });
+        }
+
+        // Keep the tooltip in the active language when EN/فا is toggled.
+        new MutationObserver(function () {
+            paint(document.body.classList.contains('light-mode'));
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    })();
+
+    // ── Init ──
+    initChat();
+</script>

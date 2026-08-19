@@ -1,0 +1,169 @@
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class VisitorProfile(BaseModel):
+    """What the visitor said about their work — never who they are.
+
+    Registration collects a name and phone too; those deliberately do not
+    travel with chat messages, because nothing in the answer depends on them.
+    """
+    job: str = ""
+    position: str = ""
+    interests: str = ""
+
+
+class ChatRequest(BaseModel):
+    message: str
+    # UI language. "en" serves the English side of the bilingual knowledge base;
+    # anything else falls back to Persian, which is always populated.
+    lang: str = "fa"
+    # Present only for a registered visitor who filled the optional fields.
+    visitor: Optional[VisitorProfile] = None
+
+
+class ChatResponse(BaseModel):
+    type: str
+    text: str
+    video_url: Optional[str] = None
+    confidence: float
+    source: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    sec_answer: str
+
+
+class ToggleRequest(BaseModel):
+    enabled: bool
+
+
+class SynonymRequest(BaseModel):
+    source: str
+    target: str
+
+
+class ThemeActivateRequest(BaseModel):
+    name: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
+
+
+class ChangeSecurityQuestionRequest(BaseModel):
+    current_answer: str
+    new_question: str
+    new_answer: str
+
+
+class BackupScheduleRequest(BaseModel):
+    enabled: bool
+    interval_hours: int
+    time: str  # "HH:MM", used when interval >= 24h
+
+
+class AIConnectionRequest(BaseModel):
+    api_base: str = ""
+    api_key: str = ""          # empty = keep the currently stored key
+    model_chat: str = ""
+    model_classify: str = ""
+    model_stt: str = ""
+    feature_tts: bool = True
+    feature_stt: bool = True
+    search_backend: str = "tfidf"   # "tfidf" | "embedding" (local semantic)
+    default_lang: str = "fa"        # first-visit chat language: "fa" | "en"
+
+
+class AssistantContentRequest(BaseModel):
+    name: str
+    org: str
+    phone: str
+    website: str
+    knowledge: str
+    personality: str
+    tone: str
+    medical_safety: str
+    password: Optional[str] = None  # required only when medical_safety changes
+
+
+class SmsSettingsRequest(BaseModel):
+    """Registration/SMS settings.
+
+    `password` and `api_key` are write-only: an empty string means "keep what
+    is stored", so the panel never has to receive a secret back in order to
+    save the rest of the form. Both are encrypted before they are stored.
+
+    One field here = one row in `ASANAK_FIELDS` (app/services/sms.py) = one
+    input in templates/admin/settings_sms.html. That is the whole checklist
+    for adding a gateway field.
+    """
+    enabled: bool = False
+    provider: str = "asanak"
+    username: str = ""
+    password: str = ""
+    # Not used by Asanak's documented send path (username + password in the
+    # body is the only published scheme). Kept because an account may need it
+    # for another Asanak product.
+    api_key: str = ""
+    source: str = ""
+    # An approved template's id. A SERVICE line carries only approved content:
+    # with this set, the code is sent as a template parameter instead of free
+    # text — see send_asanak_template. Empty = plain sendsms.
+    template_id: str = ""
+    url: str = ""
+    status_url: str = ""
+    credit_url: str = ""
+    template_url: str = ""
+    trim: bool = True
+    # Asanak's own default is 1 (deliver to blacklisted numbers too).
+    send_to_blacklist: bool = True
+    sms_host: str = ""
+
+
+class SmsTestRequest(BaseModel):
+    destination: str
+
+
+class LogTruncateRequest(BaseModel):
+    """A destructive log deletion. Every field narrows what is removed.
+
+    `table` is accepted so an operator can clear one store, but the router
+    refuses "audit_logs" — the evidence of an administrator's own actions must
+    not be erasable from the screen that performs them.
+    """
+    category: str = ""
+    level: str = ""
+    table: str = ""
+    older_than_days: int = 0
+
+
+class LogSettingsRequest(BaseModel):
+    """Retention is three independent windows on purpose: lowering the
+    operational one must not shorten the audit or security trail."""
+    retention_days: int = 90
+    audit_retention_days: int = 365
+    security_retention_days: int = 365
+    debug_enabled: bool = False
+    min_level: str = "info"
+    # metadata | redacted | full — "full" persists conversation text and is an
+    # explicit, audited operator decision, never a default.
+    content_policy: str = "redacted"
+
+
+class ServiceActionRequest(BaseModel):
+    """`action` is matched against an allowlist dict server-side. It never
+    reaches a shell, a path or an attribute lookup — see service_control."""
+    action: str
+
+
+class SessionRevokeRequest(BaseModel):
+    """Sessions are revoked by the 8-char fingerprint the listing returns, not
+    by the full token, so a leaked listing cannot be replayed as a cookie."""
+    fingerprint: str = ""
+    all_others: bool = False

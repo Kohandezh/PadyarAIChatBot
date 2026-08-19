@@ -1,0 +1,278 @@
+from contextlib import asynccontextmanager
+import asyncio
+import os
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE
+from app.db.connection import init_db
+from app.services.search import load_dataset_internal
+from app.modules.registry import load_module_routers
+from app.routers import public
+
+
+async def _retention_loop():
+    """Enforce log retention every 6 hours.
+
+    A separate task rather than a cron entry so an install has no external
+    dependency. It never raises: a purge failure must not cancel the loop and
+    silently stop retention forever.
+    """
+    from app.services import applog
+    while True:
+        try:
+            await asyncio.sleep(6 * 3600)
+            applog.purge_expired()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.error("[retention] purge cycle failed: %s", type(e).__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+
+    # Logging comes up FIRST so anything that fails during the rest of startup
+    # has somewhere durable to be recorded. Guarded: a broken log store must
+    # never stop the chatbot from booting.
+    try:
+        from app.services import applog
+        applog.ensure_tables()
+        applog.purge_expired()
+        applog.service("service.started", "برنامه راه‌اندازی شد",
+                       target="padyar", outcome="ok",
+                       metadata={"modules": sorted(ENABLED_MODULES) or "all"})
+    except Exception as e:  # noqa: BLE001
+        logger.error("[applog] startup hook failed: %s", type(e).__name__)
+
+    logger.info("Loading dataset...")
+    load_dataset_internal()
+
+    # AI provider control plane: tables (SQLite path — PG owns its schema via
+    # migrations), bootstrap pricing, then the one-time legacy-config import.
+    # All guarded: the chatbot must boot even if the control plane stumbles.
+    try:
+        from app.services.ai import store as ai_store
+        from app.services.ai import legacy_import
+        ai_store.ensure_ai_tables()
+        ai_store.seed_bootstrap_pricing()
+        legacy_import.run_import(actor="system")
+    except Exception as e:  # noqa: BLE001
+        logger.error("[ai] control-plane startup hook failed: %s", type(e).__name__)
+
+    # Mount theme static directories
+    _mount_themes(app)
+
+    # Start the automatic-backup scheduler (honours the admin panel schedule)
+    from app.services.backup import scheduler_loop
+    backup_task = asyncio.create_task(scheduler_loop())
+    retention_task = asyncio.create_task(_retention_loop())
+
+    yield
+
+    try:
+        from app.services import applog
+        applog.service("service.stopped", "برنامه متوقف شد", target="padyar")
+    except Exception:  # noqa: BLE001
+        pass
+
+    backup_task.cancel()
+    retention_task.cancel()
+
+
+def _mount_themes(app: FastAPI):
+    """Discover and mount static directories for each theme."""
+    try:
+        from app.services.themes import discover_themes, THEMES_DIR
+        for theme in discover_themes():
+            theme_dir = os.path.join(THEMES_DIR, theme["name"])
+            route = f"/themes/{theme['name']}"
+            try:
+                app.mount(route, StaticFiles(directory=theme_dir), name=f"theme-{theme['name']}")
+                logger.info(f"Mounted theme assets: {route}")
+            except Exception as e:
+                logger.warning(f"Failed to mount theme '{theme['name']}': {e}")
+    except Exception as e:
+        logger.warning(f"Theme discovery failed: {e}")
+
+
+app = FastAPI(title="دستیار پادیار", lifespan=lifespan)
+
+# --- Middleware ---
+# allow_credentials=False makes the "*" origin safe: browsers refuse to expose
+# credentialed cross-origin responses, so no other site can read an admin's
+# session. The admin panel is same-origin (CORS does not apply to it), and the
+# public /chat endpoint is guarded separately by validate_request_origin against
+# ALLOWED_ORIGINS. "*" is kept so customers can embed the chat on their own site.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Paths that must never generate a log row. /static, /themes and /media are
+# high-volume asset traffic that would drown the store; /admin/api/logs is
+# excluded because browsing the log viewer would otherwise log the browsing —
+# a feedback loop that grows the table just by looking at it.
+_NO_API_LOG_PREFIXES = ("/static", "/themes", "/media", "/favicon",
+                        "/admin/api/logs")
+_ID_SAFE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+
+
+def _clean_id(value: str) -> str:
+    """An inbound correlation header is attacker-controlled. Whitelist it."""
+    return "".join(c for c in (value or "") if c in _ID_SAFE)[:64]
+
+
+@app.middleware("http")
+async def csrf_protection(request, call_next):
+    """Enforce CSRF on every admin mutation, in one place.
+
+    A middleware rather than a per-endpoint dependency: there are dozens of
+    admin mutations across several routers, and any new one added later would
+    silently be unprotected if this were opt-in. Here it is opt-OUT, and the
+    only opt-out is the login endpoint.
+    """
+    path = request.url.path
+    if (request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and (path.startswith("/admin/") or path.startswith("/secure-panel-inotex"))):
+        from app.auth.csrf import enforce
+        from fastapi.responses import JSONResponse
+        from fastapi import HTTPException as _HTTPException
+        try:
+            await enforce(request)
+        except _HTTPException as e:
+            return JSONResponse({"detail": e.detail}, status_code=e.status_code)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def request_correlation(request, call_next):
+    """Stamp every request with an id, then record one API row for it.
+
+    The id lives in a ContextVar (see app/services/applog.py), so code deeper
+    in the stack — retrieval, the LLM client, the SMS gateway — can attach it
+    to their own rows without every function signature growing a parameter.
+    That is what makes a single correlation id reconstruct a whole operation.
+
+    VOLUME DECISION: a 200 on a GET is the overwhelming majority of traffic and
+    the least interesting. So this records every response >= 400, plus every
+    non-GET (a POST changed something and is worth a row), and drops 2xx GETs.
+    An operator who wants them can raise the detail with the debug setting.
+    """
+    import time as _time
+    from app.services import applog
+
+    path = request.url.path
+    request_id = _clean_id(request.headers.get("X-Request-ID")) or applog.new_id()
+    correlation_id = _clean_id(request.headers.get("X-Correlation-ID")) or request_id
+    client_ip = request.client.host if request.client else ""
+    applog.set_request_context(request_id=request_id,
+                              correlation_id=correlation_id, ip=client_ip)
+
+    started = _time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # An unhandled exception is the single most important thing to capture.
+        applog.exception("api", "api.request.failed", exc,
+                         message=f"{request.method} {path}",
+                         route=path, http_method=request.method, http_status=500,
+                         duration_ms=int((_time.perf_counter() - started) * 1000),
+                         ip=client_ip,
+                         user_agent=request.headers.get("user-agent", ""),
+                         request_id=request_id, correlation_id=correlation_id)
+        raise
+
+    duration_ms = int((_time.perf_counter() - started) * 1000)
+    response.headers["X-Request-ID"] = request_id
+
+    if not path.startswith(_NO_API_LOG_PREFIXES):
+        status = response.status_code
+        interesting = status >= 400 or request.method != "GET"
+        if interesting:
+            level = "error" if status >= 500 else ("warning" if status >= 400 else "info")
+            applog.record("api",
+                          "api.request.failed" if status >= 400 else "api.request.completed",
+                          level=level,
+                          message=f"{request.method} {path} -> {status}",
+                          route=path, http_method=request.method, http_status=status,
+                          duration_ms=duration_ms, ip=client_ip,
+                          user_agent=request.headers.get("user-agent", ""),
+                          request_id=request_id, correlation_id=correlation_id,
+                          outcome="failed" if status >= 400 else "ok")
+    return response
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Baseline response hardening.
+
+    Deliberately conservative — every header here was chosen so it CANNOT
+    change what the app does:
+
+    * `X-Content-Type-Options: nosniff` — stops a browser guessing a response
+      is script when the server said it is not.
+    * `Referrer-Policy` — keeps the admin panel's URL (which contains the
+      obscured panel path) out of Referer headers sent to third parties.
+    * `X-Frame-Options` is applied to the ADMIN PANEL ONLY. The public chat is
+      meant to be embedded on a customer's own site (see the CORS note above),
+      so framing it must stay allowed; framing the admin panel is a
+      clickjacking vector with no legitimate use.
+    * `Cache-Control: no-store` on admin pages and admin APIs. Exhibition
+      machines are shared; an admin page sitting in the back/forward cache is
+      a real exposure. Public chat and static assets keep their caching.
+    * HSTS only when `COOKIE_SECURE=true` — the project's production marker.
+      Sending it over plain HTTP in dev would pin a browser to HTTPS for a
+      host that does not serve it.
+
+    No Content-Security-Policy is set here: the themes legitimately use inline
+    scripts and styles, so a policy strict enough to be worth having would
+    break the chat. Adding one properly means giving those blocks a nonce —
+    tracked in docs/engineering/DECISIONS.md rather than half-done.
+    """
+    response = await call_next(request)
+    path = request.url.path
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+
+    if path.startswith(("/secure-panel-inotex", "/admin/api")):
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Cache-Control", "no-store")
+
+    if COOKIE_SECURE:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
+    return response
+
+# --- Static Files ---
+app.mount("/LOGO", StaticFiles(directory="LOGO"), name="logo")
+app.mount("/data", StaticFiles(directory="data"), name="data")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+# Serve uploaded media (videos) locally. In production nginx serves /media
+# directly; this mount is the fallback so video URLs work in local/dev too.
+# The media dir is gitignored, so it may be absent on a fresh checkout —
+# StaticFiles raises RuntimeError at mount time if the directory is missing.
+os.makedirs(os.path.join(BASE_DIR, "media"), exist_ok=True)
+app.mount("/media", StaticFiles(directory="media"), name="media")
+
+# --- Include Routers ---
+# Public router always loaded (serves HTML pages + health check)
+app.include_router(public.router)
+
+# AI provider control plane — core admin surface, always loaded.
+from app.routers import admin_ai  # noqa: E402
+app.include_router(admin_ai.router)
+
+# Module routers — loaded based on ENABLED_MODULES config
+for module_name, router in load_module_routers(ENABLED_MODULES):
+    app.include_router(router)
+    logger.info(f"Registered router for module: {module_name}")

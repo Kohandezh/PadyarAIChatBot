@@ -1,0 +1,140 @@
+{
+  "dataset_version": "inotex-golden-1.0",
+  "knowledge_version": "inotex-kb-2026-08-14.1",
+  "backend": "tfidf",
+  "rerank_enabled": true,
+  "ranking_method": "baseline: served answer first, then the plain single-retriever ranking (TF-IDF cosine with --backend tfidf, dense argmax when the embedding backend is on but RETRIEVAL_RERANK is off); no reranking",
+  "ran_at": "2026-08-16T15:23:35",
+  "totals": {
+    "queries": 60,
+    "answerable": 42,
+    "recall_at_1": 0.762,
+    "recall_at_3": 0.857,
+    "mrr": 0.819,
+    "false_confident_unsupported": 0,
+    "false_confident_legacy": 0,
+    "false_confident_injection": 0,
+    "legacy_contamination_answers": 0,
+    "secret_leaks": 0,
+    "latency_ms_p50": 13.4,
+    "latency_ms_p95": 24.3
+  },
+  "per_category": {
+    "current_event_facts": {
+      "n": 10,
+      "correct": 8
+    },
+    "registration_and_venue": {
+      "n": 8,
+      "correct": 8
+    },
+    "programs": {
+      "n": 8,
+      "correct": 6
+    },
+    "persian_paraphrases": {
+      "n": 10,
+      "correct": 7
+    },
+    "english_queries": {
+      "n": 6,
+      "correct": 3
+    },
+    "unsupported": {
+      "n": 6,
+      "correct": 6
+    },
+    "legacy_contamination": {
+      "n": 6,
+      "correct": 6,
+      "redirected": 2
+    },
+    "prompt_injection": {
+      "n": 6,
+      "correct": 6
+    }
+  },
+  "failures": [
+    {
+      "q": "چندمین دورهٔ اینوتکس امسال برگزار می‌شود؟",
+      "expected": [
+        "inotex-overview",
+        "inotex-date"
+      ],
+      "got": "inotex-venue",
+      "score": 0.33
+    },
+    {
+      "q": "چند شرکت در اینوتکس شرکت می‌کنند؟",
+      "expected": [
+        "inotex-stats"
+      ],
+      "got": "inotex-exhibitors",
+      "score": 0.343
+    },
+    {
+      "q": "چه برنامه‌هایی در اینوتکس هست؟",
+      "expected": [
+        "inotex-programs"
+      ],
+      "got": "inotex-app",
+      "score": 0.343
+    },
+    {
+      "q": "ریورس پیچ یعنی چه؟",
+      "expected": [
+        "inotex-programs"
+      ],
+      "got": "inotex-pitch",
+      "score": 0.966
+    },
+    {
+      "q": "استارتاپ ما میتونه شرکت کنه؟",
+      "expected": [
+        "inotex-exhibitors"
+      ],
+      "got": "inotex-pitch",
+      "score": 0.347
+    },
+    {
+      "q": "چند نفر میان بازدید؟",
+      "expected": [
+        "inotex-stats"
+      ],
+      "got": "inotex-hours",
+      "score": 0.28
+    },
+    {
+      "q": "برنامه هاش چیه امسال؟",
+      "expected": [
+        "inotex-programs"
+      ],
+      "got": "inotex-app",
+      "score": 0.28
+    },
+    {
+      "q": "When is INOTEX 2026 held?",
+      "expected": [
+        "inotex-date"
+      ],
+      "got": "inotex-news",
+      "score": 0.305
+    },
+    {
+      "q": "Where is the venue?",
+      "expected": [
+        "inotex-venue"
+      ],
+      "got": "inotex-app",
+      "score": 0.0
+    },
+    {
+      "q": "How many investors attend?",
+      "expected": [
+        "inotex-stats"
+      ],
+      "got": "inotex-app",
+      "score": 0.0
+    }
+  ]
+}

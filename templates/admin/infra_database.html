@@ -1,0 +1,112 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">پایگاه داده</h2>
+      <div class="text-muted mt-1">موتور تولید: PostgreSQL</div>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-outline-primary" id="btn-refresh-db">تازه‌سازی</button>
+    </div>
+  </div>
+</div>
+<div id="db-msg"></div>
+<div id="pg-warn" class="mt-3"></div>
+
+<div class="row row-cards mt-2">
+  {% for t in [('pg-version','نسخه'),('pg-database','نام پایگاه داده'),
+               ('pg-size','حجم'),('pg-migration','نسخهٔ اسکیما'),
+               ('pg-latency','تأخیر پاسخ')] %}
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card card-sm"><div class="card-body text-center">
+      <div class="h3 m-0" id="{{ t[0] }}" dir="ltr">—</div>
+      <div class="text-muted small mt-1">{{ t[1] }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<h3 class="mt-4 mb-2">اتصال‌ها</h3>
+<div class="row row-cards">
+  {% for t in [('pg-pool','استخر اتصال'),('pg-pool-available','اتصال آزاد'),
+               ('pg-pool-waiting','در صف انتظار'),('pg-conn-total','کل اتصال‌ها'),
+               ('pg-conn-active','پرس‌وجوی فعال'),('pg-idle-txn','تراکنش بی‌کار'),
+               ('pg-lock-waits','انتظار قفل'),('pg-longest','طولانی‌ترین پرس‌وجو')] %}
+  <div class="col-6 col-md-3 col-xl-2">
+    <div class="card card-sm"><div class="card-body text-center">
+      <div class="h3 m-0" id="{{ t[0] }}">—</div>
+      <div class="text-muted small mt-1">{{ t[1] }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row row-cards mt-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">اسکیماها</h3></div>
+      <div class="table-responsive">
+        <table class="table table-sm card-table">
+          <thead><tr><th>اسکیما</th><th>جدول</th><th>حجم</th></tr></thead>
+          <tbody id="pg-schemas"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">تنظیمات سرور</h3></div>
+      <div class="table-responsive" style="max-height:240px;overflow:auto">
+        <table class="table table-sm card-table">
+          <thead><tr><th>پارامتر</th><th>مقدار</th></tr></thead>
+          <tbody id="pg-settings"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header"><h3 class="card-title">آمار جدول‌ها</h3></div>
+  <div class="table-responsive">
+    <table class="table table-sm card-table">
+      <thead><tr><th>جدول</th><th>ردیف زنده</th><th>ردیف مرده</th><th>حجم</th>
+                 <th>آخرین autovacuum</th><th>آخرین analyze</th></tr></thead>
+      <tbody id="pg-tables"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title">آمار ایندکس‌ها</h3>
+    <div class="card-subtitle">کم‌استفاده‌ترین ابتدا — ایندکسی که هرگز اسکن نمی‌شود فقط هزینهٔ نوشتن دارد.</div>
+  </div>
+  <div class="table-responsive" style="max-height:300px;overflow:auto">
+    <table class="table table-sm card-table">
+      <thead><tr><th>جدول</th><th>ایندکس</th><th>تعداد اسکن</th><th>حجم</th></tr></thead>
+      <tbody id="pg-indexes"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">عملیات ایمن</h3></div>
+  <div class="card-body">
+    <div id="pg-actions" class="d-flex flex-wrap gap-2"></div>
+    <p class="text-muted small mt-3 mb-0">
+      اجرای دستور دلخواه روی پایگاه داده وجود ندارد و نخواهد داشت.
+      عملیات قفل‌کننده مانند <code dir="ltr">VACUUM FULL</code>،
+      <code dir="ltr">REINDEX</code> و <code dir="ltr">CLUSTER</code> عمداً ارائه نشده‌اند:
+      این‌ها جدول را قفل می‌کنند و چت‌بات را از کار می‌اندازند. پاک‌سازی معمول بر عهدهٔ
+      autovacuum است که همین حالا در حال اجراست.
+    </p>
+  </div>
+</div>
+
+<script type="module">
+  import { initInfraDatabase } from '/static/admin/js/infra_database.js';
+  initInfraDatabase();
+</script>
+{% endblock %}

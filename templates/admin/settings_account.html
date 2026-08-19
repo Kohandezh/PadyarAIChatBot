@@ -1,0 +1,84 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}اطلاعات کاربری{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">اطلاعات کاربری</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <!-- Change Password -->
+    <div class="col-md-6">
+        <div class="content-card h-100">
+            <div class="card-header">
+                <span><i class="fas fa-key me-2"></i>تغییر رمز عبور</span>
+            </div>
+            <div class="card-body">
+                <form id="change-password-form">
+                    <div class="mb-3">
+                        <label class="form-label">رمز عبور فعلی</label>
+                        <input type="password" id="current-password" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">رمز عبور جدید</label>
+                        <input type="password" id="new-password" class="form-control" required>
+                        <small class="text-muted">حداقل ۶ کاراکتر</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">تکرار رمز عبور جدید</label>
+                        <input type="password" id="confirm-password" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">تغییر رمز عبور</button>
+                    <div id="password-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Security Question -->
+    <div class="col-md-6">
+        <div class="content-card h-100">
+            <div class="card-header">
+                <span><i class="fas fa-shield-alt me-2"></i>تغییر سوال امنیتی</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">سوال امنیتی فعلی:</label>
+                    <p class="fw-bold text-primary" id="current-question">در حال بارگذاری...</p>
+                </div>
+                <form id="change-security-form">
+                    <div class="mb-3">
+                        <label class="form-label">پاسخ سوال فعلی</label>
+                        <input type="password" id="current-answer" class="form-control" dir="rtl" required>
+                        <small class="text-muted">ابتدا پاسخ سوال امنیتی فعلی خود را وارد کنید.</small>
+                    </div>
+                    <hr>
+                    <div class="mb-3">
+                        <label class="form-label">سوال امنیتی جدید</label>
+                        <input type="text" id="new-question" class="form-control" dir="rtl" required placeholder="مثلا: نام شهر محل تولد شما چیست؟">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">پاسخ جدید</label>
+                        <input type="password" id="new-answer" class="form-control" dir="rtl" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">تغییر سوال امنیتی</button>
+                    <div id="security-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initAccount } from '/static/admin/js/settings.js';
+    initAccount();
+</script>
+{% endblock %}

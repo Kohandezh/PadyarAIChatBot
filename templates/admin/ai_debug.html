@@ -1,0 +1,55 @@
+{% extends "admin/layout.html" %}
+{% block page_content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">اشکال‌زادی RAG و مسیریابی</h2>
+      <div class="text-muted mt-1">آخرین فراخوانی‌های هوش مصنوعی با تصویر مسیر: کدام سرویس‌دهنده، کدام مدل، چند تلاش و چند جابه‌جایی.</div>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-outline-primary" id="btn-refresh-debug">تازه‌سازی</button>
+    </div>
+  </div>
+</div>
+<div id="ai-debug-msg"></div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">تصویر مسیریابی هر فراخوانی</h3></div>
+  <div class="table-responsive">
+    <table class="table table-vw card-table">
+      <thead><tr>
+        <th>زمان</th><th>وظیفه</th><th>وضعیت</th><th>سرویس‌دهنده</th><th>مدل</th>
+        <th>اولویت فعلی</th><th>تلاش</th><th>جابه‌جایی</th><th>تأخیر (ms)</th><th>توکن</th>
+        <th>هزینه</th><th>کد خطا</th><th>request_id</th><th>متن خطای سرویس‌دهنده</th>
+      </tr></thead>
+      <tbody id="debug-body"><tr><td colspan="14" class="text-center text-muted py-4">—</td></tr></tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    «اولویت فعلی» از جدول مسیرها خوانده می‌شود و وضعیت <b>همین لحظه</b> است؛ اگر بعد از این فراخوانی ترتیب را عوض کرده باشید، با اولویت زمان اجرا یکی نیست.
+    «متن خطای سرویس‌دهنده» متنِ خودِ سرویس‌دهندهٔ بیرونی است و اعتبارنامه‌ها از آن پاک شده — اما محتوایش <b>ورودی نامعتمد</b> است و همیشه به‌صورت متن ساده نمایش داده می‌شود، هرگز به‌عنوان HTML اجرا نمی‌شود.
+    جزئیات کامل هر تلاش در «لاگ‌ها → هوش مصنوعی» با همان request_id ثبت شده است.
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">مراحل بازیابی محلی (RAG)</h3></div>
+  <div class="table-responsive">
+    <table class="table table-vw card-table">
+      <thead><tr>
+        <th>زمان</th><th>رویداد</th><th>شرح</th><th>مدت (ms)</th><th>شناسهٔ همبستگی</th>
+      </tr></thead>
+      <tbody id="retrieval-body"><tr><td colspan="5" class="text-center text-muted py-4">—</td></tr></tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    رویدادهای دستهٔ «جستجو و بازیابی» از انبار لاگ. اگر خالی است یعنی در بازهٔ نگهداری لاگ رویداد بازیابی‌ای ثبت نشده — نه اینکه بازیابی کار نکرده باشد.
+  </div>
+</div>
+{% endblock %}
+{% block page_js %}
+<script type="module">
+  import { initAIDebug } from '/static/admin/js/ai_debug.js';
+  initAIDebug();
+</script>
+{% endblock %}

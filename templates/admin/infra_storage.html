@@ -1,0 +1,134 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}فضای ذخیره‌سازی{% endblock %}
+
+{% block page_content %}
+<style>
+    .st-bar {
+        height: 1.5rem;
+        border-radius: .5rem;
+        overflow: hidden;
+        background: var(--tblr-border-color, #dadfe5);
+    }
+
+    .st-bar-fill {
+        height: 100%;
+        width: 0;
+        transition: width .4s ease;
+        background: var(--tblr-success, #2fb344);
+    }
+
+    .st-bar-fill.warning { background: var(--tblr-warning, #f76707); }
+    .st-bar-fill.critical { background: var(--tblr-danger, #d63939); }
+
+    .st-ltr {
+        direction: ltr;
+        display: inline-block;
+        unicode-bidi: isolate;
+    }
+
+    .st-swatch {
+        display: inline-block;
+        width: .75rem;
+        height: .75rem;
+        border-radius: .2rem;
+        background: var(--tblr-primary, #206bc4);
+        margin-left: .4rem;
+        vertical-align: middle;
+    }
+</style>
+
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">فضای ذخیره‌سازی</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-hdd me-2"></i>فضای دیسک سرور</span>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="st-refresh">
+                    <i class="fas fa-sync-alt ms-1"></i> تازه‌سازی
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold" id="st-state">در حال دریافت...</span>
+                    <span class="text-muted small" id="st-percent"></span>
+                </div>
+
+                <div class="st-bar mb-2">
+                    <div class="st-bar-fill" id="st-bar-fill"></div>
+                </div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4">
+                        <div class="text-muted small">فضای کل</div>
+                        <div class="fw-bold st-ltr" id="st-total">—</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-muted small">استفاده‌شده</div>
+                        <div class="fw-bold st-ltr" id="st-used">—</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-muted small">آزاد</div>
+                        <div class="fw-bold st-ltr" id="st-free">—</div>
+                    </div>
+                </div>
+
+                <p class="text-muted small mt-3 mb-0" id="st-thresholds"></p>
+                <div id="storage-msg" class="text-center fw-bold mt-2"></div>
+            </div>
+        </div>
+
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-folder-open me-2"></i>چه چیزی فضا گرفته است</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    فقط پوشه‌ها و فایل‌هایی که همین برنامه می‌سازد. این فهرست کل دیسک را
+                    توضیح نمی‌دهد — بقیهٔ فضا متعلق به سیستم‌عامل و برنامه‌های دیگر سرور است.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>مورد</th>
+                                <th>اندازه</th>
+                                <th>سهم از موارد فهرست‌شده</th>
+                            </tr>
+                        </thead>
+                        <tbody id="st-categories">
+                            <tr>
+                                <td colspan="3" class="text-muted text-center">⏳ در حال دریافت...</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td>جمع موارد بالا</td>
+                                <td class="st-ltr" id="st-tracked">—</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initInfraStorage } from '/static/admin/js/infra_storage.js';
+    initInfraStorage();
+</script>
+{% endblock %}

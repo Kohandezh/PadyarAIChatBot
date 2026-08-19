@@ -1,0 +1,248 @@
+import sqlite3
+import secrets
+import hashlib
+
+from app.config import logger
+
+
+def get_db_connection():
+    """The application connection.
+
+    Routes to PostgreSQL when DB_BACKEND=postgres (production). The SQLite
+    branch below is kept for the test suite and for rollback during the
+    transition — it is NOT the production source of truth any more.
+    """
+    from app.config import DB_BACKEND
+    if DB_BACKEND == "postgres":
+        from app.db import pg
+        return pg.connect()
+
+    from app.config import DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    # WAL = many readers + one writer at the same time (instead of locking the
+    # whole file). busy_timeout makes a blocked write wait up to 5s for the lock
+    # instead of instantly raising "database is locked". Both matter now that
+    # the DB is the only home for content and gunicorn runs 4 workers.
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA busy_timeout=5000')
+    conn.execute('PRAGMA synchronous=NORMAL')
+    return conn
+
+
+def ensure_dataset_columns(cursor) -> None:
+    """Add the bilingual and ordering columns to an older `dataset` table.
+
+    Installs created before the bilingual knowledge base have only
+    (id, title, text, video_url). Empty English columns are a valid state —
+    the chat falls back to Persian — so this is safe to run on every boot and
+    from the operator reset script.
+
+    `position` is the explicit display order for the public knowledge base.
+    It replaces `ORDER BY rowid`, which is a SQLite-only pseudo-column and
+    therefore 500'd on PostgreSQL. The backfill below reads `rowid` while it
+    is still available, which is exactly why this lives on the SQLite path —
+    the PostgreSQL side gets the same order from migration 0004, where it had
+    to be written out by hand because the source of truth was already gone.
+
+    SQLite-only helper: both callers pass a `sqlite3` cursor.
+    """
+    for column, ddl in (("title_en", "TEXT DEFAULT ''"),
+                        ("text_en", "TEXT DEFAULT ''"),
+                        ("position", "INTEGER")):
+        try:
+            cursor.execute(f"ALTER TABLE dataset ADD COLUMN {column} {ddl}")
+        except sqlite3.OperationalError:
+            pass  # column already present
+    # Spaced by 10 so an entry can later be slotted between two others without
+    # renumbering. Only fills gaps, so it never reorders an existing catalog.
+    try:
+        cursor.execute("UPDATE dataset SET position = rowid * 10"
+                       " WHERE position IS NULL")
+    except sqlite3.OperationalError:
+        pass
+
+
+def init_db():
+    from app.config import DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS chat_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        query TEXT,
+        response TEXT,
+        response_type TEXT,
+        source TEXT,
+        confidence REAL,
+        tokens INTEGER DEFAULT 0,
+        cost REAL DEFAULT 0.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    ''')
+
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('openai_enabled', 'true'))
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('active_theme', 'inotex'))
+    # Hybrid retrieval by default: the local multilingual embedding backend
+    # ranks semantically; TF-IDF stays the automatic safety net when the
+    # model is unavailable (see app/services/search.py).
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('search_backend', 'embedding'))
+    # The knowledge version travels with health/ready responses and logs so
+    # any answer can be traced back to the content release that produced it.
+    # Bump it whenever content/sources.json publishes a new verified state.
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('knowledge_version', 'inotex-kb-2026-08-14.1'))
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS synonyms (
+        source TEXT PRIMARY KEY,
+        target TEXT
+    )
+    ''')
+    cursor.execute('SELECT COUNT(*) as count FROM synonyms')
+    if cursor.fetchone()['count'] == 0:
+        # Useful INOTEX synonym expansions for a fresh install. Existing
+        # customer content is never touched: this seed only runs on an empty
+        # table. The canonical list lives in app.default_content.
+        from app.config import SEED_DEFAULT_CONTENT
+        if SEED_DEFAULT_CONTENT:
+            from app.default_content import seed_default_synonyms
+            seed_default_synonyms(cursor)
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS admins (
+        username TEXT PRIMARY KEY,
+        password_hash TEXT,
+        salt TEXT,
+        security_question TEXT,
+        security_answer_hash TEXT
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+        token TEXT PRIMARY KEY,
+        username TEXT,
+        expiry TIMESTAMP
+    )
+    ''')
+
+    # Migration: add username column to existing admin_sessions
+    try:
+        cursor.execute('SELECT username FROM admin_sessions LIMIT 1')
+    except sqlite3.OperationalError:
+        cursor.execute('ALTER TABLE admin_sessions ADD COLUMN username TEXT')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS dataset (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        text TEXT NOT NULL,
+        video_url TEXT DEFAULT '',
+        title_en TEXT DEFAULT '',
+        text_en TEXT DEFAULT '',
+        position INTEGER
+    )
+    ''')
+
+    ensure_dataset_columns(cursor)
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question TEXT NOT NULL,
+        dataset_id TEXT NOT NULL,
+        video_url TEXT DEFAULT '',
+        FOREIGN KEY (dataset_id) REFERENCES dataset(id) ON DELETE CASCADE
+    )
+    ''')
+
+    # New installations open with useful INOTEX answers. Existing customer
+    # content is never changed: the seed only runs when the table is empty.
+    from app.config import SEED_DEFAULT_CONTENT
+    if SEED_DEFAULT_CONTENT:
+        from app.default_content import seed_default_content
+        seed_default_content(cursor)
+
+    try:
+        cursor.execute('SELECT salt FROM admins LIMIT 1')
+    except sqlite3.OperationalError:
+        cursor.execute('ALTER TABLE admins ADD COLUMN salt TEXT')
+
+    _seed_admin(cursor)
+
+    conn.commit()
+    conn.close()
+
+
+def _seed_admin(cursor):
+    """Create the first admin account on a brand-new install.
+
+    No hardcoded password: credentials come from the env (ADMIN_USERNAME /
+    ADMIN_PASSWORD / ADMIN_SECURITY_ANSWER). Anything left empty is randomly
+    generated and written to ADMIN_CREDENTIALS.txt so the operator can log in
+    and change it. If an admin already exists this is a no-op, so existing
+    installs are never touched."""
+    from app.config import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECURITY_ANSWER
+    from app.auth.security import hash_password
+
+    password = ADMIN_PASSWORD or secrets.token_urlsafe(12)
+    answer = ADMIN_SECURITY_ANSWER or secrets.token_urlsafe(6)
+    pwd_hash = hash_password(password)
+    ans_hash = hashlib.sha256(answer.encode()).hexdigest()
+
+    # INSERT OR IGNORE (username is PRIMARY KEY) — race-safe across gunicorn
+    # workers; rowcount is 1 only for the worker that actually created the row.
+    cursor.execute(
+        'INSERT OR IGNORE INTO admins (username, password_hash, salt, security_question, security_answer_hash) '
+        'VALUES (?, ?, ?, ?, ?)',
+        (ADMIN_USERNAME, pwd_hash, '', 'What is your favorite color?', ans_hash)
+    )
+    # Only reveal the generated secrets if we created the account AND they were
+    # auto-generated (not supplied via env).
+    if cursor.rowcount == 1 and (not ADMIN_PASSWORD or not ADMIN_SECURITY_ANSWER):
+        _write_admin_credentials(ADMIN_USERNAME, password, answer)
+
+
+def _write_admin_credentials(username, password, answer):
+    """Write the generated login beside the database it belongs to.
+
+    Deliberately NOT BASE_DIR: the test suite points DB_PATH at a throwaway
+    database, seeds an admin into it, and would otherwise overwrite the real
+    installation's ADMIN_CREDENTIALS.txt with the password of a temp database
+    that is deleted seconds later — locking the operator out of their own
+    panel. Keying the file to the database keeps a real install's file exactly
+    where it has always been (next to chat_history.db in the project root)
+    while a throwaway database writes a throwaway file next to itself.
+    """
+    import os
+    from app.config import DB_PATH
+    folder = os.path.dirname(os.path.abspath(DB_PATH)) or "."
+    path = os.path.join(folder, "ADMIN_CREDENTIALS.txt")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(
+                "INOTEX Chatbot — auto-generated admin login\n"
+                "===========================================\n"
+                f"Username:         {username}\n"
+                f"Password:         {password}\n"
+                f"Security answer:  {answer}\n\n"
+                "IMPORTANT: log in, change these in the admin panel, then delete this file.\n"
+            )
+        logger.warning("Admin credentials generated → %s (change them, then delete the file)", path)
+    except OSError as e:
+        # If the file can't be written, surface BOTH credentials in the logs —
+        # the security answer is needed for password reset, so losing it locks
+        # the admin out of recovery.
+        logger.warning(
+            "Admin credentials generated (file write failed: %s) — password: %s, security answer: %s",
+            e, password, answer,
+        )

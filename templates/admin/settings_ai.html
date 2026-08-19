@@ -1,0 +1,189 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}محتوای دستیار هوشمند{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">محتوای دستیار هوشمند</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<!-- Assistant Content -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-robot me-2"></i>محتوای دستیار هوشمند</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    وقتی دستیار از هوش مصنوعی پاسخ می‌دهد، از این اطلاعات استفاده می‌کند.
+                    نام دستیار، نام سازمان و راه‌های تماس را وارد کنید و دانش تخصصی خود را بنویسید.
+                </p>
+                <form id="assistant-form">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">نام دستیار</label>
+                            <input type="text" id="assistant-name" class="form-control" dir="rtl" placeholder="مثلا: دستیار پادیار" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">نام سازمان</label>
+                            <input type="text" id="assistant-org" class="form-control" dir="rtl" placeholder="مثلا: نمایشگاه بین‌المللی نوآوری و فناوری" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">تلفن تماس</label>
+                            <input type="text" id="assistant-phone" class="form-control" dir="rtl" placeholder="مثلا: ۰۲۱۴۲۹۱۷۰۰۰">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">وب‌سایت</label>
+                            <input type="text" id="assistant-website" class="form-control" dir="ltr" placeholder="مثلا: www.example.com">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">شخصیت و نقش دستیار</label>
+                            <textarea id="assistant-personality" class="form-control" dir="rtl" rows="5" placeholder="دستیار کیست و چه کاری انجام می‌دهد..."></textarea>
+                            <small class="text-muted">نقش، هویت و محدوده‌ی کاری دستیار را توصیف می‌کند.</small>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">لحن گفتار</label>
+                            <div id="tone-options" class="d-flex flex-wrap gap-2"></div>
+                            <small class="text-muted d-block mt-1">یکی را انتخاب کنید؛ دستیار با همین لحن پاسخ می‌دهد.</small>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">خط‌قرمزها و محدودیت‌ها</label>
+                            <textarea id="assistant-medical" class="form-control" dir="rtl" rows="5" placeholder="قوانینی که دستیار برای ایمنی باید رعایت کند..."></textarea>
+                            <div class="mt-2">
+                                <small class="text-muted d-block mb-1">افزودن قانون آماده:</small>
+                                <div id="medical-presets" class="d-flex flex-wrap gap-2"></div>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">دانش و اطلاعات تخصصی</label>
+                            <textarea id="assistant-knowledge" class="form-control" dir="rtl" rows="12" placeholder="آدرس، ساعت کاری، خدمات، و هر دانش تخصصی که دستیار باید بداند..."></textarea>
+                            <small class="text-muted">این متن همان‌طور که هست در اختیار دستیار قرار می‌گیرد. هرچه دقیق‌تر، پاسخ‌ها بهتر.</small>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-3">ذخیره محتوای دستیار</button>
+                    <div id="assistant-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-plug me-2"></i>اتصال هوش مصنوعی</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    آدرس سرویس و کلید اختصاصی خودتان را وارد کنید — با هر سرویس سازگار با
+                    OpenAI کار می‌کند (سکوی ملی هوش مصنوعی، سرور داخلی سازمان و…).
+                    کلید فقط روی همین سرور نگهداری می‌شود.
+                </p>
+                <form id="ai-conn-form">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">آدرس سرویس (Base URL)</label>
+                            <input type="text" id="ai-conn-base" class="form-control" dir="ltr"
+                                placeholder="https://...">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">کلید API</label>
+                            <input type="password" id="ai-conn-key" class="form-control" dir="ltr"
+                                autocomplete="new-password" placeholder="برای نگه‌داشتن کلید فعلی خالی بگذارید">
+                            <small class="text-muted" id="ai-conn-key-state"></small>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">مدل گفتگو</label>
+                            <input type="text" id="ai-conn-model-chat" class="form-control" dir="ltr"
+                                placeholder="gpt-4.1">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">مدل دسته‌بندی</label>
+                            <input type="text" id="ai-conn-model-classify" class="form-control" dir="ltr"
+                                placeholder="gpt-5-nano">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">مدل تبدیل گفتار به متن</label>
+                            <input type="text" id="ai-conn-model-stt" class="form-control" dir="ltr"
+                                placeholder="whisper-1">
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="ai-conn-stt">
+                                <label class="form-check-label" for="ai-conn-stt">تایپ صوتی (گفتار به متن)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="ai-conn-tts">
+                                <label class="form-check-label" for="ai-conn-tts">خواندن صوتی پاسخ‌ها</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">زبان پیش‌فرض گفتگو</label>
+                            <select id="ai-conn-lang" class="form-select">
+                                <option value="fa">فارسی</option>
+                                <option value="en">English</option>
+                            </select>
+                            <small class="text-muted">
+                                زبانی که بازدیدکننده در اولین ورود می‌بیند؛ انتخاب خود بازدیدکننده همیشه مقدم است.
+                            </small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">موتور جست‌وجوی پاسخ</label>
+                            <select id="ai-conn-search" class="form-select">
+                                <option value="tfidf">استاندارد (TF-IDF)</option>
+                                <option value="embedding">معنایی — مدل محلی روی همین سرور</option>
+                            </select>
+                            <small class="text-muted" id="ai-conn-search-note">
+                                موتور معنایی، پرسش‌های هم‌معنا را حتی با کلمات متفاوت پیدا می‌کند و
+                                کاملاً روی همین سرور اجرا می‌شود. اولین فعال‌سازی، مدل را یک‌بار دانلود می‌کند.
+                            </small>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-2">ذخیره اتصال</button>
+                    <div id="ai-conn-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Medical-safety change confirmation -->
+<div class="modal fade" id="medicalConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-lock me-2"></i>تأیید تغییر خط‌قرمزها و محدودیت‌ها</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">
+                    تغییر «خط‌قرمزها و محدودیت‌ها» حساس است و می‌تواند رفتار ایمنی دستیار را تغییر دهد.
+                    برای اعمال تغییرات، رمز عبور مدیر را وارد کنید.
+                </p>
+                <input type="password" id="medical-confirm-password" class="form-control" dir="ltr" placeholder="رمز عبور مدیر" autocomplete="current-password">
+                <div id="medical-confirm-msg" class="text-danger small mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-primary" id="medical-confirm-btn">تأیید و ذخیره</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initAi } from '/static/admin/js/settings.js';
+    initAi();
+</script>
+{% endblock %}

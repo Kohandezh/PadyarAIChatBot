@@ -1,0 +1,215 @@
+/* ==========================================================================
+   Admin theme — Tabler UI bridge
+   Tabler (static/vendor/tabler) provides the look for all standard Bootstrap
+   markup (buttons, forms, tables, modals, cards). This file only:
+     1. Applies the Vazirmatn Persian font to Tabler.
+     2. Binds the brand color to Tabler's primary.
+     3. Styles the dark sidebar and the few legacy class names the page
+        templates still use (.content-card, .topbar, .stat-card, ...).
+   ========================================================================== */
+
+:root {
+    /* Make Tabler use the brand color everywhere it uses --tblr-primary.
+       NOTE: --tblr-primary-rgb is the RGB form of the default #4e73df and is
+       used by Tabler for translucent states (focus rings, active backgrounds).
+       If --primary-color changes in variables.css, update this RGB triplet to
+       match — it can't reference var(--primary-color) (rgba() needs raw R,G,B). */
+    --tblr-primary: var(--primary-color);
+    --tblr-primary-rgb: 78, 115, 223;
+    /* Persian font for the whole admin */
+    --tblr-font-sans-serif: 'Vazirmatn', -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+    font-family: 'Vazirmatn', sans-serif;
+}
+
+/* --- Sidebar (dark) ---------------------------------------------------- */
+.navbar-vertical.navbar {
+    background-color: var(--dark-sidebar);
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.navbar-vertical .navbar-brand {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #fff;
+    padding: 1.1rem 0;
+    justify-content: center;
+    width: 100%;
+}
+
+.navbar-vertical .navbar-nav .nav-link {
+    color: rgba(255, 255, 255, 0.72);
+    border-radius: 8px;
+    margin: 2px 8px;
+    padding: 0.6rem 0.85rem;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.navbar-vertical .navbar-nav .nav-link:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.navbar-vertical .navbar-nav .nav-item.active > .nav-link,
+.navbar-vertical .navbar-nav .nav-link.active {
+    color: #fff;
+    background-color: var(--primary-color);
+}
+
+.navbar-vertical .nav-link-icon {
+    width: 1.4rem;
+    text-align: center;
+    opacity: .9;
+}
+
+.navbar-vertical .nav-link-icon i {
+    font-size: 1rem;
+}
+
+/* Settings flyout items */
+.navbar-vertical .dropdown-menu {
+    background-color: rgba(0, 0, 0, 0.18);
+    border: none;
+    padding: 2px 0;
+    margin: 0 8px;
+    border-radius: 8px;
+}
+
+.navbar-vertical .dropdown-menu .dropdown-item {
+    color: rgba(255, 255, 255, 0.7);
+    border-radius: 6px;
+    padding: 0.5rem 1.4rem;
+}
+
+.navbar-vertical .dropdown-menu .dropdown-item:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.navbar-vertical .dropdown-menu .dropdown-item.active {
+    color: #fff;
+    background-color: var(--primary-color);
+}
+
+/* --- Page header strip used by each page (.topbar) -------------------- */
+.topbar {
+    background: var(--tblr-card-bg, #fff);
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    border: 1px solid var(--tblr-border-color, #e6e7e9);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.topbar h5 {
+    font-weight: 700;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    background: var(--primary-color);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+/* --- Cards (legacy .content-card → Tabler card look) ------------------ */
+.content-card {
+    background: var(--tblr-card-bg, #fff);
+    border: 1px solid var(--tblr-border-color, #e6e7e9);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    margin-bottom: 1.5rem;
+}
+
+/* Descendant (not direct-child) selectors so the styles still apply when a
+   legacy template wraps the header/body in a <form> or other element. */
+.content-card .card-header {
+    background: transparent;
+    border-bottom: 1px solid var(--tblr-border-color, #e6e7e9);
+    padding: 1rem 1.25rem;
+    font-weight: 700;
+    color: var(--tblr-body-color, #1e293b);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.content-card .card-body {
+    padding: 1.25rem;
+}
+
+/* --- Stat cards (dashboard) ------------------------------------------- */
+.stat-card {
+    background: var(--tblr-card-bg, #fff);
+    border: 1px solid var(--tblr-border-color, #e6e7e9);
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    border-right: 4px solid var(--primary-color);
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.stat-card.success { border-right-color: var(--success-color); }
+.stat-card.info    { border-right-color: var(--info-color); }
+.stat-card.warning { border-right-color: var(--warning-color); }
+
+.stat-info h6 {
+    color: var(--secondary-color);
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.stat-info h3 {
+    color: var(--tblr-body-color, #1e293b);
+    font-weight: 700;
+    margin: 0;
+}
+
+.stat-icon {
+    font-size: 1.9rem;
+    color: var(--tblr-border-color, #d7dae0);
+}
+
+/* --- Toggle switches a touch larger -------------------------------- */
+.form-switch .form-check-input {
+    cursor: pointer;
+}
+
+/* --- Tone preset selector (assistant settings) --------------------- */
+.tone-btn {
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    background: transparent;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tone-btn:hover {
+    background: var(--primary-color);
+    color: #fff;
+    opacity: 0.9;
+}
+
+.tone-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+}

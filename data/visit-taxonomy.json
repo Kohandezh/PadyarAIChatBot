@@ -1,0 +1,539 @@
+{
+  "_readme": [
+    "PLACEHOLDER — awaiting the client's own file. Everything the registration",
+    "form offers and everything the visit planner matches against lives HERE,",
+    "not in code. Replacing this file replaces the taxonomy; no Python, JS or",
+    "CSS changes are needed, and no restart (the loader watches the mtime).",
+    "",
+    "Contract (app/services/taxonomy.py validates it and refuses a broken file",
+    "rather than shipping a half-loaded one):",
+    "  jobs[]      {id, fa, en}                    -> the شغل dropdown",
+    "  positions[] {id, fa, en}               -> the سمت dropdown (optional;",
+    "                                            omit it and سمت becomes free text)",
+    "  interests[] {id, fa, en, keywords?}         -> the searchable multi-select",
+    "  flags[]     {id, fa, en}                    -> the checkboxes",
+    "  sections[]  {id, fa, en, keywords, why_fa, why_en} -> what gets recommended",
+    "  fallback_ids[]                              -> shown when nothing matches",
+    "",
+    "`keywords` on an interest is optional: it widens matching for a label whose",
+    "wording differs from the section's (IOT -> اینترنت اشیا). Visitors may add",
+    "their own interests; those are free text and match on their own words."
+  ],
+  "version": "0.1-placeholder",
+  "status": "placeholder",
+  "updated": "2026-08-16",
+  "jobs": [
+    {
+      "id": "school-student",
+      "fa": "دانش‌آموز",
+      "en": "School student"
+    },
+    {
+      "id": "university-student",
+      "fa": "دانشجو",
+      "en": "University student"
+    },
+    {
+      "id": "researcher",
+      "fa": "پژوهشگر / هیئت علمی",
+      "en": "Researcher / faculty"
+    },
+    {
+      "id": "employee",
+      "fa": "کارمند",
+      "en": "Employee"
+    },
+    {
+      "id": "engineer",
+      "fa": "مهندس / متخصص فنی",
+      "en": "Engineer / technical specialist"
+    },
+    {
+      "id": "founder",
+      "fa": "بنیان‌گذار استارتاپ",
+      "en": "Startup founder"
+    },
+    {
+      "id": "manager",
+      "fa": "مدیر",
+      "en": "Manager"
+    },
+    {
+      "id": "ceo",
+      "fa": "مدیرعامل",
+      "en": "CEO"
+    },
+    {
+      "id": "investor",
+      "fa": "سرمایه‌گذار",
+      "en": "Investor"
+    },
+    {
+      "id": "consultant",
+      "fa": "مشاور",
+      "en": "Consultant"
+    },
+    {
+      "id": "journalist",
+      "fa": "خبرنگار / رسانه",
+      "en": "Journalist / media"
+    },
+    {
+      "id": "government",
+      "fa": "بخش دولتی / حاکمیتی",
+      "en": "Government / public sector"
+    },
+    {
+      "id": "freelancer",
+      "fa": "فریلنسر",
+      "en": "Freelancer"
+    },
+    {
+      "id": "jobseeker",
+      "fa": "کارجو",
+      "en": "Job seeker"
+    },
+    {
+      "id": "other",
+      "fa": "سایر",
+      "en": "Other"
+    }
+  ],
+  "positions": [
+    {
+      "id": "specialist",
+      "fa": "کارشناس",
+      "en": "Specialist"
+    },
+    {
+      "id": "senior-specialist",
+      "fa": "کارشناس ارشد",
+      "en": "Senior specialist"
+    },
+    {
+      "id": "supervisor",
+      "fa": "سرپرست",
+      "en": "Supervisor"
+    },
+    {
+      "id": "team-lead",
+      "fa": "مدیر تیم",
+      "en": "Team lead"
+    },
+    {
+      "id": "department-manager",
+      "fa": "مدیر بخش",
+      "en": "Department manager"
+    },
+    {
+      "id": "director",
+      "fa": "مدیر ارشد",
+      "en": "Director"
+    },
+    {
+      "id": "board-member",
+      "fa": "عضو هیئت‌مدیره",
+      "en": "Board member"
+    },
+    {
+      "id": "owner",
+      "fa": "مالک / بنیان‌گذار",
+      "en": "Owner / founder"
+    },
+    {
+      "id": "none",
+      "fa": "سمت سازمانی ندارم",
+      "en": "No organisational title"
+    }
+  ],
+  "interests": [
+    {
+      "id": "ai",
+      "fa": "هوش مصنوعی",
+      "en": "Artificial intelligence"
+    },
+    {
+      "id": "fintech",
+      "fa": "فین‌تک",
+      "en": "Fintech",
+      "keywords": [
+        "مالی",
+        "بانک"
+      ]
+    },
+    {
+      "id": "iot",
+      "fa": "اینترنت اشیا (IoT)",
+      "en": "Internet of Things (IoT)",
+      "keywords": [
+        "iot",
+        "اینترنت اشیا"
+      ]
+    },
+    {
+      "id": "internet",
+      "fa": "اینترنت و زیرساخت",
+      "en": "Internet and infrastructure"
+    },
+    {
+      "id": "website",
+      "fa": "وب‌سایت و توسعهٔ وب",
+      "en": "Websites and web development"
+    },
+    {
+      "id": "digital-marketing",
+      "fa": "دیجیتال مارکتینگ",
+      "en": "Digital marketing",
+      "keywords": [
+        "مارکتینگ",
+        "بازاریابی"
+      ]
+    },
+    {
+      "id": "blockchain",
+      "fa": "بلاکچین",
+      "en": "Blockchain"
+    },
+    {
+      "id": "robotics",
+      "fa": "رباتیک",
+      "en": "Robotics"
+    },
+    {
+      "id": "healthtech",
+      "fa": "سلامت دیجیتال",
+      "en": "Digital health"
+    },
+    {
+      "id": "energy",
+      "fa": "انرژی",
+      "en": "Energy"
+    },
+    {
+      "id": "agritech",
+      "fa": "کشاورزی و غذا",
+      "en": "Agriculture and food"
+    },
+    {
+      "id": "industry",
+      "fa": "صنعت و تولید",
+      "en": "Industry and manufacturing"
+    },
+    {
+      "id": "investment",
+      "fa": "سرمایه‌گذاری و جذب سرمایه",
+      "en": "Investment and fundraising"
+    },
+    {
+      "id": "startup",
+      "fa": "استارتاپ و کارآفرینی",
+      "en": "Startups and entrepreneurship"
+    },
+    {
+      "id": "policy",
+      "fa": "حکمرانی و قانون‌گذاری",
+      "en": "Governance and policy"
+    },
+    {
+      "id": "career",
+      "fa": "فرصت‌های شغلی",
+      "en": "Job opportunities"
+    },
+    {
+      "id": "media",
+      "fa": "رسانه و محتوا",
+      "en": "Media and content"
+    },
+    {
+      "id": "education",
+      "fa": "آموزش",
+      "en": "Education"
+    }
+  ],
+  "flags": [
+    {
+      "id": "ai-learning",
+      "fa": "به آموزش و یادگیری هوش مصنوعی علاقه دارم",
+      "en": "I'm interested in learning about AI"
+    }
+  ],
+  "fallback_ids": [
+    "inotex-stage",
+    "pioneers-festival"
+  ],
+  "sections": [
+    {
+      "id": "ai-iot-conference",
+      "fa": "همایش ملی هوش مصنوعی و اینترنت اشیا",
+      "en": "National AI & IoT Conference",
+      "keywords": [
+        "هوش مصنوعی",
+        "ai",
+        "یادگیری ماشین",
+        "ماشین لرنینگ",
+        "دیتا",
+        "داده",
+        "data",
+        "اینترنت اشیا",
+        "iot",
+        "رباتیک",
+        "robotics",
+        "الگوریتم",
+        "مدل زبانی",
+        "llm",
+        "بینایی ماشین",
+        "پردازش"
+      ],
+      "why_fa": "چون کار یا علاقهٔ شما به هوش مصنوعی و داده مربوط است.",
+      "why_en": "Because your work or interests involve AI and data."
+    },
+    {
+      "id": "capital-cafe",
+      "fa": "کافه سرمایه",
+      "en": "Capital Café",
+      "keywords": [
+        "سرمایه",
+        "سرمایه‌گذاری",
+        "invest",
+        "investment",
+        "فاندینگ",
+        "funding",
+        "vc",
+        "جذب سرمایه",
+        "مالی",
+        "فین‌تک",
+        "فینتک",
+        "fintech",
+        "بانک",
+        "بورس",
+        "finance"
+      ],
+      "why_fa": "چون به تأمین مالی و سرمایه‌گذاری علاقه‌مندید.",
+      "why_en": "Because you are interested in funding and investment."
+    },
+    {
+      "id": "investors-pavilion",
+      "fa": "پاویون سرمایه‌گذاران",
+      "en": "Investors Pavilion",
+      "keywords": [
+        "سرمایه‌گذار",
+        "investor",
+        "vc",
+        "شتابدهنده",
+        "شتاب‌دهنده",
+        "accelerator",
+        "صندوق",
+        "fund",
+        "اینوستور"
+      ],
+      "why_fa": "چون با سرمایه‌گذاران و صندوق‌ها سروکار دارید.",
+      "why_en": "Because you work with investors and funds."
+    },
+    {
+      "id": "pitch-battle",
+      "fa": "اینوتکس پیچ و بتل",
+      "en": "INOTEX Pitch & Battle",
+      "keywords": [
+        "استارتاپ",
+        "استارت‌آپ",
+        "startup",
+        "پیچ",
+        "pitch",
+        "ایده",
+        "کارآفرین",
+        "entrepreneur",
+        "بنیان‌گذار",
+        "founder",
+        "نوپا"
+      ],
+      "why_fa": "چون در فضای استارتاپی فعالید.",
+      "why_en": "Because you are active in the startup space."
+    },
+    {
+      "id": "crowdfunding",
+      "fa": "سکوی تأمین مالی جمعی",
+      "en": "Crowdfunding platform",
+      "keywords": [
+        "تأمین مالی جمعی",
+        "تامین مالی جمعی",
+        "کرادفاندینگ",
+        "crowdfunding",
+        "جمع‌سپاری"
+      ],
+      "why_fa": "چون به روش‌های تأمین مالی جمعی علاقه دارید.",
+      "why_en": "Because you are interested in collective funding."
+    },
+    {
+      "id": "reverse-pitch",
+      "fa": "ریورس پیچ (نیازهای فناورانهٔ صنایع)",
+      "en": "Reverse Pitch (industry technology needs)",
+      "keywords": [
+        "صنعت",
+        "صنایع",
+        "industry",
+        "تولید",
+        "manufacturing",
+        "کارخانه",
+        "نفت",
+        "پتروشیمی",
+        "خودرو",
+        "معدن",
+        "نیاز فناورانه",
+        "b2b"
+      ],
+      "why_fa": "چون در صنعت فعالید و نیازهای فناورانهٔ صنایع اینجا مطرح می‌شود.",
+      "why_en": "Because you work in industry, where technology needs are presented."
+    },
+    {
+      "id": "consultants-pavilion",
+      "fa": "پاویون مشاوران",
+      "en": "Consultants Pavilion",
+      "keywords": [
+        "مشاور",
+        "مشاوره",
+        "consult",
+        "حقوقی",
+        "legal",
+        "وکیل",
+        "مالیات",
+        "حسابداری",
+        "accounting",
+        "برند",
+        "مارکتینگ",
+        "marketing",
+        "بازاریابی"
+      ],
+      "why_fa": "چون به خدمات مشاوره‌ای مرتبط با کسب‌وکار نیاز دارید.",
+      "why_en": "Because business advisory services are relevant to you."
+    },
+    {
+      "id": "job-station",
+      "fa": "ایستگاه کار (فرصت‌های شغلی)",
+      "en": "Job Station",
+      "keywords": [
+        "شغل",
+        "استخدام",
+        "کارجو",
+        "دانشجو",
+        "student",
+        "job",
+        "hiring",
+        "منابع انسانی",
+        "hr",
+        "کارآموزی",
+        "intern",
+        "رزومه",
+        "career",
+        "دانش‌آموز"
+      ],
+      "why_fa": "چون به فرصت‌های شغلی و مسیر حرفه‌ای علاقه‌مندید.",
+      "why_en": "Because you are looking at jobs and career paths."
+    },
+    {
+      "id": "governance-forum",
+      "fa": "فروم حکمرانی و قانون‌گذاری",
+      "en": "Governance and Legislation Forum",
+      "keywords": [
+        "حکمرانی",
+        "قانون",
+        "مقررات",
+        "رگولاتور",
+        "policy",
+        "regulation",
+        "دولت",
+        "government",
+        "سیاست‌گذاری",
+        "مجوز"
+      ],
+      "why_fa": "چون سیاست‌گذاری و مقررات فناوری به کار شما مربوط است.",
+      "why_en": "Because technology policy and regulation touch your work."
+    },
+    {
+      "id": "inotex-stage",
+      "fa": "استیج اینوتکس",
+      "en": "INOTEX Stage",
+      "keywords": [
+        "سخنرانی",
+        "کارگاه",
+        "پنل",
+        "یادگیری",
+        "آموزش",
+        "talk",
+        "keynote",
+        "workshop",
+        "شبکه‌سازی",
+        "networking"
+      ],
+      "why_fa": "چون سخنرانی‌ها و گفتگوهای اصلی رویداد اینجا برگزار می‌شود.",
+      "why_en": "Because the event's main talks and conversations happen here."
+    },
+    {
+      "id": "pioneers-festival",
+      "fa": "جشنوارهٔ پیشگامان",
+      "en": "Pioneers Festival",
+      "keywords": [
+        "محصول",
+        "نوآوری",
+        "فناوری",
+        "product",
+        "innovation",
+        "technology",
+        "دانش‌بنیان",
+        "مخترع",
+        "پژوهش",
+        "research",
+        "بلاکچین",
+        "blockchain",
+        "وب۳",
+        "web3",
+        "رمزارز",
+        "کریپتو",
+        "crypto",
+        "قرارداد هوشمند",
+        "دیفای",
+        "defi",
+        "واقعیت مجازی",
+        "vr",
+        "ar",
+        "متاورس",
+        "metaverse",
+        "زیست فناوری",
+        "بیوتک",
+        "biotech",
+        "سلامت دیجیتال",
+        "healthtech",
+        "انرژی",
+        "energy",
+        "کشاورزی",
+        "agritech",
+        "فضا",
+        "space",
+        "وب سایت",
+        "وب‌سایت",
+        "website",
+        "web"
+      ],
+      "why_fa": "چون برترین محصولات و نوآوری‌های فناورانه اینجا معرفی می‌شوند.",
+      "why_en": "Because the top technology products and innovations are shown here."
+    },
+    {
+      "id": "media-hub",
+      "fa": "مدیا هاب",
+      "en": "Media Hub",
+      "keywords": [
+        "رسانه",
+        "خبرنگار",
+        "روزنامه",
+        "media",
+        "journalist",
+        "press",
+        "محتوا",
+        "content",
+        "روابط عمومی",
+        "pr"
+      ],
+      "why_fa": "چون در حوزهٔ رسانه و محتوا فعالید.",
+      "why_en": "Because you work in media and content."
+    }
+  ]
+}

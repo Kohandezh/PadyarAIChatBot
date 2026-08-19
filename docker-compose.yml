@@ -1,0 +1,20 @@
+services:
+  padyar:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Optional bootstrap values — everything here can also be configured
+      # from the admin panel (Settings → AI) after first boot.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - DB_PATH=/app/data/chat_history.db
+    volumes:
+      - padyar-data:/app/data
+      - padyar-media:/app/media
+    restart: unless-stopped
+
+volumes:
+  padyar-data:
+  padyar-media:

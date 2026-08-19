@@ -1,0 +1,98 @@
+{% extends "admin/layout.html" %}
+{% block page_content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">سرویس‌دهنده‌های هوش مصنوعی</h2>
+      <div class="text-muted mt-1">هر سرویس‌دهنده می‌تواند چند نمونهٔ مستقل داشته باشد (اصلی، پشتیبان، سازمانی…).</div>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary" id="btn-add-provider"><i class="fas fa-plus ms-1"></i>افزودن سرویس‌دهنده</button>
+    </div>
+  </div>
+</div>
+<div id="ai-msg"></div>
+
+<div class="card mt-3">
+  <div class="table-responsive">
+    <table class="table table-vw card-table">
+      <thead><tr>
+        <th>سرویس‌دهنده</th><th>نمونه</th><th>وضعیت</th><th>سلامت</th>
+        <th>مدل گفتگو</th><th>مدل دسته‌بندی</th><th>درخواست ۲۴س</th>
+        <th>نرخ خطا</th><th>مدار</th><th>آخرین موفقیت</th><th class="text-end">عملیات</th>
+      </tr></thead>
+      <tbody id="providers-body"><tr><td colspan="11" class="text-center text-muted py-4">در حال بارگذاری…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add/Edit modal -->
+<div class="modal fade" id="provider-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="provider-modal-title">افزودن سرویس‌دهنده</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="provider-form-msg"></div>
+        <div class="mb-3" id="fld-type">
+          <label class="form-label">نوع سرویس‌دهنده</label>
+          <select class="form-select" id="inp-type"></select>
+          <div class="form-text" id="type-note"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">نام نمونه</label>
+          <input class="form-control" id="inp-display-name" placeholder="مثلاً OpenAI اصلی">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">ردهٔ اعتماد نشانی</label>
+          <select class="form-select" id="inp-trust">
+            <option value="public">عمومی — فقط https و آدرس اینترنتی</option>
+            <option value="internal">درون‌سازمانی — شبکهٔ خصوصی و localhost مجاز</option>
+          </select>
+          <div class="form-text">نشانی داخلی فقط با ردهٔ «درون‌سازمانی» پذیرفته می‌شود؛ سرویس متادیتای ابری در هر دو حالت مسدود است.</div>
+        </div>
+        <div id="config-fields"></div>
+        <div class="mb-3">
+          <label class="form-label">کلید API</label>
+          <input class="form-control" id="inp-api-key" type="password" autocomplete="new-password"
+                 placeholder="فقط ذخیره می‌شود — هرگز نمایش داده نمی‌شود">
+          <div class="form-text" id="key-note">برای نمونه‌های جدید خالی نگذارید.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">یادداشت</label>
+          <textarea class="form-control" id="inp-notes" rows="2"></textarea>
+        </div>
+        <div class="alert alert-info">
+          نمونهٔ جدید <b>غیرفعال</b> ذخیره می‌شود و هیچ ترافیکی نمی‌گیرد.
+          ترتیب کار: ذخیره ← <b>آزمون اتصال</b> ← <b>فعال‌سازی</b> ←
+          افزودن به <a href="/secure-panel-inotex/ai/routing">مسیریابی</a>.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-bs-dismiss="modal">انصراف</button>
+        <button class="btn btn-primary" id="btn-save-provider">ذخیره</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Test result modal -->
+<div class="modal fade" id="test-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">نتیجهٔ آزمون اتصال</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="test-result" class="mb-2"></div>
+        <div id="test-detail" dir="auto" class="text-muted small"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block page_js %}
+<script type="module">
+  import { initAIProviders } from '/static/admin/js/ai_providers.js';
+  initAIProviders();
+</script>
+{% endblock %}

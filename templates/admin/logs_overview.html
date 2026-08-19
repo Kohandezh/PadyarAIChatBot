@@ -1,0 +1,90 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col"><h2 class="page-title">نمای کلی لاگ‌ها</h2></div>
+    <div class="col-auto">
+      <select id="window-days" class="form-select">
+        <option value="1" selected>۲۴ ساعت گذشته</option>
+        <option value="7">۷ روز گذشته</option>
+        <option value="30">۳۰ روز گذشته</option>
+        <option value="90">۹۰ روز گذشته</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div class="row row-cards mt-3">
+  {% for tile in [
+      ('t-total','کل رخدادها','secondary'), ('t-window','در این بازه','blue'),
+      ('t-errors','خطاها','red'), ('t-warnings','هشدارها','orange'),
+      ('t-auth-failed','رخدادهای امنیتی','red'), ('t-llm-failed','خطای هوش مصنوعی','red'),
+      ('t-sms-failed','خطای پیامک','red'), ('t-api-failed','خطای API','red'),
+      ('t-audit','رخدادهای حساس','azure'), ('t-security','کل امنیتی','azure') ] %}
+  <div class="col-6 col-md-3 col-xl-2">
+    <div class="card card-sm">
+      <div class="card-body text-center">
+        <div class="h1 m-0 text-{{ tile[2] }}" id="{{ tile[0] }}">—</div>
+        <div class="text-muted small mt-1">{{ tile[1] }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row row-cards mt-1">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <div class="row">
+          <div class="col-6"><div class="text-muted small">حجم ذخیره‌سازی</div><div id="t-storage">—</div></div>
+          <div class="col-6"><div class="text-muted small">قدیمی‌ترین رخداد</div><div id="t-oldest" dir="ltr">—</div></div>
+          <div class="col-6 mt-2"><div class="text-muted small">تازه‌ترین رخداد</div><div id="t-newest" dir="ltr">—</div></div>
+          <div class="col-6 mt-2"><div class="text-muted small">نگهداشت</div><div id="t-retention">—</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">رخدادها به تفکیک دسته</h3></div>
+      <div class="table-responsive" style="max-height:260px;overflow:auto">
+        <table class="table table-sm card-table">
+          <thead><tr><th>دسته</th><th>تعداد</th><th>خطا</th></tr></thead>
+          <tbody id="cat-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row row-cards mt-1">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">پرتکرارترین خطاها</h3></div>
+      <div class="table-responsive">
+        <table class="table table-sm card-table">
+          <thead><tr><th>رخداد</th><th>نوع خطا</th><th>دسته</th><th>تعداد</th></tr></thead>
+          <tbody id="err-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">سرویس‌دهنده‌های بیرونی</h3></div>
+      <div class="table-responsive">
+        <table class="table table-sm card-table">
+          <thead><tr><th>سرویس</th><th>فراخوانی</th><th>میانگین تأخیر</th><th>خطا</th><th>توکن</th></tr></thead>
+          <tbody id="prov-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { initLogsOverview } from '/static/admin/js/logs_overview.js';
+  initLogsOverview();
+</script>
+{% endblock %}

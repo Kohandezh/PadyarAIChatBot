@@ -1,0 +1,130 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">{{ page_title or 'لاگ‌ها' }}</h2>
+      <div class="text-muted mt-1">
+        مجموع نتایج: <strong id="logs-count">—</strong> · نمایش <span id="logs-range">—</span>
+      </div>
+    </div>
+    <div class="col-auto">
+      <button type="button" class="btn btn-outline-primary" id="btn-csv">خروجی CSV</button>
+      <button type="button" class="btn btn-outline-primary" id="btn-json">خروجی JSON</button>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body">
+    <form id="logs-filter" class="row g-2">
+      <div class="col-md-3">
+        <label class="form-label" for="f-q">جستجوی متنی</label>
+        <input type="text" id="f-q" class="form-control" placeholder="پیام، نام رخداد، عامل…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-category">دسته</label>
+        <select id="f-category" class="form-select">
+          <option value="">همه</option>
+          {% for slug, label in categories.items() %}
+          <option value="{{ slug }}" {% if slug == preset_category %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-level">سطح</label>
+        <select id="f-level" class="form-select">
+          <option value="">همه</option>
+          <option value="debug">اشکال‌زدایی</option>
+          <option value="info">اطلاع</option>
+          <option value="notice">توجه</option>
+          <option value="warning">هشدار</option>
+          <option value="error">خطا</option>
+          <option value="critical">بحرانی</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-since">از تاریخ</label>
+        <input type="date" id="f-since" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-until">تا تاریخ</label>
+        <input type="date" id="f-until" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-1 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">اعمال</button>
+      </div>
+
+      <div class="col-12"><hr class="my-2"></div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-actor">عامل</label>
+        <input type="text" id="f-actor" class="form-control">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-ip">نشانی IP</label>
+        <input type="text" id="f-ip" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-provider">سرویس‌دهنده</label>
+        <input type="text" id="f-provider" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-request_id">شناسه درخواست</label>
+        <input type="text" id="f-request_id" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-correlation_id">شناسه همبستگی</label>
+        <input type="text" id="f-correlation_id" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label" for="f-min_duration">حداقل مدت</label>
+        <input type="number" id="f-min_duration" class="form-control" dir="ltr" min="0">
+      </div>
+      <div class="col-md-1 d-flex align-items-end">
+        <button type="button" class="btn btn-outline-secondary w-100" id="btn-reset">پاک‌سازی</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table table-hover">
+      <thead>
+        <tr>
+          <th>زمان</th><th>سطح</th><th>دسته</th><th>رخداد</th>
+          <th>پیام</th><th>عامل</th><th>IP</th><th>مدت</th>
+        </tr>
+      </thead>
+      <tbody id="logs-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card-footer d-flex align-items-center">
+    <div class="d-flex align-items-center gap-2">
+      <label class="form-label mb-0" for="page-size">تعداد در صفحه</label>
+      <select id="page-size" class="form-select form-select-sm" style="width:auto">
+        <option value="25">۲۵</option>
+        <option value="50" selected>۵۰</option>
+        <option value="100">۱۰۰</option>
+        <option value="200">۲۰۰</option>
+      </select>
+    </div>
+    <div class="ms-auto">
+      <button class="btn btn-outline-secondary" id="btn-prev">قبلی</button>
+      <button class="btn btn-outline-secondary" id="btn-next">بعدی</button>
+    </div>
+  </div>
+</div>
+
+<div class="offcanvas offcanvas-start" tabindex="-1" id="detail-panel" style="width:520px">
+  <div class="offcanvas-header">
+    <h2 class="offcanvas-title">جزئیات رخداد</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="بستن"></button>
+  </div>
+  <div class="offcanvas-body" id="detail-body"></div>
+</div>
+
+<script type="module">
+  import { initLogs } from '/static/admin/js/logs.js';
+  initLogs();
+</script>
+{% endblock %}

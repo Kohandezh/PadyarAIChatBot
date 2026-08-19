@@ -1,0 +1,215 @@
+# Git baseline recorded before the AI Provider Control Plane phase
+# 2026-08-18T23:32:26Z
+
+## branch
+main-noor
+
+## status -sb (first line)
+## main-noor...origin/main-noor
+
+## porcelain counts
+ 103 ??
+  17 D
+  69 M
+   9 R
+   2 RM
+
+## diff --stat (tracked)
+ themes/liquid-glass/theme.json                     |   14 +-
+ themes/minimal/theme.json                          |    2 +-
+ 88 files changed, 5278 insertions(+), 2922 deletions(-)
+
+## full name-status (tracked)
+M	.claude/skills/e2e-test-gen/SKILL.md
+M	.claude/skills/playwright-cli/SKILL.md
+M	.claude/skills/playwright-cli/references/page-objects.md
+M	.claude/skills/playwright-cli/references/playwright-tests.md
+M	.claude/skills/playwright-cli/references/running-code.md
+M	.claude/skills/playwright-cli/references/session-management.md
+M	.claude/skills/playwright-cli/references/storage-state.md
+M	.claude/skills/playwright-cli/references/test-generation.md
+M	.claude/skills/playwright-cli/references/tracing.md
+M	.claude/skills/playwright-cli/references/video-recording.md
+M	.claude/skills/software-architecture/SKILL.md
+M	.env.example
+M	.github/workflows/ci.yml
+M	.gitignore
+M	AGENTS.md
+M	CLAUDE.md
+D	LOGO/noor.jpg
+M	README.md
+M	app/auth/security.py
+M	app/config.py
+M	app/db/connection.py
+M	app/db/queries.py
+M	app/main.py
+M	app/models.py
+M	app/modules/registry.py
+M	app/routers/admin.py
+M	app/routers/chat.py
+M	app/routers/dataset.py
+D	app/routers/media.py
+M	app/routers/public.py
+M	app/routers/voice.py
+M	app/services/backup.py
+D	app/services/media.py
+M	app/services/openai.py
+M	app/services/search.py
+M	app/services/themes.py
+M	app/utils/normalizer.py
+M	backup_db.py
+D	data/Videos/video5884379751304404063.mp4
+D	data/Videos/video5884379751304404068.mp4
+D	data/Videos/video5884379751304404069.mp4
+D	data/Videos/video5884379751304404070.mp4
+D	data/Videos/video5884379751304404071.mp4
+D	data/Videos/waiting/Waiting_2.mp4
+D	"data/Videos/\331\207\330\262\333\214\331\206\331\207\342\200\214\331\207\330\247\333\214 \331\204\333\214\330\262\333\214\332\251.mp4"
+D	docs/INTRODUCTION.md
+D	docs/VIDEO-SCRIPT-TECHNICAL.md
+M	docs/_other-product-padyar-ai/services-README.md
+M	docs/features/INDEX.md
+D	docs/how-it-answers.md
+D	migrate.sh
+M	requirements.txt
+M	scripts/capture_proposal_shots.py
+M	scripts/net-diag.py
+M	scripts/reset-admin-password.py
+M	setup.sh
+M	static/admin/js/auth.js
+M	static/admin/js/dashboard.js
+M	static/admin/js/dataset.js
+D	static/admin/js/media-picker.js
+D	static/admin/js/media.js
+M	static/admin/js/settings.js
+M	static/admin/js/utils.js
+M	static/chat/base.css
+M	static/chat/core.js
+M	templates/admin/base.html
+M	templates/admin/dashboard.html
+M	templates/admin/dataset.html
+M	templates/admin/layout.html
+M	templates/admin/login.html
+D	templates/admin/media.html
+M	templates/admin/settings_ai.html
+M	tests/conftest.py
+M	tests/test_dataset_sync.py
+M	themes/base/partials/footer.html
+M	themes/base/partials/head.html
+M	themes/base/partials/header.html
+M	themes/base/partials/index.html
+M	themes/base/partials/messages.html
+M	themes/base/partials/video.html
+M	themes/base/theme.json
+M	themes/liquid-glass/partials/footer.html
+M	themes/liquid-glass/partials/header.html
+M	themes/liquid-glass/partials/input.html
+M	themes/liquid-glass/partials/messages.html
+M	themes/liquid-glass/static/style.css
+M	themes/liquid-glass/theme.json
+M	themes/minimal/theme.json
+
+## untracked
+?? .claude/launch.json
+?? ASANAK-CREDENTIALS.env
+?? Dockerfile
+?? LOGO/rayen-logo.png
+?? app/auth/csrf.py
+?? app/db/pg.py
+?? app/db/timeutil.py
+?? app/default_content.py
+?? app/routers/backups.py
+?? app/routers/dbadmin.py
+?? app/routers/logs.py
+?? app/routers/ops.py
+?? app/routers/otp.py
+?? app/services/applog.py
+?? app/services/backup_center.py
+?? app/services/bm25.py
+?? app/services/dbadmin.py
+?? app/services/embeddings.py
+?? app/services/health.py
+?? app/services/intent.py
+?? app/services/maintenance.py
+?? app/services/otp.py
+?? app/services/pg_admin.py
+?? app/services/pg_backup.py
+?? app/services/providers.py
+?? app/services/rerank.py
+?? app/services/secure_store.py
+?? app/services/service_control.py
+?? app/services/sms.py
+?? app/services/storage.py
+?? app/services/taxonomy.py
+?? app/services/visit_plan.py
+?? content/
+?? data/eval/
+?? data/visit-taxonomy.json
+?? docker-compose.yml
+?? docs/ARCHITECTURE.md
+?? docs/_other-product-padyar-ai/README.md
+?? docs/engineering/
+?? docs/features/otp-verification/
+?? docs/features/targeted-visit/
+?? docs/knowledge-based-evidence/
+?? migrations/
+?? remaining.md
+?? scripts/export-otp-module.py
+?? scripts/make-handover-zip.py
+?? scripts/migrate_sqlite_to_postgres.py
+?? scripts/refresh-inotex-context.py
+?? scripts/reset-content-to-defaults.py
+?? scripts/run_eval.py
+?? scripts/smoke-live.py
+?? static/admin/js/infra_backups.js
+?? static/admin/js/infra_database.js
+?? static/admin/js/infra_storage.js
+?? static/admin/js/logs.js
+?? static/admin/js/logs_overview.js
+?? static/admin/js/logs_settings.js
+?? static/admin/js/ops_dashboard.js
+?? static/admin/js/ops_services.js
+?? static/admin/js/security_sessions.js
+?? static/admin/js/settings_sms.js
+?? static/admin/js/settings_taxonomy.js
+?? static/companion/
+?? static/otp/
+?? templates/admin/infra_backups.html
+?? templates/admin/infra_database.html
+?? templates/admin/infra_storage.html
+?? templates/admin/logs.html
+?? templates/admin/logs_overview.html
+?? templates/admin/logs_settings.html
+?? templates/admin/ops_dashboard.html
+?? templates/admin/ops_services.html
+?? templates/admin/security_sessions.html
+?? templates/admin/settings_sms.html
+?? templates/admin/settings_taxonomy.html
+?? templates/otp/
+?? tests/test_admin_credentials_file.py
+?? tests/test_admin_navigation.py
+?? tests/test_applog.py
+?? tests/test_backup_center.py
+?? tests/test_csrf.py
+?? tests/test_db_upgrade.py
+?? tests/test_dbadmin.py
+?? tests/test_default_seed.py
+?? tests/test_embedding_search.py
+?? tests/test_ops_control.py
+?? tests/test_otp.py
+?? tests/test_otp_input_autofill.py
+?? tests/test_pg_layer.py
+?? tests/test_pg_operations.py
+?? tests/test_profile_edit.py
+?? tests/test_public_ui.py
+?? tests/test_rerank_tiebreak.py
+?? tests/test_reset_script.py
+?? tests/test_security_headers.py
+?? tests/test_sms_asanak_delivery.py
+?? tests/test_sms_secure_storage.py
+?? tests/test_sms_settings.py
+?? tests/test_storage.py
+?? tests/test_taxonomy.py
+?? tests/test_taxonomy_admin.py
+?? tests/test_visit_plan.py
+?? themes/inotex/

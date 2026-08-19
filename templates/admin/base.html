@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}پنل مدیریت{% endblock %} | اینوتکس</title>
+
+    <!-- Fonts -->
+    <link href="/static/vendor/vazirmatn/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+
+    <!-- Tabler UI (built on Bootstrap 5, RTL) -->
+    <link rel="stylesheet" href="/static/vendor/tabler/css/tabler.rtl.min.css">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
+
+    <!-- Admin CSS -->
+    <link rel="stylesheet" href="/static/admin/css/variables.css">
+    <link rel="stylesheet" href="/static/admin/css/base.css">
+
+    {% block extra_css %}{% endblock %}
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    {% block content %}{% endblock %}
+
+    <!-- Bootstrap JS bundle — provides window.bootstrap used by the admin JS modules -->
+    <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+
+    {% block page_js %}{% endblock %}
+</body>
+
+</html>

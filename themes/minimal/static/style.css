@@ -1,0 +1,211 @@
+/* ── Minimal Theme — Clean flat design — Visual styles only ──
+   Structural layout is in /static/chat/base.css.
+*/
+
+
+/* ── Theme Variables ── */
+:root {
+    --primary-blue: #1a1a2e;
+    --primary-hover: #16213e;
+    --secondary-blue: #0f3460;
+    --accent-light: #eaf4ff;
+    --surface-bg: #16213e;
+    --subtle-bg: #1a1a2e;
+    --text-primary: #eaf4ff;
+    --text-secondary: #a0b4c8;
+    --border-color: #2a3a5c;
+    --success-green: #1f8a5b;
+    --warning-yellow: #d99a1a;
+    --error-red: #d64545;
+    --info-blue: #2b78c5;
+
+    --header-height: 4.775rem;
+    --tab-height: 3.125rem;
+    --input-area-height: 5rem;
+    --border-radius: 16px;
+    --font-family: "Vazirmatn", sans-serif;
+}
+
+
+/* ── Body ── */
+body {
+    font-family: var(--font-family);
+    background: linear-gradient(135deg, #0f0c29, #1a1a2e, #16213e);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+}
+
+
+/* ── Header ── */
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    height: var(--header-height);
+    background: var(--surface-bg);
+    border-bottom: 1px solid var(--border-color);
+    z-index: 10;
+}
+
+.logo-container { display: flex; align-items: center; gap: 0.75rem; }
+
+.the-logo img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; }
+
+.header-title { font-size: 1.1rem; font-weight: 700; color: #fff; }
+.header-subtitle { font-size: 0.75rem; color: var(--text-secondary); }
+
+
+/* ── Tab Switcher ── */
+.tab-switcher {
+    display: flex; gap: 4px;
+    background: var(--subtle-bg);
+    border-radius: 10px; padding: 3px;
+}
+
+.tab-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0.45rem 1rem; border: none; border-radius: 8px;
+    background: transparent; color: var(--text-secondary);
+    font-family: var(--font-family); font-size: 0.85rem;
+    cursor: pointer; transition: all 0.25s ease;
+}
+
+.tab-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+
+.tab-btn.active {
+    background: var(--secondary-blue); color: #fff;
+    box-shadow: 0 2px 8px rgba(15,52,96,0.4);
+}
+
+
+/* ── Accessibility ── */
+.a11y-hamburger {
+    width: 38px; height: 38px; border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg); color: var(--text-secondary);
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all 0.2s;
+}
+.a11y-hamburger:hover { color: #fff; border-color: var(--secondary-blue); }
+
+.a11y-dropdown {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px; padding: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.a11y-dropdown.open { display: flex; gap: 6px; }
+
+.a11y-btn {
+    width: 36px; height: 36px; border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--subtle-bg); color: var(--text-secondary);
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all 0.2s;
+}
+.a11y-btn:hover { color: #fff; background: var(--secondary-blue); }
+
+
+/* ── Messages ── */
+#chat-view-content { padding: 1rem; }
+
+.message { margin-bottom: 0.75rem; max-width: 85%; }
+
+.bubble {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 0.75rem 1rem; line-height: 1.7;
+    font-size: 0.95rem; color: var(--text-primary);
+    word-wrap: break-word;
+}
+
+.message.user .bubble {
+    background: var(--secondary-blue);
+    border-color: transparent; color: #fff;
+}
+
+.typing-indicator .dot {
+    background: var(--text-secondary);
+}
+
+.questions-list li {
+    padding: 0.5rem 0.75rem; margin-bottom: 4px;
+    border-radius: 8px; font-size: 0.9rem;
+}
+.questions-list li:hover { background: rgba(255,255,255,0.06); }
+
+.show-more-btn {
+    padding: 0.4rem 0.8rem; border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: transparent; color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+.show-more-btn:hover { color: #fff; background: var(--secondary-blue); }
+
+
+/* ── Video View ── */
+.avatar-container {
+    position: relative; width: 100%; height: 100%;
+    background: #000; transition: opacity 0.3s ease;
+}
+
+.action-btn {
+    padding: 0.55rem 1.2rem; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(26,26,46,0.85); color: #fff;
+    font-family: var(--font-family); font-size: 0.9rem;
+    cursor: pointer; transition: all 0.25s ease;
+    backdrop-filter: blur(4px);
+}
+.action-btn:hover { background: var(--secondary-blue); border-color: transparent; }
+
+
+/* ── Input Area ── */
+#input-area { max-width: 700px; margin: 0 auto; }
+
+.input-wrapper {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
+.input-wrapper:focus-within { border-color: var(--secondary-blue); }
+
+#user-input {
+    color: var(--text-primary); font-size: 0.95rem;
+}
+#user-input::placeholder { color: var(--text-secondary); }
+
+.mic-btn {
+    border-radius: 10px; border: none; background: transparent;
+    color: var(--text-secondary);
+}
+.mic-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
+.mic-btn.recording { color: var(--error-red); }
+
+#send-btn {
+    border-radius: 10px; border: none;
+    background: var(--secondary-blue); color: #fff;
+}
+#send-btn:hover { background: var(--primary-hover); }
+#send-btn.stop-mode { background: var(--error-red); }
+
+
+/* ── High Contrast Mode ── */
+body.high-contrast { background: #000; }
+body.high-contrast .bubble { background: #111; border-color: #555; color: #fff; }
+body.high-contrast .message.user .bubble { background: #1a3a5a; }
+body.high-contrast .input-wrapper { background: #111; border-color: #888; }
+body.high-contrast header { background: #111; border-color: #888; }
+body.high-contrast .action-btn { background: #222; border-color: #888; }
+
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+    header { padding: 0.5rem 0.75rem; }
+    .tab-btn span { display: none; }
+    .tab-btn { padding: 0.45rem 0.75rem; }
+    .message { max-width: 92%; }
+    .action-btn { padding: 0.45rem 0.8rem; font-size: 0.8rem; }
+}

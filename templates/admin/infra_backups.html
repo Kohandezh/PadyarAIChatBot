@@ -1,0 +1,168 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}پشتیبان‌گیری و بازگردانی{% endblock %}
+
+{% block page_content %}
+<style>
+    /* The confirmation phrase must be impossible to mistake for prose — an
+       operator has to copy it exactly, so it gets a box of its own. */
+    .confirm-phrase {
+        display: block;
+        direction: ltr;
+        text-align: left;
+        font-family: monospace;
+        font-size: 1rem;
+        background: var(--tblr-bg-surface-secondary, #f1f5f9);
+        border: 1px solid var(--tblr-border-color, #dadfe5);
+        border-radius: .4rem;
+        padding: .6rem .8rem;
+        margin: .5rem 0;
+        user-select: all;
+    }
+
+    .backup-id {
+        direction: ltr;
+        font-family: monospace;
+        font-size: .82rem;
+        white-space: nowrap;
+    }
+
+    .backup-files { line-height: 1.9; }
+</style>
+
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">پشتیبان‌گیری و بازگردانی</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+
+        <!-- What this page does + the automatic schedule -->
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-shield-alt me-2"></i>وضعیت پشتیبان‌گیری</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    هر نسخهٔ پشتیبان با <code dir="ltr">pg_dump --format=custom</code> از پستگرس گرفته می‌شود (نه کپی فایل پایگاه داده)، و با چک‌سام SHA-256 به‌همراه بررسی خوانا بودن آرشیو تأیید می‌گردد. پیش از هر بازگردانی یک «پشتیبان ایمنی» از وضعیت فعلی ساخته می‌شود. پشتیبان یک بستهٔ کامل است: هم اطلاعات اصلی (سوال‌ها، ویدیوها و
+                    تنظیمات) و هم گزارش‌ها و رخدادها، با هم و در یک لحظه. دکمهٔ «بررسی سلامت»
+                    واقعاً فایل‌ها را باز می‌کند و بررسی می‌کند که خراب نشده باشند — چون
+                    «گرفته شد» با «قابل استفاده است» یکی نیست.
+                </p>
+
+                <div class="d-flex flex-wrap gap-4 align-items-center mb-3">
+                    <span class="text-muted small">پشتیبان‌گیری خودکار:
+                        <b id="sched-enabled">—</b></span>
+                    <span class="text-muted small">هر: <b id="sched-interval">—</b></span>
+                    <span class="text-muted small">آخرین اجرا: <b id="sched-last">—</b></span>
+                    <span class="text-muted small">اجرای بعدی: <b id="sched-next">—</b></span>
+                    <a class="small" href="/secure-panel-inotex/settings/backup">تغییر زمان‌بندی</a>
+                </div>
+
+                <button type="button" class="btn btn-success" id="create-btn">
+                    <i class="fas fa-plus me-1"></i>گرفتن نسخهٔ پشتیبان جدید
+                </button>
+                <div id="backups-msg" class="text-center fw-bold mt-2"></div>
+            </div>
+        </div>
+
+        <!-- The list -->
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-box-archive me-2"></i>نسخه‌های پشتیبان</span>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>تاریخ</th>
+                                <th>شناسه</th>
+                                <th>حجم</th>
+                                <th>آرشیو</th>
+                                <th>وضعیت بررسی</th>
+                                <th class="text-end">عملیات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backups-body">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">در حال بارگذاری...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Restore confirmation -->
+<div class="modal fade" id="restoreModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">بازگردانی اطلاعات</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">
+                    اطلاعات فعلی برنامه با اطلاعات این نسخهٔ پشتیبان <b>جایگزین</b> می‌شود.
+                    هر چیزی که بعد از تاریخ این نسخه ثبت شده، از بین می‌رود.
+                </p>
+                <p class="text-muted small mb-3">
+                    پیش از جایگزینی، یک نسخهٔ ایمنی از وضعیت فعلی گرفته می‌شود تا در صورت
+                    نیاز بتوانید برگردید. پس از پایان کار، برنامه را یک‌بار راه‌اندازی مجدد کنید.
+                </p>
+                <p class="mb-1 small">برای ادامه، عبارت زیر را دقیقاً بنویسید:</p>
+                <code class="confirm-phrase" id="restore-phrase"></code>
+                <input type="text" class="form-control" id="restore-input" dir="ltr" autocomplete="off"
+                    placeholder="عبارت بالا را اینجا بنویسید">
+                <div id="restore-msg" class="text-center fw-bold mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-danger" id="restore-confirm-btn" disabled>
+                    بازگردانی کن
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirmation -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">حذف نسخهٔ پشتیبان</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">این نسخهٔ پشتیبان برای همیشه حذف می‌شود و قابل بازیابی نیست.</p>
+                <p class="mb-1 small">برای ادامه، عبارت زیر را دقیقاً بنویسید:</p>
+                <code class="confirm-phrase" id="delete-phrase"></code>
+                <input type="text" class="form-control" id="delete-input" dir="ltr" autocomplete="off"
+                    placeholder="عبارت بالا را اینجا بنویسید">
+                <div id="delete-msg" class="text-center fw-bold mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-danger" id="delete-confirm-btn" disabled>حذف کن</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initBackups } from '/static/admin/js/infra_backups.js';
+    initBackups();
+</script>
+{% endblock %}

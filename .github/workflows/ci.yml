@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main, main-noor]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Compile check
+        run: |
+          python -m py_compile app/main.py app/routers/chat.py app/services/openai.py
+
+      - name: Run test suite
+        run: pytest -q --ignore=tests/e2e
+
+  # Blocking. These assert properties that must never regress: the assistant
+  # must not answer confidently from the previous event's identity, must not
+  # echo a secret, and must not be talked into either by a prompt-injection
+  # question. run_eval.py exits non-zero when any of those gates trips.
+  #
+  # Runs after `test` so a plain broken build fails on the cheap job first.
+  evaluation:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Retrieval evaluation + safety gates
+        env:
+          # The harness is fully offline; a dummy key only satisfies import-time config.
+          OPENAI_API_KEY: ci-dummy-key
+          # Deterministic: never let CI seed content into a DB the harness then measures.
+          SEED_DEFAULT_CONTENT: "true"
+        run: python scripts/run_eval.py
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-eval
+          path: docs/knowledge-based-evidence/appendices/benchmark-results/retrieval-eval.json
+          if-no-files-found: warn
+
+  # Reporting, NOT blocking. An advisory can name a fix version that has not
+  # been published yet (see docs/engineering/DEPENDENCY_AUDIT.md — that is the
+  # live situation for `cryptography` right now), and a build that hard-fails
+  # on an unfixable finding is a build nobody can ship. A human reads this and
+  # decides whether the finding is reachable.
+  dependency-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit dependencies
+        run: pip-audit -r requirements.txt --progress-spinner off || true
+
+      - name: Audit dependencies (machine-readable)
+        run: pip-audit -r requirements.txt --progress-spinner off --format json --output pip-audit.json || true
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit
+          path: pip-audit.json
+          if-no-files-found: warn
+
+  # Cheap, blocking, and catches the class of mistake that actually happened on
+  # this project: a secret pasted into a tracked file.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if a real .env is committed
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is tracked by git — it must stay ignored."
+            exit 1
+          fi
+          echo ".env is not tracked — ok"
+
+      - name: Fail on obvious credential patterns in tracked files
+        run: |
+          # .env.example is allowed to show placeholder KEY= lines.
+          # Excludes: .env.example (placeholders), docs (documented examples),
+          # and this workflow itself (it contains the pattern by definition).
+          if git grep -nE '(sk-[A-Za-z0-9]{20,}|ASANAK_PASSWORD=[^[:space:]]+|ADMIN_PASSWORD=[^[:space:]]+)' \
+               -- . ':(exclude).env.example' ':(exclude)docs/**' \
+                    ':(exclude).github/workflows/**'; then
+            echo "::error::a credential-looking value is committed."
+            exit 1
+          fi
+          echo "no credential patterns found — ok"

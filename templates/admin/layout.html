@@ -1,0 +1,234 @@
+{% extends "admin/base.html" %}
+
+{% block content %}
+<div class="page">
+
+    <!-- Sidebar -->
+    <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark" id="adminSidebar">
+        <div class="container-fluid">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu"
+                aria-controls="sidebar-menu" aria-expanded="false" aria-label="نمایش منو">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <h1 class="navbar-brand navbar-brand-autodark m-0">
+                <i class="fas fa-robot ms-2"></i>
+                <span>دستیار اینوتکس</span>
+            </h1>
+
+            <div class="collapse navbar-collapse" id="sidebar-menu">
+                <ul class="navbar-nav pt-lg-3">
+                    <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex">
+                            <span class="nav-link-icon"><i class="fas fa-tachometer-alt"></i></span>
+                            <span class="nav-link-title">داشبورد</span>
+                        </a>
+                    </li>
+                    <li class="nav-item {% if active_page == 'dataset' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/manage-datasets">
+                            <span class="nav-link-icon"><i class="fas fa-database"></i></span>
+                            <span class="nav-link-title">مدیریت دیتاست</span>
+                        </a>
+                    </li>
+                    <li class="nav-item {% if active_page == 'questions' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/manage-questions">
+                            <span class="nav-link-icon"><i class="fas fa-question-circle"></i></span>
+                            <span class="nav-link-title">مدیریت سوالات</span>
+                        </a>
+                    </li>
+                    <li class="nav-item {% if active_page == 'synonyms' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/synonyms">
+                            <span class="nav-link-icon"><i class="fas fa-book"></i></span>
+                            <span class="nav-link-title">مدیریت مترادف‌ها</span>
+                        </a>
+                    </li>
+                    <li class="nav-item {% if active_page == 'themes' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/themes">
+                            <span class="nav-link-icon"><i class="fas fa-palette"></i></span>
+                            <span class="nav-link-title">مدیریت قالب‌ها</span>
+                        </a>
+                    </li>
+
+                    <li class="nav-item dropdown {% if active_page and active_page.startswith('ai_') %}active show{% endif %}">
+                        <a class="nav-link dropdown-toggle" href="#navbar-ai" data-bs-toggle="dropdown"
+                           role="button" aria-expanded="false">
+                            <span class="nav-link-icon"><i class="fas fa-robot"></i></span>
+                            <span class="nav-link-title">هوش مصنوعی</span>
+                        </a>
+                        <div class="dropdown-menu">
+                            <a class="dropdown-item {% if active_page == 'ai_providers' %}active{% endif %}"
+                               href="/secure-panel-inotex/ai/providers">سرویس‌دهنده‌ها</a>
+                            <a class="dropdown-item {% if active_page == 'ai_models' %}active{% endif %}"
+                               href="/secure-panel-inotex/ai/models">مدل‌ها</a>
+                            <a class="dropdown-item {% if active_page == 'ai_routing' %}active{% endif %}"
+                               href="/secure-panel-inotex/ai/routing">مسیریابی</a>
+                            <a class="dropdown-item {% if active_page == 'ai_usage' %}active{% endif %}"
+                               href="/secure-panel-inotex/ai/usage">مصرف و هزینه</a>
+                            <a class="dropdown-item {% if active_page == 'ai_debug' %}active{% endif %}"
+                               href="/secure-panel-inotex/ai/debug">اشکال‌زادی RAG</a>
+                        </div>
+                    </li>
+
+                    {# ── Operations, Logs, Infrastructure ──────────────────────────
+                       Each block is guarded by its optional module, so an install that
+                       does not enable one never renders a link to a route it lacks. #}
+                    {% if 'ops' in (enabled_modules or []) %}
+                    <li class="nav-item dropdown {% if active_page and (active_page.startswith('ops') or active_page.startswith('security')) %}active show{% endif %}">
+                        <a class="nav-link dropdown-toggle" href="#navbar-ops" data-bs-toggle="dropdown"
+                            data-bs-auto-close="false" role="button" aria-expanded="false">
+                            <span class="nav-link-icon"><i class="fas fa-server"></i></span>
+                            <span class="nav-link-title">عملیات</span>
+                        </a>
+                        <div class="dropdown-menu {% if active_page and (active_page.startswith('ops') or active_page.startswith('security')) %}show{% endif %}">
+                            <a class="dropdown-item {% if active_page == 'ops' %}active{% endif %}" href="/secure-panel-inotex/ops">
+                                <i class="fas fa-gauge-high ms-2"></i> مرکز عملیات
+                            </a>
+                            <a class="dropdown-item {% if active_page == 'ops_services' %}active{% endif %}" href="/secure-panel-inotex/ops/services">
+                                <i class="fas fa-heart-pulse ms-2"></i> سرویس‌ها و سلامت
+                            </a>
+                            <a class="dropdown-item {% if active_page == 'security_sessions' %}active{% endif %}" href="/secure-panel-inotex/security/sessions">
+                                <i class="fas fa-user-shield ms-2"></i> نشست‌ها و مدیران
+                            </a>
+                        </div>
+                    </li>
+                    {% endif %}
+
+                    {% if 'logs' in (enabled_modules or []) %}
+                    <li class="nav-item dropdown {% if active_page and active_page.startswith('logs') %}active show{% endif %}">
+                        <a class="nav-link dropdown-toggle" href="#navbar-logs" data-bs-toggle="dropdown"
+                            data-bs-auto-close="false" role="button" aria-expanded="false">
+                            <span class="nav-link-icon"><i class="fas fa-clipboard-list"></i></span>
+                            <span class="nav-link-title">لاگ‌ها</span>
+                        </a>
+                        <div class="dropdown-menu {% if active_page and active_page.startswith('logs') %}show{% endif %}">
+                            <a class="dropdown-item {% if active_page == 'logs_overview' %}active{% endif %}" href="/secure-panel-inotex/logs/overview">
+                                <i class="fas fa-gauge ms-2"></i> نمای کلی
+                            </a>
+                            <a class="dropdown-item {% if active_page == 'logs' %}active{% endif %}" href="/secure-panel-inotex/logs">
+                                <i class="fas fa-list ms-2"></i> همهٔ رخدادها
+                            </a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=llm"><i class="fas fa-brain ms-2"></i> هوش مصنوعی</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=sms"><i class="fas fa-comment-sms ms-2"></i> پیامک</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=otp"><i class="fas fa-user-plus ms-2"></i> ثبت‌نام</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=auth"><i class="fas fa-right-to-bracket ms-2"></i> ورود مدیر</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=security"><i class="fas fa-shield-halved ms-2"></i> امنیت</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=audit"><i class="fas fa-file-shield ms-2"></i> رخدادهای حساس</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=api"><i class="fas fa-plug ms-2"></i> درخواست‌های API</a>
+                            <a class="dropdown-item" href="/secure-panel-inotex/logs?category=chat"><i class="fas fa-comments ms-2"></i> گفتگو</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item {% if active_page == 'logs_settings' %}active{% endif %}" href="/secure-panel-inotex/logs/settings">
+                                <i class="fas fa-sliders ms-2"></i> تنظیمات لاگ
+                            </a>
+                        </div>
+                    </li>
+                    {% endif %}
+
+                    {% if 'infra' in (enabled_modules or []) or 'backups' in (enabled_modules or []) %}
+                    <li class="nav-item dropdown {% if active_page and active_page.startswith('infra') %}active show{% endif %}">
+                        <a class="nav-link dropdown-toggle" href="#navbar-infra" data-bs-toggle="dropdown"
+                            data-bs-auto-close="false" role="button" aria-expanded="false">
+                            <span class="nav-link-icon"><i class="fas fa-hard-drive"></i></span>
+                            <span class="nav-link-title">زیرساخت</span>
+                        </a>
+                        <div class="dropdown-menu {% if active_page and active_page.startswith('infra') %}show{% endif %}">
+                            {% if 'infra' in (enabled_modules or []) %}
+                            <a class="dropdown-item {% if active_page == 'infra_database' %}active{% endif %}" href="/secure-panel-inotex/infrastructure/database">
+                                <i class="fas fa-database ms-2"></i> پایگاه داده
+                            </a>
+                            <a class="dropdown-item {% if active_page == 'infra_storage' %}active{% endif %}" href="/secure-panel-inotex/infrastructure/storage">
+                                <i class="fas fa-hdd ms-2"></i> فضای ذخیره‌سازی
+                            </a>
+                            {% endif %}
+                            {% if 'backups' in (enabled_modules or []) %}
+                            <a class="dropdown-item {% if active_page == 'infra_backups' %}active{% endif %}" href="/secure-panel-inotex/infrastructure/backups">
+                                <i class="fas fa-box-archive ms-2"></i> پشتیبان‌گیری و بازیابی
+                            </a>
+                            {% endif %}
+                        </div>
+                    </li>
+                    {% endif %}
+
+                    <li
+                        class="nav-item dropdown {% if active_page and active_page.startswith('settings') %}active show{% endif %}">
+                        <a class="nav-link dropdown-toggle {% if active_page and active_page.startswith('settings') %}show{% endif %}"
+                            href="#navbar-settings" data-bs-toggle="dropdown" data-bs-auto-close="false" role="button"
+                            aria-expanded="{% if active_page and active_page.startswith('settings') %}true{% else %}false{% endif %}">
+                            <span class="nav-link-icon"><i class="fas fa-cog"></i></span>
+                            <span class="nav-link-title">تنظیمات</span>
+                        </a>
+                        <div
+                            class="dropdown-menu {% if active_page and active_page.startswith('settings') %}show{% endif %}">
+                            <a class="dropdown-item {% if active_page == 'settings_account' %}active{% endif %}"
+                                href="/secure-panel-inotex/settings/account">
+                                <i class="fas fa-user-circle ms-2"></i> اطلاعات کاربری
+                            </a>
+                            <a class="dropdown-item {% if active_page == 'settings_ai' %}active{% endif %}"
+                                href="/secure-panel-inotex/settings/ai">
+                                <i class="fas fa-robot ms-2"></i> دستیار هوشمند
+                            </a>
+                            {# Both pages belong to the optional `registration` module. An
+                               install without it has no such routes, so the links must go
+                               away rather than lead to a 404. #}
+                            {% if 'registration' in (enabled_modules or []) %}
+                            <a class="dropdown-item {% if active_page == 'settings_sms' %}active{% endif %}"
+                                href="/secure-panel-inotex/settings/sms">
+                                <i class="fas fa-comment-sms ms-2"></i> ثبت‌نام و پیامک
+                            </a>
+                            <a class="dropdown-item {% if active_page == 'settings_taxonomy' %}active{% endif %}"
+                                href="/secure-panel-inotex/settings/taxonomy">
+                                <i class="fas fa-list-ul ms-2"></i> گزینه‌های فرم ثبت‌نام
+                            </a>
+                            {% endif %}
+                            <a class="dropdown-item {% if active_page == 'settings_backup' %}active{% endif %}"
+                                href="/secure-panel-inotex/settings/backup">
+                                <i class="fas fa-database ms-2"></i> پشتیبان‌گیری
+                            </a>
+                        </div>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="window.reloadDataset(); return false;">
+                            <span class="nav-link-icon"><i class="fas fa-sync-alt"></i></span>
+                            <span class="nav-link-title">آپدیت دیتاست</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="window.downloadCSV(); return false;">
+                            <span class="nav-link-icon"><i class="fas fa-file-csv"></i></span>
+                            <span class="nav-link-title">خروجی CSV</span>
+                        </a>
+                    </li>
+                </ul>
+
+                <ul class="navbar-nav mt-auto">
+                    <li class="nav-item">
+                        <a class="nav-link text-danger" href="#" onclick="window.logout(); return false;">
+                            <span class="nav-link-icon"><i class="fas fa-sign-out-alt"></i></span>
+                            <span class="nav-link-title">خروج</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="page-wrapper">
+        <div class="page-body">
+            <div class="container-xl">
+                {% block page_content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Shared sidebar actions loaded by every page -->
+<script type="module">
+    import { logout, reloadDataset, downloadCSV } from '/static/admin/js/auth.js';
+    window.logout = logout;
+    window.reloadDataset = reloadDataset;
+    window.downloadCSV = downloadCSV;
+</script>
+{% endblock %}
