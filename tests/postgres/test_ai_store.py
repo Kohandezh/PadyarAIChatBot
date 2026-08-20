@@ -118,7 +118,7 @@ def test_a_duplicate_instance_id_raises_uniqueviolation(conn):
 # ── Runtime resolution (secret handling) ────────────────────────────────
 
 def test_runtime_for_decrypts_the_secret_stored_in_postgres(conn):
-    sentinel = "sk-pg-harness-0123456789"
+    sentinel = "sk-pg-sentinel-harness-0123456789"
     iid = _instance("Secretive", secret=sentinel, enabled=True)
     store._invalidate_runtime()
     rt = store.runtime_for(iid)
@@ -129,7 +129,7 @@ def test_runtime_for_decrypts_the_secret_stored_in_postgres(conn):
 
 
 def test_the_secret_column_never_holds_plaintext(conn):
-    sentinel = "sk-pg-harness-plaintext-check"
+    sentinel = "sk-pg-sentinel-harness-plaintext-check"
     iid = _instance("Encrypted", secret=sentinel)
     stored = conn.execute("SELECT secret_enc FROM ai_provider_instances"
                           " WHERE id = ?", (iid,)).fetchone()["secret_enc"]

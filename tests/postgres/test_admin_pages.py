@@ -88,17 +88,17 @@ def test_get_ai_connection_returns_200_and_a_stt_status_block(client):
 def test_get_ai_connection_never_returns_the_key(client):
     from app.db.queries import set_setting
 
-    set_setting("ai_api_key", "sk-legacy-must-not-appear-0003")
+    set_setting("ai_api_key", "sk-legacy-sentinel-must-not-appear-0003")
     res = client.get("/admin/api/ai-connection")
     assert res.status_code == 200
     assert res.json()["has_key"] is True
-    assert "sk-legacy-must-not-appear-0003" not in res.text
+    assert "sk-legacy-sentinel-must-not-appear-0003" not in res.text
 
 
 def test_saving_ai_connection_persists_to_postgres(client, conn):
     res = _post(client, "/admin/api/ai-connection", {
         "api_base": "https://93.184.216.34/v1",
-        "api_key": "sk-saved-through-api-0004",
+        "api_key": "sk-sentinel-saved-through-api-0004",
         "model_stt": "whisper-1",
         "feature_tts": False, "feature_stt": True,
         "search_backend": "tfidf", "default_lang": "fa",
@@ -201,7 +201,7 @@ def test_creating_a_provider_through_the_api_saves_it_disabled(client, conn):
     res = _post(client, "/admin/api/ai/providers", {
         "provider_type": "openai", "display_name": "Created via API",
         "config": {"base_url": "https://93.184.216.34/v1"},
-        "api_key": "sk-created-via-api-0007",
+        "api_key": "sk-sentinel-created-via-api-0007",
     })
     assert res.status_code == 200, res.text[:400]
     row = conn.execute("SELECT enabled, has_secret, config FROM"

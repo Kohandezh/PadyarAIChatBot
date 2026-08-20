@@ -20,17 +20,17 @@ REDACTED = "[redacted]"
     # Anthropic. The original pattern was `sk-[A-Za-z0-9]{12,}`, which stops at
     # the first hyphen — so it matched nothing here and passed the live key
     # through untouched.
-    ("sk-ant-api03-AbCdEfGhIjKlMnOpQrSt",
-     "authentication_error: invalid x-api-key sk-ant-api03-AbCdEfGhIjKlMnOpQrSt"),
+    ("sk-ant-api03-SENTINELAbCdEfGhIjKlMnOpQrSt",
+     "authentication_error: invalid x-api-key sk-ant-api03-SENTINELAbCdEfGhIjKlMnOpQrSt"),
     # Google. Not `sk-` prefixed at all, so nothing matched it.
-    ("AIzaSyC8Ab3dEfGhIjKlMnOpQrStUvWxYz1234",
-     "x-goog-api-key: AIzaSyC8Ab3dEfGhIjKlMnOpQrStUvWxYz1234 is not valid"),
+    ("AIzaSySENTINELAb3dEfGhIjKlMnOpQrStUvWxYz1234",
+     "x-goog-api-key: AIzaSySENTINELAb3dEfGhIjKlMnOpQrStUvWxYz1234 is not valid"),
     # A credential in a query string, as it appears when an error quotes the URL.
-    ("AIzaSyC8Ab3dEfGhIjKlMnOpQrStUvWxYz1234",
-     "GET /v1beta/models?key=AIzaSyC8Ab3dEfGhIjKlMnOpQrStUvWxYz1234 -> 400"),
+    ("AIzaSySENTINELAb3dEfGhIjKlMnOpQrStUvWxYz1234",
+     "GET /v1beta/models?key=AIzaSySENTINELAb3dEfGhIjKlMnOpQrStUvWxYz1234 -> 400"),
     # OpenAI-style project key inside a bearer header.
-    ("sk-proj-AbCdEfGhIjKlMnOpQrStUv",
-     "Authorization: Bearer sk-proj-AbCdEfGhIjKlMnOpQrStUv"),
+    ("sk-proj-SENTINELAbCdEfGhIjKlMnOpQrStUv",
+     "Authorization: Bearer sk-proj-SENTINELAbCdEfGhIjKlMnOpQrStUv"),
     # A JSON body echoing the field back.
     ("abcdef1234567890abcdef",
      '{"error":{"message":"bad credentials","api_key":"abcdef1234567890abcdef"}}'),
@@ -55,7 +55,7 @@ def test_a_normalized_error_redacts_provider_text_before_it_is_exposed():
     err = E.AIError(
         code=E.AUTHENTICATION_FAILED,
         provider_type="anthropic",
-        provider_detail="invalid x-api-key sk-ant-api03-AbCdEfGhIjKlMnOpQrSt",
+        provider_detail="invalid x-api-key sk-ant-api03-SENTINELAbCdEfGhIjKlMnOpQrSt",
     )
     assert "sk-ant-api03" not in err.redacted_detail()
     assert REDACTED in err.redacted_detail()
@@ -65,7 +65,7 @@ def test_error_log_fields_never_carry_raw_provider_text():
     err = E.AIError(
         code=E.AUTHENTICATION_FAILED,
         provider_type="openai",
-        provider_detail="Bearer sk-proj-AbCdEfGhIjKlMnOpQrStUv rejected",
+        provider_detail="Bearer sk-proj-SENTINELAbCdEfGhIjKlMnOpQrStUv rejected",
     )
     blob = repr(err.as_log_fields())
     assert "sk-proj-" not in blob

@@ -114,15 +114,22 @@ jobs:
           fi
           echo ".env is not tracked — ok"
 
-      - name: Fail on obvious credential patterns in tracked files
+      - name: Fail on credential-looking values in tracked files
+        run: python3 scripts/secret_scan.py
+
+      # The scanner is only worth having if it still fires. This proves it on a
+      # throwaway file rather than trusting that a clean run means a working
+      # check — a scanner that silently stopped matching would look identical
+      # to a clean repository.
+      - name: Prove the scanner still catches a real key
         run: |
-          # .env.example is allowed to show placeholder KEY= lines.
-          # Excludes: .env.example (placeholders), docs (documented examples),
-          # and this workflow itself (it contains the pattern by definition).
-          if git grep -nE '(sk-[A-Za-z0-9]{20,}|ASANAK_PASSWORD=[^[:space:]]+|ADMIN_PASSWORD=[^[:space:]]+)' \
-               -- . ':(exclude).env.example' ':(exclude)docs/**' \
-                    ':(exclude).github/workflows/**'; then
-            echo "::error::a credential-looking value is committed."
+          printf 'K = "sk-proj-7Kq2mVx9Lp4RtZw8Nb3Yc6Hd1Fg5Js0Aa"\n' > _scan_canary.py
+          git add -N _scan_canary.py
+          if python3 scripts/secret_scan.py; then
+            echo "::error::the secret scanner did NOT catch a planted key."
+            rm -f _scan_canary.py
             exit 1
           fi
-          echo "no credential patterns found — ok"
+          rm -f _scan_canary.py
+          git rm -q --cached _scan_canary.py 2>/dev/null || true
+          echo "scanner correctly rejected a planted key — ok"

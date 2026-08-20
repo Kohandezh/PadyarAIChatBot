@@ -289,7 +289,7 @@ def test_provider_error_text_is_returned_escaped_or_redacted(client, monkeypatch
     server-side: raw provider text containing HTML never reaches the JSON
     unredacted when it went through the error pipeline."""
     from app.services import applog
-    dirty = '<script>alert("sk-ant-api03-aaaaaaaaaaaaaaaaaaaaaa")</script>'
+    dirty = '<script>alert("sk-ant-api03-sentinelaaaaaaaaaaaaaa")</script>'
     scrubbed = applog.scrub_text(dirty)
     assert "<script>" not in scrubbed or "sk-ant" not in scrubbed
     assert "sk-ant-api03-aaaa" not in scrubbed       # credential shape redacted
