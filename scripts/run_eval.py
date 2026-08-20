@@ -119,8 +119,23 @@ def main() -> int:
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
 
+    # Create the schema if this is a fresh checkout.
+    #
+    # The next line opened a raw sqlite connection and assumed `settings`
+    # existed. On a developer machine it does, because the database has been
+    # there for months. On a clean CI runner there is no file at all —
+    # sqlite3.connect happily creates an empty one and the SELECT then fails
+    # with "no such table: settings". The eval job had never actually run, so
+    # nobody saw it. init_db() is the same initialiser the application uses at
+    # startup, so the benchmark measures the schema the product ships.
+    from app.db.connection import init_db
+    from app.config import DB_PATH
+    init_db()
+
     # Pin the requested backend for this run (restored afterwards).
-    conn = sqlite3.connect(ROOT / "chat_history.db")
+    # DB_PATH, not a hardcoded filename: the two must not drift apart, or the
+    # eval pins a setting in one database and reads the dataset from another.
+    conn = sqlite3.connect(DB_PATH)
     prev = conn.execute("SELECT value FROM settings WHERE key='search_backend'").fetchone()
     conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('search_backend', ?)", (args.backend,))
     conn.commit()
@@ -267,7 +282,7 @@ def main() -> int:
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Restore the previous backend setting.
-    conn = sqlite3.connect(ROOT / "chat_history.db")
+    conn = sqlite3.connect(DB_PATH)
     if prev:
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('search_backend', ?)", (prev[0],))
         conn.commit()
