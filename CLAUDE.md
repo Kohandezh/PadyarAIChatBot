@@ -62,7 +62,7 @@ The chatbot uses a **two-tier intelligence** approach:
 | Frontend (Admin) | Tabler UI (built on Bootstrap 5, RTL) + Chart.js                |
 | Database         | **PostgreSQL 16** (production). SQLite = test backend + migration/rollback artifact only |
 | ML/Search        | scikit-learn (TF-IDF, logistic-regression intent head), pure-Python BM25, model2vec local embeddings |
-| AI Provider      | **Padyar AI Control Plane** — 11 provider types behind the Padyar AI Wrapper (OpenAI, Anthropic, Gemini native; Z.AI, Kimi, DeepSeek, Qwen, xAI, Mistral, OpenAI-compatible; SAKOO slot awaiting docs) |
+| AI Provider      | **Padyar AI Control Plane** — 11 provider types behind the Padyar AI Wrapper (OpenAI, Anthropic, Gemini native; Z.AI, Kimi, DeepSeek, Qwen, xAI, Mistral, OpenAI-compatible; SAKOO/Rayen — live verification at deployment) |
 | AI Models        | Per-route, configured in Admin -> AI -> Routing. Whisper-1 for voice (STT is outside the wrapper). |
 | Font             | Vazirmatn (Persian web font)                                   |
 

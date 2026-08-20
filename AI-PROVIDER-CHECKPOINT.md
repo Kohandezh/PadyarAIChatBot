@@ -32,7 +32,7 @@ RUN_POSTGRES_TESTS=1 .venv/bin/python -m pytest tests/postgres -q
 | Area | State |
 |---|---|
 | Padyar AI Wrapper | authoritative — `padyar_ai.generate/classify` is the only AI entry point |
-| Provider registry | 11 types: 3 native (OpenAI Responses, Anthropic Messages, Gemini Interactions), 6 compatible+metadata, 1 base, 1 SAKOO slot |
+| Provider registry | 11 types: 3 native (OpenAI Responses, Anthropic Messages, Gemini Interactions), 7 compatible+metadata (incl. SAKOO/Rayen), 1 base |
 | Routing | per-task routes (CHAT, CLASSIFICATION), priority, bounded retry, failover, loop protection |
 | Circuit breaker | PostgreSQL-shared state, half-open probe lease, auth-failure instant open |
 | Model catalog | official refresh where an API exists; manual entry for Z.AI and Qwen, which have none |
@@ -63,8 +63,18 @@ That is the **failure** pipeline working correctly end to end — status → nor
 error → no same-provider retry → failover decision → circuit → redacted detail.
 The **success** path has never run. Do not report otherwise.
 
-`SAKOO` — Architecture READY, adapter NOT IMPLEMENTED, awaiting official
-documentation. Not a defect.
+`SAKOO / Rayen` — IMPLEMENTED (2026-08-20) from the supplied Rayen OpenAPI
+3.0 contract. Architecture READY · Provider definition READY · Admin
+compatibility READY · Routing compatibility READY · Adapter IMPLEMENTED ·
+Chat IMPLEMENTED / CONTRACT TESTED · Model discovery IMPLEMENTED / CONTRACT
+TESTED · Embeddings IMPLEMENTED / CONTRACT TESTED · Network integration
+IMPLEMENTED (hardened shared transport, public trust). **Live verification:
+PENDING INSTALLATION** — the service is IP-allowlisted and the development
+machine is not authorized; the operator verifies from the whitelisted
+deployment environment via Admin → Test Connection / Refresh Models. Not
+LIVE VERIFIED and must not be reported as such. Details:
+docs/engineering/ai-providers/research/sako-rayen.md; tests:
+tests/test_ai_sakoo.py (34, fully mocked).
 
 ## 4. Decisions that are settled
 
@@ -89,7 +99,8 @@ documentation. Not a defect.
    `/audio/transcriptions`.
 9. Model selection lives in **AI → Routing**. The legacy Settings → AI model
    inputs were removed — they wrote settings the runtime had stopped reading.
-10. SMS frozen (Asanak). Public chat UI frozen. SAKOO documentation-gated.
+10. SMS frozen (Asanak). Public chat UI frozen. SAKOO implemented; live
+    verification deferred to the whitelisted deployment environment.
 
 Full evidence: `docs/engineering/ai-providers/01-capability-matrix.md` and the
 nine per-provider research files in `research/`. Those outrank memory — five of
@@ -120,7 +131,7 @@ call (a previous version did, unauthenticated).
 | Three open content conflicts — visit hours, organizer list, registration path | customer |
 | Human sign-off unsigned | customer |
 | `COOKIE_SECURE=true`, real `pg_hba` auth, TLS, PostgreSQL autostart | operator |
-| SAKOO API documentation | customer |
+| SAKOO/Rayen IP allowlisting of the deployment host + live credential | customer/operator |
 
 ### Known open code items — none launch-blocking
 

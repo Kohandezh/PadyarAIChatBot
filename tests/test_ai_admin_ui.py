@@ -316,33 +316,31 @@ def test_kill_switch_endpoint_still_works_for_ai_routing_page(client):
     assert get_setting("openai_enabled") == "true"
 
 
-# ── SAKOO extensibility proof (phase requirement) ───────────────────────
+# ── SAKOO / Rayen admin lifecycle ────────────────────────────────────────
 
-def test_sakoo_provider_slot_is_admin_ready(client):
-    """A documentation-required provider definition can be registered,
-    understood by the admin surface and referenced by the routing schema —
-    with ZERO network behaviour and no guessed endpoint/auth/models."""
-    # the registry advertises it with its config schema and honest status
+def test_sakoo_provider_full_admin_lifecycle(client):
+    """The implemented provider follows the standard lifecycle: create
+    (disabled) → configure secret → test → enable → route. No dedicated
+    SAKOO page — the generic provider surface carries it."""
     types = client.get("/admin/api/ai/provider-types").json()["types"]
     sakoo = next(t for t in types if t["type"] == "sakoo")
-    assert sakoo["display_name"] == "SAKOO"
-    assert "مستندات" in sakoo["note"]
-    assert all(f["type"] != "url" for f in sakoo["config_schema"])  # no endpoint field
+    assert sakoo["display_name"] == "SAKOO / Rayen"
+    # the schema now carries the endpoint (defaulted) and the secret field
+    fields = {f["key"]: f for f in sakoo["config_schema"]}
+    assert fields["base_url"]["default"] == "https://rmgpilot.aip.sharif.ir/v1"
+    assert fields["api_key"]["type"] == "password"
 
-    # an instance can exist and the admin understands it is not runnable
-    iid = store.create_instance("sakoo", "SAKOO (آینده)", {}, "")
+    # created DISABLED — traffic must never flow to an untested provider
+    iid = store.create_instance("sakoo", "SAKOO / Rayen", {}, "rayen-sentinel-token")
     rows = client.get("/admin/api/ai/providers").json()["providers"]
     row = next(p for p in rows if p["id"] == iid)
     assert row["provider_type"] == "sakoo"
     assert row["enabled"] is False
+    assert "rayen-sentinel-token" not in str(rows)      # secret never echoed
 
-    # test connection reports the honest status, does not guess
-    res = _post(client, f"/admin/api/ai/providers/{iid}/test")
-    assert res.json()["status"] == "requires_documentation"
-
-    # the routing schema can reference it later (structure accepts it)
+    # routing accepts it as a target like any other provider
     res = _post(client, "/admin/api/ai/routes/target",
-                {"task": "chat", "instance_id": iid, "model_id": "sakoo-future"})
+                {"task": "chat", "instance_id": iid, "model_id": "rayen-gemma4-31b"})
     assert res.status_code == 200
 
 

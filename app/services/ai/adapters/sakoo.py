@@ -1,72 +1,147 @@
-"""SAKOO — architecture slot ONLY. Awaiting official documentation.
+"""SAKOO / Rayen — سکوی ملی هوش مصنوعی (National AI Platform, Sharif).
 
-State (locked in AI-PROVIDER-CHECKPOINT.md §3.17):
-    Architecture: READY
-    Provider definition: READY
-    Admin compatibility: READY
-    Routing compatibility: READY
-    Adapter: NOT IMPLEMENTED
-    Network integration: NOT IMPLEMENTED
-    Reason: Awaiting official SAKOO documentation
+Documentation source: the supplied Rayen OpenAPI 3.0 contract (API 1.0.0),
+served from https://rmgpilot.aip.sharif.ir/openapi.json. The live service is
+IP-allowlisted and NOT reachable from the development machine — verified
+2026-08-20: the edge accepts TCP, reads the ClientHello and closes without a
+byte, on 443 and 80 alike. That is why nothing in this module, its tests, or
+the default suite performs live I/O. Live verification is an Admin-panel step
+(Test Connection / Refresh Models) from the whitelisted deployment host.
 
-The customer will supply official SAKOO API documentation later. Until then
-this adapter exists so the registry, the Admin UI, the routing schema and the
-catalog all understand the provider type — but it physically cannot perform
-network I/O: `http()` is overridden to raise, so there is no code path from
-this class to a socket. No endpoint, auth scheme, header, request shape or
-model ID has been guessed.
+DOCUMENTED CONTRACT (the only fields this adapter will send)
+------------------------------------------------------------
+  POST /v1/chat/completions   {model, messages[{role,content}], temperature,
+                               max_tokens}
+  POST /v1/embeddings         {model, input}
+  GET  /v1/models
+  Responses: 200 / 401 / 404 / 500 — normalized by the shared taxonomy.
+
+The wire shape is OpenAI Chat Completions, so this subclasses the hardened
+compatible transport (SSRF policy, DNS pinning, TLS verification, redirect
+refusal, error normalization, secret redaction) and overrides ONLY what the
+Rayen documentation actually covers:
+
+  * top_p, stream, response_format, reasoning controls are NOT in the
+    documented request schema — they are never sent. Undocumented fields
+    discovered by a 400 at an exhibition booth is the failure mode this
+    strictness prevents. supports_json_object() is False for the same
+    reason: absence of a documented guarantee is absence of the feature.
+  * `stream` is omitted entirely (not sent as false): non-streaming is the
+    documented default of this wire shape, and the field itself is
+    undocumented on Rayen.
+
+AUTHENTICATION
+--------------
+The documentation confirms auth exists (401 Unauthorized — Authentication
+required) but does not name the scheme. `Bearer` is NOT an invention here: it
+is the standing credential mechanism of the wire protocol Rayen documents
+itself as implementing, and it is this project's existing generic-provider
+representation — the secret lives in the provider instance's encrypted secret
+column, entered in Admin → AI, never echoed, never logged. If deployment
+reveals a different header, the operator escalates and the fix is one method
+(`auth_headers`) — configuration and storage are unchanged.
+
+MODELS
+------
+GET /v1/models is authoritative; the catalog refresh flow (Admin → Refresh
+Models) populates it. `rayen-gemma4-31b` / `rayen-jina-v5` appear in the
+documentation as EXAMPLES and are deliberately not bootstrapped as a catalog.
+
+EMBEDDINGS
+----------
+`embed()` implements POST /v1/embeddings per the documented shape. NOTE
+HONESTLY: no Padyar runtime path consumes provider embeddings today —
+retrieval uses the local model2vec index by design (exhibition machines are
+provisioned offline; see app/services/embeddings.py). The method exists so
+the capability is real, contract-tested and ready to wire, not to pretend a
+RAG integration that does not exist.
 """
-from ..errors import AIError
-from ..request import AIRequest, AIResponse
-from .base import BaseAdapter, ProviderMetadata, ProviderRuntime
+from ..errors import AIError, INVALID_RESPONSE
+from ..request import AIRequest
+from .base import ProviderRuntime
+from .openai_compatible import OpenAICompatibleAdapter
 
-STATUS_NOT_IMPLEMENTED = "REQUIRES DOCUMENTATION"
-REASON_FA = "در انتظار مستندات رسمی SAKOO — آداپتر پیاده‌سازی نشده است."
+BASE = "https://rmgpilot.aip.sharif.ir/v1"
+DOCS = "https://rmgpilot.aip.sharif.ir/docs"
 
 
-class SakooAdapter(BaseAdapter):
+class SakooAdapter(OpenAICompatibleAdapter):
     PROVIDER_TYPE = "sakoo"
+    DEFAULT_BASE_URL = BASE
+    SUPPORTS_DISCOVERY = True
 
-    def metadata(self) -> ProviderMetadata:
+    def metadata(self):
+        from .base import ProviderMetadata
         return ProviderMetadata(
-            type_key="sakoo", display_name="SAKOO",
-            docs_url="",
-            native=True,
-            supports_discovery=False,
-            note_fa=REASON_FA,
+            type_key="sakoo", display_name="SAKOO / Rayen",
+            docs_url=DOCS,
+            native=False, supports_discovery=True,
+            note_fa="سکوی ملی هوش مصنوعی (راین) — دسترسی شبکه فقط از محیط "
+                    "مجاز (IP-allowlist)؛ پس از استقرار با «آزمون اتصال» "
+                    "راستی‌آزمایی کنید.",
         )
 
-    def configuration_schema(self) -> list:
+    def configuration_schema(self):
         from .base import ConfigField
-        # Only identity fields exist. NO endpoint, NO auth scheme — guessing
-        # them from memory is exactly what the research-first rule forbids.
         return [
-            ConfigField("notes", "یادداشت (در انتظار مستندات)", required=False),
+            ConfigField("api_key", "کلید/توکن دسترسی راین", type_="password",
+                        required=True,
+                        help_fa="فقط ذخیره می‌شود؛ هرگز نمایش داده نمی‌شود. "
+                                "اعتبار استقرار را اپراتور وارد می‌کند."),
+            ConfigField("base_url", "نشانی پایه (اختیاری)", type_="url",
+                        default=BASE,
+                        help_fa="پیش‌فرض سرویس رسمی راین؛ فقط در صورت تغییر "
+                                "رسمی نشانی عوض شود."),
         ]
 
-    def endpoint_url(self, rt: ProviderRuntime) -> str:
-        return ""            # unknown by design
+    # ── Documented request strictness ───────────────────────────────────
 
-    async def invoke(self, rt: ProviderRuntime, model_id: str,
-                     req: AIRequest) -> AIResponse:
-        raise AIError(code="invalid_request", provider_type=self.PROVIDER_TYPE,
-                      provider_instance_id=rt.instance_id,
-                      provider_detail=REASON_FA)
+    def sampling_policy(self, model_id: str) -> dict:
+        # temperature is documented; top_p is not. Never send undocumented.
+        return {"temperature": True, "top_p": False}
 
-    async def list_models(self, rt: ProviderRuntime) -> list:
-        # Fail loudly rather than return an empty list: an empty list is a
-        # valid discovery result and would let a caller conclude "SAKOO has
-        # no models" instead of "SAKOO is not implemented".
-        raise AIError(code="invalid_request", provider_type=self.PROVIDER_TYPE,
-                      provider_instance_id=rt.instance_id,
-                      provider_detail=REASON_FA)
+    def supports_json_object(self, model_id: str) -> bool:
+        return False        # response_format is not in the documented schema
 
-    async def test_connection(self, rt: ProviderRuntime) -> dict:
-        return self.test_result(False, "requires_documentation", REASON_FA, 0)
+    def build_body(self, rt: ProviderRuntime, model_id: str,
+                   req: AIRequest) -> dict:
+        body = super().build_body(rt, model_id, req)
+        # The documented schema is {model, messages, temperature, max_tokens}.
+        # `stream` is the base transport's addition, not Rayen's — omit it
+        # rather than send an undocumented field as false.
+        body.pop("stream", None)
+        return body
 
-    async def http(self, rt: ProviderRuntime, method: str, url: str,
-                   **_kw) -> tuple:
-        # The hard guarantee: no SAKOO request can ever leave the process.
-        raise AIError(code="invalid_request", provider_type=self.PROVIDER_TYPE,
-                      provider_instance_id=rt.instance_id,
-                      provider_detail="SAKOO network access is not implemented")
+    # ── Embeddings (documented; no runtime consumer yet — see docstring) ─
+
+    def embeddings_url(self, rt: ProviderRuntime) -> str:
+        return f"{self.resolve_base(rt)}/embeddings"
+
+    async def embed(self, rt: ProviderRuntime, model_id: str,
+                    text: str) -> dict:
+        """One embedding for one input string, per the documented contract.
+
+        Returns {"embedding": [float...], "model": str,
+                 "tokens_input": int | None}. Raises normalized AIError on
+        any non-200, timeout, connection failure or malformed body.
+        """
+        status, body, _h = await self.http(
+            rt, "POST", self.embeddings_url(rt),
+            headers=self.auth_headers(rt),
+            body={"model": model_id, "input": text},
+            timeout_s=30.0)
+        if status != 200:
+            raise self.http_error(rt, status, body)
+
+        data = (body or {}).get("data") or []
+        vector = (data[0] or {}).get("embedding") if data else None
+        if not isinstance(vector, list) or not vector:
+            # A 200 with no vector is a broken response, not an empty result.
+            raise AIError(code=INVALID_RESPONSE,
+                          provider_type=self.PROVIDER_TYPE,
+                          provider_instance_id=rt.instance_id,
+                          provider_detail="embeddings response carried no vector")
+        usage = self.extract_usage(body)
+        return {"embedding": vector,
+                "model": str((body or {}).get("model") or model_id),
+                "tokens_input": usage.get("tokens_in")}

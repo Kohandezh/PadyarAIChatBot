@@ -7,7 +7,7 @@ outside this package imports an adapter by module path, and no `if provider
 Registering a future provider = implement an adapter, add one line here.
 The wrapper, routing engine, circuit breaker, Admin UI, catalog and usage
 dashboard require no changes — that is the extensibility test the phase
-demands (proven for SAKOO: registered, architecture-ready, no network path).
+demands (SAKOO/Rayen completed 2026-08-20 from the supplied OpenAPI contract).
 """
 from .anthropic_adapter import AnthropicAdapter
 from .base import BaseAdapter, ConfigField, ProviderMetadata, ProviderRuntime

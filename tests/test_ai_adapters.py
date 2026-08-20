@@ -507,20 +507,22 @@ def test_kimi_discovery_capability_flags(monkeypatch):
     assert models[0]["supports_reasoning"] and models[0]["supports_vision"]
 
 
-# ── SAKOO: architecture slot, zero network ──────────────────────────────
+# ── SAKOO / Rayen: implemented from the supplied OpenAPI contract ────────
+# The former slot-only behavior (http() raising unconditionally) is gone by
+# design; the full contract suite lives in tests/test_ai_sakoo.py. Here only
+# the registry-level facts are pinned alongside the other providers.
 
-def test_sakoo_adapter_cannot_reach_the_network():
+def test_sakoo_is_a_documented_compatible_provider():
     ad = adapter_for("sakoo")
-    with pytest.raises(ai_errors.AIError):
-        asyncio.run(ad.http(rt("sakoo"), "GET", "https://anything.example"))
-    with pytest.raises(ai_errors.AIError):
-        asyncio.run(ad.invoke(rt("sakoo"), "any", req()))
-    result = asyncio.run(ad.test_connection(rt("sakoo")))
-    assert result["status"] == "requires_documentation"
-    assert "SAKOO" in ad.metadata().display_name
-    # No guessed endpoint/auth in the schema either.
-    assert all(f.key != "base_url" and f.type != "url"
-               for f in ad.configuration_schema())
+    meta = ad.metadata()
+    assert "Rayen" in meta.display_name and "SAKOO" in meta.display_name
+    assert meta.supports_discovery is True
+    assert ad.chat_url(rt("sakoo")) == \
+        "https://rmgpilot.aip.sharif.ir/v1/chat/completions"
+    # The credential is a schema field stored via the secure secret column —
+    # exactly like every other provider, never a hardcoded value.
+    keys = {f.key for f in ad.configuration_schema()}
+    assert "api_key" in keys and "base_url" in keys
 
 
 # ── Redirect refusal (SSRF) ─────────────────────────────────────────────

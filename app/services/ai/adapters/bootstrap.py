@@ -256,6 +256,10 @@ BOOTSTRAP_MODELS = {
     # openai_compatible: the endpoint's own model list is unknown by
     # definition — discovery or manual entry, never a hardcoded catalog.
     "openai_compatible": [],
+    # sakoo: GET /v1/models is documented and authoritative; the catalog is
+    # populated by Admin → Refresh Models from the whitelisted environment.
+    # rayen-gemma4-31b / rayen-jina-v5 appear in the docs only as EXAMPLES
+    # and are deliberately not seeded here.
     "sakoo": [],
 }
 
