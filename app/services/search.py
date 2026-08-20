@@ -211,6 +211,9 @@ def find_best_match(query: str):
         return None, 0.0
 
     normalized_query = normalize_persian(query)
+    # Same query, synonyms NOT expanded — the coverage signal must see
+    # what the visitor actually typed. See rerank.rerank(coverage_query).
+    coverage_query = normalize_persian(query, expand_synonyms=False)
     logger.debug(f"Normalized query: '{normalized_query}'")
 
     query_tokens = set(normalized_query.split())
@@ -251,8 +254,7 @@ def find_best_match(query: str):
                 lexical_hits = dataset_bm25_index.top_k(normalized_query, RERANK_CANDIDATES)
 
             best_idx, score, signals = rerank.best(
-                normalized_query, normalized_descriptions, dense_hits, lexical_hits
-            )
+                normalized_query, normalized_descriptions, dense_hits, lexical_hits, coverage_query=coverage_query)
             if best_idx >= 0:
                 logger.debug(f"Hybrid rerank → item {best_idx} score={score:.3f} {signals}")
                 return dataset[best_idx], score
@@ -296,6 +298,9 @@ def find_similar_question(query: str, exact_only: bool = False):
         return None, 0.0
 
     normalized_query = normalize_persian(query)
+    # Same query, synonyms NOT expanded — the coverage signal must see
+    # what the visitor actually typed. See rerank.rerank(coverage_query).
+    coverage_query = normalize_persian(query, expand_synonyms=False)
     query_tokens = set(normalized_query.split())
 
     if not query_tokens:
@@ -328,8 +333,7 @@ def find_similar_question(query: str, exact_only: bool = False):
             if questions_bm25_index is not None:
                 lexical_hits = questions_bm25_index.top_k(normalized_query, RERANK_CANDIDATES)
             tfidf_idx, tfidf_score, _ = rerank.best(
-                normalized_query, normalized_questions, dense_hits, lexical_hits
-            )
+                normalized_query, normalized_questions, dense_hits, lexical_hits, coverage_query=coverage_query)
         except Exception as e:
             logger.error(f"Questions hybrid retrieval failed: {e}")
             tfidf_idx, tfidf_score = -1, 0.0

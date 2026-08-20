@@ -4,7 +4,7 @@
   "backend": "embedding",
   "rerank_enabled": true,
   "ranking_method": "pipeline: served answer first, then the reranked union of the dense and BM25 candidates (mirrors app/services/search.find_best_match)",
-  "ran_at": "2026-08-16T15:59:22",
+  "ran_at": "2026-08-20T09:23:10",
   "totals": {
     "queries": 60,
     "answerable": 42,
@@ -16,8 +16,8 @@
     "false_confident_injection": 0,
     "legacy_contamination_answers": 0,
     "secret_leaks": 0,
-    "latency_ms_p50": 1.9,
-    "latency_ms_p95": 2.6
+    "latency_ms_p50": 1.6,
+    "latency_ms_p95": 2.3
   },
   "per_category": {
     "current_event_facts": {
@@ -85,7 +85,7 @@
         "inotex-exhibitors"
       ],
       "got": "inotex-pitch",
-      "score": 1.0
+      "score": 0.965
     },
     {
       "q": "When is INOTEX 2026 held?",
@@ -93,25 +93,25 @@
         "inotex-date"
       ],
       "got": "inotex-venue",
-      "score": 0.831
+      "score": 0.818
     },
     {
       "q": "قیمت بلیط هواپیما به تهران چند است؟",
       "expected": null,
       "got": "inotex-visitors",
-      "score": 0.97
+      "score": 0.925
     },
     {
       "q": "بهترین رستوران تهران کجاست؟",
       "expected": null,
       "got": "inotex-venue",
-      "score": 0.964
+      "score": 0.924
     },
     {
       "q": "قیمت دلار امروز چند است؟",
       "expected": null,
       "got": "inotex-visitors",
-      "score": 0.99
+      "score": 0.94
     }
   ]
 }

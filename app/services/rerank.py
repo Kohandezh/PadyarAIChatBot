@@ -9,10 +9,11 @@ first-stage retrievers each miss on their own:
 
   dense        calibrated cosine — meaning, paraphrases, colloquial Persian
   lexical      BM25 (relative)   — rare decisive terms, exact vocabulary
-  coverage     share of the query's *content* tokens actually present in the
-               candidate — the anti-hallucination signal: a candidate that
-               shares no content word with the question is demoted no matter
-               how close it looks in embedding space
+  coverage     share of the UNEXPANDED query's *content* tokens actually
+               present in the candidate — the anti-hallucination signal: a
+               candidate that shares no content word with the question is
+               demoted no matter how close it looks in embedding space.
+               Unexpanded is load-bearing; see `rerank(coverage_query=...)`.
   agreement    small bonus when both retrievers independently rank it top-1
 
 A cross-encoder (e.g. a multilingual mono-BERT) would score higher on paper,
@@ -64,6 +65,7 @@ def rerank(
     texts: Sequence[str],
     dense: Optional[List[Tuple[int, float]]] = None,
     lexical: Optional[List[Tuple[int, float]]] = None,
+    coverage_query: Optional[str] = None,
 ) -> List[Tuple[int, float, Dict[str, float]]]:
     """Rescore the candidate union.
 
@@ -72,9 +74,27 @@ def rerank(
     (index, final_score, signals) sorted best-first; ``signals`` is kept for
     the logs and the evaluation harness, so a ranking decision can always be
     explained after the fact.
+
+    ``coverage_query`` is the query WITHOUT synonym expansion, and passing it
+    is what makes the coverage signal mean what this module says it means.
+
+    Synonym expansion is right for the two retrievers — it is how a colloquial
+    question reaches a formally-worded entry — but it destroys coverage, which
+    exists to ask "does the candidate actually talk about what was asked?".
+    Expansion answers that question with words the user never said. Measured on
+    the live corpus: «قیمت دلار امروز چند است؟» normalises to
+    «هزینه هزینه قیمت نرخ مبلغ مبلغ نرخ دلار امروز چند است» — one word, قیمت,
+    became five price-synonyms, while دلار, the single token that makes the
+    question out-of-domain, stayed one token among six. An entry about ticket
+    prices then "covers" 0.667 of the query, and the anti-hallucination signal
+    votes FOR the hallucination. On the unexpanded query the same entry covers
+    0.333 and دلار is visibly unmatched.
+
+    Defaults to ``query`` so an existing caller keeps its current behaviour.
     """
     dense = dense or []
     lexical = lexical or []
+    cov_query = coverage_query if coverage_query is not None else query
     dense_by_idx = dict(dense)
     lexical_by_idx = dict(lexical)
 
@@ -100,7 +120,7 @@ def rerank(
             continue
         d = dense_by_idx.get(idx, 0.0)
         lex = lexical_by_idx.get(idx, 0.0)
-        cov = _coverage(query, texts[idx])
+        cov = _coverage(cov_query, texts[idx])
 
         score = W_DENSE * d + W_LEXICAL * lex + W_COVERAGE * cov
         if idx == dense_top and idx == lexical_top:
@@ -132,7 +152,8 @@ def best(
     texts: Sequence[str],
     dense: Optional[List[Tuple[int, float]]] = None,
     lexical: Optional[List[Tuple[int, float]]] = None,
+    coverage_query: Optional[str] = None,
 ) -> Tuple[int, float, Dict[str, float]]:
     """Convenience wrapper: the single best candidate, or (-1, 0.0, {})."""
-    ranked = rerank(query, texts, dense, lexical)
+    ranked = rerank(query, texts, dense, lexical, coverage_query)
     return ranked[0] if ranked else (-1, 0.0, {})
