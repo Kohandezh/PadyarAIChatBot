@@ -92,6 +92,33 @@ def _skip_reason() -> str:
     return ""
 
 
+def _driver_missing() -> bool:
+    try:
+        import psycopg  # noqa: F401
+        from psycopg_pool import ConnectionPool  # noqa: F401
+    except Exception:  # noqa: BLE001
+        return True
+    return False
+
+
+def pytest_ignore_collect(collection_path, config):
+    """Do not even IMPORT these modules when psycopg is not installed.
+
+    `pytest_collection_modifyitems` below skips the TESTS, which is too late
+    for a module whose import itself fails: `test_migration_0004_backfill.py`
+    imports psycopg at module level, so on a runner without it pytest reports a
+    collection ERROR — a red build — before any skip marker is consulted. That
+    is what turned CI red.
+
+    Scoped deliberately to the MISSING DRIVER and nothing else. Ignoring
+    whenever `_skip_reason()` is non-empty would also swallow the ordinary
+    "you did not set the opt-in flag" case, and then 111 tests would vanish
+    from the report instead of announcing themselves as skipped — a suite you
+    cannot see is a suite you forget to run.
+    """
+    return _driver_missing()
+
+
 def pytest_collection_modifyitems(config, items):
     """Skip everything under tests/postgres unless the flag is set AND the
     server answers. The check runs once, not per test."""

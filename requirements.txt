@@ -11,6 +11,14 @@ httpx
 # blocking DNS resolution off the event loop. An undeclared direct import
 # breaks the day a transitive dependency drops it.
 anyio
+# PostgreSQL is the PRODUCTION backend — app/prodcheck.py refuses to start a
+# production install on anything else — and app/db/pg.py imports psycopg at
+# module level. It was never declared here, so `pip install -r requirements.txt`
+# produced an install that could not start in its own supported configuration,
+# and CI could not import the db layer at all. [binary] avoids needing a
+# compiler toolchain on the deploy host.
+psycopg[binary]
+psycopg-pool
 python-dotenv
 bcrypt
 cryptography
