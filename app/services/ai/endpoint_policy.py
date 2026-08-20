@@ -41,25 +41,35 @@ reserved and unspecified space, and any scheme that is not http/https. There is
 no legitimate LLM endpoint in that space, and it is exactly what an attacker
 wants. `internal` widens the private-network door; it does not open this one.
 
+DNS REBINDING — CLOSED BY PINNING
+--------------------------------
+`validate()` alone resolves DNS to judge the destination and then lets the HTTP
+client resolve again when it connects. A hostile DNS server can change the
+answer between those two moments — classic rebinding, and the classifier is
+then perfectly correct and completely bypassed.
+
+`pin()` closes it: it resolves ONCE, validates every answer, and returns
+connect URLs built from the validated IP literals so the client is never given
+the chance to resolve. `BaseAdapter.http()` uses it for every provider call.
+`Host` and TLS `sni_hostname` carry the original name, so SNI and certificate
+verification are unchanged — never pass `verify=False` to compensate.
+
+`validate()` remains for the config-time checks that open no socket (saving a
+Base URL in the admin panel). Any code path that CONNECTS must use `pin()`.
+
 WHAT THIS DOES NOT SOLVE — stated, not hidden
 ---------------------------------------------
-`validate()` resolves DNS to judge the destination, and the HTTP client then
-resolves it again when it connects. Between those two moments a hostile DNS
-server can change the answer — classic DNS rebinding. Fully closing that means
-pinning the validated IP into the transport for every request.
+The metadata deny list is enumerated, so a cloud provider introducing a new
+endpoint outside link-local space needs a new entry here. Three already did
+(Alibaba, Oracle, Azure); assume there will be a fourth.
 
-`resolved_ips()` exists so a caller CAN pin, and adapters are expected to use
-it. But the guarantee is only as strong as the caller, so this is documented as
-a residual risk rather than claimed as solved.
-
-Redirects are the same story: a permitted host can 302 to a forbidden one.
-Adapters must therefore disable automatic redirect following, and
-`assert_safe_redirect()` is provided for the cases where a redirect must be
-honoured.
+Redirects: a permitted host can 302 to a forbidden one. Adapters must disable
+automatic redirect following, and `assert_safe_redirect()` is provided for the
+cases where a redirect must be honoured.
 """
 import ipaddress
 import socket
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 PUBLIC = "public"
 INTERNAL = "internal"
@@ -91,8 +101,49 @@ def _reject(reason: str, reason_fa: str):
     raise EndpointRejected(reason, reason_fa)
 
 
+# Cloud instance-metadata endpoints. Forbidden in EVERY trust class.
+#
+# Most live in link-local space and are caught by `is_link_local` below. Three
+# do not, and each escaped by a different route — which is why this list is
+# enumerated rather than derived from address class:
+#
+#   100.100.100.200  Alibaba Cloud. CGNAT (100.64/10): neither link-local nor
+#                    RFC1918, and Python does NOT report it private. It was
+#                    reachable from BOTH trust classes, not just `internal`.
+#   192.0.0.192      Oracle OCI. Reports is_private=True, so `public` already
+#                    refused it — but `internal` let it straight through, and
+#                    `internal` is exactly the class an on-prem customer runs.
+#   168.63.129.16    Azure WireServer / host agent. Reports is_global=True, so
+#                    it was reachable from both classes as ordinary internet.
+#
+# An enumerated deny is used rather than banning the surrounding ranges,
+# because a customer may legitimately run an on-prem model server on CGNAT and
+# blocking 100.64/10 wholesale would break the on-prem product to fix one
+# address. The corollary is that this list needs a new entry when a cloud adds
+# an endpoint; that is a known and accepted maintenance cost.
+_METADATA_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
+    "169.254.169.254/32",     # AWS / Azure / GCP / DigitalOcean / Oracle
+    "169.254.170.2/32",       # AWS ECS task metadata
+    "100.100.100.200/32",     # Alibaba Cloud  — CGNAT, see above
+    "192.0.0.192/32",         # Oracle OCI     — RFC-private, see below
+    "168.63.129.16/32",       # Azure WireServer — GLOBAL, see below
+    "fd00:ec2::254/128",      # AWS IMDSv2 over IPv6
+))
+
+
+def _is_metadata(ip: ipaddress._BaseAddress) -> bool:
+    for net in _METADATA_NETWORKS:
+        if ip.version == net.version and ip in net:
+            return True
+    return False
+
+
 def _is_forbidden_everywhere(ip: ipaddress._BaseAddress) -> str:
     """Return a reason string if this address is off-limits in EVERY trust class."""
+    # Checked BEFORE the loopback carve-out and before any trust-class branch:
+    # no trust level, however privileged, may reach a metadata service.
+    if _is_metadata(ip):
+        return "cloud instance-metadata address"
     if ip.is_loopback:
         # Loopback is gated by the trust class further down, NOT forbidden
         # outright — `internal` must be able to reach a local Ollama/vLLM.
@@ -233,6 +284,75 @@ def validate(url: str, trust_class: str = PUBLIC) -> dict:
 def resolved_ips(url: str, trust_class: str = PUBLIC) -> list:
     """The validated addresses, for a caller that wants to pin the connection."""
     return validate(url, trust_class)["resolved_ips"]
+
+
+def pin(url: str, trust_class: str = PUBLIC) -> dict:
+    """Validate `url` and return everything needed to connect to a PINNED address.
+
+    This closes the TOCTOU gap that `validate()` alone cannot. `validate()`
+    resolves DNS to judge a destination; the HTTP client then resolves again
+    when it connects. Between those two moments a hostile DNS server can change
+    the answer — validation sees a public address, the connection reaches
+    169.254.169.254. That is DNS rebinding, and it defeats an otherwise correct
+    classifier.
+
+    The fix is to stop letting the client resolve at all: connect to the exact
+    address that was validated.
+
+    Returns:
+        connect_url   the first candidate — the URL with the host replaced
+                      by a validated IP
+        connect_urls  ALL candidates, in resolution order. The caller must try
+                      them in turn: a dual-stack name whose first answer is ::1
+                      would otherwise never reach an IPv4-only server.
+        host          the ORIGINAL hostname — for TLS SNI
+        authority     the ORIGINAL host:port — for the Host header
+        ip            the first address (== all_ips[0])
+        all_ips       every address the name resolved to (all validated)
+
+    TLS IS NOT WEAKENED BY THIS. The caller must send `Host: <host>` and
+    `extensions={"sni_hostname": <host>}`, which keeps SNI and certificate
+    verification pointed at the real hostname. Verified: a request pinned this
+    way reaches the API and validates its certificate, while the same request
+    with a mismatched SNI is refused by TLS. Never pass `verify=False` here.
+    """
+    info = validate(url, trust_class)
+    ips = info["resolved_ips"]
+    if not ips:
+        _reject("no validated address to connect to",
+                "هیچ آدرس معتبری برای اتصال یافت نشد.")
+
+    # EVERY validated address gets a connect URL, in resolution order.
+    #
+    # Pinning only `ips[0]` looked equivalent and was not: `localhost` resolves
+    # to ['::1', '127.0.0.1'], so a pinned connection went to ::1 only, and an
+    # Ollama server bound to 127.0.0.1 — its default — became unreachable.
+    # Handing httpx a hostname had hidden this, because httpx falls back
+    # through the address list itself; taking the hostname away took the
+    # fallback with it. The fallback has to be reproduced here, over addresses
+    # that have ALL already passed policy, or pinning breaks the on-prem case
+    # this module exists to keep working.
+    #
+    # `authority` is the ORIGINAL host:port. It is what belongs in the Host
+    # header: RFC 9110 requires the port whenever it is not the scheme default,
+    # and dropping it breaks name-based virtual-host routing on any provider
+    # served that way.
+    parts = urlsplit(info["url"])
+    port = parts.port
+    authority = f"{info['host']}:{port}" if port else info["host"]
+    if ":" in info["host"]:                       # IPv6 literal written as host
+        authority = f"[{info['host']}]:{port}" if port else f"[{info['host']}]"
+
+    candidates = []
+    for ip in ips:
+        literal = f"[{ip}]" if ":" in ip else ip
+        netloc = f"{literal}:{port}" if port else literal
+        candidates.append(urlunsplit((parts.scheme, netloc, parts.path,
+                                      parts.query, parts.fragment)))
+
+    return {"connect_url": candidates[0], "connect_urls": candidates,
+            "host": info["host"], "authority": authority,
+            "ip": ips[0], "all_ips": ips, "trust_class": trust_class}
 
 
 def assert_safe_redirect(location: str, trust_class: str = PUBLIC) -> dict:

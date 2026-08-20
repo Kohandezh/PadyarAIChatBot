@@ -1,180 +1,152 @@
-# AI Provider Control Plane — checkpoint
+# PadyarAIChatBot — AI Control Plane checkpoint
 
-**Status:** implementation complete (contract-tested). Awaiting commit
-authorization and — separately — live credentials for live verification.
-**Date:** 2026-08-19
-**Suite:** see §5 for the final counts of this session.
+**Updated:** 2026-08-19
+**Repository:** `Kohandezh/PadyarAIChatBot` (branch `main`) — a project separate
+from `PadyarVideoChatbot`, which is untouched and continues independently.
 
-## 1. What exists now
+**Status:** engineering complete and contract-tested. **No provider has ever
+completed a successful live call**, and that is the single most important thing
+to know when reading anything below.
 
-| Step | Phase | State |
-|---|---|---|
-| 4 | PostgreSQL AI control-plane schema (`migrations/0003_ai_control_plane.sql`, applied) | ✅ |
-| 5 | Adapter contract + provider registry (11 types incl. SAKOO slot) | ✅ |
-| 6 | Padyar AI Wrapper (routing engine, retry, failover, circuit, usage, pricing) | ✅ |
-| 7 | Legacy config import (idempotent, non-destructive) | ✅ |
-| 8 | chat/classify runtime re-pointed through the wrapper; STT untouched | ✅ |
-| 9–11 | OpenAI (Responses), Anthropic (Messages), Gemini (Interactions) native adapters | ✅ |
-| 12 | Architecture quality gate | ✅ passed (see 02-wrapper-contract.md; json_schema deferred) |
-| 13–19 | Z.AI, Kimi, DeepSeek, Qwen, xAI, Mistral, OpenAI-compatible + SAKOO slot | ✅ |
-| 20–21 | Model catalog + official refresh where it exists + manual models | ✅ |
-| 22–24 | Admin UI: Providers / Models / Routing (+ kill switch) | ✅ |
-| 25–27 | Retry / failover / circuit breaker (shared PG state, probe lease) | ✅ |
-| 28 | Health derivation + Test Connection (per-provider cheapest probe) | ✅ |
-| 29–30 | Pricing (time-versioned, history-preserving) + Usage & Costs dashboard | ✅ |
-| 31 | Main dashboard AI summary cards | ✅ |
-| 32 | RAG debugger (routing picture per wrapper call) | ✅ |
-| 33 | llm.* events, admin.ai_* audit events | ✅ |
-| 34–36 | Security / architecture / concurrency reviews via dedicated tests | ✅ |
-| 37 | Full regression | ✅ see §5 |
+---
 
-Architecture and contracts: **docs/engineering/ai-providers/02-wrapper-contract.md**.
-
-## 2. Key files
+## 1. Test baseline
 
 ```
-migrations/0003_ai_control_plane.sql        control-plane tables (applied via the runner)
-app/services/ai/request.py                  neutral request/response
-app/services/ai/adapters/base.py            adapter contract + shared transport
-app/services/ai/adapters/*.py               11 adapters + bootstrap catalog
-app/services/ai/store.py                    instances/routes/catalog/pricing/usage (+ SQLite mirror)
-app/services/ai/engine.py                   routing, retry, failover
-app/services/ai/circuit.py                  shared circuit breaker
-app/services/ai/health.py                   derived health + test connection
-app/services/ai/catalog.py                  model refresh
-app/services/ai/legacy_import.py            one-time config migration
-app/services/ai/wrapper.py                  padyar_ai public API
-app/routers/admin_ai.py                     admin API (CSRF-protected, audited)
-templates/admin/ai_*.html + static/admin/js/ai_*.js   five admin pages
-tests/test_ai_{adapters,store,engine,legacy_import,admin_ui,live}.py
+default suite (SQLite)        891 passed · 0 failed · 125 skipped
+PostgreSQL integration        111 passed · 0 failed   (opt-in)
+production config checks       22 passed · 0 failed
 ```
 
-## 3. Verification honesty
+Skips are the two opt-in profiles: 14 live-provider tests (no credentials) and
+111 PostgreSQL tests. Runtime on this machine swings from ~76 s to ~400 s under
+load with identical results — **treat pass/fail as the signal, never seconds.**
 
-* **All provider implementations are IMPLEMENTED + CONTRACT TESTED.** No live
-  credentials existed, so NOTHING is live-verified. Mocked success is not
-  success. `tests/test_ai_live.py` is the opt-in live harness
-  (`RUN_LIVE_AI_TESTS=1` + per-provider `*_LIVE_API_KEY`).
-* Model catalogs and prices come from the 2026-08-18 research files; they are
-  bootstrap metadata, not truth. Z.AI and Qwen have no discovery API — manual
-  model entry is the documented path there.
-* The legacy configured models (gpt-4.1 / gpt-5-nano) were imported as MANUAL
-  catalog rows deliberately: whether the customer's gateway still serves them
-  is unknown and must not be silently "upgraded".
-
-## 3b. Live validation performed this session (honest record)
-
-The existing provider was reached through the wrapper against the REAL
-gateway (api.gapgpt.app). The local `.env` key turned out to be a dev
-placeholder, so the provider answered **401 Invalid token** — and the whole
-failure pipeline was thereby live-verified: status+body →
-`authentication_failed`, no same-provider retry, failover decision,
-`all_routes_failed`, shared circuit trip, redacted detail in logs. The
-SUCCESS path awaits the operator's real key (Admin → AI → Providers →
-ویرایش → کلید API, then Test, then enable). Circuits were reset after the
-validation.
-
-This validation also caught three production-only bugs that SQLite tests
-could not (all fixed + re-tested):
-1. int-for-boolean writes (`1 if x else 0`) → PostgreSQL DatatypeMismatch;
-2. `enabled = 1` comparisons against PG booleans → UndefinedFunction;
-3. psycopg returns JSONB as dicts — `json.loads(dict)` raised and silently
-   wiped provider configs; also TIMESTAMPTZ comes back as datetime, which
-   broke ISO-string comparisons in the circuit.
-
-## 4. Known risks / next actions for the operator
-
-1. **The work is still not in git** (~250+ uncommitted files including this
-   phase). Commit authorization is still pending.
-2. Run the live harness with real keys before trusting failover behaviour in
-   production; watch the RAG debugger page for the first real traffic.
-3. `openai_enabled` is the single kill switch (routing page + legacy settings
-   both toggle it).
-4. DeepSeek off-peak 50% pricing is NOT modelled (peak rate stored = upper
-   bound); xAI long-context 2× cliff not modelled; Gemini 3.6/3.7 promo
-   prices double 2027-01-01. All are recorded as pricing rows that can be
-   superseded by new effective-dated rows.
-5. `json_schema` structured output is deferred (no current consumer; only
-   `json_object` is normalized).
-
-## 5. Test counts
-
-Baseline entering this session: **609 passed**. This session adds:
-
-```
-tests/test_ai_adapters.py       46   (provider contracts, wire shapes, SAKOO)
-tests/test_ai_store.py          30   (secrets, catalog merge, pricing, circuit)
-tests/test_ai_engine.py         23   (routing/retry/failover/loop/kill/concurrency)
-tests/test_ai_legacy_import.py  10   (migration idempotency + wrapper compatibility)
-tests/test_ai_admin_ui.py       27   (HTML pages, CSRF, XSS, refresh, SAKOO proof)
-tests/test_ai_live.py           14 skipped (opt-in; no credentials)
+```bash
+.venv/bin/python -m pytest -q                                   # default
+RUN_POSTGRES_TESTS=1 .venv/bin/python -m pytest tests/postgres -q
 ```
 
-Final full-suite numbers are in the session report — run on an idle machine
-before comparing runtimes (the 213 s contamination lesson).
+## 2. What exists
 
-## 6. Git state at handoff
+| Area | State |
+|---|---|
+| Padyar AI Wrapper | authoritative — `padyar_ai.generate/classify` is the only AI entry point |
+| Provider registry | 11 types: 3 native (OpenAI Responses, Anthropic Messages, Gemini Interactions), 6 compatible+metadata, 1 base, 1 SAKOO slot |
+| Routing | per-task routes (CHAT, CLASSIFICATION), priority, bounded retry, failover, loop protection |
+| Circuit breaker | PostgreSQL-shared state, half-open probe lease, auth-failure instant open |
+| Model catalog | official refresh where an API exists; manual entry for Z.AI and Qwen, which have none |
+| Pricing / usage | time-versioned; cost stored on the usage row so history cannot be rewritten |
+| Admin | Providers · Models · Routing · Usage & Costs · RAG Debugger |
+| Observability | `applog` only — llm.* events, audit, security, correlation ids |
+| Security | CSRF middleware, SSRF endpoint trust model, value-based credential redaction |
+| STT | resolves credentials through the Control Plane (see §4) |
 
-HEAD `c69dab4`, branch `main-noor`, level with `origin/main-noor`. The 11
-pre-existing staged renames are untouched. No commit, no push, no destructive
-commands were run — see the session report for the full inventory.
+**Gate A holds:** the only vendor SDK call outside `adapters/` is Whisper STT
+in `app/services/openai.py` — the documented exception.
 
-## 7. Multi-agent verification pass — 2026-08-19
+## 3. Provider status — read this before quoting any of it
 
-16 Opus specialists audited this phase in parallel (architecture, PostgreSQL
-adversarial, routing, circuit, 3× provider-contract, catalog/pricing, 2× admin
-UI, security red-team, concurrency, test-quality, observability, legacy/Gate-H,
-freeze audit). Every finding was re-verified by the orchestrator before being
-accepted — two agent claims were rejected as wrong (see below).
+**Every provider: IMPLEMENTED + CONTRACT TESTED. Zero LIVE VERIFIED.**
 
-**Suite: 745 -> 825 passed, 0 failed, 14 skipped (intentional live-provider
-opt-ins), 112 s on an idle machine.**
+The one configured instance is an `openai_compatible` gateway carrying a
+**development placeholder key**. A controlled request through the real wrapper
+returns:
 
-### P0 defects found and fixed
+```
+code       all_routes_failed   (underlying: authentication_failed)
+detail     Invalid token (request id: …)
+health     degraded
+```
 
-1. **OTP/registration was 100% dead on PostgreSQL.** `otp.ensure_table()`
-   caught only `sqlite3.OperationalError`, so psycopg's `DuplicateColumn`
-   escaped from the first statement of all six OTP entry points. Separately
-   `SET used = 1` / `AND used = 1` hit a real BOOLEAN column. Net effect: a
-   visitor entering the CORRECT code got a 500 *after* validation, leaving the
-   challenge unconsumed and the code replayable. Invisible to CI because the
-   suite pins `DB_BACKEND=sqlite`. Fixed and proven against live PostgreSQL.
-2. **Circuit breaker did not trip under concurrency.** `record_failure` read
-   the counter into Python and wrote it back; 5 concurrent failures recorded
-   as 2 and the circuit stayed CLOSED — failing at exactly the load it exists
-   for. Now a DB-side `CASE` increment under row lock. Mutation-verified.
-3. **Credential redaction was shape-based and leaked.** `xai-...`, Mistral's
-   bare-alphanumeric and `gw_live_...` keys survived scrubbing and were written
-   verbatim into `audit_logs`, which is exempt from retention pruning.
-   Redaction is now VALUE-based: `applog.register_secret()` is called wherever
-   a secret is decrypted, and `scrub_text` removes the exact value whatever
-   shape it has. Regexes remain as the second line.
-4. **Legacy import could freeze a half-migrated control plane forever.** A
-   fault after `create_instance` left an instance with zero route targets, and
-   the next boot's guard then set the migration marker permanently. Now rolled
-   back so the next boot retries.
-5. **Discovery silently overwrote MANUAL model rows.** `gpt-4.1`/`gpt-5-nano`
-   are manual precisely because nobody knows if the gateway still serves them;
-   one Refresh converted that into a confident claim. Now `preserved_manual`.
+That is the **failure** pipeline working correctly end to end — status → normalized
+error → no same-provider retry → failover decision → circuit → redacted detail.
+The **success** path has never run. Do not report otherwise.
 
-### P1 also fixed
-`applog.record()` leaked a pooled connection carrying an aborted transaction
-when a log write failed — held across the provider HTTP call. `/api/ready?deep`
-made an unauthenticated-triggerable authenticated outbound call from outside
-the adapter layer (no SSRF policy, no circuit, no accounting) and published the
-gateway URL publicly; it now derives health from recorded state. `AIError`'s
-exception message carried unscrubbed provider text into tracebacks.
+`SAKOO` — Architecture READY, adapter NOT IMPLEMENTED, awaiting official
+documentation. Not a defect.
 
-### Rejected agent claims (verification matters)
-* "OpenAI reasoning models reject `temperature`" — contradicted by
-  `01-capability-matrix.md` (OpenAI listed **Supported**) and by
-  `research/openai.md`. Not applied.
-* "openai_adapter bypasses the sampling gate" — already fixed on disk before
-  the claim was filed.
+## 4. Decisions that are settled
 
-### Known-open (documented, not fixed)
-DNS rebinding is still possible against the `public` trust class because
-`resolved_ips()` has no callers — no IP pinning at connect time. Alibaba
-metadata `100.100.100.200` is reachable under `internal`. Usage `P95` slices
-in Python rather than using `percentile_cont`. `_RT_CACHE` is 20 s per-process
-(irrelevant at 1 worker, real at >1).
+1. **OpenAI-first request semantics are prohibited.** `temperature` is
+   capability-gated per model: five of nine providers reject or deprecate it
+   (Anthropic 400s on Claude 4.7+, Kimi errors, DeepSeek rejects it while
+   thinking is on — the default).
+2. `retryable` and `failover_eligible` are **separate** flags. Auth failure:
+   no retry, does fail over. Context-limit: neither.
+3. `system_prompt` is its own field, never `messages[0]`.
+4. `reasoning` defaults **off** for CLASSIFICATION — it is on by default at
+   DeepSeek, Z.AI, Qwen, Kimi and xAI, and silently burns tokens.
+5. Response parsing never assumes text exists (Gemini signals a safety block
+   with HTTP 200 and no text); `content_rejected` must not fail over.
+6. `extract_usage()` is per adapter — Anthropic's `input_tokens` counts only
+   tokens after the last cache breakpoint.
+7. `list_models()` is optional; manual model entry is mandatory.
+8. **STT resolves through the Control Plane**: explicit binding
+   (`ai_stt_provider_instance_id`) → the single unambiguous eligible instance →
+   legacy `ai_api_key` for an install that never migrated. Only `openai` and
+   `openai_compatible` are eligible; Anthropic and Gemini do not serve
+   `/audio/transcriptions`.
+9. Model selection lives in **AI → Routing**. The legacy Settings → AI model
+   inputs were removed — they wrote settings the runtime had stopped reading.
+10. SMS frozen (Asanak). Public chat UI frozen. SAKOO documentation-gated.
+
+Full evidence: `docs/engineering/ai-providers/01-capability-matrix.md` and the
+nine per-provider research files in `research/`. Those outrank memory — five of
+nine providers had retired the model IDs recall would have produced.
+
+## 5. Production readiness
+
+**Engineering ~96% · Public launch ~55%.** The gap is not code.
+
+`app/prodcheck.py` runs before anything else at startup. An install marked
+production (`COOKIE_SECURE=true`) **refuses to boot** on: SQLite backend,
+passwordless/placeholder DSN, empty or `*` origins, `OTP_DELIVERY=dev`, or a
+placeholder admin password. Development is never blocked — the same findings
+are logged instead. It warns on an unpinned `SECRET_KEY`, a remote DSN without
+`sslmode`, an oversized `pool × workers` budget, and **placeholder taxonomy**.
+
+Verified true right now: `SECRET_KEY` is persisted in `settings.app_secret_key`,
+so it does **not** rotate on restart; `/api/ready` makes **no** outbound provider
+call (a previous version did, unauthenticated).
+
+### Blocking a public launch — none of these are code
+
+| Blocker | Owner |
+|---|---|
+| Valid AI provider credential (no successful live call yet) | operator |
+| Second provider, for live failover proof | operator |
+| `data/visit-taxonomy.json` still `"status": "placeholder"` | customer |
+| Three open content conflicts — visit hours, organizer list, registration path | customer |
+| Human sign-off unsigned | customer |
+| `COOKIE_SECURE=true`, real `pg_hba` auth, TLS, PostgreSQL autostart | operator |
+| SAKOO API documentation | customer |
+
+### Known open code items — none launch-blocking
+
+- **DNS rebinding.** `endpoint_policy.resolved_ips()` exists so an adapter can
+  pin the validated address, and **no adapter calls it**. Validation and connect
+  resolve separately, so a hostile DNS answer can change between them. The
+  static classifier is otherwise strong (metadata, IPv6-mapped, decimal/octal/
+  hex encodings, userinfo tricks and redirects all rejected).
+- Alibaba metadata `100.100.100.200` is reachable under the `internal` trust
+  class — CGNAT, so the link-local rule misses it.
+- Usage P95 slices rows in Python rather than using `percentile_cont`.
+- `_RT_CACHE` is 20 s and per-process — irrelevant at one worker.
+- Not covered by tests: destructive backup/restore (needs a disposable
+  database, not a schema) and pool-exhaustion concurrency.
+
+## 6. Key files
+
+```
+app/services/ai/wrapper.py      padyar_ai — the only AI entry point
+app/services/ai/engine.py       routing, retry, failover
+app/services/ai/circuit.py      shared circuit breaker
+app/services/ai/stt.py          transcription credential resolution
+app/services/ai/adapters/       11 adapters + bootstrap catalog
+app/db/dberrors.py              backend-neutral constraint errors
+app/prodcheck.py                startup production-config gate
+migrations/0001..0004           applied via scripts/apply_migrations.py
+tests/postgres/                 opt-in real-PostgreSQL suite
+docs/engineering/ai-providers/  capability matrix + 9 research files
+```

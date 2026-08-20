@@ -53,6 +53,19 @@ SESSION_TIMEOUT_HOURS = 1
 ADMIN_COOKIE_NAME = "admin_session"
 
 # Send the admin session cookie only over HTTPS. False for local http dev,
+# Which kind of install this is: "development" | "staging" | "production".
+#
+# This is the ONLY thing that decides whether the production configuration gate
+# runs. It deliberately does NOT read COOKIE_SECURE, which was the previous
+# marker and is unsound as one: COOKIE_SECURE is itself a setting the gate has
+# to CHECK, so a real production server with COOKIE_SECURE=false would classify
+# itself as development, skip validation entirely, and boot with insecure
+# cookies — the misconfiguration disabling the check that exists to catch it.
+#
+# Defaults to development so existing installs keep working. Production
+# deployments must set it explicitly; see .env.example.
+PADYAR_ENV = (os.getenv("PADYAR_ENV") or "development").strip().lower()
+
 # True in production. Set COOKIE_SECURE=true in the production .env.
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 

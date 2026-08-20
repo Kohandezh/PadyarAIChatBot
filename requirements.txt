@@ -6,6 +6,11 @@ openai
 python-multipart
 numpy
 httpx
+# Already installed transitively by FastAPI/Starlette and httpx, but declared
+# because app/services/ai/adapters/base.py imports it directly to run the
+# blocking DNS resolution off the event loop. An undeclared direct import
+# breaks the day a transitive dependency drops it.
+anyio
 python-dotenv
 bcrypt
 cryptography

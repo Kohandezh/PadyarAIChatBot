@@ -108,6 +108,12 @@ def allows(instance_id: str) -> tuple:
                 (token, _now_iso(PROBE_LEASE_S), _now_iso(), instance_id, _now_iso()))
             conn.commit()
             if cur.rowcount:
+                # Emitted by the worker that WON the conditional UPDATE, and
+                # only by that one. `rowcount` is the race winner, so racing
+                # workers cannot each log a transition that happened once.
+                _emit_transition(instance_id, "open", "half_open",
+                                 "cooldown elapsed; probe lease acquired",
+                                 probe_lease_s=PROBE_LEASE_S)
                 return True, "half-open probe"
             return False, "another worker holds the probe"
         if state == "half_open":
@@ -123,6 +129,12 @@ def allows(instance_id: str) -> tuple:
                 (token, _now_iso(PROBE_LEASE_S), _now_iso(), instance_id, _now_iso()))
             conn.commit()
             if cur.rowcount:
+                # Not a state change — still half_open — but an operationally
+                # meaningful one: the previous probe holder died and its lease
+                # expired. Silence here looks identical to a wedged circuit.
+                _emit_transition(instance_id, "half_open", "half_open",
+                                 "stale probe lease reclaimed",
+                                 probe_lease_s=PROBE_LEASE_S)
                 return True, "half-open probe (reclaimed)"
             return False, "half-open probe in flight"
         return True, ""
@@ -130,20 +142,88 @@ def allows(instance_id: str) -> tuple:
         conn.close()
 
 
+# `open` keeps the event name it has always had. Renaming it to match the
+# state string would silently break any existing alert or log query built on
+# `llm.circuit.opened`.
+_EVENT_NAMES = {"open": "llm.circuit.opened",
+                "half_open": "llm.circuit.half_open",
+                "closed": "llm.circuit.closed"}
+
+
+def _safe_log(fn, *args, **kwargs) -> None:
+    """Best-effort telemetry: a logging failure must never break routing.
+
+    `applog` is documented never to raise, but that is a property of one
+    module, not a guarantee this one should depend on. A full disk or a locked
+    log database must degrade to "no row", never to a circuit that stops
+    recovering because logging the recovery failed.
+    """
+    try:
+        fn(*args, **kwargs)
+    except Exception:  # noqa: BLE001 — observability must never break routing
+        pass
+
+
+def _emit_transition(instance_id: str, previous: str, new: str, reason: str,
+                     **extra) -> None:
+    """Log a circuit state change. Only ever called on a PROVEN transition.
+
+    Recovery used to be invisible: `open` was logged, `half_open` and `closed`
+    were not. An operator could watch a provider go down and never see it come
+    back — the absence of a further event looked the same as a circuit stuck
+    open forever.
+
+    Carries no secret: an instance id, two state names and a reason. The
+    provider's own error text is deliberately not repeated here; it is already
+    recorded, redacted, on the failure event.
+    """
+    from app.services import applog
+    _safe_log(applog.info, "llm", _EVENT_NAMES.get(new, f"llm.circuit.{new}"),
+              f"مدار سرویس‌دهنده: {previous} → {new}",
+              target=instance_id,
+              metadata={"provider_instance_id": instance_id,
+                        "previous_state": previous, "new_state": new,
+                        "reason": reason, **extra})
+
+
 def record_success(instance_id: str) -> None:
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
         _ensure_row(conn, instance_id)
-        conn.execute(
+        # The prior state NAMES the transition; `rowcount` PROVES it. Reading
+        # the state and then emitting on `previous != closed` would be a stale
+        # pre-read: two workers whose probes both succeed while the circuit is
+        # half_open would each read `half_open` and each log a recovery that
+        # happened once. The conditional UPDATE can only succeed for one of
+        # them, so gating on its rowcount makes the event exactly-once.
+        row = conn.execute(
+            "SELECT state FROM ai_circuit_state WHERE provider_instance_id=?",
+            (instance_id,)).fetchone()
+        previous = (row["state"] if row else "closed") or "closed"
+        cur = conn.execute(
             "UPDATE ai_circuit_state SET state='closed', failure_count=0,"
             " window_started_at=NULL, opened_at=NULL, cooldown_until=NULL,"
             " probe_owner='', probe_expires_at=NULL, last_success_at=?,"
-            " updated_at=? WHERE provider_instance_id=?",
+            " updated_at=? WHERE provider_instance_id=? AND state <> 'closed'",
             (_now_iso(), _now_iso(), instance_id))
+        recovered = bool(cur.rowcount)
+        if not recovered:
+            # Already closed. The success still has to clear the failure
+            # window — an ordinary successful request, no transition to log.
+            conn.execute(
+                "UPDATE ai_circuit_state SET failure_count=0,"
+                " window_started_at=NULL, last_success_at=?, updated_at=?"
+                " WHERE provider_instance_id=?",
+                (_now_iso(), _now_iso(), instance_id))
         conn.commit()
     finally:
         conn.close()
+    # AFTER the commit: an event an operator can read before the state it
+    # describes is durable is worse than a slightly late one.
+    if recovered:
+        _emit_transition(instance_id, previous, "closed",
+                         "probe succeeded; provider recovered")
 
 
 def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
@@ -193,10 +273,10 @@ def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
                  _now_iso(_setting_int("ai_circuit_auth_cooldown_s", AUTH_COOLDOWN_S)),
                  _now_iso(), instance_id))
             conn.commit()
-            applog.security("llm.circuit.opened",
-                            "مدار سرویس‌دهنده به دلیل خطای اعتبارنامه باز شد",
-                            level="warning", target=instance_id,
-                            metadata={"error": error.code})
+            _safe_log(applog.security, "llm.circuit.opened",
+                      "مدار سرویس‌دهنده به دلیل خطای اعتبارنامه باز شد",
+                      level="warning", target=instance_id,
+                      metadata={"error": error.code})
             return "open"
 
         threshold = _setting_int("ai_circuit_threshold", DEFAULT_THRESHOLD)
@@ -241,6 +321,12 @@ def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
                  _now_iso(_setting_int("ai_circuit_cooldown_s", DEFAULT_COOLDOWN_S)),
                  _now_iso(), instance_id))
             conn.commit()
+            # The probe FAILING is half of the recovery story. Without this an
+            # operator sees `half_open` and then nothing, which is
+            # indistinguishable from a probe still in flight.
+            _emit_transition(instance_id, "half_open", "open",
+                             "probe failed; cooldown restarted",
+                             error_code=error.code)
             return "open"
 
         if state != "open" and count >= threshold:
@@ -253,10 +339,10 @@ def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
                  _now_iso(_setting_int("ai_circuit_cooldown_s", DEFAULT_COOLDOWN_S)),
                  _now_iso(), instance_id))
             conn.commit()
-            applog.warning("llm", "llm.circuit.opened",
-                           "مدار سرویس‌دهنده پس از خطاهای پیاپی باز شد",
-                           target=instance_id, error_code=error.code,
-                           metadata={"failures": count, "window_s": window_s})
+            _safe_log(applog.warning, "llm", "llm.circuit.opened",
+                      "مدار سرویس‌دهنده پس از خطاهای پیاپی باز شد",
+                      target=instance_id, error_code=error.code,
+                      metadata={"failures": count, "window_s": window_s})
             return "open"
         conn.commit()
         return state

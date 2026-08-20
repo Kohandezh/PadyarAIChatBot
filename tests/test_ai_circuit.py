@@ -77,6 +77,11 @@ def _set_columns(iid, **cols):
 def ai_db(tmp_path, monkeypatch):
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "circuit.db"))
+    # Point the LOG database at the temp directory too. Creating a provider
+    # instance writes an audit row, and without this a unit test run appends to
+    # the repository's real application_logs.db — test noise landing in the
+    # file an operator reads as evidence.
+    monkeypatch.setattr(config, "LOGS_DB_PATH", str(tmp_path / "logs.db"))
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     from app.db.connection import init_db
     init_db()
@@ -637,3 +642,236 @@ def test_pg_window_expiry_is_evaluated_by_the_database_not_by_one_worker(pg_iid)
     # all three fall in the same fresh window: 3, never 5 (which would trip)
     assert _pg_row(pg_iid)["failure_count"] == 3
     assert _pg_row(pg_iid)["state"] == "closed"
+
+
+# ── Recovery observability ──────────────────────────────────────────────
+# Only the OPEN transition used to be logged. An operator could watch a
+# provider go down and never see it come back: the absence of a further event
+# looked exactly like a circuit wedged open forever. These pin the three
+# transitions AND the fact that a non-transition stays silent — an event on
+# every successful request would be a log storm that buries the signal.
+
+
+SENTINEL = "sk-SENTINEL-shouldnotappear-9f3a2b"
+
+
+def _trip(iid, error=None):
+    """Drive CLOSED → OPEN using the configured threshold.
+
+    Read from the setting rather than a hardcoded number, exactly as the
+    threshold tests above do: an operator who lowers `ai_circuit_threshold`
+    must not silently turn these into tests of nothing.
+    """
+    threshold = circuit._setting_int("ai_circuit_threshold",
+                                     circuit.DEFAULT_THRESHOLD)
+    for _ in range(threshold):
+        circuit.record_failure(iid, error or _fail())
+    return threshold
+
+
+def _events(monkeypatch):
+    """Capture transition events at the sink, without a log database.
+
+    WHERE THE PATCH GOES. `circuit._emit_transition` does `from app.services
+    import applog` and calls `applog.info(...)`; `applog.info`, `.warning` and
+    `.security` are one-line wrappers that resolve `record` as a module global
+    at call time. So `applog.record` is the single point every circuit event
+    passes through, and patching it there is patching the name at the location
+    it is actually looked up — not a stale copy bound at import.
+
+    Patching the sink also means these tests never touch `application_logs.db`:
+    no schema, no retention settings, no second database to keep in sync.
+    """
+    seen = []
+    from app.services import applog
+
+    def capture(category, event_name, level="info", message="", **fields):
+        seen.append((event_name, fields))
+        return "captured"
+
+    monkeypatch.setattr(applog, "record", capture)
+    return seen
+
+
+def _transitions(seen):
+    return [e for e, _f in seen if e.startswith("llm.circuit.")]
+
+
+def test_closed_to_open_emits_exactly_one_open_event(iid, monkeypatch):
+    seen = _events(monkeypatch)
+    _trip(iid)
+    assert _row(iid)["state"] == "open"
+    assert _transitions(seen) == ["llm.circuit.opened"], seen
+
+
+def test_open_to_half_open_emits_exactly_one_event(iid, monkeypatch):
+    _trip(iid)
+    _set_columns(iid, cooldown_until=_iso(-1))
+
+    seen = _events(monkeypatch)
+    allowed, _why = circuit.allows(iid)
+    assert allowed and _row(iid)["state"] == "half_open"
+    assert _transitions(seen) == ["llm.circuit.half_open"], seen
+
+
+def test_recovery_from_half_open_emits_exactly_one_closed_event(iid, monkeypatch):
+    _trip(iid)
+    _set_columns(iid, cooldown_until=_iso(-1))
+    assert circuit.allows(iid)[0]
+    assert _row(iid)["state"] == "half_open"
+
+    seen = _events(monkeypatch)
+    circuit.record_success(iid)
+    assert _row(iid)["state"] == "closed"
+    assert _transitions(seen) == ["llm.circuit.closed"], seen
+
+
+def test_a_success_on_an_already_closed_circuit_logs_nothing(iid, monkeypatch):
+    """The log-storm guard. Without the prior-state read this would fire on
+    every single successful request the application ever makes."""
+    circuit.record_success(iid)                 # ensure closed
+    seen = _events(monkeypatch)
+    for _ in range(5):
+        circuit.record_success(iid)
+    assert _transitions(seen) == [], seen
+
+
+def test_a_blocked_request_while_open_does_not_re_emit(iid, monkeypatch):
+    """`allows()` is called on every request. While the cooldown is still
+    running it must refuse silently — re-logging the open transition on each
+    rejected request would produce one row per blocked request."""
+    _trip(iid)
+    seen = _events(monkeypatch)
+    for _ in range(5):
+        allowed, _why = circuit.allows(iid)
+        assert allowed is False
+    assert _transitions(seen) == [], seen
+
+
+def test_the_event_is_emitted_only_after_the_state_is_committed(iid, monkeypatch):
+    """Ordering matters on PostgreSQL with several workers: an event emitted
+    before the UPDATE commits can be read by an operator (or an alert) while
+    the database still says `open`. The state must already be observable to a
+    separate connection at the moment the event is produced."""
+    _trip(iid)
+    _set_columns(iid, cooldown_until=_iso(-1))
+
+    observed = []
+    from app.services import applog
+    monkeypatch.setattr(applog, "record",
+                        lambda *a, **k: observed.append(_row(iid)["state"]))
+    circuit.allows(iid)
+    assert observed == ["half_open"], observed
+
+
+def test_the_transition_event_carries_context_but_no_secret(iid, monkeypatch):
+    """A synthetic sentinel stands in for a credential echoed back by the
+    provider. The circuit deliberately does not repeat the provider's error
+    text on the transition event — it is already recorded, redacted, on the
+    failure event — so the sentinel must not survive into this payload."""
+    _trip(iid, ai_errors.AIError(code="server_error",
+                                 provider_detail=f"401 from upstream: {SENTINEL}"))
+    _set_columns(iid, cooldown_until=_iso(-1))
+
+    seen = _events(monkeypatch)
+    circuit.allows(iid)
+
+    _event, fields = next((e, f) for e, f in seen if e == "llm.circuit.half_open")
+    meta = fields.get("metadata") or {}
+    assert meta["provider_instance_id"] == iid
+    assert meta["previous_state"] == "open" and meta["new_state"] == "half_open"
+    assert meta["reason"]
+
+    blob = repr(fields).lower()
+    assert SENTINEL.lower() not in blob
+    for forbidden in ("api_key", "authorization", "x-api-key", "bearer", "sk-"):
+        assert forbidden not in blob, f"{forbidden} present in event payload"
+
+
+def test_observability_failure_never_breaks_the_circuit(iid, monkeypatch):
+    """Telemetry is not allowed to take routing down with it.
+
+    Without the guard in `_emit_transition`, a full disk or a locked log
+    database would propagate out of `allows()` and `record_success()` — the
+    circuit would stop recovering because logging the recovery failed.
+    """
+    from app.services import applog
+
+    def broken(*a, **k):
+        raise RuntimeError("synthetic observability failure")
+
+    _trip(iid)
+    _set_columns(iid, cooldown_until=_iso(-1))
+    monkeypatch.setattr(applog, "record", broken)
+
+    allowed, _why = circuit.allows(iid)          # must not raise
+    assert allowed
+    assert _row(iid)["state"] == "half_open"     # transition still persisted
+    circuit.record_success(iid)                  # must not raise
+    assert _row(iid)["state"] == "closed"
+
+
+def test_a_failed_probe_emits_the_open_transition(iid, monkeypatch):
+    """The other half of the recovery story. Without it an operator sees
+    `half_open` and then nothing — indistinguishable from a probe still in
+    flight, when in fact the provider is still down and the cooldown restarted.
+    """
+    _trip(iid)
+    _set_columns(iid, cooldown_until=_iso(-1))
+    assert circuit.allows(iid)[0]
+    assert _row(iid)["state"] == "half_open"
+
+    seen = _events(monkeypatch)
+    assert circuit.record_failure(iid, _fail()) == "open"
+    assert _transitions(seen) == ["llm.circuit.opened"], seen
+    _event, fields = seen[0]
+    meta = fields["metadata"]
+    assert meta["previous_state"] == "half_open" and meta["new_state"] == "open"
+
+
+# NOTE: "only the worker that actually wins the recovery emits the closed
+# event" is NOT testable here. SQLite permits one writer at a time, so the
+# interleaving that produces a duplicate — two workers both reading `half_open`
+# before either writes — cannot occur on this backend, and a test pretending
+# otherwise would pass whether the code is correct or not. It lives in
+# tests/postgres/test_circuit_recovery_concurrency.py, against real concurrent
+# connections.
+
+def test_a_success_on_a_closed_circuit_still_clears_the_failure_window(iid):
+    """The no-transition branch is not a no-op. It must still reset the
+    counter, or failures from an old window would accumulate across a
+    recovery and trip the circuit on a healthy provider."""
+    circuit.record_success(iid)
+    circuit.record_failure(iid, _fail())
+    assert _row(iid)["failure_count"] == 1
+    circuit.record_success(iid)
+    row = _row(iid)
+    assert row["state"] == "closed"
+    assert row["failure_count"] == 0
+    assert row["last_success_at"]
+
+
+def test_broken_logging_does_not_stop_the_circuit_from_opening(iid, monkeypatch):
+    """The OPEN transition logs through `applog.security` / `applog.warning`,
+    not through `_emit_transition`. Those calls need the same guard — an
+    unguarded one would let a logging failure propagate out of
+    `record_failure()` after the circuit had already committed `open`."""
+    from app.services import applog
+
+    def broken(*a, **k):
+        raise RuntimeError("synthetic observability failure")
+
+    monkeypatch.setattr(applog, "record", broken)
+    assert _trip(iid)                              # must not raise
+    assert _row(iid)["state"] == "open"
+
+
+def test_broken_logging_does_not_stop_an_auth_failure_from_opening(iid, monkeypatch):
+    """The credential-failure path opens immediately and logs a SECURITY
+    event — evidence, on a protected retention. It must still open when that
+    write fails."""
+    from app.services import applog
+    monkeypatch.setattr(applog, "record",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    assert circuit.record_failure(iid, _auth_fail()) == "open"
+    assert _row(iid)["state"] == "open"

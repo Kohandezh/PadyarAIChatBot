@@ -29,12 +29,14 @@ maps httpx transport failures onto the normalized taxonomy, and hands the
 adapter (status, parsed-body-or-text, headers). Adapters never open their
 own httpx clients.
 
-Validated URLs are cached briefly: validate() resolves DNS, and doing that on
-every LLM call would double the per-request latency budget for nothing.
+Connections are PINNED: the policy resolves the hostname once, validates every
+answer, and the client is handed an already-validated IP so it never resolves
+again. `Host` and TLS SNI keep the original name, so certificate verification
+is unchanged.
 """
 import json
-import time
 
+import anyio
 import httpx
 
 from ..errors import (
@@ -112,25 +114,20 @@ class ProviderRuntime:
         self.timeout_s = timeout_s
 
 
-# ── URL validation cache ────────────────────────────────────────────────
-# endpoint_policy.validate() resolves DNS; per-call that would dominate the
-# overhead budget of a config lookup. 60 s TTL keeps a DNS change visible
-# soon enough for operations without paying it per request.
-_URL_CACHE: dict = {}
-_URL_CACHE_TTL = 60.0
-
-
-def _validated_url(url: str, trust_class: str) -> str:
-    key = (url, trust_class)
-    hit = _URL_CACHE.get(key)
-    now = time.monotonic()
-    if hit and now - hit[1] < _URL_CACHE_TTL:
-        return hit[0]
-    out = endpoint_policy.validate(url, trust_class)["url"]
-    if len(_URL_CACHE) > 256:
-        _URL_CACHE.clear()
-    _URL_CACHE[key] = (out, now)
-    return out
+# The 60-second URL-validation cache that used to live here has been removed.
+#
+# It cached a validated URL STRING, which the HTTP client then resolved itself
+# — so the cache made the DNS-rebinding window wider rather than narrower: for
+# a full minute the code believed a hostname had been checked while every
+# request re-resolved it freely. `http()` now calls `endpoint_policy.pin()`,
+# which resolves once and hands the connection a validated IP.
+#
+# That costs one `getaddrinfo` per provider call. Against a request that spends
+# seconds waiting on a language model, a warm-resolver lookup is not a cost
+# worth trading correctness for — but it is a BLOCKING call, so it is run in a
+# worker thread. Left on the event loop it would stall every other concurrent
+# request in the process whenever a resolver was slow, not merely the request
+# waiting on it.
 
 
 # ── Finish-reason normalization tables ──────────────────────────────────
@@ -276,8 +273,33 @@ class BaseAdapter:
         "you are out of credit"; only the body distinguishes them).
         A 3xx raises immediately: redirects are never followed blindly.
         """
-        url = _validated_url(url, rt.trust_class)
+        # PIN the connection to the address that was validated.
+        #
+        # Validating a URL and then handing the hostname to httpx leaves a
+        # TOCTOU window: validation resolves DNS, httpx resolves again, and a
+        # hostile DNS server can return a public address to the first lookup
+        # and 169.254.169.254 to the second. The classifier is then perfectly
+        # correct and completely bypassed. So the client is never given the
+        # chance to resolve: it is handed an IP that already passed policy.
+        #
+        # TLS IS NOT WEAKENED. `Host` and `sni_hostname` keep the original
+        # hostname, so SNI and certificate verification still target the real
+        # name — verified empirically: a pinned request reaches the API and
+        # validates its certificate, while a mismatched SNI is refused.
+        # `pin` resolves DNS, which blocks. Off the loop it goes.
+        pinned = await anyio.to_thread.run_sync(
+            endpoint_policy.pin, url, rt.trust_class)
         timeout_s = timeout_s or rt.timeout_s or 45.0
+
+        # Case-insensitive merge. HTTP header names are case-insensitive but a
+        # dict is not, so a caller passing `host` in any other casing would
+        # leave TWO host headers in the mapping and httpx would refuse the
+        # request with LocalProtocolError. Ours is the only one that may
+        # survive: it is what the connection was pinned to.
+        req_headers = {k: v for k, v in (headers or {}).items()
+                       if k.lower() != "host"}
+        req_headers["Host"] = pinned["authority"]
+
         try:
             # Transport hardening mirrors app/services/openai.py: no retries
             # (retry policy belongs to the routing engine), no HTTP/2, no
@@ -288,9 +310,24 @@ class BaseAdapter:
                 http2=False,
                 follow_redirects=False,
             ) as client:
-                resp = await client.request(
-                    method, url, headers=headers or {},
-                    json=body if body is not None else None)
+                # Try every validated address, in resolution order — the
+                # fallback httpx would have done itself had it been given the
+                # hostname. `localhost` resolves to ['::1', '127.0.0.1'], and
+                # an Ollama server bound to 127.0.0.1 is unreachable if only
+                # the first is tried. A CONNECT failure moves to the next
+                # candidate; anything else (timeout, TLS, an HTTP status) is
+                # the endpoint answering and is returned as-is.
+                candidates = pinned["connect_urls"]
+                for i, candidate in enumerate(candidates):
+                    try:
+                        resp = await client.request(
+                            method, candidate, headers=req_headers,
+                            json=body if body is not None else None,
+                            extensions={"sni_hostname": pinned["host"]})
+                        break
+                    except httpx.ConnectError:
+                        if i == len(candidates) - 1:
+                            raise
         except httpx.TimeoutException as e:
             raise AIError(code=TIMEOUT, provider_type=rt.provider_type,
                           provider_instance_id=rt.instance_id,

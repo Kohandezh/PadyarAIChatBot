@@ -33,6 +33,16 @@ async def _retention_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # BEFORE anything else. Every setting this checks fails silently — a
+    # cookie without Secure still works, a `trust`-auth database still
+    # connects — so the only safe moment to complain is before traffic
+    # arrives. In production an unsafe setting refuses the boot; in
+    # development it only logs. Deliberately NOT guarded by try/except: a
+    # production install that cannot verify its own configuration must not
+    # start. See app/prodcheck.py.
+    from app import prodcheck
+    prodcheck.enforce_at_startup(logger)
+
     init_db()
 
     # Logging comes up FIRST so anything that fails during the rest of startup
