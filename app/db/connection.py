@@ -274,7 +274,11 @@ def _write_admin_credentials(username, password, answer):
     folder = os.path.dirname(os.path.abspath(DB_PATH)) or "."
     path = os.path.join(folder, "ADMIN_CREDENTIALS.txt")
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        # 0600 explicitly. The default umask made this 0644 — a generated admin
+        # password readable by every account on the host, which on a shared
+        # server is the whole point of generating one undone.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(
                 "INOTEX Chatbot — auto-generated admin login\n"
                 "===========================================\n"

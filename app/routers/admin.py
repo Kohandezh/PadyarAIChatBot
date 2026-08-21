@@ -32,6 +32,34 @@ from app import services as svc
 router = APIRouter()
 
 
+def _retire_bootstrap_credentials(username: str, client_ip: str) -> None:
+    """Delete ADMIN_CREDENTIALS.txt once someone has actually logged in.
+
+    The file exists only so the operator can get in the first time; the file
+    itself says "log in, change these, then delete this file". In practice
+    nobody deletes it, so a plaintext admin password sits on disk for the life
+    of the installation. A successful login is the moment it stops being
+    needed.
+
+    Best-effort by design: a failure here must never turn a good login into a
+    failed one, so every error is swallowed after being logged.
+    """
+    import os
+    from app.config import DB_PATH
+    try:
+        folder = os.path.dirname(os.path.abspath(DB_PATH)) or "."
+        path = os.path.join(folder, "ADMIN_CREDENTIALS.txt")
+        if not os.path.exists(path):
+            return
+        os.remove(path)
+        applog.audit("auth.bootstrap_credentials.removed",
+                     "فایل رمز اولیه پس از ورود موفق حذف شد",
+                     actor=username, actor_type="admin", ip=client_ip,
+                     target=path, outcome="ok")
+    except Exception as exc:                      # noqa: BLE001
+        logger.warning("Could not remove bootstrap credentials file: %s", exc)
+
+
 @router.post("/admin/login")
 async def admin_login(creds: LoginRequest, request: Request):
     client_ip = request.client.host
@@ -128,6 +156,8 @@ async def admin_login(creds: LoginRequest, request: Request):
                  actor=creds.username, target="admin-panel", outcome="ok",
                  ip=client_ip, actor_type="admin",
                  user_agent=request.headers.get("user-agent", ""))
+
+    _retire_bootstrap_credentials(creds.username, client_ip)
 
     response = JSONResponse({"status": "success"})
     response.set_cookie(
