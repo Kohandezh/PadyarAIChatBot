@@ -77,137 +77,144 @@
 </div>
 
 {# ── Advanced: the three real Chatterbox knobs ────────────────────────── #}
-<div class="card mt-3">
-  <div class="card-header py-2">
-    <a class="text-decoration-none text-reset d-flex align-items-center w-100" data-bs-toggle="collapse"
-       href="#tts-advanced" role="button" aria-expanded="false" aria-controls="tts-advanced">
-      <i class="fas fa-sliders ms-2"></i>
-      <span class="card-title mb-0">تنظیمات پیشرفته</span>
-      <span class="text-muted small me-2">(اختیاری — بدون تغییر هم به‌خوبی کار می‌کند)</span>
-    </a>
-  </div>
-  <div class="collapse" id="tts-advanced">
-    <div class="card-body">
-      <div class="mb-4">
-        <label class="form-label d-flex justify-content-between" for="p-exaggeration">
-          <span>میزان احساس در صدا</span>
-          <b dir="ltr" id="v-exaggeration">0.50</b>
-        </label>
-        <input type="range" class="form-range" id="p-exaggeration" dir="ltr"
-               min="0.25" max="2" step="0.05" value="0.5">
-        <div class="text-muted small">هرچه بیشتر، صدا پرهیجان‌تر و کم‌ثبات‌تر می‌شود.
-          اگر از ۰٫۷ بالاتر بردید، «سرعت و وفاداری» را کمتر کنید؛ چون احساسِ زیاد، گفتار را تند می‌کند.</div>
+{# Side by side on wide screens: tuning a voice and auditioning it are
+   one task, and making the operator scroll between them was needless.
+   They stack again below lg, where two columns would be unreadable. #}
+<div class="row row-cards mt-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header py-2">
+        <a class="text-decoration-none text-reset d-flex align-items-center w-100" data-bs-toggle="collapse"
+           href="#tts-advanced" role="button" aria-expanded="false" aria-controls="tts-advanced">
+          <i class="fas fa-sliders ms-2"></i>
+          <span class="card-title mb-0">تنظیمات پیشرفته</span>
+          <span class="text-muted small me-2">(اختیاری — بدون تغییر هم به‌خوبی کار می‌کند)</span>
+        </a>
       </div>
-
-      <div class="mb-4">
-        <label class="form-label d-flex justify-content-between" for="p-cfg">
-          <span>سرعت و وفاداری به گوینده</span>
-          <b dir="ltr" id="v-cfg">0.50</b>
-        </label>
-        <input type="range" class="form-range" id="p-cfg" dir="ltr"
-               min="0.2" max="1" step="0.05" value="0.5">
-        <div class="text-muted small">کمتر (حدود ۰٫۳) گفتار را آرام‌تر می‌کند — مناسب گوینده‌ای که تند حرف می‌زند.
-          برای شبیه‌سازی صدای ضبط‌شده، ۰٫۶ تا ۰٫۷ به صدای اصلی نزدیک‌تر می‌ماند.</div>
-      </div>
-
-      <div class="mb-4">
-        <label class="form-label d-flex justify-content-between" for="p-temperature">
-          <span>تنوع در بیان</span>
-          <b dir="ltr" id="v-temperature">0.80</b>
-        </label>
-        <input type="range" class="form-range" id="p-temperature" dir="ltr"
-               min="0.05" max="5" step="0.05" value="0.8">
-        <div class="text-muted small">کمتر یعنی خواندنی یکنواخت و قابل پیش‌بینی؛ بیشتر یعنی متنوع‌تر و غیرقابل پیش‌بینی‌تر.</div>
-      </div>
-
-      <div class="d-flex flex-wrap gap-2 align-items-center">
-        <button class="btn btn-primary" id="btn-save-params">
-          <i class="fas fa-floppy-disk ms-1"></i>ذخیره این تنظیمات
-        </button>
-        <button class="btn btn-outline-secondary" id="btn-reset-params">
-          <i class="fas fa-rotate-left ms-1"></i>بازگشت به پیش‌فرض
-        </button>
-        <span class="text-muted small" id="params-saved-note"></span>
-      </div>
-      <div class="text-muted small mt-2">
-        تا وقتی ذخیره نکنید، این تنظیمات فقط برای همین بار اعمال می‌شود و با
-        باز کردن دوباره صفحه به حالت قبل برمی‌گردد.
-      </div>
-    </div>
-  </div>
-</div>
-
-{# ── Voice library: record or upload a reference clip ─────────────────── #}
-<div class="card mt-3">
-  <div class="card-header"><h3 class="card-title">صداهای ذخیره‌شده</h3></div>
-  <div class="card-body">
-    <p class="text-muted small">
-      می‌توانید صدای خودتان را ضبط کنید تا دستیار با همان صدا صحبت کند.
-      بهترین نتیجه با یک نمونهٔ <b>۵ تا ۲۰ ثانیه‌ای</b> به دست می‌آید: در جای ساکت، با سرعت عادی،
-      یک متن ساده را بخوانید و صدای دیگری در پس‌زمینه نباشد.
-    </p>
-    <div id="tts-voice-list" class="mb-3"></div>
-
-    <div class="row g-3">
-      {# Recorder #}
-      <div class="col-lg-6">
-        <div class="card card-sm h-100">
-          <div class="card-body">
-            <h4 class="mb-2"><i class="fas fa-microphone ms-2"></i>ضبط با میکروفون</h4>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <button class="btn btn-danger" id="btn-record">
-                <i class="fas fa-circle ms-1"></i>شروع ضبط
-              </button>
-              <button class="btn btn-secondary d-none" id="btn-stop">
-                <i class="fas fa-stop ms-1"></i>پایان ضبط
-              </button>
-              <span id="rec-indicator" class="d-none align-items-center">
-                <span class="status-dot status-dot-animated bg-red ms-2"></span>
-                <b dir="ltr" id="rec-seconds">0</b><span class="ms-1"> ثانیه</span>
-              </span>
-            </div>
-            <div class="text-muted small mt-2" id="rec-hint">برای اجازهٔ دسترسی به میکروفون، پیام مرورگر را تأیید کنید.</div>
-
-            <div id="rec-preview-box" class="mt-3 d-none">
-              <label class="form-label">ابتدا گوش کنید:</label>
-              <audio id="rec-preview" controls class="w-100"></audio>
-            </div>
+      <div class="collapse" id="tts-advanced">
+        <div class="card-body">
+          <div class="mb-4">
+            <label class="form-label d-flex justify-content-between" for="p-exaggeration">
+              <span>میزان احساس در صدا</span>
+              <b dir="ltr" id="v-exaggeration">0.50</b>
+            </label>
+            <input type="range" class="form-range" id="p-exaggeration" dir="ltr"
+                   min="0.25" max="2" step="0.05" value="0.5">
+            <div class="text-muted small">هرچه بیشتر، صدا پرهیجان‌تر و کم‌ثبات‌تر می‌شود.
+              اگر از ۰٫۷ بالاتر بردید، «سرعت و وفاداری» را کمتر کنید؛ چون احساسِ زیاد، گفتار را تند می‌کند.</div>
           </div>
-        </div>
-      </div>
 
-      {# File upload #}
-      <div class="col-lg-6">
-        <div class="card card-sm h-100">
-          <div class="card-body">
-            <h4 class="mb-2"><i class="fas fa-file-audio ms-2"></i>انتخاب فایل صوتی</h4>
-            <input type="file" class="form-control" id="voice-file"
-                   accept="audio/*,.mp3,.wav,.m4a,.ogg">
-            <div class="text-muted small mt-2">فرمت‌های mp3، wav، m4a و ogg پذیرفته می‌شوند.</div>
-            <div id="file-preview-box" class="mt-3 d-none">
-              <label class="form-label">ابتدا گوش کنید:</label>
-              <audio id="file-preview" controls class="w-100"></audio>
-            </div>
+          <div class="mb-4">
+            <label class="form-label d-flex justify-content-between" for="p-cfg">
+              <span>سرعت و وفاداری به گوینده</span>
+              <b dir="ltr" id="v-cfg">0.50</b>
+            </label>
+            <input type="range" class="form-range" id="p-cfg" dir="ltr"
+                   min="0.2" max="1" step="0.05" value="0.5">
+            <div class="text-muted small">کمتر (حدود ۰٫۳) گفتار را آرام‌تر می‌کند — مناسب گوینده‌ای که تند حرف می‌زند.
+              برای شبیه‌سازی صدای ضبط‌شده، ۰٫۶ تا ۰٫۷ به صدای اصلی نزدیک‌تر می‌ماند.</div>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label d-flex justify-content-between" for="p-temperature">
+              <span>تنوع در بیان</span>
+              <b dir="ltr" id="v-temperature">0.80</b>
+            </label>
+            <input type="range" class="form-range" id="p-temperature" dir="ltr"
+                   min="0.05" max="5" step="0.05" value="0.8">
+            <div class="text-muted small">کمتر یعنی خواندنی یکنواخت و قابل پیش‌بینی؛ بیشتر یعنی متنوع‌تر و غیرقابل پیش‌بینی‌تر.</div>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button class="btn btn-primary" id="btn-save-params">
+              <i class="fas fa-floppy-disk ms-1"></i>ذخیره این تنظیمات
+            </button>
+            <button class="btn btn-outline-secondary" id="btn-reset-params">
+              <i class="fas fa-rotate-left ms-1"></i>بازگشت به پیش‌فرض
+            </button>
+            <span class="text-muted small" id="params-saved-note"></span>
+          </div>
+          <div class="text-muted small mt-2">
+            تا وقتی ذخیره نکنید، این تنظیمات فقط برای همین بار اعمال می‌شود و با
+            باز کردن دوباره صفحه به حالت قبل برمی‌گردد.
           </div>
         </div>
       </div>
     </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><h3 class="card-title">صداهای ذخیره‌شده</h3></div>
+      <div class="card-body">
+        <p class="text-muted small">
+          می‌توانید صدای خودتان را ضبط کنید تا دستیار با همان صدا صحبت کند.
+          بهترین نتیجه با یک نمونهٔ <b>۵ تا ۲۰ ثانیه‌ای</b> به دست می‌آید: در جای ساکت، با سرعت عادی،
+          یک متن ساده را بخوانید و صدای دیگری در پس‌زمینه نباشد.
+        </p>
+        <div id="tts-voice-list" class="mb-3"></div>
 
-    {# One save box for both sources — the operator names the clip once. #}
-    <div class="row g-2 align-items-end mt-3">
-      <div class="col-md-6">
-        <label class="form-label" for="voice-name">نام این صدا</label>
-        <input type="text" class="form-control" id="voice-name" dir="ltr"
-               placeholder="masoud" maxlength="48">
-        <div class="text-muted small mt-1">فقط حروف انگلیسی، عدد، خط تیره و زیرخط.</div>
-      </div>
-      <div class="col-md-6">
-        <button class="btn btn-success w-100" id="btn-save-voice" disabled>
-          <i class="fas fa-floppy-disk ms-1"></i>ذخیرهٔ این صدا
-        </button>
+        <div class="row g-3">
+          {# Recorder #}
+          <div class="col-lg-6">
+            <div class="card card-sm h-100">
+              <div class="card-body">
+                <h4 class="mb-2"><i class="fas fa-microphone ms-2"></i>ضبط با میکروفون</h4>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <button class="btn btn-danger" id="btn-record">
+                    <i class="fas fa-circle ms-1"></i>شروع ضبط
+                  </button>
+                  <button class="btn btn-secondary d-none" id="btn-stop">
+                    <i class="fas fa-stop ms-1"></i>پایان ضبط
+                  </button>
+                  <span id="rec-indicator" class="d-none align-items-center">
+                    <span class="status-dot status-dot-animated bg-red ms-2"></span>
+                    <b dir="ltr" id="rec-seconds">0</b><span class="ms-1"> ثانیه</span>
+                  </span>
+                </div>
+                <div class="text-muted small mt-2" id="rec-hint">برای اجازهٔ دسترسی به میکروفون، پیام مرورگر را تأیید کنید.</div>
+
+                <div id="rec-preview-box" class="mt-3 d-none">
+                  <label class="form-label">ابتدا گوش کنید:</label>
+                  <audio id="rec-preview" controls class="w-100"></audio>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# File upload #}
+          <div class="col-lg-6">
+            <div class="card card-sm h-100">
+              <div class="card-body">
+                <h4 class="mb-2"><i class="fas fa-file-audio ms-2"></i>انتخاب فایل صوتی</h4>
+                <input type="file" class="form-control" id="voice-file"
+                       accept="audio/*,.mp3,.wav,.m4a,.ogg">
+                <div class="text-muted small mt-2">فرمت‌های mp3، wav، m4a و ogg پذیرفته می‌شوند.</div>
+                <div id="file-preview-box" class="mt-3 d-none">
+                  <label class="form-label">ابتدا گوش کنید:</label>
+                  <audio id="file-preview" controls class="w-100"></audio>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {# One save box for both sources — the operator names the clip once. #}
+        <div class="row g-2 align-items-end mt-3">
+          <div class="col-md-6">
+            <label class="form-label" for="voice-name">نام این صدا</label>
+            <input type="text" class="form-control" id="voice-name" dir="ltr"
+                   placeholder="masoud" maxlength="48">
+            <div class="text-muted small mt-1">فقط حروف انگلیسی، عدد، خط تیره و زیرخط.</div>
+          </div>
+          <div class="col-md-6">
+            <button class="btn btn-success w-100" id="btn-save-voice" disabled>
+              <i class="fas fa-floppy-disk ms-1"></i>ذخیرهٔ این صدا
+            </button>
+          </div>
+        </div>
+        <div id="voice-save-msg" class="mt-2"></div>
       </div>
     </div>
-    <div id="voice-save-msg" class="mt-2"></div>
   </div>
 </div>
 {% endblock %}
