@@ -162,6 +162,21 @@ else:
     # and is stored per-install in the settings table.
     logger.warning("OPENAI_API_KEY not in env — expecting a key from the admin panel settings.")
 
+# --- Text to speech (Chatterbox) ---
+# The Persian TTS service from deploy/tts/server.py. It listens on loopback
+# only and has no authentication of its own, which is exactly why the admin
+# panel proxies it (app/routers/tts.py) instead of the browser talking to it:
+# port 8003 is never reachable from outside the host.
+TTS_URL = os.getenv("TTS_URL", "http://127.0.0.1:8003").rstrip("/")
+# Generous on purpose. A cache miss on a Tesla P40 synthesises at roughly
+# real-time, so a paragraph legitimately takes tens of seconds; a short timeout
+# would report a healthy service as broken to the operator most likely to be
+# testing a long answer.
+TTS_TIMEOUT = float(os.getenv("TTS_TIMEOUT", "180"))
+# Health and voice listing are cheap. If they hang, the service is wedged, and
+# the panel should say so within a few seconds rather than spin.
+TTS_STATUS_TIMEOUT = float(os.getenv("TTS_STATUS_TIMEOUT", "5"))
+
 # --- Module System ---
 from app.modules.registry import resolve_enabled_modules, module_enabled
 

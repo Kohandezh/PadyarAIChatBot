@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VisitorProfile(BaseModel):
@@ -78,6 +78,21 @@ class AIConnectionRequest(BaseModel):
     feature_stt: bool = True
     search_backend: str = "tfidf"   # "tfidf" | "embedding" (local semantic)
     default_lang: str = "fa"        # first-visit chat language: "fa" | "en"
+
+
+class TTSPreviewRequest(BaseModel):
+    """One "listen to this" request from the Text-to-Speech admin page.
+
+    The three bounds are Chatterbox's own, repeated here so an out-of-range
+    slider is refused by this app with a 422 instead of travelling to the
+    speech service and coming back as a validation error from a component the
+    admin has never heard of.
+    """
+    text: str = Field(..., min_length=1, max_length=4000)
+    voice: str = ""                 # empty = the model's built-in voice
+    exaggeration: float = Field(0.5, ge=0.25, le=2.0)
+    cfg_weight: float = Field(0.5, ge=0.2, le=1.0)
+    temperature: float = Field(0.8, ge=0.05, le=5.0)
 
 
 class AssistantContentRequest(BaseModel):

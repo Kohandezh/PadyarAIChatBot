@@ -1,0 +1,200 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}تبدیل متن به صدا{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">تبدیل متن به صدا</h2>
+      <div class="text-muted mt-1">متن را بنویسید، دکمهٔ «بشنو» را بزنید و صدا را همین‌جا گوش کنید.</div>
+    </div>
+  </div>
+</div>
+
+<div id="tts-msg"></div>
+
+{# ── Engine status ────────────────────────────────────────────────────────
+   First thing on the page, because when the engine is off every other control
+   here is pointless and the operator deserves to know that in one glance. #}
+<div class="card mt-3">
+  <div class="card-body py-3">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+      <span id="tts-status-badge" class="badge bg-secondary-lt">در حال بررسی…</span>
+      <span class="text-muted small" id="tts-status-detail">وضعیت موتور صدا خوانده می‌شود…</span>
+      <button class="btn btn-sm btn-outline-secondary ms-auto" id="btn-refresh-status">
+        <i class="fas fa-rotate ms-1"></i>بررسی دوباره
+      </button>
+    </div>
+  </div>
+</div>
+
+{# ── The main job: type text, hear it ─────────────────────────────────── #}
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">متن شما</h3></div>
+  <div class="card-body">
+    <textarea id="tts-text" class="form-control" dir="rtl" rows="5"
+              maxlength="4000"
+              placeholder="متنی که می‌خواهید شنیده شود را اینجا بنویسید…"></textarea>
+    <div class="text-muted small mt-1"><span id="tts-char-count">۰</span> از ۴۰۰۰ نویسه</div>
+
+    <div class="row g-3 mt-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label" for="tts-voice">صدای گوینده</label>
+        <select class="form-select" id="tts-voice">
+          <option value="">صدای پیش‌فرض مدل</option>
+        </select>
+      </div>
+      <div class="col-md-6 text-md-start">
+        <button class="btn btn-primary btn-lg w-100 w-md-auto" id="btn-speak">
+          <i class="fas fa-volume-high ms-2"></i>بشنو
+        </button>
+      </div>
+    </div>
+
+    <div id="tts-player-box" class="mt-3 d-none">
+      <audio id="tts-audio" controls class="w-100"></audio>
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+        <a id="tts-download" class="btn btn-sm btn-outline-secondary" download="voice.wav" href="#">
+          <i class="fas fa-download ms-1"></i>دانلود فایل صدا
+        </a>
+        {# Why one preview is instant and the next takes seconds. Without this
+           the operator concludes the service is unreliable. #}
+        <span id="tts-cache-badge" class="badge bg-secondary-lt"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Advanced: the three real Chatterbox knobs ────────────────────────── #}
+<div class="card mt-3">
+  <div class="card-header py-2">
+    <a class="text-decoration-none text-reset d-flex align-items-center w-100" data-bs-toggle="collapse"
+       href="#tts-advanced" role="button" aria-expanded="false" aria-controls="tts-advanced">
+      <i class="fas fa-sliders ms-2"></i>
+      <span class="card-title mb-0">تنظیمات پیشرفته</span>
+      <span class="text-muted small me-2">(اختیاری — بدون تغییر هم به‌خوبی کار می‌کند)</span>
+    </a>
+  </div>
+  <div class="collapse" id="tts-advanced">
+    <div class="card-body">
+      <div class="mb-4">
+        <label class="form-label d-flex justify-content-between" for="p-exaggeration">
+          <span>میزان احساس در صدا</span>
+          <b dir="ltr" id="v-exaggeration">0.50</b>
+        </label>
+        <input type="range" class="form-range" id="p-exaggeration" dir="ltr"
+               min="0.25" max="2" step="0.05" value="0.5">
+        <div class="text-muted small">هرچه بیشتر، صدا پرهیجان‌تر و کم‌ثبات‌تر می‌شود.
+          اگر از ۰٫۷ بالاتر بردید، «سرعت و وفاداری» را کمتر کنید؛ چون احساسِ زیاد، گفتار را تند می‌کند.</div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label d-flex justify-content-between" for="p-cfg">
+          <span>سرعت و وفاداری به گوینده</span>
+          <b dir="ltr" id="v-cfg">0.50</b>
+        </label>
+        <input type="range" class="form-range" id="p-cfg" dir="ltr"
+               min="0.2" max="1" step="0.05" value="0.5">
+        <div class="text-muted small">کمتر (حدود ۰٫۳) گفتار را آرام‌تر می‌کند — مناسب گوینده‌ای که تند حرف می‌زند.
+          برای شبیه‌سازی صدای ضبط‌شده، ۰٫۶ تا ۰٫۷ به صدای اصلی نزدیک‌تر می‌ماند.</div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label d-flex justify-content-between" for="p-temperature">
+          <span>تنوع در بیان</span>
+          <b dir="ltr" id="v-temperature">0.80</b>
+        </label>
+        <input type="range" class="form-range" id="p-temperature" dir="ltr"
+               min="0.05" max="5" step="0.05" value="0.8">
+        <div class="text-muted small">کمتر یعنی خواندنی یکنواخت و قابل پیش‌بینی؛ بیشتر یعنی متنوع‌تر و غیرقابل پیش‌بینی‌تر.</div>
+      </div>
+
+      <button class="btn btn-outline-secondary" id="btn-reset-params">
+        <i class="fas fa-rotate-left ms-1"></i>بازگشت به پیش‌فرض
+      </button>
+    </div>
+  </div>
+</div>
+
+{# ── Voice library: record or upload a reference clip ─────────────────── #}
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">صداهای ذخیره‌شده</h3></div>
+  <div class="card-body">
+    <p class="text-muted small">
+      می‌توانید صدای خودتان را ضبط کنید تا دستیار با همان صدا صحبت کند.
+      بهترین نتیجه با یک نمونهٔ <b>۵ تا ۲۰ ثانیه‌ای</b> به دست می‌آید: در جای ساکت، با سرعت عادی،
+      یک متن ساده را بخوانید و صدای دیگری در پس‌زمینه نباشد.
+    </p>
+    <div id="tts-voice-list" class="mb-3"></div>
+
+    <div class="row g-3">
+      {# Recorder #}
+      <div class="col-lg-6">
+        <div class="card card-sm h-100">
+          <div class="card-body">
+            <h4 class="mb-2"><i class="fas fa-microphone ms-2"></i>ضبط با میکروفون</h4>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <button class="btn btn-danger" id="btn-record">
+                <i class="fas fa-circle ms-1"></i>شروع ضبط
+              </button>
+              <button class="btn btn-secondary d-none" id="btn-stop">
+                <i class="fas fa-stop ms-1"></i>پایان ضبط
+              </button>
+              <span id="rec-indicator" class="d-none align-items-center">
+                <span class="status-dot status-dot-animated bg-red ms-2"></span>
+                <b dir="ltr" id="rec-seconds">0</b><span class="ms-1"> ثانیه</span>
+              </span>
+            </div>
+            <div class="text-muted small mt-2" id="rec-hint">برای اجازهٔ دسترسی به میکروفون، پیام مرورگر را تأیید کنید.</div>
+
+            <div id="rec-preview-box" class="mt-3 d-none">
+              <label class="form-label">ابتدا گوش کنید:</label>
+              <audio id="rec-preview" controls class="w-100"></audio>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# File upload #}
+      <div class="col-lg-6">
+        <div class="card card-sm h-100">
+          <div class="card-body">
+            <h4 class="mb-2"><i class="fas fa-file-audio ms-2"></i>انتخاب فایل صوتی</h4>
+            <input type="file" class="form-control" id="voice-file"
+                   accept="audio/*,.mp3,.wav,.m4a,.ogg">
+            <div class="text-muted small mt-2">فرمت‌های mp3، wav، m4a و ogg پذیرفته می‌شوند.</div>
+            <div id="file-preview-box" class="mt-3 d-none">
+              <label class="form-label">ابتدا گوش کنید:</label>
+              <audio id="file-preview" controls class="w-100"></audio>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# One save box for both sources — the operator names the clip once. #}
+    <div class="row g-2 align-items-end mt-3">
+      <div class="col-md-6">
+        <label class="form-label" for="voice-name">نام این صدا</label>
+        <input type="text" class="form-control" id="voice-name" dir="ltr"
+               placeholder="masoud" maxlength="48">
+        <div class="text-muted small mt-1">فقط حروف انگلیسی، عدد، خط تیره و زیرخط.</div>
+      </div>
+      <div class="col-md-6">
+        <button class="btn btn-success w-100" id="btn-save-voice" disabled>
+          <i class="fas fa-floppy-disk ms-1"></i>ذخیرهٔ این صدا
+        </button>
+      </div>
+    </div>
+    <div id="voice-save-msg" class="mt-2"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+  import { initTTS } from '/static/admin/js/tts.js';
+  initTTS();
+</script>
+{% endblock %}
