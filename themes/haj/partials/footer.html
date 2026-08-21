@@ -1,0 +1,746 @@
+<!-- ── Companion ─────────────────────────────────────────────────────────
+     The approved Haj-Pet avatar, rendered by the shared sprite-atlas renderer
+     (static/companion/companion.js). Nothing about that renderer changes here:
+     it reads its atlas, cell size, fallback still and hide strip from the
+     canvas's data-* attributes, so pointing it at the twelve-pose Haj-Pet
+     sheet is a configuration change, not a fork.
+
+     The drawing itself is decorative and hidden from assistive tech; every
+     ACTION beside it (hide, bigger, smaller, open the chat) is a real
+     focusable button with a name, so a keyboard-only visitor can do
+     everything a pointer can. -->
+<div class="pet-slot haj-pet" id="pet-slot" data-open="false" data-hidden="false">
+    <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه">
+        <button type="button" class="pet-rail-btn" id="pet-eye" aria-pressed="false" title="مخفی‌کردن همراه"
+            aria-label="مخفی‌کردن همراه">
+            <svg class="eye-open" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
+            </svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10.7 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.4 3.4" />
+                <path d="M6.6 6.6A17.2 17.2 0 0 0 2 12s3.6 7 10 7a10.4 10.4 0 0 0 5.4-1.5" />
+                <path d="m2 2 20 20" />
+            </svg>
+        </button>
+        <button type="button" class="pet-rail-btn" id="pet-larger" title="بزرگ‌تر" aria-label="بزرگ‌تر کردن همراه">+</button>
+        <button type="button" class="pet-rail-btn" id="pet-smaller" title="کوچک‌تر" aria-label="کوچک‌تر کردن همراه">−</button>
+    </div>
+
+    <!-- 12-pose, 384px-cell atlas — the sheet this install's renderer can
+         actually draw. static/companion/companion.js here registers poses 0-11
+         (three rows of four) and has no fourth-row detection, so the 4096px HD
+         sheet's four extra poses would be 3.6 MB that never reach the screen
+         while making the first paint wait on them. The HD files ship alongside
+         (haj-pose-atlas-hd.webp + haj-pose-manifest-hd.json): the day the
+         shared renderer learns the fourth row, this block is the only edit. -->
+    <canvas id="pet-canvas" width="384" height="384" aria-hidden="true"
+        data-atlas="/themes/haj/static/haj-pose-atlas.webp" data-cell="384"
+        data-fallback="/themes/haj/static/haj-fallback.webp"
+        data-hide-strip="/themes/haj/static/haj-hide-strip.webp"></canvas>
+
+    <button type="button" class="pet-hit" id="pet-hit" aria-expanded="false" aria-controls="pet-panel"
+        aria-label="گفت‌وگوی کوتاه با دستیار"></button>
+</div>
+
+<!-- Mini chat: a compact VIEW of the same conversation, never a second one. -->
+<section class="pet-panel haj-pet-panel" id="pet-panel" hidden aria-labelledby="pet-panel-title">
+    <header class="pet-panel-head">
+        <div>
+            <p class="pet-panel-eyebrow" id="haj-pet-eyebrow">سازمان حج و زیارت</p>
+            <h2 class="pet-panel-title" id="pet-panel-title">پرسش کوتاه</h2>
+        </div>
+        <button type="button" class="pet-panel-close" id="pet-close" title="بستن گفت‌وگو"
+            aria-label="بستن گفت‌وگو">×</button>
+    </header>
+
+    <div class="pet-chips" id="pet-chips" aria-label="پیشنهادهای سریع"></div>
+
+    <ol class="pet-log" id="pet-log" role="log" aria-live="polite" aria-relevant="additions"
+        aria-label="تاریخچه گفت‌وگو"></ol>
+
+    <form class="pet-form" id="pet-form">
+        <label class="haj-sr-only" for="pet-input">پرسش شما درباره خدمات حج و زیارت</label>
+        <textarea id="pet-input" rows="1" maxlength="500" dir="auto" autocomplete="off" enterkeyhint="send"
+            placeholder="سؤال خود را بنویسید..." aria-describedby="pet-status"></textarea>
+        <button type="submit" class="pet-send" aria-label="ارسال">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2 .01 7Z" />
+            </svg>
+        </button>
+    </form>
+
+    <p class="pet-status" id="pet-status" role="status" aria-live="polite"></p>
+</section>
+
+
+<script src="/static/companion/companion.js?v={{ asset_version | default('0', true) }}"></script>
+<script src="/static/chat/core.js?v={{ asset_version | default('0', true) }}"></script>
+<script>
+    /* ══════════════════════════════════════════════════════════════════
+       Haj theme behaviour.
+
+       Everything here plugs into the shared core.js through the three
+       documented seams (ChatConfig.addMessageFn / switchTabFn /
+       playVideoTransitionFn) plus ordinary DOM listeners. core.js and
+       base.css are shared property and are never edited from a theme.
+       ══════════════════════════════════════════════════════════════════ */
+
+    var HAJ_REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    /* ── Theme-owned copy ──────────────────────────────────────────────
+       core.js ships generic strings for a different product. Rather than
+       edit the shared file, the theme owns the sentences a pilgrim reads.
+
+       This install is Persian-only and has no language control: the official
+       source publishes nothing in English, so the knowledge base has no
+       English answers to give. An English UI over Persian answers would be a
+       label the content cannot honour. */
+    var HajCopy = (function () {
+        var STRINGS = {
+            fa: {
+                welcome: 'سلام و خوش آمدید. من دستیار هوشمند سازمان حج و زیارت هستم. هر پرسشی درباره ثبت‌نام، ' +
+                    'مدارک، هزینه‌ها و خدمات سفر دارید، همین‌جا بپرسید.',
+                placeholder: 'سؤال خود را درباره خدمات حج و زیارت بپرسید...',
+                typing: 'در حال آماده‌کردن پاسخ…',
+                videoStart: 'پخش معرفی',
+                micTitle: 'پرسیدن با صدا',
+                micStop: 'پایان دادن به ضبط صدا',
+                sendTitle: 'ارسال پرسش',
+                ttsOn: 'خواندن پاسخ‌ها با صدا',
+                ttsOff: 'خاموش کردن خواندن پاسخ‌ها',
+                videoSoundOn: 'پخش صدای ویدیو',
+                videoSoundOff: 'قطع صدای ویدیو',
+                keyboard: 'نوشتن با صفحه‌کلید',
+                themeToDark: 'رفتن به حالت تاریک',
+                themeToLight: 'رفتن به حالت روشن',
+                a11y: 'اندازه متن و کنتراست',
+                petEyebrow: 'سازمان حج و زیارت',
+                petTitle: 'پرسش کوتاه',
+                hintListening: 'در حال شنیدن… وقتی حرفتان تمام شد دوباره روی میکروفون بزنید.',
+                hintProcessing: 'در حال آماده‌کردن پاسخ…',
+                hintSpeaking: 'در حال خواندن پاسخ.',
+                hintIdle: '',
+                retry: 'تلاش دوباره',
+                sent: 'ارسال شد'
+            }
+        };
+
+        function s() {
+            return STRINGS.fa;
+        }
+
+        function text(id, value) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = value;
+        }
+
+        function label(id, value) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.title = value;
+            el.setAttribute('aria-label', value);
+        }
+
+        /** Re-apply every theme-owned string. Safe to call at any time. */
+        function paint() {
+            var c = s();
+            text('haj-welcome', c.welcome);
+            text('haj-typing-label', c.typing);
+            text('haj-video-start-label', c.videoStart);
+            text('haj-pet-eyebrow', c.petEyebrow);
+            text('pet-panel-title', c.petTitle);
+            label('haj-keyboard-btn', c.keyboard);
+            label('a11y-hamburger', c.a11y);
+            label('send-btn', c.sendTitle);
+
+            var input = document.getElementById('user-input');
+            if (input) input.setAttribute('placeholder', c.placeholder);
+
+            var mic = document.getElementById('mic-btn');
+            if (mic) {
+                var rec = mic.classList.contains('recording');
+                mic.title = rec ? c.micStop : c.micTitle;
+                mic.setAttribute('aria-label', mic.title);
+                mic.setAttribute('aria-pressed', rec ? 'true' : 'false');
+            }
+
+            var themeBtn = document.getElementById('haj-theme-toggle');
+            if (themeBtn) {
+                var dark = document.body.classList.contains('haj-dark');
+                themeBtn.title = dark ? c.themeToLight : c.themeToDark;
+                themeBtn.setAttribute('aria-label', themeBtn.title);
+            }
+
+        }
+
+        return { paint: paint, s: s };
+    })();
+
+
+    /* ── Message rendering ─────────────────────────────────────────────
+       UserMessageBubble, AssistantMessageCard (+ AssistantBadge, delivery
+       meta, RichChecklistCard) and the error/retry state. */
+    var HajChat = (function () {
+        // Snapshot the stored timestamps BEFORE core.js replays the history,
+        // so a restored message shows the time it was actually sent instead of
+        // a freshly invented "now".
+        // CHAT_HISTORY_KEY is core.js's own constant: naming the key by hand
+        // silently desynchronises the moment the shared file renames it (this
+        // install uses 'inotex_chat_history', the fork this theme came from
+        // used 'padyar_chat_history' — a literal here read an empty array and
+        // stamped every restored message "now").
+        var restoredTimes = (function () {
+            try {
+                return JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || '[]')
+                    .map(function (m) { return m.timestamp; });
+            } catch (e) { return []; }
+        })();
+
+        var lastUserMessage = '';
+
+        function clock(ts) {
+            var d = new Date(ts);
+            var s = String(d.getHours()).padStart(2, '0') + ':' +
+                String(d.getMinutes()).padStart(2, '0');
+            return s.replace(/\d/g, function (n) { return '۰۱۲۳۴۵۶۷۸۹'[n]; });
+        }
+
+        function icon(paths, extra) {
+            return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" ' +
+                'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ' +
+                (extra || '') + '>' + paths + '</svg>';
+        }
+
+        function badge() {
+            var span = document.createElement('span');
+            span.className = 'haj-badge';
+            span.setAttribute('aria-hidden', 'true');
+            var img = document.createElement('img');
+            img.src = '/themes/haj/static/app-icon.png';
+            img.width = 30; img.height = 30; img.alt = '';
+            span.appendChild(img);
+            return span;
+        }
+
+        /** The app's own failure sentences, in both languages. Matching the
+            exact strings core.js emits is reliable; guessing from the shape of
+            the text would not be. */
+        function isFailure(text) {
+            var keys = ['rateLimit', 'refresh', 'aiUnavailable', 'genericError'];
+            var value = String(text).trim();
+            if (typeof I18N === 'undefined') return false;
+            return ['fa', 'en'].some(function (lang) {
+                var bag = I18N[lang] || {};
+                return keys.some(function (k) { return bag[k] && String(bag[k]).trim() === value; });
+            });
+        }
+
+        /** RichChecklistCard: a plain markdown list becomes a checked list.
+            Idempotent, so re-running it over the same node adds nothing. */
+        function enrich(root) {
+            root.querySelectorAll('ul').forEach(function (ul) {
+                ul.classList.add('haj-checklist');
+                Array.prototype.forEach.call(ul.children, function (li) {
+                    if (li.tagName !== 'LI' || li.querySelector('.haj-check')) return;
+                    var mark = document.createElement('span');
+                    mark.className = 'haj-check';
+                    mark.setAttribute('aria-hidden', 'true');
+                    mark.innerHTML = icon('<circle cx="12" cy="12" r="9"/><path d="m8.4 12.2 2.5 2.5 4.7-5"/>');
+                    li.insertBefore(mark, li.firstChild);
+                });
+            });
+            root.querySelectorAll('a').forEach(function (a) { a.target = '_blank'; a.rel = 'noopener'; });
+        }
+
+        function render(content, type, save, instant) {
+            var restored = save === false && instant === true;
+            var stamp = (restored && restoredTimes.length) ? restoredTimes.shift() : Date.now();
+            var failed = type === 'bot' && isFailure(content);
+
+            var msg = document.createElement('div');
+            msg.className = 'message ' + type + (failed ? ' is-error' : '');
+
+            var bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.setAttribute('dir', 'auto');
+            if (type === 'bot') bubble.appendChild(badge());
+
+            var body = document.createElement('div');
+            body.className = 'haj-bubble-body';
+
+            var textLayer = document.createElement('div');
+            textLayer.className = 'bubble-text';
+            body.appendChild(textLayer);
+
+            var meta = document.createElement('div');
+            meta.className = 'haj-meta';
+            var time = document.createElement('time');
+            time.className = 'haj-time';
+            time.dateTime = new Date(stamp).toISOString();
+            time.textContent = clock(stamp);
+            meta.appendChild(time);
+            if (type === 'user') {
+                var tick = document.createElement('span');
+                tick.className = 'haj-tick';
+                tick.setAttribute('title', HajCopy.s().sent);
+                tick.innerHTML = icon('<path d="m2 12.5 4 4 7-8"/><path d="m10 16.5 1.4 1.4 8-9"/>');
+                meta.appendChild(tick);
+            }
+            body.appendChild(meta);
+
+            if (failed) {
+                var retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'haj-retry';
+                retry.textContent = HajCopy.s().retry;
+                retry.addEventListener('click', function () {
+                    if (lastUserMessage) sendPreset(lastUserMessage);
+                });
+                body.appendChild(retry);
+            }
+
+            bubble.appendChild(body);
+            msg.appendChild(bubble);
+
+            if (loadingBubble) chatContent.insertBefore(msg, loadingBubble);
+            else chatContent.appendChild(msg);
+
+            // A typewriter is motion; a visitor who asked for less of it gets
+            // the finished answer straight away instead.
+            var animate = type === 'bot' && !instant && !failed && !HAJ_REDUCED.matches;
+            if (animate) {
+                // typeWriter has no completion hook, so "the answer stopped
+                // changing" is the signal: the checklist pass and the complete
+                // state both fire once the stream settles. enrich() is
+                // idempotent, so the pass it triggers on itself stops there.
+                var settle = 0;
+                new MutationObserver(function () {
+                    clearTimeout(settle);
+                    settle = setTimeout(function () {
+                        enrich(textLayer);
+                        msg.classList.add('is-complete');
+                    }, 140);
+                }).observe(textLayer, { childList: true, subtree: true });
+                typeWriter(textLayer, content);
+            } else {
+                if (typeof marked !== 'undefined') textLayer.innerHTML = marked.parse(content);
+                else textLayer.textContent = content;
+                enrich(textLayer);
+                msg.classList.add('is-complete');
+            }
+
+            chatContent.scrollTop = chatContent.scrollHeight;
+            if (save) saveToHistory(content, type);
+            if (type === 'user' && save) lastUserMessage = content;
+            // Only a NEWLY arrived answer is read aloud. Replayed history must
+            // stay silent: reading a saved conversation back on every page load
+            // is a voice starting by itself, with nothing on screen to explain
+            // where it came from.
+            if (type === 'bot' && !failed && !restored) HajSpeech.speak(content);
+        }
+
+        return { render: render, lastUser: function () { return lastUserMessage; } };
+    })();
+
+    ChatConfig.addMessageFn = function (content, type, save, instant) {
+        HajChat.render(content, type, save !== false, instant === true);
+    };
+
+
+    /* ── SegmentedTabs ─────────────────────────────────────────────────
+       One radio group owns the choice; core.js routes through it so an answer
+       that arrives as video moves the control too, instead of leaving the tab
+       claiming something the screen contradicts. */
+    ChatConfig.switchTabFn = function (tabName) {
+        var radio = document.querySelector('.haj-tab-input[value="' + tabName + '"]');
+        if (radio && !radio.checked) {
+            radio.checked = true;
+            radio.dispatchEvent(new Event('change'));
+            return;
+        }
+        switchTabInternal(tabName);
+    };
+
+    (function () {
+        document.querySelectorAll('.haj-tab-input').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (radio.checked) switchTabInternal(radio.value);
+            });
+        });
+    })();
+
+
+    /* ── QuickActionRow ────────────────────────────────────────────────
+       The label on the chip is the whole question that gets asked. Nothing is
+       abbreviated into a keyword the visitor then has to decode. */
+    (function () {
+        var row = document.getElementById('haj-quick-row');
+        if (!row) return;
+        row.addEventListener('click', function (e) {
+            var chip = e.target.closest('.haj-chip');
+            if (!chip) return;
+            var question = chip.getAttribute('data-question');
+            if (!question) return;
+            // One question at a time: a second tap while the answer is being
+            // prepared would start a second typewriter over the first.
+            var loader = document.getElementById('loading-bubble');
+            if (loader && loader.style.opacity === '1') return;
+            chip.classList.add('is-sent');
+            setTimeout(function () { chip.classList.remove('is-sent'); }, 700);
+            sendPreset(question);
+        });
+    })();
+
+
+    /* ── ThemeToggle ───────────────────────────────────────────────────
+       A per-visitor preference stored locally. A pilgrim who prefers the dark
+       palette on a shared kiosk must not change what the next person sees, so
+       this never touches the install-wide active_theme setting. */
+    (function () {
+        var btn = document.getElementById('haj-theme-toggle');
+        if (!btn) return;
+        var KEY = 'haj-color-mode';
+
+        function apply(dark) {
+            document.body.classList.toggle('haj-dark', dark);
+            btn.setAttribute('aria-checked', dark ? 'true' : 'false');
+            localStorage.setItem(KEY, dark ? 'dark' : 'light');
+            HajCopy.paint();
+        }
+
+        btn.addEventListener('click', function () {
+            apply(!document.body.classList.contains('haj-dark'));
+        });
+
+        var saved = localStorage.getItem(KEY);
+        apply(saved === null
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : saved === 'dark');
+    })();
+
+
+    /* ── Keyboard button ───────────────────────────────────────────────
+       On a touch kiosk the on-screen keyboard only appears on focus, and the
+       input is easy to miss. This button is the obvious way in. */
+    (function () {
+        var btn = document.getElementById('haj-keyboard-btn');
+        var input = document.getElementById('user-input');
+        if (!btn || !input) return;
+        btn.addEventListener('click', function () {
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+        });
+    })();
+
+
+    /* ── Speaker: reads answers aloud, or owns the video's sound ───────
+       One sound control per screen. On the video tab it mutes/unmutes the
+       clip — the sound a visitor can actually hear there — and it re-labels
+       itself so the button always says which sound it owns. */
+    var HajSpeech = (function () {
+        var supported = 'speechSynthesis' in window;
+        var btn = document.getElementById('tts-btn');
+        var on = localStorage.getItem('haj-tts') === '1';
+
+        function inVideo() { return document.body.classList.contains('video-mode'); }
+
+        function paint() {
+            if (!btn) return;
+            var c = HajCopy.s();
+            var video = document.getElementById('avatar-video');
+            if (inVideo() && video) {
+                var audible = !video.muted;
+                btn.classList.toggle('is-on', audible);
+                btn.setAttribute('aria-pressed', audible ? 'true' : 'false');
+                btn.title = audible ? c.videoSoundOff : c.videoSoundOn;
+            } else {
+                btn.classList.toggle('is-on', on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.title = on ? c.ttsOff : c.ttsOn;
+            }
+            btn.setAttribute('aria-label', btn.title);
+        }
+
+        function speak(text) {
+            if (!on || !supported || !text) return;
+            var plain = String(text)
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/https?:\/\/\S+/g, ' ')
+                .replace(/[*_`#>\[\]()]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!plain) return;
+
+            speechSynthesis.cancel();
+            var u = new SpeechSynthesisUtterance(plain);
+            u.lang = 'fa-IR';
+            var voice = (speechSynthesis.getVoices() || [])
+                .find(function (v) { return v.lang && v.lang.toLowerCase().indexOf('fa') === 0; });
+            if (voice) u.voice = voice;
+            // A shade under natural pace: the audience includes people who are
+            // hearing a synthetic Persian voice for the first time.
+            u.rate = 0.95;
+            u.onstart = function () { HajVoice.set('speaking'); };
+            u.onend = function () { if (HajVoice.state() === 'speaking') HajVoice.set('idle'); };
+            u.onerror = function () { if (HajVoice.state() === 'speaking') HajVoice.set('idle'); };
+            speechSynthesis.speak(u);
+        }
+
+        function toggleVideoSound() {
+            var video = document.getElementById('avatar-video');
+            if (!video) return;
+            var turningOn = video.muted;
+            video.muted = !turningOn;
+            if (turningOn) {
+                video.volume = 1;
+                // Some browsers pause on an unmute that lost its gesture;
+                // resume explicitly so sound-on never means picture-stopped.
+                video.play().catch(function () { });
+            }
+            paint();
+        }
+
+        if (btn && !supported) {
+            btn.disabled = true;
+        } else if (btn) {
+            btn.addEventListener('click', function () {
+                if (inVideo()) { toggleVideoSound(); return; }
+                on = !on;
+                localStorage.setItem('haj-tts', on ? '1' : '0');
+                if (!on) { speechSynthesis.cancel(); HajVoice.set('idle'); }
+                paint();
+            });
+        }
+
+        // Re-describe the button whenever the surface it controls changes.
+        new MutationObserver(paint).observe(document.body,
+            { attributes: true, attributeFilter: ['class'] });
+        var videoEl = document.getElementById('avatar-video');
+        if (videoEl) videoEl.addEventListener('volumechange', paint);
+
+        return { speak: speak, paint: paint };
+    })();
+
+
+    /* ── Voice state: idle → listening → processing → speaking ─────────
+       The composer carries the state as a data attribute so CSS can show it,
+       and the live region says it in words — a state told only in colour is
+       no state at all for some of this audience. */
+    var HajVoice = (function () {
+        var composer = document.getElementById('haj-composer');
+        var hint = document.getElementById('haj-composer-hint');
+        var current = 'idle';
+
+        function set(next) {
+            if (next === current) return;
+            current = next;
+            if (composer) composer.dataset.voice = next;
+            if (hint) {
+                var c = HajCopy.s();
+                hint.textContent = next === 'listening' ? c.hintListening
+                    : next === 'processing' ? c.hintProcessing
+                        : next === 'speaking' ? c.hintSpeaking
+                            : c.hintIdle;
+            }
+            HajCopy.paint();
+        }
+
+        return { set: set, state: function () { return current; } };
+    })();
+
+    (function () {
+        var mic = document.getElementById('mic-btn');
+        if (mic) {
+            new MutationObserver(function () {
+                if (mic.classList.contains('recording')) HajVoice.set('listening');
+                else if (HajVoice.state() === 'listening') HajVoice.set('idle');
+            }).observe(mic, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        var loader = document.getElementById('loading-bubble');
+        if (loader) {
+            new MutationObserver(function () {
+                var busy = loader.style.opacity === '1';
+                // Out of the layout when idle: an invisible bubble that still
+                // has height scrolls a short transcript and clips the welcome.
+                loader.classList.toggle('is-busy', busy);
+                if (busy && HajVoice.state() !== 'listening') HajVoice.set('processing');
+                else if (!busy && HajVoice.state() === 'processing') HajVoice.set('idle');
+            }).observe(loader, { attributes: true, attributeFilter: ['style'] });
+        }
+    })();
+
+
+    /* ── Composer: typing state and auto-growing input ─────────────── */
+    (function () {
+        var input = document.getElementById('user-input');
+        var composer = document.getElementById('haj-composer');
+        if (!input || !composer) return;
+
+        function grow() {
+            input.style.height = 'auto';
+            input.style.height = Math.min(140, input.scrollHeight) + 'px';
+        }
+
+        input.addEventListener('input', function () {
+            composer.classList.toggle('is-typing', input.value.trim().length > 0);
+            grow();
+        });
+        input.addEventListener('focus', function () { composer.classList.add('is-focused'); });
+        input.addEventListener('blur', function () { composer.classList.remove('is-focused'); });
+        grow();
+    })();
+
+
+    /* ── Video tab: idle loop → introduction → idle loop ──────────────
+       The stage rests on the idle clip. Pressing Start plays the
+       introduction once, with sound (the press is the gesture browsers
+       require for audio), and when it ends the idle loop takes over again
+       and waits for the conversation. core.js owns `data-waiting-src`, so
+       an answered video question returns to exactly the same resting clip —
+       there is one definition of "resting", not two.
+
+       The placeholder is a fallback, not an overlay: it hides only once real
+       frames exist, so a missing clip leaves the explanatory card on screen
+       instead of a black rectangle, and Start removes itself rather than
+       promising a film that is not there. */
+    (function () {
+        var video = document.getElementById('avatar-video');
+        if (!video) return;
+
+        var startBtn = document.getElementById('video-start');
+        var welcomeSrc = video.getAttribute('data-welcome-src') || '';
+        var idleSrc = video.getAttribute('data-waiting-src') || '';
+        var playingWelcome = false;
+        var INTRO_SEEN = 'haj-intro-seen';
+        var introSeen = (function () {
+            try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch (e) { return false; }
+        })();
+
+        // The card is a fallback UNDER the picture, not an overlay: it goes
+        // the instant real frames exist and comes back if the source fails.
+        // 'playing' alone is not enough — autoplay may be blocked, or the clip
+        // may already be buffered before this listener attaches, and either
+        // way the card would sit on top of a playing film.
+        var placeholder = document.getElementById('video-placeholder');
+        function hideCard() { if (placeholder) placeholder.hidden = true; }
+        function showCard() { if (placeholder) placeholder.hidden = false; }
+        ['playing', 'loadeddata', 'canplay'].forEach(function (evt) {
+            video.addEventListener(evt, hideCard);
+        });
+        video.addEventListener('emptied', showCard);
+        if (video.readyState >= 2) hideCard();   // buffered before we bound
+
+        // A clip that cannot load takes the Start button with it rather than
+        // offering a press that leads nowhere, and puts the card back so the
+        // tab explains itself instead of going black.
+        video.addEventListener('error', function () {
+            if (startBtn) startBtn.hidden = true;
+            showCard();
+        });
+
+        function toIdle() {
+            playingWelcome = false;
+            if (!idleSrc) return;
+            video.loop = true;
+            video.muted = true;
+            if (!video.currentSrc || video.currentSrc.indexOf(idleSrc) === -1) {
+                video.src = idleSrc;
+            }
+            video.play().catch(function () { });
+            HajSpeech.paint();
+        }
+
+        function playWelcome() {
+            if (!welcomeSrc) return;
+            playingWelcome = true;
+            // Once, and once only — the choice is remembered, so the button
+            // does not come back on the next visit to invite a replay of an
+            // introduction this person has already watched.
+            if (startBtn) startBtn.hidden = true;
+            try { localStorage.setItem(INTRO_SEEN, '1'); } catch (e) { /* private mode */ }
+            video.loop = false;
+            video.src = welcomeSrc;
+            video.muted = false;
+            video.volume = 1;
+            video.play().catch(function () {
+                video.muted = true;          // sound refused — still show it
+                video.play().catch(function () { });
+            });
+            HajSpeech.paint();
+        }
+
+        // Only the introduction ends (the idle clip loops), so this is the
+        // handover point.
+        video.addEventListener('ended', function () {
+            if (playingWelcome) toIdle();
+        });
+
+        if (startBtn) {
+            startBtn.addEventListener('click', playWelcome);
+            // Revealed only once the idle clip plays AND the introduction is
+            // confirmed to exist. Offering a button that leads to a 404 is
+            // worse than offering none: the visitor presses it, the stage
+            // goes blank, and they have no way to tell whose fault it was.
+            if (welcomeSrc && !introSeen) {
+                video.addEventListener('canplay', function () {
+                    if (playingWelcome) return;
+                    fetch(welcomeSrc, { method: 'HEAD' }).then(function (res) {
+                        if (res.ok && !playingWelcome) startBtn.hidden = false;
+                    }).catch(function () { /* no introduction on this install */ });
+                }, { once: true });
+            }
+        }
+
+        // Rest on the idle loop as soon as the tab has media to show.
+        toIdle();
+    })();
+
+
+    /* ── Companion reacts to what the assistant is actually doing ─────
+       Driven by the same signals the composer's voice state uses, so the
+       character never runs a decorative animation on its own timer. */
+    (function () {
+        var pet = window.PetCompanion;
+        if (!pet) return;
+        pet.set('greet');
+
+        var loader = document.getElementById('loading-bubble');
+        if (loader) {
+            new MutationObserver(function () {
+                pet.set(loader.style.opacity === '1' ? 'working' : 'idle');
+            }).observe(loader, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        var mic = document.getElementById('mic-btn');
+        if (mic) {
+            new MutationObserver(function () {
+                if (mic.classList.contains('recording')) pet.set('attentive');
+            }).observe(mic, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        var input = document.getElementById('user-input');
+        if (input) {
+            var settle = 0;
+            input.addEventListener('input', function () {
+                pet.set('typing');
+                clearTimeout(settle);
+                settle = setTimeout(function () { pet.set('idle'); }, 2200);
+            });
+        }
+    })();
+
+
+    initChat();
+
+    // core.js's setLang runs inside initChat and writes its own generic copy;
+    // the theme's sentences are re-applied on top, once, right after.
+    HajCopy.paint();
+    HajSpeech.paint();
+</script>
+
+<!-- Loaded after initChat so the mini panel can reuse sendPreset()/getDisplayQuestions(). -->
+<script src="/static/companion/companion-ui.js?v={{ asset_version | default('0', true) }}"></script>

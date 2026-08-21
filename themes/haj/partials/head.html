@@ -1,0 +1,52 @@
+<meta charset="UTF-8">
+<meta name="chat-token" content="{{ chat_token }}">
+<meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<meta name="theme-color" content="#178EAC">
+<meta name="color-scheme" content="light dark">
+<title>{{ app_title }}</title>
+
+<link rel="icon" type="image/png" href="/themes/haj/static/app-icon.png">
+<link rel="apple-touch-icon" href="/themes/haj/static/app-icon.png">
+
+<!-- ?v= is a cache-buster: the value is the newest mtime of the two stylesheets
+     (see _asset_version in app/routers/public.py). Without it browsers keep
+     serving the pre-upgrade CSS, so pilgrims see broken styling after a theme
+     update. The token changes only when a stylesheet changes, so normal visits
+     still hit the browser cache. -->
+<link href="/static/chat/base.css?v={{ asset_version | default('0', true) }}" rel="stylesheet" type="text/css" />
+<link href="/themes/{{ theme_name }}/static/style.css?v={{ asset_version | default('0', true) }}" rel="stylesheet"
+    type="text/css" />
+
+<!-- Vazirmatn is vendored locally: a kiosk on the exhibition floor may have no
+     outbound internet, and a font that fails to load is a page of fallback
+     glyphs for a reader who cannot compensate. -->
+<link href="/static/vendor/vazirmatn/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+<script src="/static/vendor/marked/marked.min.js"></script>
+
+<!-- Foreign service-worker guard.
+     This app registers no service worker. But on a shared host — localhost
+     during development, or a domain that previously served a different app —
+     another project's worker can still be installed for this origin, and it
+     intercepts every request: the visitor gets a blank page served from a
+     stale cache while other browsers, which never registered it, are fine.
+     Chrome keeps such a worker across restarts and hard reloads, so the page
+     cannot fix it by asking nicely. Evicting anything that claims this scope
+     is therefore always correct here, and a no-op on a clean browser. -->
+<script>
+    (function () {
+        if (!('serviceWorker' in navigator)) return;
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+            if (!regs.length) return;
+            Promise.all(regs.map(function (r) { return r.unregister(); })).then(function () {
+                if (window.caches && caches.keys) {
+                    caches.keys().then(function (keys) {
+                        return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                    });
+                }
+                // A worker only stops intercepting after a reload; do it once.
+                if (navigator.serviceWorker.controller) location.reload();
+            });
+        }).catch(function () { /* not permitted here — nothing to clean */ });
+    })();
+</script>
