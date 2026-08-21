@@ -11,7 +11,14 @@ __pycache__/
 
 # Virtual Environment
 venv/
-env/
+# `/env/` is anchored to the repo root ON PURPOSE. An unanchored `env/`
+# also matched `deploy/env/`, which holds the deployment TEMPLATES, so
+# deploy/10-install-app.sh referenced a file that was never in the
+# repository and a fresh clone could not install. A `!deploy/env/*`
+# negation cannot fix that: once a DIRECTORY is excluded, git never
+# descends into it. The templates carry only <PLACEHOLDER> values; real
+# values live in /opt/padyar-*/.env on the host, never here.
+/env/
 
 # Database (Local data should usually not be committed)
 chat_history.db
