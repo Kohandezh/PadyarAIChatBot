@@ -22,6 +22,10 @@ const SLIDERS = [
 // picker, whichever the operator used last. One variable, because the save box
 // is shared and two sources of truth would let a stale one be uploaded.
 let pendingClip = null;      // { blob, filename }
+// The voice this installation saved as its default. loadVoices() cannot simply
+// set select.value before the <option> elements exist, so it is remembered here
+// and applied once the list is built.
+let savedVoice = '';
 let mediaRecorder = null;
 let recTimer = null;
 let recStart = 0;
@@ -42,6 +46,7 @@ export async function initTTS() {
     el('btn-refresh-status').onclick = loadStatus;
     el('btn-speak').onclick = speak;
     el('btn-reset-params').onclick = resetParams;
+    el('btn-save-params').onclick = saveParams;
     el('btn-record').onclick = startRecording;
     el('btn-stop').onclick = stopRecording;
     el('btn-save-voice').onclick = saveVoice;
@@ -56,7 +61,63 @@ export async function initTTS() {
 
     updateCharCount();
     await loadStatus();
+    // Saved defaults BEFORE the voice list, so loadVoices() can preselect the
+    // saved voice instead of whatever happens to sort first.
+    await loadSavedParams();
     await loadVoices();
+}
+
+
+// Defaults this installation chose, from the settings table. Until these are
+// saved the sliders are per-request only: an operator tunes a voice until it
+// sounds right, reloads, and the tuning is gone.
+async function loadSavedParams() {
+    try {
+        const res = await fetchAuth('/admin/api/tts/settings');
+        if (!res.ok) return;
+        const saved = await res.json();
+        SLIDERS.forEach(s => {
+            if (typeof saved[s.key] === 'number') {
+                el(s.input).value = saved[s.key];
+                el(s.out).innerText = Number(saved[s.key]).toFixed(2);
+            }
+        });
+        if (saved.voice) savedVoice = saved.voice;
+    } catch (e) {
+        // A missing or unreadable setting must not stop the page loading;
+        // the built-in defaults are already in the markup.
+        console.warn('could not load saved TTS settings', e);
+    }
+}
+
+
+async function saveParams() {
+    const btn = el('btn-save-params');
+    const note = el('params-saved-note');
+    btn.disabled = true;
+    note.innerText = '';
+    try {
+        const body = { ...params(), voice: el('tts-voice').value || '' };
+        const res = await fetchAuth('/admin/api/tts/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            note.className = 'text-danger small';
+            note.innerText = err.detail || 'ذخیره نشد';
+            return;
+        }
+        note.className = 'text-success small';
+        note.innerText = 'ذخیره شد ✓';
+        setTimeout(() => { note.innerText = ''; }, 4000);
+    } catch (e) {
+        note.className = 'text-danger small';
+        note.innerText = 'ارتباط با سرور برقرار نشد';
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 function updateCharCount() {
@@ -185,7 +246,10 @@ async function loadVoices() {
     const voices = data.voices || [];
     select.innerHTML = '<option value="">صدای پیش‌فرض مدل</option>' +
         voices.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
-    if (voices.includes(chosen)) select.value = chosen;
+    // Whatever the operator has on screen wins; otherwise fall back to the
+    // saved default, so a reload opens on the voice this install chose.
+    const want = chosen || savedVoice;
+    if (voices.includes(want)) select.value = want;
 
     if (!data.reachable) {
         host.innerHTML = '<div class="text-muted">تا وقتی موتور صدا خاموش است، فهرست صداها در دسترس نیست.</div>';

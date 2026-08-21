@@ -11,12 +11,15 @@ Chatterbox parameters, forwards, and translates failures into Persian an
 operator can act on — "the speech service is not running" rather than a
 ConnectError traceback. That is the whole contract.
 """
+import re
+
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
 from app.auth.security import verify_admin
 from app.config import TTS_URL, TTS_TIMEOUT, TTS_STATUS_TIMEOUT, logger
+from app.db.queries import get_setting, set_setting
 from app.models import TTSPreviewRequest
 from app.services import applog
 
@@ -195,6 +198,71 @@ async def tts_delete_voice(name: str, username: str = Depends(verify_admin)):
 
 
 # ── The page ────────────────────────────────────────────────────────────
+
+# Saved defaults for the three Chatterbox controls, plus the default voice.
+#
+# Without these the sliders are per-request only: an operator tunes a voice
+# until it sounds right, reloads the page, and the tuning is gone. Persisting
+# them in `settings` (the same key-value table the white-label options use)
+# makes the panel open on the values this installation actually chose.
+#
+# Bounds are enforced HERE as well as in the browser: the range inputs are a
+# convenience, not a control — anything can POST this endpoint.
+TTS_SETTING_BOUNDS = {
+    "exaggeration": (0.25, 2.0, 0.5),
+    "cfg_weight": (0.2, 1.0, 0.5),
+    "temperature": (0.05, 5.0, 0.8),
+}
+
+
+def _saved_tts_settings() -> dict:
+    out = {}
+    for key, (_lo, _hi, default) in TTS_SETTING_BOUNDS.items():
+        raw = get_setting(f"tts_{key}", "")
+        try:
+            out[key] = float(raw) if raw not in ("", None) else default
+        except (TypeError, ValueError):
+            # A hand-edited or corrupted row must not break the page.
+            out[key] = default
+    out["voice"] = get_setting("tts_voice", "") or ""
+    return out
+
+
+@router.get("/admin/api/tts/settings", dependencies=[Depends(verify_admin)])
+async def tts_settings_get():
+    return _saved_tts_settings()
+
+
+@router.post("/admin/api/tts/settings", dependencies=[Depends(verify_admin)])
+async def tts_settings_save(payload: dict):
+    saved = {}
+    for key, (lo, hi, _default) in TTS_SETTING_BOUNDS.items():
+        if key not in payload:
+            continue
+        try:
+            value = float(payload[key])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400,
+                                detail=f"{key} باید عدد باشد")
+        if not lo <= value <= hi:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{key} باید بین {lo} و {hi} باشد")
+        set_setting(f"tts_{key}", f"{value:.3f}")
+        saved[key] = value
+
+    if "voice" in payload:
+        voice = str(payload["voice"] or "").strip()
+        # Same character class the TTS service sanitises to, so a value saved
+        # here can never name a file the service would refuse to serve.
+        if voice and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", voice):
+            raise HTTPException(status_code=400, detail="نام صدا نامعتبر است")
+        set_setting("tts_voice", voice)
+        saved["voice"] = voice
+
+    logger.info("TTS defaults saved: %s", saved)
+    return {"status": "ok", "saved": saved}
+
 
 @router.get("/secure-panel-inotex/ai/tts", response_class=HTMLResponse)
 async def admin_tts_page(request: Request):

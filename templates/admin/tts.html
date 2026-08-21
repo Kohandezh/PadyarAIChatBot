@@ -110,9 +110,19 @@
         <div class="text-muted small">کمتر یعنی خواندنی یکنواخت و قابل پیش‌بینی؛ بیشتر یعنی متنوع‌تر و غیرقابل پیش‌بینی‌تر.</div>
       </div>
 
-      <button class="btn btn-outline-secondary" id="btn-reset-params">
-        <i class="fas fa-rotate-left ms-1"></i>بازگشت به پیش‌فرض
-      </button>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button class="btn btn-primary" id="btn-save-params">
+          <i class="fas fa-floppy-disk ms-1"></i>ذخیره این تنظیمات
+        </button>
+        <button class="btn btn-outline-secondary" id="btn-reset-params">
+          <i class="fas fa-rotate-left ms-1"></i>بازگشت به پیش‌فرض
+        </button>
+        <span class="text-muted small" id="params-saved-note"></span>
+      </div>
+      <div class="text-muted small mt-2">
+        تا وقتی ذخیره نکنید، این تنظیمات فقط برای همین بار اعمال می‌شود و با
+        باز کردن دوباره صفحه به حالت قبل برمی‌گردد.
+      </div>
     </div>
   </div>
 </div>

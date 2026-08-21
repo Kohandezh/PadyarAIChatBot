@@ -353,3 +353,67 @@ def test_status_calls_give_up_long_before_a_synthesis_would(client, engine):
     engine.responses[("POST", "/tts")] = FakeResponse(content=b"wav")
     client.post("/admin/api/tts/preview", json={"text": "سلام"})
     assert engine.calls[-1]["timeout"] == TTS_TIMEOUT
+
+
+# ── Saved defaults ────────────────────────────────────────────────────────
+#
+# Without these the three Chatterbox sliders are per-request only: an operator
+# tunes a voice until it sounds right, reloads the page, and the tuning is gone.
+
+def test_setting_bounds_match_what_chatterbox_accepts():
+    from app.routers.tts import TTS_SETTING_BOUNDS
+    assert TTS_SETTING_BOUNDS["exaggeration"][:2] == (0.25, 2.0)
+    assert TTS_SETTING_BOUNDS["cfg_weight"][:2] == (0.2, 1.0)
+    assert TTS_SETTING_BOUNDS["temperature"][:2] == (0.05, 5.0)
+
+
+def test_setting_defaults_sit_inside_their_own_bounds():
+    from app.routers.tts import TTS_SETTING_BOUNDS
+    for key, (lo, hi, default) in TTS_SETTING_BOUNDS.items():
+        assert lo <= default <= hi, f"{key} default {default} outside {lo}..{hi}"
+
+
+def test_saved_settings_round_trip(client):
+    res = client.post("/admin/api/tts/settings",
+                      json={"exaggeration": 0.7, "cfg_weight": 0.65,
+                            "temperature": 0.9, "voice": "sina"})
+    assert res.status_code == 200, res.text
+
+    got = client.get("/admin/api/tts/settings").json()
+    assert abs(got["exaggeration"] - 0.7) < 1e-6
+    assert abs(got["cfg_weight"] - 0.65) < 1e-6
+    assert abs(got["temperature"] - 0.9) < 1e-6
+    assert got["voice"] == "sina"
+
+
+def test_unset_settings_fall_back_to_defaults(client):
+    from app.routers.tts import TTS_SETTING_BOUNDS
+    got = client.get("/admin/api/tts/settings").json()
+    for key, (_lo, _hi, default) in TTS_SETTING_BOUNDS.items():
+        assert got[key] == default
+    assert got["voice"] == ""
+
+
+@pytest.mark.parametrize("payload", [
+    {"exaggeration": 5.0},        # above the model's usable range
+    {"cfg_weight": 0.0},          # below it
+    {"temperature": 99},          # far above
+    {"exaggeration": "loud"},     # not a number at all
+])
+def test_out_of_range_settings_are_refused(client, payload):
+    # The range inputs are a convenience, not a control — anything can POST here.
+    assert client.post("/admin/api/tts/settings", json=payload).status_code == 400
+
+
+def test_saved_voice_name_cannot_escape_the_voices_directory(client):
+    res = client.post("/admin/api/tts/settings", json={"voice": "../../etc/passwd"})
+    assert res.status_code == 400
+
+
+def test_a_corrupted_setting_does_not_break_the_page(client):
+    """A hand-edited row must degrade to the default, not 500 the panel."""
+    from app.db.queries import set_setting
+    set_setting("tts_exaggeration", "not-a-number")
+
+    got = client.get("/admin/api/tts/settings").json()
+    assert got["exaggeration"] == 0.5
