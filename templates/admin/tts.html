@@ -53,7 +53,7 @@
             </label>
             <input type="range" class="form-range" id="p-exaggeration" dir="ltr"
                    min="0.25" max="2" step="0.05" value="0.5">
-            <div class="text-muted small">هرچه بیشتر، صدا پرهیجان‌تر و کم‌ثبات‌تر می‌شود.</div>
+            <div class="text-muted small" id="hint-exaggeration"></div>
           </div>
 
           <div class="mb-4">
@@ -235,7 +235,7 @@
 
 {% block page_js %}
 <script type="module">
-  import { initTTS } from '/static/admin/js/tts.js';
+  import { initTTS } from '/static/admin/js/tts.js?v={{ js_version }}';
   initTTS();
 </script>
 {% endblock %}

@@ -63,6 +63,7 @@ export async function initTTS() {
         const input = el(s.input);
         input.oninput = () => {
             el(s.out).innerText = Number(input.value).toFixed(2);
+            updateExaggerationHint();
             updateParamConflict();
         };
         input.oninput();
@@ -92,6 +93,7 @@ async function loadSavedParams() {
             }
         });
         if (saved.voice) savedVoice = saved.voice;
+        updateExaggerationHint();
         updateParamConflict();
     } catch (e) {
         // A missing or unreadable setting must not stop the page loading;
@@ -147,6 +149,24 @@ function params() {
 // only while it is true, because a warning that is always on stops being read.
 const EXAGGERATION_RUSHES_ABOVE = 0.7;
 const CFG_SAFE_WHEN_EXCITED = 0.4;
+
+
+// The description under the emotion slider describes what the CURRENT value
+// does, instead of a paragraph covering every value at once. Removing the text
+// entirely was the wrong fix — the operator still needs to know what the number
+// means; it just needs to say the right thing for where the slider is.
+function updateExaggerationHint() {
+    const hint = el('hint-exaggeration');
+    if (!hint) return;
+    const v = Number(el('p-exaggeration').value);
+    if (v <= 0.4) {
+        hint.innerText = 'بیان آرام و یکنواخت — مناسب متن‌های رسمی و اطلاع‌رسانی.';
+    } else if (v <= EXAGGERATION_RUSHES_ABOVE) {
+        hint.innerText = 'حالت متعادل — برای بیشتر متن‌ها همین خوب است.';
+    } else {
+        hint.innerText = 'پرهیجان — صدا زنده‌تر ولی کم‌ثبات‌تر می‌شود و گفتار تندتر می‌رود.';
+    }
+}
 
 
 function updateParamConflict() {

@@ -264,6 +264,29 @@ async def tts_settings_save(payload: dict):
     return {"status": "ok", "saved": saved}
 
 
+def _js_version() -> str:
+    """Cache-buster for this page's JavaScript.
+
+    Nothing sends Cache-Control for /static, so browsers cache it heuristically.
+    That bit for real: a panel was shipped whose HTML had a new Save button
+    while the browser kept running the previous tts.js, so the button was
+    present, bound to nothing, and did nothing when clicked — indistinguishable
+    from "saving is broken". app/routers/public.py already stamps the chat
+    theme's assets for exactly this reason; the admin pages never got the same
+    treatment.
+
+    Falls back to "0" if the file cannot be read: a missing buster costs
+    freshness, it must never break the page.
+    """
+    import os
+    from app.config import BASE_DIR
+    try:
+        path = os.path.join(BASE_DIR, "static", "admin", "js", "tts.js")
+        return str(int(os.path.getmtime(path)))
+    except OSError:
+        return "0"
+
+
 @router.get("/secure-panel-inotex/ai/tts", response_class=HTMLResponse)
 async def admin_tts_page(request: Request):
     """Same session check and login redirect as every other admin page
@@ -275,4 +298,5 @@ async def admin_tts_page(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
-    return _render("admin/tts.html", request=request, active_page="ai_tts")
+    return _render("admin/tts.html", request=request, active_page="ai_tts",
+                   js_version=_js_version())
