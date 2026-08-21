@@ -137,7 +137,7 @@ for i in $(seq 1 300); do
   body=$(curl -fsS --max-time 3 http://127.0.0.1:8003/health 2>/dev/null || true)
   if [[ -n "$body" ]]; then
     echo "$body" | python3 -m json.tool
-    if echo "$body" | grep -q '"model_loaded": true'; then
+    if echo "$body" | tr -d ' ' | grep -q '"model_loaded":true'; then
       log "TTS is up. Now measure it:  sudo -u padyar-tts /opt/padyar-tts/.venv/bin/python /opt/padyar-tts/benchmark.py"
       exit 0
     fi

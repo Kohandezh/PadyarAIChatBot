@@ -136,21 +136,50 @@ serving, the 500m upload limit and the proxy timeouts still apply.
 
 ### GPU
 
-The two P40s are Pascal (`sm_61`), and that constrains the entire stack:
+The two P40s are Pascal, and getting them working came down to one thing:
+**the VM must use EFI firmware.** On BIOS firmware the hypervisor never maps
+the 24GB aperture, and the driver refuses both cards:
 
-- **Driver 580 is the last branch that supports Pascal.** The scripts install
-  `nvidia-driver-580-server` and `apt-mark hold` it. The 595 packages this host
-  offers will install and then not drive these cards.
-- **torch 2.6.0 + cu124 is the newest build with sm_61 kernels.** PyTorch
-  removed Maxwell/Pascal from its CUDA 12.8+ wheels; a newer build fails every
-  kernel launch with `cudaErrorNoKernelImageForDevice`. `25-install-tts.sh`
-  aborts if `sm_61` is absent from `torch.cuda.get_arch_list()`.
-- **float32 only.** P40 FP16 runs at 1/64 of FP32 rate — half precision is
-  slower here, not faster.
-- If `nvidia-smi` fails after the reboot, the cause is almost certainly the VM,
-  not the driver: a 24 GB card needs large MMIO. Add to the `.vmx`:
-  `pciPassthru.use64bitMMIO = "TRUE"` and
-  `pciPassthru.64bitMMIOSizeGB = "128"`.
+    NVRM: This PCI I/O region assigned to your NVIDIA device is invalid:
+    NVRM: BAR1 is 0M @ 0x0
+
+Reading the device's config space showed BAR1 as `0x0000000c` — a 64-bit
+prefetchable BAR whose every address bit was zero, i.e. size zero. A PCI
+remove+rescan changed nothing. That is the signature of a hypervisor-side
+problem, not a driver one: Linux cannot size a BAR the device does not
+advertise. `pciPassthru.use64bitMMIO=TRUE` and `64bitMMIOSizeGB=128` are
+required but are **inert on a BIOS VM**.
+
+After switching the VM to EFI:
+
+    Region 1: Memory at 1ff000000000 (64-bit, prefetchable) [size=32G]
+
+Converting an installed BIOS system to EFI needs an ESP, and this disk had no
+free space (the root LV had already been extended to fill the volume group).
+The fix was a second small virtual disk holding a 1GB ESP. `grub-pc` is
+deliberately left installed and the `bios_grub` partition untouched, so
+flipping the firmware back to BIOS restores the previous boot exactly — the
+rollback is one setting, not a repair.
+
+Three things that cost a boot attempt each, worth setting up front:
+
+- **Secure Boot must be OFF.** `grub-efi-amd64-bin` produces an *unsigned*
+  GRUB; Secure Boot rejects it silently, with no message on the console.
+- **Install `--removable` LAST.** A later `grub-install --bootloader-id=ubuntu`
+  removes `\EFI\BOOT\BOOTX64.EFI`, which is the only path VMware's firmware
+  finds when there is no NVRAM entry yet.
+- **Raise video memory above 4MB and disable 3D.** The UEFI GOP framebuffer
+  needs more than the BIOS console did, and 3D reserves MMIO for nothing.
+
+**Do NOT assert `sm_61` is in `torch.cuda.get_arch_list()`.** The cu124 wheel
+lists `sm_50, sm_60, sm_70…` and no `sm_61`, yet drives a P40 correctly: CUDA
+guarantees binary compatibility within one major compute capability, so sm_60
+cubins run on sm_61. An earlier version of this kit refused to start on exactly
+the hardware it was written for. `deploy/21-verify-gpu.sh` and the service now
+launch a real kernel instead of matching strings.
+
+Driver 580 is still the last branch supporting Pascal and is held at that
+version; torch stays pinned at 2.6.0+cu124.
 
 ### TTS
 
@@ -167,6 +196,13 @@ original as `t3_cfg.en.safetensors` so a rollback is one `mv`.
 `Thomcles/Chatterbox-TTS-Persian-Farsi` is **CC BY-NC 4.0 — non-commercial**.
 Fine for INOTEX's own install and for evaluation; it cannot ship in an
 installation sold to a customer without permission from the author.
+
+**Measured on this host.** GPU (P40, float32): RTF ~1.7 warm, ~3.1 cold.
+CPU: RTF ~5 in a standalone process but ~16 through the uvicorn service — a
+gap that thread count, OMP/MKL env, a dedicated generation thread, dropping
+the worker supervisor and initialisation order all failed to explain. That is
+why `deploy/45-prerender.sh` renders in a standalone process rather than
+calling the API. Cache hits are ~80ms regardless of device.
 
 **Measure before you design around it.** Run
 `/opt/padyar-tts/.venv/bin/python /opt/padyar-tts/benchmark.py`. The published

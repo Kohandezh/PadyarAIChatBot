@@ -159,13 +159,24 @@ def load_model():
     if DEVICE == "cuda":
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available to torch")
-        arches = torch.cuda.get_arch_list()
-        if "sm_61" not in arches:
+        # NOT a string match on get_arch_list(). The cu124 wheel ships sm_50,
+        # sm_60, sm_70+ and NO sm_61 — yet it drives a P40 (sm_61) correctly,
+        # because CUDA guarantees binary compatibility within one major
+        # compute capability: sm_60 cubins run on sm_61. An earlier version of
+        # this check refused to start on exactly the hardware it was written
+        # for. The only honest test is to launch a kernel.
+        cap = torch.cuda.get_device_capability(0)
+        try:
+            probe = torch.zeros(64, 64, device="cuda")
+            (probe @ probe).sum().item()
+            torch.cuda.synchronize()
+        except Exception as exc:                  # noqa: BLE001
             raise RuntimeError(
-                f"This torch build has no sm_61 kernels ({arches}); a Tesla P40 "
-                "cannot run it. Install torch==2.6.0 from the cu124 index."
-            )
-        logger.info("device: %s", torch.cuda.get_device_name(0))
+                f"CUDA kernels will not run on {torch.cuda.get_device_name(0)} "
+                f"(sm_{cap[0]}{cap[1]}) with torch {torch.__version__}: {exc}"
+            ) from exc
+        logger.info("device: %s (sm_%d%d), torch %s",
+                    torch.cuda.get_device_name(0), cap[0], cap[1], torch.__version__)
 
     logger.info("loading Chatterbox from %s", MODEL_DIR)
     model = ChatterboxMultilingualTTS.from_local(MODEL_DIR, device=DEVICE)

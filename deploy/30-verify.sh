@@ -93,7 +93,10 @@ echo "== TTS =="
 body=$(curl -fsS --max-time 5 http://127.0.0.1:8003/health 2>/dev/null)
 if [[ -z "$body" ]]; then
   bad "TTS not answering on 127.0.0.1:8003"
-elif echo "$body" | grep -q '"model_loaded": true'; then
+# Whitespace-tolerant: curl returns compact JSON ("model_loaded":true) while
+# json.tool pretty-prints it ("model_loaded": true). Matching one spelling
+# reported a healthy service as degraded.
+elif echo "$body" | tr -d ' ' | grep -q '"model_loaded":true'; then
   ok "TTS model loaded: $(echo "$body" | tr -d '\n' | cut -c1-140)"
   t0=$(date +%s%N)
   curl -fsS --max-time 120 -X POST http://127.0.0.1:8003/tts \

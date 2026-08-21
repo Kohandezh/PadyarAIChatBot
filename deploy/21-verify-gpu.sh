@@ -23,11 +23,16 @@ if [[ -x "$TTS_PY" ]]; then
 import torch
 print(f"       torch {torch.__version__}")
 print(f"       arch list: {torch.cuda.get_arch_list()}")
-assert 'sm_61' in torch.cuda.get_arch_list(), \
-    "This torch build has NO sm_61 code. Reinstall torch==2.6.0 with --index-url .../cu124."
 assert torch.cuda.is_available(), "CUDA not available to torch"
+cap = torch.cuda.get_device_capability(0)
+print(f"       device capability: sm_{cap[0]}{cap[1]}")
+# Deliberately NOT asserting 'sm_61' in the arch list: the cu124 wheel does
+# not list it and still drives a P40, because sm_60 cubins run on sm_61
+# (binary compatibility within one major compute capability). Launching a
+# kernel is the only check that means anything.
 x = torch.randn(2048, 2048, device='cuda')
 print(f"       matmul on {torch.cuda.get_device_name(0)}: {(x @ x).sum().item():.1f}")
+torch.cuda.synchronize()
 print("       kernel launch OK")
 PY
   [[ $? -eq 0 ]] && ok "torch can launch kernels on the P40" || bad "torch cannot use the P40"
