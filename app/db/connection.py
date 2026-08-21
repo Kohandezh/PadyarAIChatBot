@@ -63,12 +63,13 @@ def ensure_dataset_columns(cursor) -> None:
         pass
 
 
-def init_db():
-    from app.config import DB_PATH
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+def _create_sqlite_schema(cursor):
+    """Create and migrate the SQLite schema.
 
+    PostgreSQL never runs this. There, `migrations/*.sql` owns the schema and
+    the application deliberately does not create production tables at runtime
+    (see docs/engineering/DEPLOYMENT_RUNBOOK.md).
+    """
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS chat_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,32 +91,12 @@ def init_db():
     )
     ''')
 
-    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('openai_enabled', 'true'))
-    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('active_theme', 'inotex'))
-    # Hybrid retrieval by default: the local multilingual embedding backend
-    # ranks semantically; TF-IDF stays the automatic safety net when the
-    # model is unavailable (see app/services/search.py).
-    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('search_backend', 'embedding'))
-    # The knowledge version travels with health/ready responses and logs so
-    # any answer can be traced back to the content release that produced it.
-    # Bump it whenever content/sources.json publishes a new verified state.
-    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('knowledge_version', 'inotex-kb-2026-08-14.1'))
-
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS synonyms (
         source TEXT PRIMARY KEY,
         target TEXT
     )
     ''')
-    cursor.execute('SELECT COUNT(*) as count FROM synonyms')
-    if cursor.fetchone()['count'] == 0:
-        # Useful INOTEX synonym expansions for a fresh install. Existing
-        # customer content is never touched: this seed only runs on an empty
-        # table. The canonical list lives in app.default_content.
-        from app.config import SEED_DEFAULT_CONTENT
-        if SEED_DEFAULT_CONTENT:
-            from app.default_content import seed_default_synonyms
-            seed_default_synonyms(cursor)
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS admins (
@@ -165,22 +146,84 @@ def init_db():
     )
     ''')
 
-    # New installations open with useful INOTEX answers. Existing customer
-    # content is never changed: the seed only runs when the table is empty.
-    from app.config import SEED_DEFAULT_CONTENT
-    if SEED_DEFAULT_CONTENT:
-        from app.default_content import seed_default_content
-        seed_default_content(cursor)
-
     try:
         cursor.execute('SELECT salt FROM admins LIMIT 1')
     except sqlite3.OperationalError:
         cursor.execute('ALTER TABLE admins ADD COLUMN salt TEXT')
 
+
+def _seed_defaults(cursor):
+    """Seed what a brand-new install needs, on either backend.
+
+    Safe to run on every boot: every statement is `INSERT OR IGNORE` (which the
+    PostgreSQL adapter rewrites to `ON CONFLICT DO NOTHING`) or guarded by a
+    count, so existing customer content is never touched.
+    """
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('openai_enabled', 'true'))
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('active_theme', 'inotex'))
+    # Hybrid retrieval by default: the local multilingual embedding backend
+    # ranks semantically; TF-IDF stays the automatic safety net when the
+    # model is unavailable (see app/services/search.py).
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('search_backend', 'embedding'))
+    # The knowledge version travels with health/ready responses and logs so
+    # any answer can be traced back to the content release that produced it.
+    # Bump it whenever content/sources.json publishes a new verified state.
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('knowledge_version', 'inotex-kb-2026-08-14.1'))
+
+    from app.config import SEED_DEFAULT_CONTENT
+
+    # CHAINED on purpose. `app/db/pg.py` gives Connection.cursor() -> self and
+    # Connection.execute() -> Cursor, so fetchone()/rowcount live on what
+    # execute() RETURNS, not on the object execute() was called on. Splitting
+    # this into two statements works on SQLite and raises
+    # "'Connection' object has no attribute 'fetchone'" on PostgreSQL.
+    # app/default_content.py uses the same chained idiom for the same reason.
+    if cursor.execute('SELECT COUNT(*) as count FROM synonyms').fetchone()['count'] == 0 \
+            and SEED_DEFAULT_CONTENT:
+        # Useful INOTEX synonym expansions for a fresh install. Existing
+        # customer content is never touched: this seed only runs on an empty
+        # table. The canonical list lives in app.default_content.
+        from app.default_content import seed_default_synonyms
+        seed_default_synonyms(cursor)
+
+    # New installations open with useful INOTEX answers. Existing customer
+    # content is never changed: the seed only runs when the table is empty.
+    if SEED_DEFAULT_CONTENT:
+        from app.default_content import seed_default_content
+        seed_default_content(cursor)
+
     _seed_admin(cursor)
 
-    conn.commit()
-    conn.close()
+
+def init_db():
+    """Prepare the database a fresh install needs, on the CONFIGURED backend.
+
+    WHY THIS IS BACKEND-AWARE
+    -------------------------
+    This used to call `sqlite3.connect(DB_PATH)` unconditionally. On a
+    PostgreSQL install that quietly created a stray `chat_history.db` and
+    seeded THAT — leaving PostgreSQL with no admin row (so nobody could log
+    into the panel at all), an empty knowledge base, and no
+    `search_backend=embedding` setting, which silently demoted retrieval to
+    TF-IDF. Nothing errored: `/api/health` reported "ok" and the seed had
+    simply gone into a different database.
+
+    The seeding SQL itself is backend-neutral — `?` placeholders and
+    `INSERT OR IGNORE`, both of which `app/db/pg.py` translates — so only the
+    connection and the DDL had to change. Schema creation stays SQLite-only
+    because on PostgreSQL `migrations/*.sql` owns it.
+    """
+    from app.config import DB_BACKEND
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if DB_BACKEND != "postgres":
+            _create_sqlite_schema(cursor)
+        _seed_defaults(cursor)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _seed_admin(cursor):
@@ -201,14 +244,17 @@ def _seed_admin(cursor):
 
     # INSERT OR IGNORE (username is PRIMARY KEY) — race-safe across gunicorn
     # workers; rowcount is 1 only for the worker that actually created the row.
-    cursor.execute(
+    # rowcount is read from what execute() RETURNS — see the note in
+    # _seed_defaults; on PostgreSQL the cursor passed in is a Connection and
+    # carries no rowcount of its own.
+    result = cursor.execute(
         'INSERT OR IGNORE INTO admins (username, password_hash, salt, security_question, security_answer_hash) '
         'VALUES (?, ?, ?, ?, ?)',
         (ADMIN_USERNAME, pwd_hash, '', 'What is your favorite color?', ans_hash)
     )
     # Only reveal the generated secrets if we created the account AND they were
     # auto-generated (not supplied via env).
-    if cursor.rowcount == 1 and (not ADMIN_PASSWORD or not ADMIN_SECURITY_ANSWER):
+    if result.rowcount == 1 and (not ADMIN_PASSWORD or not ADMIN_SECURITY_ANSWER):
         _write_admin_credentials(ADMIN_USERNAME, password, answer)
 
 

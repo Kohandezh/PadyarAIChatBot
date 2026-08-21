@@ -66,6 +66,13 @@
                                href="/secure-panel-inotex/ai/usage">مصرف و هزینه</a>
                             <a class="dropdown-item {% if active_page == 'ai_debug' %}active{% endif %}"
                                href="/secure-panel-inotex/ai/debug">اشکال‌زادی RAG</a>
+                            {# Only when the install bought the speech engine — the page and
+                               its API live in the optional `tts` module, so without it this
+                               link would land the admin on a 404. #}
+                            {% if 'tts' in (enabled_modules or []) %}
+                            <a class="dropdown-item {% if active_page == 'ai_tts' %}active{% endif %}"
+                               href="/secure-panel-inotex/ai/tts">تبدیل متن به صدا</a>
+                            {% endif %}
                         </div>
                     </li>
 

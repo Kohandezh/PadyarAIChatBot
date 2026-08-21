@@ -24,6 +24,9 @@ import io
 import logging
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import threading
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +34,7 @@ from typing import List, Optional
 
 import numpy as np
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -59,6 +62,31 @@ LANGUAGE = os.getenv("TTS_LANGUAGE", "fa")
 # Measured on this host: 8 threads -> RTF 36, 32 threads -> RTF 5.4. Past ~32
 # the curve flattens, and oversubscribing the box hurts the two chatbots.
 CPU_THREADS = int(os.getenv("TTS_CPU_THREADS", "32"))
+
+# --- reference clips for voice cloning -------------------------------------
+# The app user (padyar-inotex) cannot write into VOICES_DIR — the directory
+# belongs to the TTS service's own user — so an admin uploading a sample has to
+# come through this service. That is what POST/DELETE /voices exist for.
+#
+# 24 kHz mono 16-bit is what Chatterbox reads a prompt at; converting on the way
+# IN means the generation path never pays for a resample, and means an operator
+# can hand us whatever their phone recorded.
+VOICE_SAMPLE_RATE = 24000
+# Chatterbox's own guidance is a 5–20 second clip. The accepted band is a little
+# wider on purpose: refusing a good 4-second recording would be pedantry, and
+# the UI already steers people to 5–20. Past 30s the model starts ignoring the
+# tail, so accepting it would only waste the operator's time.
+MIN_VOICE_SECONDS = 3.0
+MAX_VOICE_SECONDS = 30.0
+# A ceiling on what we will even read from the socket. 25 MB is far more than a
+# 30-second clip in any sane codec; anything bigger is a mistake or an attack,
+# and either way must not be spooled to disk or handed to ffmpeg.
+MAX_VOICE_UPLOAD_BYTES = 25 * 1024 * 1024
+# Filenames become part of a path. Only these characters ever reach the
+# filesystem — no dots, no separators, so ".." and "/etc/passwd" cannot be
+# expressed at all rather than being detected and rejected.
+_VOICE_NAME_ALLOWED = re.compile(r"[^A-Za-z0-9_-]")
+MAX_VOICE_NAME_CHARS = 48
 
 # Set BEFORE the model is built. In a standalone process that calls
 # set_num_threads() first, this text runs at RTF 5; the service, which set it
@@ -212,9 +240,42 @@ def to_wav_bytes(samples: np.ndarray, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
+def voice_fingerprint(voice: str) -> str:
+    """Identity of the reference CLIP, not just the name pointing at it.
+
+    A non-technical operator records a sample, listens, is not happy, and
+    records again under the same name — that is the normal way this feature
+    gets used. On the name alone the cache key would be identical both times,
+    so the panel would keep playing back audio cloned from the clip that was
+    just replaced, and no amount of re-recording would change it.
+
+    mtime+size changes when the file is replaced and on nothing else, so a
+    cache warmed by /prerender survives restarts and redeploys untouched.
+    Unreadable (or absent) is the empty string: synthesize() reports the
+    missing voice properly, and a key is never invented for a file we could
+    not stat.
+    """
+    if not voice:
+        return ""
+    try:
+        st = os.stat(os.path.join(VOICES_DIR, f"{voice}.wav"))
+    except OSError:
+        return ""
+    return f"{int(st.st_mtime)}:{st.st_size}"
+
+
 def cache_key(text: str, voice: str, exaggeration: float, cfg_weight: float,
-              language: str = LANGUAGE) -> str:
-    raw = "\x00".join([text, voice, f"{exaggeration:.3f}", f"{cfg_weight:.3f}", language])
+              language: str = LANGUAGE, temperature: float = 0.8) -> str:
+    """Every input that changes the waveform is in the key. NOTHING else is.
+
+    Adding a field here invalidates every previously cached entry, because the
+    joined string changes for the same request. That is the honest trade: a key
+    that ignored temperature would hand back audio generated at a different one.
+    After a change to this function, re-run deploy/45-prerender.sh to re-warm
+    the dataset answers, or the first visitor of the day pays for them.
+    """
+    raw = "\x00".join([text, voice, f"{exaggeration:.3f}", f"{cfg_weight:.3f}",
+                       language, f"{temperature:.3f}", voice_fingerprint(voice)])
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -226,7 +287,7 @@ def cache_path(key: str) -> str:
 
 
 def synthesize(text: str, voice: str, exaggeration: float, cfg_weight: float,
-               language: str = LANGUAGE) -> bytes:
+               language: str = LANGUAGE, temperature: float = 0.8) -> bytes:
     model = load_model()
     prompt = os.path.join(VOICES_DIR, f"{voice}.wav") if voice else ""
     if prompt and not os.path.exists(prompt):
@@ -238,7 +299,8 @@ def synthesize(text: str, voice: str, exaggeration: float, cfg_weight: float,
                         _apply_thread_config())
         pieces = []
         for chunk in split_for_synthesis(text):
-            kwargs = {"exaggeration": exaggeration, "cfg_weight": cfg_weight}
+            kwargs = {"exaggeration": exaggeration, "cfg_weight": cfg_weight,
+                      "temperature": temperature}
             if prompt:
                 kwargs["audio_prompt_path"] = prompt
             # language_id is positional-required on the multilingual model.
@@ -261,6 +323,10 @@ class SpeakRequest(BaseModel):
     exaggeration: float = Field(0.5, ge=0.0, le=2.0)
     cfg_weight: float = Field(0.5, ge=0.0, le=1.0)
     language: str = Field(LANGUAGE, description="language_id passed to the model")
+    # Chatterbox's sampling temperature. The model's own default is 0.8 and the
+    # bounds are the ones its generate() documents — kept identical here so a
+    # value the panel accepts is never one the model then rejects.
+    temperature: float = Field(0.8, ge=0.05, le=5.0)
 
 
 class PrerenderRequest(BaseModel):
@@ -268,6 +334,7 @@ class PrerenderRequest(BaseModel):
     voice: str = ""
     exaggeration: float = 0.5
     cfg_weight: float = 0.5
+    temperature: float = 0.8
 
 
 @app.get("/health")
@@ -292,14 +359,16 @@ def tts(req: SpeakRequest):
     if len(text) > MAX_TEXT_CHARS:
         raise HTTPException(status_code=413, detail=f"text longer than {MAX_TEXT_CHARS} characters")
 
-    key = cache_key(text, req.voice, req.exaggeration, req.cfg_weight, req.language)
+    key = cache_key(text, req.voice, req.exaggeration, req.cfg_weight, req.language,
+                    req.temperature)
     path = cache_path(key)
     if os.path.exists(path):
         with open(path, "rb") as fh:
             return Response(fh.read(), media_type="audio/wav",
                             headers={"X-TTS-Cache": "hit", "X-TTS-Key": key})
 
-    audio = synthesize(text, req.voice, req.exaggeration, req.cfg_weight, req.language)
+    audio = synthesize(text, req.voice, req.exaggeration, req.cfg_weight, req.language,
+                       req.temperature)
     tmp = f"{path}.tmp"
     with open(tmp, "wb") as fh:
         fh.write(audio)
@@ -320,13 +389,15 @@ def prerender(req: PrerenderRequest):
         text = normalize(raw)
         if not text:
             continue
-        key = cache_key(text, req.voice, req.exaggeration, req.cfg_weight)
+        key = cache_key(text, req.voice, req.exaggeration, req.cfg_weight,
+                        temperature=req.temperature)
         path = cache_path(key)
         if os.path.exists(path):
             skipped.append(key)
             continue
         try:
-            audio = synthesize(text, req.voice, req.exaggeration, req.cfg_weight)
+            audio = synthesize(text, req.voice, req.exaggeration, req.cfg_weight,
+                               temperature=req.temperature)
             tmp = f"{path}.tmp"
             with open(tmp, "wb") as fh:
                 fh.write(audio)
@@ -344,3 +415,174 @@ def voices():
         os.path.splitext(f)[0] for f in os.listdir(VOICES_DIR) if f.endswith(".wav")
     )
     return {"voices": names, "default": ""}
+
+
+# --- voice management ------------------------------------------------------
+#
+# WHY THESE LIVE HERE AND NOT IN THE ADMIN APP: VOICES_DIR is owned by the TTS
+# service's user under /var/lib/padyar, and the two chatbot installs run as
+# padyar-inotex / padyar-elecomp. They can read a voice's NAME through the API
+# but cannot create a file in that directory, and giving them write access to
+# the service's state directory to save an upload would be the wrong trade. So
+# the upload travels the same loopback hop everything else does.
+
+def sanitize_voice_name(raw: str) -> str:
+    """Reduce an operator-typed name to something that is safe as a filename.
+
+    Substitution, not validation-then-use: after this there is no character
+    left that could mean "parent directory" or "absolute path", so the result
+    is safe by construction rather than by having passed a check somebody may
+    later move or weaken. An empty result is the caller's problem to report.
+    """
+    return _VOICE_NAME_ALLOWED.sub("", raw or "").strip("-_")[:MAX_VOICE_NAME_CHARS]
+
+
+def wav_duration_seconds(path: str) -> float:
+    """Seconds of audio in a PCM wav, straight from its own header."""
+    with wave.open(path, "rb") as fh:
+        rate = fh.getframerate()
+        if not rate:
+            raise ValueError("wav header declares a zero sample rate")
+        return fh.getnframes() / float(rate)
+
+
+def convert_to_reference_wav(src: str, dst: str) -> None:
+    """Whatever the operator recorded → 24 kHz mono 16-bit PCM wav.
+
+    ffmpeg rather than a Python decoder because it is already installed on this
+    host, it reads every container a phone or a browser produces (webm/opus
+    from MediaRecorder, m4a from an iPhone, mp3, ogg), and it is the one piece
+    of this path that does NOT need the model loaded — so voice management
+    keeps working on a box where the GPU is sick.
+
+    -nostdin: without it ffmpeg inherits the service's stdin and can block
+    forever waiting on a prompt nobody will ever answer. -vn drops the cover
+    art an mp3 may carry, which would otherwise turn into a video stream and
+    fail the wav muxer.
+    """
+    if not shutil.which("ffmpeg"):
+        raise HTTPException(
+            status_code=503,
+            detail="ffmpeg is not installed on the TTS host; cannot accept audio uploads",
+        )
+    proc = subprocess.run(
+        ["ffmpeg", "-nostdin", "-y", "-i", src,
+         "-vn", "-ac", "1", "-ar", str(VOICE_SAMPLE_RATE),
+         "-acodec", "pcm_s16le", "-f", "wav", dst],
+        capture_output=True,
+        # A conversion of a <=25 MB clip is a couple of seconds. A minute means
+        # something is wrong, and a hung ffmpeg would hold a request thread and
+        # a temp file for as long as the service lives.
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        # ffmpeg's own last line says what it could not do far better than we
+        # can guess, but the whole log is noise, so only the tail is surfaced.
+        tail = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        raise HTTPException(
+            status_code=400,
+            detail="this file could not be read as audio"
+                   + (f": {tail[-1]}" if tail else ""),
+        )
+
+
+@app.post("/voices")
+async def add_voice(name: str = Form(...), file: UploadFile = File(...)):
+    """Store a reference clip for cloning, under `<sanitised name>.wav`.
+
+    The order is convert → measure → validate → publish, deliberately:
+
+      * measuring the CONVERTED file means the duration is read from a plain
+        PCM wav header, so this needs no ffprobe and cannot be lied to by a
+        crafted container's metadata;
+      * publishing last, with os.replace, means a rejected upload leaves the
+        previously working voice exactly as it was. An operator re-recording
+        over a voice that is live in front of visitors cannot break it by
+        submitting a bad take.
+    """
+    safe = sanitize_voice_name(name)
+    if not safe:
+        raise HTTPException(
+            status_code=400,
+            detail="the name must contain at least one English letter, digit, - or _",
+        )
+
+    payload = await file.read(MAX_VOICE_UPLOAD_BYTES + 1)
+    if not payload:
+        raise HTTPException(status_code=400, detail="the uploaded file is empty")
+    if len(payload) > MAX_VOICE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"the file is larger than {MAX_VOICE_UPLOAD_BYTES // (1024 * 1024)} MB",
+        )
+
+    final = os.path.join(VOICES_DIR, f"{safe}.wav")
+    replaced = os.path.exists(final)
+
+    # One scratch directory, removed whatever happens — neither the raw upload
+    # nor a half-converted wav is left behind for the next admin to wonder at.
+    with tempfile.TemporaryDirectory(prefix="voice-upload-") as scratch:
+        raw_path = os.path.join(scratch, "input")
+        converted = os.path.join(scratch, "converted.wav")
+        with open(raw_path, "wb") as fh:
+            fh.write(payload)
+
+        try:
+            convert_to_reference_wav(raw_path, converted)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="converting the audio took too long")
+
+        try:
+            seconds = wav_duration_seconds(converted)
+        except Exception as exc:                   # noqa: BLE001
+            raise HTTPException(
+                status_code=400,
+                detail=f"the converted audio is unreadable: {exc}",
+            ) from exc
+
+        if seconds < MIN_VOICE_SECONDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"the clip is {seconds:.1f}s — too short to clone a voice from; "
+                       f"record between {MIN_VOICE_SECONDS:.0f} and {MAX_VOICE_SECONDS:.0f} seconds "
+                       f"(5-20 seconds works best)",
+            )
+        if seconds > MAX_VOICE_SECONDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"the clip is {seconds:.1f}s — longer than {MAX_VOICE_SECONDS:.0f}s is "
+                       f"ignored by the model; trim it to 5-20 seconds",
+            )
+
+        # Same filesystem as the final path would be ideal for an atomic
+        # rename, but /tmp may be a different mount, so copy then replace.
+        staged = f"{final}.tmp"
+        shutil.copyfile(converted, staged)
+        os.replace(staged, final)
+
+    logger.info("voice %s: %s (%.1fs)", "replaced" if replaced else "added", safe, seconds)
+    return {
+        "name": safe,
+        "seconds": round(seconds, 2),
+        "sample_rate": VOICE_SAMPLE_RATE,
+        "replaced": replaced,
+    }
+
+
+@app.delete("/voices/{name}")
+def delete_voice(name: str):
+    """Remove a reference clip.
+
+    Cached audio previously generated with this voice is NOT swept: the entries
+    are sha256 keys with no reverse index, and they are still perfectly valid
+    audio. Re-using the name later is safe anyway — the cache key carries the
+    new file's fingerprint, so a fresh clip never collides with the old one's
+    cached output.
+    """
+    safe = sanitize_voice_name(name)
+    path = os.path.join(VOICES_DIR, f"{safe}.wav")
+    if not safe or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"unknown voice: {name}")
+    os.remove(path)
+    logger.info("voice removed: %s", safe)
+    return {"removed": safe}

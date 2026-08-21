@@ -12,3 +12,9 @@ chatterbox-tts==0.1.7
 fastapi
 uvicorn
 numpy<2.0.0
+
+# Required by FastAPI to parse the multipart body of POST /voices (the admin
+# panel's microphone recording and file upload). Without it FastAPI raises at
+# import time on the endpoint's UploadFile parameter, so the whole service
+# refuses to start — it is not optional.
+python-multipart

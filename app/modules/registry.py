@@ -91,6 +91,12 @@ MODULES: dict[str, ModuleDef] = {
         is_core=False,
         router_module="app.routers.logs",
     ),
+    "tts": ModuleDef(
+        name="tts",
+        description="Persian text-to-speech control panel (Chatterbox) + voice cloning",
+        is_core=False,
+        router_module="app.routers.tts",
+    ),
     "registration": ModuleDef(
         name="registration",
         description="Visitor registration + SMS verification (/verify, /api/auth/otp/*)",

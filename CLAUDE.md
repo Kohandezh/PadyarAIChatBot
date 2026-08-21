@@ -212,6 +212,9 @@ PadyarAIChatbot/
       partials/                  # Overrides: header (switcher), messages (glass bubbles), input (glass wrapper), footer (JS overrides)
     minimal/                     # Minimal clean theme
       partials/                  # Override: footer only (uses all base defaults)
+    haj/                         # Hajj & Ziyarat Organization — calm blue, large type, light/dark toggle
+      partials/                  # Overrides all 7 base partials, plus 3 own: pattern, chips, security
+      static/                    # style.css + hero/logo art and the companion sprite atlas
     (each theme has: theme.json, partials/ (optional overrides), static/style.css, screenshot.png)
 
   data/                          # Runtime data files
@@ -497,7 +500,7 @@ Themes use a WordPress-style partial template system with Jinja2. The `themes/ba
 | `input.html` | Textarea, mic button, send button |
 | `footer.html` | Loads core.js, theme-specific JS overrides, calls `initChat()` |
 
-Active theme is stored in SQLite `settings` table (key `active_theme`) and switchable via admin panel. Selectable themes: `inotex` (default), `liquid-glass`, `minimal`; `base` is marked `"selectable": false` and exists only to supply the default partials. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
+Active theme is stored in SQLite `settings` table (key `active_theme`) and switchable via admin panel. Selectable themes: `inotex` (default), `liquid-glass`, `minimal`, `haj`; `base` is marked `"selectable": false` and exists only to supply the default partials. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
 
 ---
 

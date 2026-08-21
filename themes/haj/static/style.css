@@ -1,0 +1,2548 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Haj theme — دستیار هوشمند سازمان حج و زیارت
+
+   Layout skeleton comes from static/chat/base.css; this file owns the
+   visuals and the handful of structural overrides the shell needs.
+
+   Two rules govern everything below:
+
+   1. ONE PALETTE. Every colour in this file is one of the twelve approved
+      tokens, or an alpha of Navy / Primary Blue / White. There are no
+      "close enough" greys and no one-off tints — tests/test_haj_theme.py
+      fails the build if a stray hex appears.
+
+   2. ONE AUDIENCE. The reader may be eight years old or eighty, on a
+      touch kiosk, in bright sun, using this kind of thing for the first
+      time. So: 18px body text, 56px touch targets, borders you can see,
+      a focus ring you cannot miss, and every state said in words as well
+      as in colour.
+   ══════════════════════════════════════════════════════════════════════ */
+
+
+/* ── 1. Tokens ────────────────────────────────────────────────────── */
+
+:root {
+    /* Brand */
+    --haj-primary: #178EAC;
+    --haj-primary-light-1: #178EC3;
+    --haj-primary-light-2: #178EC8;
+    --haj-navy: #29387D;
+    --haj-success: #12B76A;
+
+    /* Neutrals */
+    --haj-bg: #F7FBFC;
+    --haj-white: #FFFFFF;
+    --haj-border: #DCE8EE;
+    --haj-surface-light: #F3F8FA;
+    --haj-text-dark: #344054;
+    --haj-text-medium: #667085;
+    --haj-text-light: #98A2B3;
+
+    /* Semantic surfaces — components reference these, never a brand hex
+       directly, so re-skinning stays a one-layer change. */
+    --haj-page: var(--haj-bg);
+    --haj-surface: var(--haj-white);
+    --haj-surface-sunken: var(--haj-surface-light);
+    --haj-surface-raised: var(--haj-white);
+    --haj-line: var(--haj-border);
+    --haj-line-strong: var(--haj-primary);
+    --haj-ink: var(--haj-text-dark);
+    --haj-ink-soft: var(--haj-text-medium);
+    /* Text Light (#98A2B3) sits at ~2.5:1 on white — fine for a chevron, not
+       for a timestamp or the security line. Anything with WORDS in it steps up
+       to Text Medium; --haj-hint keeps the lighter tone for pure ornament. */
+    --haj-ink-faint: var(--haj-text-medium);
+    --haj-hint: var(--haj-text-light);
+    --haj-on-primary: var(--haj-white);
+
+    /* Bubbles */
+    --haj-bubble-user-bg: var(--haj-surface-light);
+    --haj-bubble-user-ink: var(--haj-text-dark);
+    --haj-bubble-bot-bg: var(--haj-white);
+    --haj-bubble-bot-ink: var(--haj-text-dark);
+
+    /* Decorative art — one ramp so the hero reads as a single drawing */
+    --haj-art-ink: var(--haj-primary-light-2);
+    --haj-art-far-opacity: .13;
+    --haj-art-mid-opacity: .20;
+    --haj-art-arch-opacity: .30;
+    --haj-art-fore-opacity: .78;
+    --haj-pattern-opacity: .05;
+
+    /* Typography */
+    --haj-font: "Vazirmatn", "IRANSansX", system-ui, sans-serif;
+    --haj-fs-page: 36px;
+    --haj-fs-section: 24px;
+    --haj-fs-tab: 18px;
+    --haj-fs-chip: 16px;
+    --haj-fs-message: 18px;
+    --haj-fs-input: 18px;
+    --haj-fs-subtitle: 18px;
+    --haj-fs-caption: 13px;
+
+    /* Radius */
+    --haj-r-container: 32px;
+    --haj-r-card: 24px;
+    --haj-r-bubble: 20px;
+    --haj-r-soft: 18px;
+    --haj-r-input: 16px;
+    --haj-r-pill: 999px;
+
+    /* Top bar, ported from the reference deployment's measured spec.
+       THE BAR HAS NO HEIGHT OF ITS OWN — not height, not min-height. Its
+       height is always `tallest child + vertical padding`, and the tallest
+       child is the tab switcher. To change the bar, change --haj-switcher-h;
+       setting a height here would fight every rule below. */
+    --haj-switcher-h: 58px;
+    --haj-tabs-max: 420px;
+
+    /* Borders */
+    --haj-bw: 1px;
+    --haj-bw-active: 1.5px;
+
+    /* Shadows */
+    --haj-shadow-lg: 0 10px 30px rgba(41, 56, 125, 0.08);
+    --haj-shadow-md: 0 4px 12px rgba(23, 142, 172, 0.08);
+    --haj-shadow-soft: 0 2px 8px rgba(41, 56, 125, 0.10);
+    --haj-ring: 0 0 0 4px rgba(23, 142, 172, 0.18);
+
+    /* Spacing — 8px base */
+    --haj-s-1: 8px;
+    --haj-s-2: 12px;
+    --haj-s-3: 16px;
+    --haj-s-4: 20px;
+    --haj-s-5: 24px;
+    --haj-s-6: 32px;
+    --haj-s-7: 40px;
+    --haj-s-8: 48px;
+    --haj-chip-gap: 16px;
+    --haj-card-pad: 24px;
+    --haj-page-pad: 24px;
+
+    /* Motion */
+    --haj-fast: 140ms;
+    --haj-normal: 240ms;
+    --haj-slow: 420ms;
+
+    /* Reading column — the transcript and the composer share one measure so
+       they line up on the same edges instead of running the full width of a
+       1440px display. */
+    /* Based on the previous deployment's --chat-measure (858px), widened by
+       ~2cm on each side at the customer's request. Transcript, composer and
+       shell all feed from it, so their edges land on exactly the same two
+       lines; max-width:100% collapses it on a phone. */
+    --haj-measure: 1010px;
+
+    /* Legacy name some shared rules in base.css reference. */
+    --secondary-blue: var(--haj-primary);
+    --font-family: var(--haj-font);
+}
+
+/* Dark mode is a per-visitor preference (ThemeToggle in the top bar), never
+   the install-wide theme. Navy carries the page; every surface is an alpha of
+   white over it, so the palette does not grow by a single colour. */
+body.haj-dark {
+    --haj-page: var(--haj-navy);
+    --haj-surface: rgba(255, 255, 255, 0.07);
+    --haj-surface-sunken: rgba(255, 255, 255, 0.04);
+    --haj-surface-raised: rgba(255, 255, 255, 0.11);
+    --haj-line: rgba(255, 255, 255, 0.20);
+    --haj-ink: var(--haj-white);
+    --haj-ink-soft: var(--haj-border);
+    --haj-ink-faint: var(--haj-border);
+    --haj-hint: var(--haj-text-light);
+
+    --haj-bubble-user-bg: rgba(23, 142, 200, 0.24);
+    --haj-bubble-user-ink: var(--haj-white);
+    --haj-bubble-bot-bg: rgba(255, 255, 255, 0.09);
+    --haj-bubble-bot-ink: var(--haj-white);
+
+    --haj-art-far-opacity: .16;
+    --haj-art-mid-opacity: .24;
+    --haj-art-arch-opacity: .32;
+    --haj-art-fore-opacity: .58;
+    --haj-pattern-opacity: .07;
+
+    --haj-shadow-lg: 0 10px 30px rgba(41, 56, 125, 0.45);
+    --haj-shadow-md: 0 4px 12px rgba(41, 56, 125, 0.35);
+    --haj-shadow-soft: 0 2px 8px rgba(41, 56, 125, 0.35);
+}
+
+/* ── 1b. Dark-mode depth & light ─────────────────────────────────────
+   A flat navy page reads as a void. Two soft cyan glows — a dawn over the
+   header, an ember at the composer corner — give the dark palette the same
+   layered calm as the light one. Every rgba here is a palette triplet. */
+body.haj-dark.haj {
+    background-image:
+        radial-gradient(1100px 560px at 50% -12%, rgba(23, 142, 200, 0.14), transparent 62%),
+        radial-gradient(820px 480px at 88% 104%, rgba(23, 142, 172, 0.10), transparent 66%);
+    background-attachment: fixed;
+}
+
+/* The visitor's own words carry the brand light in the dark. */
+body.haj-dark #chat-view-content .message.user .bubble {
+    background: linear-gradient(135deg, rgba(23, 142, 200, 0.42), rgba(23, 142, 172, 0.28));
+    border-color: rgba(23, 142, 200, 0.38);
+}
+
+/* Assistant cards get a glass edge: a hairline top highlight instead of a
+   heavier border, so answers feel lit from above. */
+body.haj-dark #chat-view-content .message.bot .bubble {
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), var(--haj-shadow-md);
+}
+
+/* The active tab and the live send button glow softly instead of only
+   changing fill — in the dark, light is the affordance. */
+body.haj-dark .haj-tab-input:checked+.haj-tab-face {
+    box-shadow: 0 0 0 1px rgba(23, 142, 200, 0.35), 0 6px 20px rgba(23, 142, 200, 0.30);
+}
+
+body.haj-dark #send-btn.haj-send:not(:disabled) {
+    box-shadow: 0 0 0 1px rgba(23, 142, 200, 0.30), 0 6px 18px rgba(23, 142, 172, 0.35);
+}
+
+body.haj-dark .haj-composer:focus-within {
+    box-shadow: 0 0 0 3px rgba(23, 142, 200, 0.25);
+}
+
+
+/* ── 2. Page ──────────────────────────────────────────────────────── */
+
+body.haj {
+    background-color: var(--haj-page);
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-message);
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color var(--haj-normal) ease, color var(--haj-normal) ease;
+}
+
+.haj-sr-only {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+.haj-ic {
+    flex: none;
+    display: block;
+}
+
+
+/* ── 3. DecorativePatternLayer ────────────────────────────────────── */
+
+.haj-pattern {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    color: var(--haj-primary-light-2);
+    opacity: var(--haj-pattern-opacity);
+    transition: opacity var(--haj-normal) ease;
+}
+
+.haj-pattern-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.haj-pattern-ink {
+    stroke: currentColor;
+}
+
+/* A soft wash of brand light behind the shell, so the page is not a flat
+   sheet of one colour. */
+body.haj::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(80% 60% at 88% 0%, rgba(23, 142, 200, 0.10), transparent 62%),
+        radial-gradient(70% 60% at 6% 100%, rgba(41, 56, 125, 0.08), transparent 60%);
+}
+
+
+/* ── 4. AppShell ──────────────────────────────────────────────────── */
+
+/* One measure for the whole app: the top bar, the chips, the conversation
+   panel and the composer all share this width and therefore line up on the
+   same two edges. Left to run full-bleed on a desktop display the reading
+   line becomes far too long and the composer stops reading as part of the
+   same object — the previous deployments centred a fixed column for exactly
+   this reason. */
+.haj-shell {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    /* base.css gives .app-layout the full 100dvh. The bar is now a sibling
+       above it, so the shell takes what is left instead — otherwise the two
+       together are one bar taller than the viewport. */
+    height: auto;
+    flex: 1;
+    min-height: 0;
+    gap: var(--haj-s-3);
+    width: 100%;
+    /* The measure is the CONTENT width, so the page padding is added on top —
+       otherwise the padding eats into it and every block lands 48px narrow. */
+    max-width: calc(var(--haj-measure) + 2 * var(--haj-page-pad));
+    margin-inline: auto;
+    padding: var(--haj-page-pad) var(--haj-page-pad) var(--haj-s-2);
+    padding-bottom: max(var(--haj-s-2), env(safe-area-inset-bottom));
+    min-height: 0;
+}
+
+
+/* ── 5. TopBar ────────────────────────────────────────────────────── */
+
+.haj-topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* 58px tall with 20px side padding and a 10px gap, as measured on the
+       reference deployment. Wrapping stays enabled as the safety valve: in
+       tight space the bar grows a row instead of clipping the brand name. */
+    /* Full-bleed: the bar spans the viewport, so it keeps only its bottom
+       edge — side and top borders and the card radius would announce a box
+       that no longer exists.
+       No height: 0 vertical padding + a 58px switcher = a 58px bar. */
+    position: relative;
+    z-index: 30;
+    width: 100%;
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 0 20px;
+    background: var(--haj-surface);
+    border: 0;
+    border-bottom: var(--haj-bw) solid var(--haj-line);
+    border-radius: 0;
+    box-shadow: var(--haj-shadow-md);
+}
+
+/* BrandHeader */
+.haj-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-2);
+    min-width: 0;
+    order: 1;
+}
+
+/* Identity, then the Chat/Video choice, then the controls — all on one line
+   at the sizes above. If the bar ever does wrap, the tabs are the piece that
+   drops to its own centred row (see the phone rules). */
+.haj-topbar .haj-tabs {
+    order: 2;
+    max-width: var(--haj-tabs-max);
+    justify-content: center;
+}
+
+.haj-topbar-tools {
+    order: 3;
+}
+
+.haj-brand-mark {
+    /* 45px, per the reference. Untouched until 360px — see the sacrifice
+       order above. */
+    width: 45px;
+    height: 45px;
+    object-fit: contain;
+    flex: none;
+}
+
+.haj-brand-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.haj-brand-title {
+    /* The organisation's name is the one string on this page that must never
+       be abbreviated. It wraps rather than clipping, and the size steps down
+       with the column, so it is fully readable at every width. */
+    font-size: clamp(15px, 1.35vw, 18px);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--haj-navy);
+    /* One line. Wrapping made the brand block the tallest child and pushed
+       the bar past 58px; below 768px the name is hidden outright (see the
+       sacrifice order) rather than wrapped or cut. */
+    white-space: nowrap;
+}
+
+body.haj-dark .haj-brand-title {
+    color: var(--haj-white);
+}
+
+.haj-brand-subtitle {
+    font-size: var(--haj-fs-caption);
+    font-weight: 400;
+    /* Tight enough that name + strapline together clear the 58px bar. */
+    line-height: 1.3;
+    color: var(--haj-ink-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+/* SegmentedTabs */
+.haj-tabs {
+    /* The switcher IS the bar's height: it is the tallest child, so the bar
+       measures exactly this plus its own vertical padding. */
+    height: var(--haj-switcher-h);
+    flex: 0 1 var(--haj-tabs-max);
+    max-width: var(--haj-tabs-max);
+    min-width: 0;
+    align-self: center;
+    box-sizing: border-box;
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+    padding: 5px;
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface-sunken);
+}
+
+.haj-tab {
+    position: relative;
+    display: block;
+    flex: 1 1 50%;
+    min-width: 0;
+    cursor: pointer;
+}
+
+/* ── Progressive sacrifice ────────────────────────────────────────────
+   Width is taken from these in order, and the ORDER is the point: empty
+   space first, then the tab labels, then the written name, and the mark
+   last of all — it is the only thing carrying the organisation's identity,
+   so it survives to the narrowest screen. Copy the order, not just the
+   numbers. */
+
+/* 1100px — the switcher narrows. Nothing is removed. */
+@media (max-width: 1100px) {
+    :root {
+        --haj-tabs-max: 360px;
+    }
+}
+
+/* 900px — the tab labels go; their icons still say chat and video. */
+@media (max-width: 900px) {
+    :root {
+        --haj-tabs-max: 260px;
+    }
+
+    .haj-tab-label {
+        display: none;
+    }
+}
+
+/* 768px — the written name and strapline go, the mark stays, and vertical
+   padding appears. The bar therefore gets TALLER here than on a desktop
+   (46 + 8 + 8 = 62), which is counter-intuitive and deliberate. */
+@media (max-width: 768px) {
+    .haj-brand-text {
+        display: none;
+    }
+}
+
+/* 360px — the mark itself finally gives ground. */
+@media (max-width: 360px) {
+    .haj-brand-mark {
+        width: 34px;
+        height: 34px;
+    }
+}
+
+.haj-tab-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+}
+
+.haj-tab-face {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--haj-s-1);
+    height: 100%;
+    padding: 0 10px;
+    border-radius: var(--haj-r-pill);
+    font-size: var(--haj-fs-tab);
+    font-weight: 600;
+    color: var(--haj-ink-soft);
+    white-space: nowrap;
+    transition: background-color var(--haj-fast) ease, color var(--haj-fast) ease,
+        box-shadow var(--haj-fast) ease;
+}
+
+/* inactive → hover */
+.haj-tab:hover .haj-tab-face {
+    color: var(--haj-primary);
+    background: rgba(23, 142, 172, 0.08);
+}
+
+/* active */
+.haj-tab-input:checked+.haj-tab-face {
+    background: linear-gradient(135deg, var(--haj-primary) 0%, var(--haj-primary-light-2) 100%);
+    color: var(--haj-on-primary);
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-tab-input:checked+.haj-tab-face:hover {
+    color: var(--haj-on-primary);
+}
+
+.haj-tab-input:focus-visible+.haj-tab-face {
+    outline: 3px solid var(--haj-primary);
+    outline-offset: 3px;
+}
+
+
+/* Top-bar tools */
+.haj-topbar-tools {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-2);
+}
+
+
+/* LanguageDropdown */
+.haj-lang {
+    position: relative;
+}
+
+.haj-lang-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-1);
+    height: 48px;
+    padding: 0 var(--haj-s-3);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface);
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color var(--haj-fast) ease, box-shadow var(--haj-fast) ease,
+        background-color var(--haj-fast) ease;
+}
+
+.haj-lang-trigger:hover {
+    border-color: var(--haj-primary);
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-lang-trigger:active {
+    background: var(--haj-surface-sunken);
+}
+
+.haj-lang.is-open .haj-lang-trigger {
+    border-width: var(--haj-bw-active);
+    border-color: var(--haj-primary);
+    box-shadow: var(--haj-ring);
+}
+
+.haj-lang-chevron {
+    color: var(--haj-hint);
+    transition: transform var(--haj-fast) ease;
+}
+
+.haj-lang.is-open .haj-lang-chevron {
+    transform: rotate(180deg);
+}
+
+.haj-lang-menu {
+    position: absolute;
+    inset-inline-start: 0;
+    top: calc(100% + var(--haj-s-1));
+    z-index: 60;
+    min-width: 190px;
+    margin: 0;
+    padding: var(--haj-s-1);
+    list-style: none;
+    background: var(--haj-surface-raised);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-soft);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+body.haj-dark .haj-lang-menu,
+body.haj-dark .haj-a11y-menu {
+    background: var(--haj-navy);
+}
+
+.haj-lang-option {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-1);
+    padding: var(--haj-s-2) var(--haj-s-3);
+    border: 0;
+    border-radius: var(--haj-r-soft);
+    background: transparent;
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    font-weight: 500;
+    text-align: start;
+    cursor: pointer;
+}
+
+.haj-lang-option:hover {
+    background: var(--haj-surface-sunken);
+    color: var(--haj-primary);
+}
+
+.haj-lang-option.is-current {
+    color: var(--haj-primary);
+    font-weight: 600;
+}
+
+/* The active language is marked, not just coloured. */
+.haj-lang-option.is-current::after {
+    content: "✓";
+    margin-inline-start: auto;
+    font-size: var(--haj-fs-chip);
+}
+
+
+/* ThemeToggle */
+.haj-theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-1);
+    height: 48px;
+    padding: 0 var(--haj-s-2);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface);
+    color: var(--haj-ink-faint);
+    cursor: pointer;
+    transition: border-color var(--haj-fast) ease, box-shadow var(--haj-fast) ease;
+}
+
+.haj-theme-toggle:hover {
+    border-color: var(--haj-primary);
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-theme-track {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface-sunken);
+    border: var(--haj-bw) solid var(--haj-line);
+    transition: background-color var(--haj-normal) ease;
+}
+
+.haj-theme-knob {
+    position: absolute;
+    top: 2px;
+    inset-inline-start: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--haj-primary);
+    transition: transform var(--haj-normal) ease, background-color var(--haj-normal) ease;
+}
+
+.haj-theme-toggle[aria-checked="true"] .haj-theme-track {
+    background: rgba(23, 142, 200, 0.28);
+}
+
+/* RTL: "on" pushes the knob toward the inline end. */
+.haj-theme-toggle[aria-checked="true"] .haj-theme-knob {
+    transform: translateX(-20px);
+}
+
+html[dir="ltr"] .haj-theme-toggle[aria-checked="true"] .haj-theme-knob {
+    transform: translateX(20px);
+}
+
+/* The icon for the mode you are IN is the lit one. */
+.haj-theme-toggle .haj-ic-sun {
+    color: var(--haj-primary);
+}
+
+.haj-theme-toggle .haj-ic-moon {
+    color: var(--haj-ink-faint);
+}
+
+.haj-theme-toggle[aria-checked="true"] .haj-ic-sun {
+    color: var(--haj-ink-faint);
+}
+
+.haj-theme-toggle[aria-checked="true"] .haj-ic-moon {
+    color: var(--haj-primary-light-2);
+}
+
+
+/* IconButton — the shared shape for every square icon control */
+.haj-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Reference deployment uses 42px; held at 44 — the WCAG 2.5.5 floor —
+       because this audience includes people whose aim is not steady. The
+       2px difference is invisible beside the composer's other measurements. */
+    width: 44px;
+    height: 44px;
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface);
+    color: var(--haj-primary);
+    cursor: pointer;
+    transition: background-color var(--haj-fast) ease, border-color var(--haj-fast) ease,
+        box-shadow var(--haj-fast) ease, transform var(--haj-fast) ease;
+}
+
+.haj-icon-btn:hover {
+    border-color: var(--haj-primary);
+    background: var(--haj-surface-sunken);
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-icon-btn:active {
+    transform: translateY(1px);
+    background: rgba(23, 142, 172, 0.12);
+}
+
+.haj-icon-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.haj-icon-btn-primary {
+    background: linear-gradient(135deg, var(--haj-primary) 0%, var(--haj-primary-light-2) 100%);
+    border-color: transparent;
+    color: var(--haj-on-primary);
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-icon-btn-primary:hover {
+    background: linear-gradient(135deg, var(--haj-primary-light-1) 0%, var(--haj-primary-light-2) 100%);
+    border-color: transparent;
+}
+
+.haj-icon-btn-primary:active {
+    background: var(--haj-primary);
+}
+
+/* The a11y hamburger sits in the bar and is one size down from the composer. */
+/* Header tools follow the reference's own scale (43.2 → 35.2). These are
+   secondary controls; the composer's buttons, which are the primary path
+   for a pilgrim, stay at the 44px minimum regardless. */
+.haj-topbar .haj-icon-btn {
+    width: 43.2px;
+    height: 43.2px;
+}
+
+.haj-topbar-tools {
+    gap: 8px;
+    flex: none;
+}
+
+
+
+
+
+/* A short landscape screen has width to spare but no height: the name comes
+   back, and the bar tightens to 50px instead. */
+@media (max-height: 520px) and (orientation: landscape) {
+    :root {
+        --haj-switcher-h: 42px;
+        --haj-tabs-max: 260px;
+    }
+
+    .haj-topbar {
+        padding: 0 20px;
+    }
+
+    .haj-brand-text {
+        display: flex;
+    }
+}
+
+
+/* a11y menu */
+.haj-a11y {
+    position: relative;
+}
+
+.haj-a11y-menu .a11y-dropdown-content {
+    display: flex;
+    gap: var(--haj-s-1);
+    padding: var(--haj-s-1);
+    background: var(--haj-surface-raised);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-soft);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+.haj-a11y-btn {
+    min-width: 48px;
+    height: 48px;
+    padding: 0 var(--haj-s-2);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-soft);
+    background: var(--haj-surface);
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.haj-a11y-btn:hover {
+    border-color: var(--haj-primary);
+    color: var(--haj-primary);
+}
+
+
+/* ── 6. QuickActionRow / QuickActionChip ──────────────────────────── */
+
+.haj-quick {
+    flex: none;
+    padding: var(--haj-s-2) var(--haj-s-4);
+    background: var(--haj-surface);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-container);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+.haj-quick-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--haj-chip-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.haj-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-1);
+    min-height: 52px;
+    padding: 0 var(--haj-s-4);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface);
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: var(--haj-shadow-soft);
+    transition: border-color var(--haj-fast) ease, color var(--haj-fast) ease,
+        background-color var(--haj-fast) ease, box-shadow var(--haj-fast) ease,
+        transform var(--haj-fast) ease;
+}
+
+.haj-chip .haj-ic {
+    color: var(--haj-primary);
+    transition: color var(--haj-fast) ease;
+}
+
+.haj-chip:hover {
+    border-width: var(--haj-bw-active);
+    border-color: var(--haj-primary-light-2);
+    color: var(--haj-primary);
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-chip:active {
+    transform: translateY(1px);
+    background: var(--haj-surface-sunken);
+}
+
+/* Sent: the chip confirms the tap for the moment before the answer starts. */
+.haj-chip.is-sent {
+    background: linear-gradient(135deg, var(--haj-primary) 0%, var(--haj-primary-light-2) 100%);
+    border-color: transparent;
+    color: var(--haj-on-primary);
+}
+
+.haj-chip.is-sent .haj-ic {
+    color: var(--haj-on-primary);
+}
+
+.haj-chip:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+
+/* ── 7. Stage: HeroVisualPanel + ConversationPanel ────────────────── */
+
+.haj-stage {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* base.css pins the text view to 100lvh; inside this shell it fills its row. */
+div#text-view {
+    height: 100%;
+    min-height: 0;
+}
+
+/* ── The chatbot ──────────────────────────────────────────────────────
+   Conversation and composer are one object in one frame. The pieces inside
+   give up their own borders and shadows so the box reads as a single card
+   rather than three stacked ones. */
+.haj-chatbox {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--haj-surface);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-container);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+.haj-chatbox .haj-panel {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+}
+
+/* The composer sits on the floor of the same box, separated by a hairline
+   instead of a second frame. */
+.haj-chatbox .haj-composer-wrap {
+    padding: 0;
+}
+
+.haj-chatbox .haj-composer {
+    border: 0;
+    border-top: var(--haj-bw) solid var(--haj-line);
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+}
+
+.haj-chatbox .haj-composer:focus-within {
+    border-top-color: var(--haj-primary);
+    box-shadow: none;
+}
+
+/* Suggested questions: the last strip of the same box, under the composer.
+   One line that scrolls sideways rather than a block that grows downwards —
+   the questions are an offer, and they must never push the conversation off
+   the screen. */
+.haj-chatbox .haj-quick {
+    flex: none;
+    padding: var(--haj-s-2) var(--haj-s-3);
+    background: transparent;
+    border: 0;
+    border-top: var(--haj-bw) solid var(--haj-line);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.haj-chatbox .haj-quick-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    gap: var(--haj-s-1);
+    padding-bottom: 2px;
+    /* The scrollbar itself is hidden; the chips are cut off mid-shape at the
+       edge, which is the affordance that says "there is more this way". */
+    scrollbar-width: none;
+}
+
+.haj-chatbox .haj-quick-row::-webkit-scrollbar {
+    display: none;
+}
+
+.haj-chatbox .haj-chip {
+    flex: none;
+    scroll-snap-align: start;
+}
+
+.haj-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    /* The hero is first in the markup but belongs on the far side from the
+       reading edge, so the conversation starts where the eye already is.
+       Reversing the row places it there without demoting it in the DOM. */
+    flex-direction: row-reverse;
+    gap: 0;
+    overflow: hidden;
+    background: var(--haj-surface);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-container);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+/* HeroVisualPanel */
+.haj-hero {
+    position: relative;
+    flex: none;
+    width: clamp(220px, 26%, 380px);
+    overflow: hidden;
+    background: linear-gradient(180deg, var(--haj-surface-sunken) 0%, var(--haj-surface) 100%);
+    border-inline-start: var(--haj-bw) solid var(--haj-line);
+}
+
+body.haj-dark .haj-hero {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 100%);
+}
+
+.haj-hero-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: var(--haj-art-ink);
+}
+
+/* Two compositions of one scene; the layout picks the one shaped like the
+   space it has. See the wide breakpoint further down. */
+.haj-hero-art-wide {
+    display: none;
+}
+
+/* Photographic hero — light mode, tall layout only. The drawing reads
+   better than a bright photograph on the dark palette, and the wide band
+   keeps its purpose-built horizon composition. */
+.haj-hero-photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center bottom;
+}
+
+/* One photo per palette; the drawn scene now serves only the wide band. */
+.haj-hero-photo + .haj-hero-art,
+.haj-hero-photo-dark {
+    display: none;
+}
+
+body.haj-dark .haj-hero-photo-dark {
+    display: block;
+}
+
+body.haj-dark .haj-hero-photo:not(.haj-hero-photo-dark) {
+    display: none;
+}
+
+.haj-art-birds {
+    color: var(--haj-primary-light-2);
+    opacity: .28;
+}
+
+.haj-art-far {
+    fill: var(--haj-primary-light-2);
+    opacity: var(--haj-art-far-opacity);
+}
+
+.haj-art-mid {
+    fill: var(--haj-primary-light-2);
+    opacity: var(--haj-art-mid-opacity);
+}
+
+.haj-art-arch {
+    fill: var(--haj-primary-light-1);
+    opacity: var(--haj-art-arch-opacity);
+}
+
+.haj-art-fore {
+    opacity: var(--haj-art-fore-opacity);
+}
+
+/* One dark stone, lit from above. Three tones of the SAME navy rather than
+   three different brand blues: a two-tone cube reads as a toy block, and this
+   is the Kaaba. */
+.haj-art-cube-top {
+    fill: var(--haj-primary-light-2);
+    opacity: .5;
+}
+
+.haj-art-cube-a {
+    fill: var(--haj-navy);
+}
+
+.haj-art-cube-b {
+    fill: var(--haj-navy);
+    opacity: .74;
+}
+
+.haj-art-band {
+    fill: var(--haj-white);
+    opacity: .30;
+}
+
+.haj-art-door {
+    fill: var(--haj-white);
+    opacity: .16;
+}
+
+.haj-art-ground {
+    fill: var(--haj-primary-light-2);
+    opacity: .12;
+}
+
+/* ConversationPanel */
+.haj-conversation {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+#chat-view-content {
+    flex: 1;
+    min-height: 0;
+    /* 20px, as measured on the reference deployment. */
+    padding: var(--haj-s-4);
+    gap: var(--haj-s-4);
+    align-items: stretch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--haj-border) transparent;
+}
+
+#chat-view-content::-webkit-scrollbar {
+    display: block;
+    width: 8px;
+}
+
+#chat-view-content::-webkit-scrollbar-thumb {
+    background: var(--haj-border);
+    border-radius: var(--haj-r-pill);
+}
+
+
+/* ── 8. Messages ──────────────────────────────────────────────────── */
+
+/* RTL sides. In a column flex container the cross axis is the INLINE axis, so
+   flex-start is the right edge under dir="rtl". The visitor's own words sit on
+   the reading side; the assistant answers from the opposite one — the reverse
+   of base.css's LTR-shaped default, which is why both are restated here. */
+#chat-view-content .message.user {
+    align-self: flex-start;
+    max-width: 68%;
+}
+
+#chat-view-content .message.bot {
+    align-self: flex-end;
+    max-width: 82%;
+}
+
+/* The composer is in normal flow in this theme, so the transcript needs no
+   run-off gutter under the last message. */
+#chat-view-content .message:last-child {
+    margin-bottom: var(--haj-s-1);
+}
+
+.message .bubble {
+    font-size: var(--haj-fs-message);
+    line-height: 1.9;
+}
+
+/* UserMessageBubble */
+#chat-view-content .message.user .bubble {
+    display: block;
+    padding: var(--haj-s-3) var(--haj-s-4);
+    background: var(--haj-bubble-user-bg);
+    color: var(--haj-bubble-user-ink);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-bubble);
+    border-start-end-radius: 6px;
+    box-shadow: var(--haj-shadow-soft);
+}
+
+/* AssistantMessageCard — badge column beside the text. row-reverse puts the
+   badge on the outer edge under RTL without reordering the markup, so the
+   reading order stays "who is speaking, then what they said". */
+#chat-view-content .message.bot .bubble {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-start;
+    gap: var(--haj-s-3);
+    padding: var(--haj-card-pad);
+    background: var(--haj-bubble-bot-bg);
+    color: var(--haj-bubble-bot-ink);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-card);
+    border-start-start-radius: 6px;
+    box-shadow: var(--haj-shadow-lg);
+}
+
+.haj-bubble-body {
+    flex: 1;
+    min-width: 0;
+}
+
+/* AssistantBadge — the logo pack's app-icon tile, used as drawn. Recolouring
+   the full-colour mark to a white silhouette flattened the Kaaba inside the
+   star into a blob; the icon variant already solves that. */
+.haj-badge {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--haj-shadow-md);
+}
+
+.haj-badge img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.bubble-text {
+    font-size: var(--haj-fs-message);
+    line-height: 1.95;
+    overflow-wrap: anywhere;
+}
+
+.bubble-text p {
+    margin: 0 0 var(--haj-s-1);
+}
+
+.bubble-text p:last-child {
+    margin-bottom: 0;
+}
+
+.bubble-text strong {
+    color: var(--haj-primary);
+    font-weight: 700;
+}
+
+.bubble a,
+.bubble-text a {
+    color: var(--haj-primary);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.bubble a:hover,
+.bubble-text a:hover {
+    color: var(--haj-navy);
+}
+
+body.haj-dark .bubble a:hover,
+body.haj-dark .bubble-text a:hover {
+    color: var(--haj-primary-light-2);
+}
+
+/* RichChecklistCard */
+.bubble-text ul.haj-checklist,
+.bubble-text ul {
+    list-style: none;
+    margin: var(--haj-s-2) 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--haj-s-1);
+}
+
+.bubble-text ul.haj-checklist>li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--haj-s-1);
+    padding: 6px 0;
+    line-height: 1.8;
+}
+
+.haj-check {
+    flex: none;
+    display: block;
+    margin-top: 5px;
+    color: var(--haj-primary);
+}
+
+.bubble-text ol {
+    margin: var(--haj-s-2) 0;
+    padding-inline-start: var(--haj-s-4);
+}
+
+.bubble-text ol li {
+    padding: 4px 0;
+}
+
+/* Delivery meta */
+.haj-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: var(--haj-s-1);
+    color: var(--haj-ink-faint);
+    font-size: var(--haj-fs-caption);
+    line-height: 1.6;
+}
+
+#chat-view-content .message.user .haj-meta {
+    justify-content: flex-start;
+}
+
+.haj-tick {
+    display: block;
+    color: var(--haj-primary-light-2);
+}
+
+/* Error + retry */
+#chat-view-content .message.is-error .bubble {
+    border-width: var(--haj-bw-active);
+    border-color: var(--haj-primary);
+    background: var(--haj-surface-sunken);
+}
+
+.haj-retry {
+    margin-top: var(--haj-s-2);
+    min-height: 48px;
+    padding: 0 var(--haj-s-4);
+    border: var(--haj-bw-active) solid var(--haj-primary);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface);
+    color: var(--haj-primary);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.haj-retry:hover {
+    background: var(--haj-primary);
+    color: var(--haj-on-primary);
+}
+
+/* Assistant typing. base.css gives every .message an entrance fadeIn whose
+   fill would hold this bubble visible at rest — the inline opacity core.js
+   writes must stay the only thing that shows it. And while idle it leaves
+   the layout entirely (theme JS toggles is-busy): an invisible bubble with
+   height scrolls a short transcript and clips the welcome under the band. */
+#loading-bubble {
+    display: none;
+    animation: none;
+    transition: opacity var(--haj-normal) ease;
+}
+
+#loading-bubble.is-busy {
+    display: flex;
+}
+
+.haj-typing {
+    display: flex;
+    align-items: center;
+    gap: var(--haj-s-1);
+    color: var(--haj-ink-soft);
+    font-size: var(--haj-fs-chip);
+}
+
+.haj-typing-dots {
+    display: flex;
+    gap: 5px;
+}
+
+.haj-typing-dots i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--haj-primary-light-2);
+    animation: haj-bounce 1.3s infinite ease-in-out both;
+}
+
+.haj-typing-dots i:nth-child(1) {
+    animation-delay: -.32s;
+}
+
+.haj-typing-dots i:nth-child(2) {
+    animation-delay: -.16s;
+}
+
+@keyframes haj-bounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(.5);
+        opacity: .5;
+    }
+
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Suggested-questions list emitted by core.js on an error path. */
+.questions-list li {
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-soft);
+    background: var(--haj-surface-sunken);
+    color: var(--haj-ink);
+    font-size: var(--haj-fs-chip);
+    min-height: 48px;
+}
+
+.questions-list li:hover {
+    border-color: var(--haj-primary);
+    color: var(--haj-primary);
+}
+
+.questions-list li::before {
+    color: var(--haj-primary-light-2);
+}
+
+.show-more-btn {
+    border: var(--haj-bw) solid var(--haj-line);
+    background: var(--haj-surface);
+    color: var(--haj-primary);
+    min-height: 48px;
+}
+
+
+/* ── 9. InputComposer ─────────────────────────────────────────────── */
+
+.haj-composer-wrap {
+    flex: none;
+    width: 100%;
+    padding: 0;
+}
+
+/* base.css floats the composer over the transcript (absolute on desktop,
+   fixed on mobile). Here it is a row of the shell, so it can never cover the
+   last answer. */
+#input-area {
+    position: static;
+    transform: none;
+    inset: auto;
+    display: block;
+    width: 100%;
+    max-width: none;
+}
+
+.haj-composer {
+    display: flex;
+    flex-direction: row-reverse;
+    /* DOM order is mic → speaker → keyboard → input → send, which under RTL
+       reads right-to-left; reversing the row restores the drawn order
+       (voice controls on one side, send on the other). */
+    align-items: center;
+    gap: var(--haj-s-1);
+    width: 100%;
+    max-width: 100%;
+    /* Composer box, to the reference deployment's measurements: 8px padding,
+       16px radius, 1.5px border. */
+    padding: var(--haj-s-1);
+    background: var(--haj-surface);
+    border: var(--haj-bw-active) solid var(--haj-line);
+    border-radius: var(--haj-r-input);
+    box-shadow: var(--haj-shadow-lg);
+    transition: border-color var(--haj-fast) ease, box-shadow var(--haj-fast) ease;
+}
+
+.haj-composer.is-focused {
+    border-width: var(--haj-bw-active);
+    border-color: var(--haj-primary);
+    box-shadow: var(--haj-shadow-lg), var(--haj-ring);
+}
+
+/* The composer is ONE frame, the way the previous two deployments drew it:
+   the textarea lives inside that frame rather than carrying a second border
+   and background of its own. A box drawn inside a box reads as two controls
+   and makes the whole bar look heavier than it is. */
+#user-input.haj-input {
+    flex: 1;
+    min-width: 0;
+    /* Reference deployment: 72px typing area, growing to 100px then scrolling. */
+    min-height: 72px;
+    max-height: 100px;
+    padding: var(--haj-s-2) var(--haj-s-2);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-input);
+    font-weight: 400;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+}
+
+#user-input.haj-input::placeholder {
+    color: var(--haj-ink-soft);
+    opacity: 1;
+}
+
+/* Focus is drawn on the FRAME, not on the textarea: the whole composer is
+   one control, and :focus-within means it lights up even before the theme's
+   JS has bound anything. */
+.haj-composer:focus-within {
+    border-width: var(--haj-bw-active);
+    border-color: var(--haj-primary);
+    box-shadow: var(--haj-shadow-lg), var(--haj-ring);
+}
+
+#user-input.haj-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* typing */
+/* Typing: the frame, not the field, carries the state — the field has no
+   surface of its own any more. */
+.haj-composer.is-typing {
+    border-color: var(--haj-primary-light-2);
+}
+
+/* SendButton */
+#send-btn.haj-send {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--haj-primary) 0%, var(--haj-primary-light-2) 100%);
+    color: var(--haj-on-primary);
+    box-shadow: var(--haj-shadow-md);
+    cursor: pointer;
+    transition: transform var(--haj-fast) ease, box-shadow var(--haj-fast) ease,
+        background-color var(--haj-fast) ease, opacity var(--haj-fast) ease;
+}
+
+#send-btn.haj-send svg {
+    fill: currentColor;
+}
+
+/* The paper plane points the way the language runs. */
+#send-btn.haj-send svg {
+    transform: scaleX(-1);
+}
+
+html[dir="ltr"] #send-btn.haj-send svg {
+    transform: none;
+}
+
+#send-btn.haj-send:hover {
+    box-shadow: var(--haj-shadow-lg);
+    transform: translateY(-1px);
+}
+
+#send-btn.haj-send:active {
+    transform: translateY(1px);
+    background: var(--haj-primary);
+}
+
+#send-btn.haj-send:disabled {
+    opacity: .4;
+    box-shadow: none;
+    transform: none;
+    cursor: not-allowed;
+}
+
+/* Stop mode: core.js swaps the icon while a video answer is playing. */
+#send-btn.haj-send.stop-mode {
+    background: var(--haj-navy);
+}
+
+/* Speaker on */
+#tts-btn.is-on {
+    border-color: var(--haj-primary);
+    background: rgba(23, 142, 172, 0.12);
+}
+
+#tts-btn:not(.is-on) .haj-tts-wave {
+    opacity: .35;
+}
+
+/* Voice states — spelled out in #haj-composer-hint as well as shown. */
+.haj-composer[data-voice="listening"] {
+    border-width: var(--haj-bw-active);
+    border-color: var(--haj-primary);
+}
+
+.haj-composer[data-voice="listening"] #mic-btn {
+    animation: haj-pulse 1.6s infinite;
+}
+
+.haj-composer[data-voice="processing"] #mic-btn,
+.haj-composer[data-voice="processing"] #send-btn {
+    opacity: .6;
+}
+
+.haj-composer[data-voice="speaking"] #tts-btn {
+    border-color: var(--haj-primary);
+    background: rgba(23, 142, 172, 0.12);
+    animation: haj-pulse 2s infinite;
+}
+
+/* base.css pulses the mic with its own red shadow; the theme replaces it. */
+.mic-btn.recording {
+    animation: haj-pulse 1.6s infinite;
+}
+
+@keyframes haj-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(23, 142, 172, 0.45);
+    }
+
+    70% {
+        box-shadow: 0 0 0 14px rgba(23, 142, 172, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(23, 142, 172, 0);
+    }
+}
+
+.haj-composer-hint {
+    margin: 6px var(--haj-s-5) 0;
+    min-height: 20px;
+    color: var(--haj-ink-soft);
+    font-size: var(--haj-fs-caption);
+    line-height: 1.6;
+    text-align: center;
+}
+
+
+/* ── 10. SecurityFooter ───────────────────────────────────────────── */
+
+/* Platform credit — the previous chatbot's exact footprint: 18px mark,
+   0.72rem line, centered under everything. */
+.haj-platform-credit {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    /* 8px below the composer, as in the reference deployment. */
+    margin-top: 8px;
+    padding: 0 14px calc(7px + env(safe-area-inset-bottom, 0px));
+    color: var(--haj-ink-faint);
+    font-size: 0.72rem;
+    line-height: 1.7;
+    text-align: center;
+}
+
+.haj-platform-credit img {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    object-fit: contain;
+    opacity: 0.95;
+}
+
+.haj-platform-credit span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+/* ── 11. Video view ───────────────────────────────────────────────── */
+
+#video-view {
+    padding: 0;
+}
+
+.haj-video {
+    border-radius: var(--haj-r-container);
+    overflow: hidden;
+    background: var(--haj-surface);
+    border: var(--haj-bw) solid var(--haj-line);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+/* ── Video mode ───────────────────────────────────────────────────────
+   The stage becomes the page: the clip goes full-bleed and the composer
+   floats over its lower edge, still on the 858px measure so it lines up
+   with the transcript you left behind on the chat tab. */
+body.video-mode .pet-slot {
+    opacity: 0;
+    pointer-events: none;
+}
+
+body.video-mode .haj-shell {
+    max-width: none;
+    padding-inline: 0;
+    gap: 0;
+}
+
+body.video-mode .haj-chatbox {
+    position: relative;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: hidden;
+}
+
+/* The bar is already full-bleed in both modes; nothing to re-centre. */
+
+/* Suggested questions belong to the conversation, not to a film. */
+body.video-mode .haj-quick {
+    display: none;
+}
+
+body.video-mode .haj-composer-wrap {
+    position: absolute;
+    bottom: 7px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    width: 100%;
+    /* 858px over the film, the reference deployment's own composer measure. */
+    max-width: calc(858px + 2 * var(--haj-page-pad));
+    padding: 0 var(--haj-page-pad);
+}
+
+body.video-mode .haj-chatbox .haj-composer {
+    border: var(--haj-bw-active) solid var(--haj-line);
+    border-radius: var(--haj-r-input);
+    background: var(--haj-surface);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+/* On a phone the clip fills the screen — a 16:9 letterbox inside a card
+   wastes most of a small display. */
+@media (max-width: 768px) {
+    body.video-mode .haj-video {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        width: 100%;
+        height: 100dvh;
+        border: 0;
+        border-radius: 0;
+    }
+
+    body.video-mode #avatar-video {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+    }
+}
+
+#avatar-video {
+    border-radius: var(--haj-r-container);
+    background: var(--haj-surface-sunken);
+}
+
+/* Start: plays the introduction once, then never returns. A 116px disc in
+   the middle of the stage, to the reference deployment's measurements. */
+.haj-video-start {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 8;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 116px;
+    height: 116px;
+    padding: 0;
+    border: 2px solid var(--haj-primary);
+    border-radius: 50%;
+    background: rgba(41, 56, 125, 0.85);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    color: var(--haj-white);
+    font-family: var(--haj-font);
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: var(--haj-shadow-lg);
+    transition: background-color var(--haj-fast) ease, scale var(--haj-fast) ease;
+}
+
+/* Any element given a `display` value outranks the browser's own
+   `[hidden] { display: none }`, so hiding it from JS does nothing visually.
+   Every element in this theme that JS toggles with the hidden ATTRIBUTE has
+   to say so explicitly — this one, .haj-video-placeholder and .pet-panel. */
+.haj-video-start[hidden] {
+    display: none;
+}
+
+@media (max-width: 430px) {
+    .haj-video-start {
+        width: 96px;
+        height: 96px;
+        font-size: 13.5px;
+    }
+}
+
+.haj-video-start:hover {
+    background: var(--haj-primary-light-1);
+    scale: 1.03;
+}
+
+.haj-video-start:active {
+    scale: .98;
+}
+
+/* A calm pulse that says "press me" without demanding it. */
+.haj-video-start-ring {
+    position: absolute;
+    inset: -6px;
+    border-radius: inherit;
+    border: 2px solid var(--haj-primary-light-2);
+    opacity: .55;
+    animation: hajStartPulse 2.4s ease-out infinite;
+    pointer-events: none;
+}
+
+@keyframes hajStartPulse {
+    0% { transform: scale(.94); opacity: .55; }
+    70% { transform: scale(1.18); opacity: 0; }
+    100% { transform: scale(1.18); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .haj-video-start-ring {
+        animation: none;
+        opacity: .4;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+/* ── Empty stage ──────────────────────────────────────────────────────
+   Shown only while the video element has no frames — i.e. until an
+   administrator uploads idle.mp4 / welcome.mp4 into media/videos/. It sits
+   ABOVE the film (the <video> paints its own sunken background over anything
+   behind it) and the footer removes it the moment real frames arrive, so it
+   is never something showing through a playing clip.
+
+   `display` here outranks the browser's own `[hidden] { display: none }`,
+   so the hidden state has to be spelled out — see the note above. */
+.haj-video-placeholder[hidden] {
+    display: none;
+}
+
+.haj-video-placeholder {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--haj-surface-sunken);
+}
+
+.haj-video-placeholder .video-placeholder-card {
+    max-width: 420px;
+    margin-inline: auto;
+    padding: 34px 30px;
+    text-align: center;
+    background: var(--haj-surface);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-card);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+.haj-video-placeholder .video-placeholder-mark {
+    margin-bottom: 14px;
+    opacity: .55;
+}
+
+.haj-video-placeholder .video-placeholder-card p {
+    margin: 0 0 8px;
+    font-weight: 600;
+    font-size: var(--haj-fs-subtitle);
+    color: var(--haj-ink);
+}
+
+.haj-video-placeholder .video-placeholder-card span {
+    font-size: var(--haj-fs-caption);
+    color: var(--haj-ink-soft);
+}
+
+
+/* ── 12. Companion ────────────────────────────────────────────────── */
+
+/* The companion stands on the hero side of the room — the far side from the
+   send button, in front of the decorative panel rather than over the words or
+   the one control everything depends on. */
+.pet-slot {
+    position: fixed;
+    inset-inline-end: var(--haj-s-5);
+    bottom: 172px;
+    z-index: 40;
+    width: calc(150px * var(--pet-scale, 1));
+    height: calc(150px * var(--pet-scale, 1));
+    translate: var(--pet-dx, 0) var(--pet-dy, 0);
+    /* width/height in the transition = the +/− size buttons glide instead of
+       jumping between steps. Dragging opts out below. */
+    transition: opacity var(--haj-normal) ease, scale var(--haj-normal) ease,
+        width var(--haj-normal) ease, height var(--haj-normal) ease;
+}
+
+/* Hidden = folded away, NOT gone. The eye button stays behind as the way
+   back — a door that locks behind an elderly visitor is a bug, not a state. */
+.pet-slot[data-hidden="true"] {
+    pointer-events: none;
+}
+
+.pet-slot[data-hidden="true"] #pet-canvas,
+.pet-slot[data-hidden="true"] .pet-fallback,
+.pet-slot[data-hidden="true"] .pet-hit {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.pet-slot[data-hidden="true"] .pet-rail {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Sizing a companion you cannot see is nonsense; only the eye remains. */
+.pet-slot[data-hidden="true"] #pet-larger,
+.pet-slot[data-hidden="true"] #pet-smaller {
+    display: none;
+}
+
+.pet-slot[data-dragging="true"] {
+    transition: none;
+    cursor: grabbing;
+}
+
+#pet-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity var(--haj-slow) ease;
+    filter: drop-shadow(0 10px 18px rgba(41, 56, 125, 0.22));
+}
+
+#pet-canvas.is-ready {
+    opacity: 1;
+}
+
+.pet-fallback {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.pet-hit {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    border-radius: var(--haj-r-card);
+    background: transparent;
+    cursor: pointer;
+}
+
+.pet-rail {
+    position: absolute;
+    inset-inline-end: -6px;
+    top: -6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity var(--haj-fast) ease;
+    /* Above .pet-hit (which is a later sibling covering the whole slot) —
+       without this the invisible talk-overlay eats every rail click. And
+       while faded out the rail must not steal clicks either. */
+    z-index: 2;
+    pointer-events: none;
+}
+
+.pet-slot:hover .pet-rail,
+.pet-slot:focus-within .pet-rail {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.pet-rail-btn {
+    /* 44px: the WCAG 2.5.5 / HIG minimum. At 32px these were genuinely hard
+       to hit — the audience for this app includes people whose aim is not
+       steady. */
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: 50%;
+    background: var(--haj-surface);
+    color: var(--haj-primary);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: var(--haj-shadow-soft);
+}
+
+.pet-rail-btn:hover {
+    border-color: var(--haj-primary);
+}
+
+.pet-rail-btn .eye-closed {
+    display: none;
+}
+
+.pet-rail-btn[aria-pressed="true"] .eye-open {
+    display: none;
+}
+
+.pet-rail-btn[aria-pressed="true"] .eye-closed {
+    display: block;
+}
+
+/* Mini chat panel */
+.pet-panel {
+    position: fixed;
+    inset-inline-end: var(--haj-s-5);
+    bottom: 340px;
+    z-index: 45;
+    width: min(360px, calc(100vw - 2 * var(--haj-s-5)));
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    gap: var(--haj-s-2);
+    padding: var(--haj-s-4);
+    background: var(--haj-surface-raised);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-card);
+    box-shadow: var(--haj-shadow-lg);
+}
+
+body.haj-dark .pet-panel {
+    background: var(--haj-navy);
+}
+
+.pet-panel[hidden] {
+    display: none;
+}
+
+.pet-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--haj-s-2);
+}
+
+.pet-panel-eyebrow {
+    margin: 0;
+    color: var(--haj-ink-faint);
+    font-size: var(--haj-fs-caption);
+}
+
+.pet-panel-title {
+    margin: 0;
+    font-size: var(--haj-fs-tab);
+    font-weight: 700;
+    color: var(--haj-navy);
+}
+
+body.haj-dark .pet-panel-title {
+    color: var(--haj-white);
+}
+
+.pet-panel-close {
+    width: 40px;
+    height: 40px;
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: 50%;
+    background: var(--haj-surface);
+    color: var(--haj-ink-soft);
+    font-size: var(--haj-fs-section);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.pet-panel-close:hover {
+    border-color: var(--haj-primary);
+    color: var(--haj-primary);
+}
+
+.pet-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--haj-s-1);
+}
+
+.pet-chip {
+    min-height: 44px;
+    padding: 0 var(--haj-s-2);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-pill);
+    background: var(--haj-surface);
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-caption);
+    cursor: pointer;
+}
+
+.pet-chip:hover {
+    border-color: var(--haj-primary);
+    color: var(--haj-primary);
+}
+
+.pet-log {
+    flex: 1;
+    min-height: 80px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--haj-s-1);
+}
+
+.pet-msg p {
+    margin: 0;
+    padding: 10px var(--haj-s-2);
+    border-radius: var(--haj-r-bubble);
+    font-size: var(--haj-fs-chip);
+    line-height: 1.7;
+}
+
+.pet-msg-user p {
+    background: var(--haj-bubble-user-bg);
+    color: var(--haj-bubble-user-ink);
+}
+
+.pet-msg-bot p {
+    background: var(--haj-surface-sunken);
+    color: var(--haj-ink);
+}
+
+.pet-form {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--haj-s-1);
+}
+
+#pet-input {
+    flex: 1;
+    min-height: 44px;
+    max-height: 104px;
+    padding: 10px var(--haj-s-2);
+    border: var(--haj-bw) solid var(--haj-line);
+    border-radius: var(--haj-r-soft);
+    background: var(--haj-surface-sunken);
+    color: var(--haj-ink);
+    font-family: var(--haj-font);
+    font-size: var(--haj-fs-chip);
+    resize: none;
+}
+
+#pet-input:focus {
+    border-color: var(--haj-primary);
+    outline: none;
+}
+
+.pet-send {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: var(--haj-primary);
+    color: var(--haj-on-primary);
+    cursor: pointer;
+}
+
+.pet-send svg {
+    transform: scaleX(-1);
+}
+
+.pet-status {
+    margin: 0;
+    min-height: 18px;
+    color: var(--haj-ink-faint);
+    font-size: var(--haj-fs-caption);
+}
+
+/* The companion is a guest on the screen: on a viewport too short to hold it
+   and the composer, the composer wins. */
+@media (max-height: 640px) {
+    .pet-slot {
+        display: none;
+    }
+}
+
+
+/* ── 13. Focus, contrast, motion ──────────────────────────────────── */
+
+/* One focus ring, everywhere, impossible to miss. */
+:focus-visible {
+    outline: 3px solid var(--haj-primary);
+    outline-offset: 3px;
+    border-radius: var(--haj-r-soft);
+}
+
+body.haj-dark :focus-visible {
+    outline-color: var(--haj-primary-light-2);
+}
+
+/* High contrast (the ◐ control): heavier lines, darker ink, no soft tints. */
+body.high-contrast {
+    --haj-ink: var(--haj-navy);
+    --haj-ink-soft: var(--haj-navy);
+    --haj-ink-faint: var(--haj-text-dark);
+    --haj-line: var(--haj-navy);
+    --haj-bw: 2px;
+    --haj-bw-active: 3px;
+    --haj-surface-sunken: var(--haj-white);
+}
+
+body.high-contrast.haj-dark {
+    --haj-ink: var(--haj-white);
+    --haj-ink-soft: var(--haj-white);
+    --haj-ink-faint: var(--haj-white);
+    --haj-line: var(--haj-white);
+    --haj-surface-sunken: rgba(255, 255, 255, 0.14);
+}
+
+body.high-contrast .haj-pattern,
+body.high-contrast .haj-hero {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    #chat-view-content {
+        scroll-behavior: auto;
+    }
+}
+
+
+/* ── 14. Responsive ───────────────────────────────────────────────── */
+
+/* Tablet — the hero gives up width first, chips wrap. */
+@media (max-width: 1100px) {
+    :root {
+        --haj-page-pad: 20px;
+        --haj-measure: 100%;
+    }
+
+    .haj-hero {
+        width: clamp(160px, 22%, 240px);
+    }
+
+    .haj-brand-title {
+        font-size: 20px;
+    }
+
+    .haj-chip {
+        font-size: 15px;
+        padding: 0 var(--haj-s-3);
+    }
+}
+
+/* Small tablet / large phone — the hero moves above the conversation as a
+   band, so the drawing is still there but never squeezes the words. */
+@media (max-width: 860px) {
+    .haj-panel {
+        flex-direction: column;
+    }
+
+    .haj-hero {
+        width: 100%;
+        height: 150px;
+        border-inline-start: 0;
+        border-bottom: var(--haj-bw) solid var(--haj-line);
+    }
+
+    /* Swap to the horizon composition: the tall one would crop to nothing but
+       the ground at this shape. Both photos yield for the same reason —
+       body.haj-dark keeps the dark one's selector strength, so match it. */
+    .haj-hero-photo,
+    body.haj-dark .haj-hero-photo-dark,
+    .haj-hero-art {
+        display: none;
+    }
+
+    .haj-hero-art-wide {
+        display: block;
+    }
+
+    #chat-view-content .message.bot,
+    #chat-view-content .message.user {
+        max-width: 92%;
+    }
+}
+
+/* Phone — compact bar, scrolling chips, sticky composer. */
+@media (max-width: 768px) {
+    :root {
+        --haj-page-pad: 12px;
+        --haj-card-pad: 16px;
+        --haj-r-container: 24px;
+        --haj-fs-section: 18px;
+        --haj-fs-tab: 16px;
+        --haj-fs-message: 17px;
+        --haj-fs-input: 17px;
+        /* Reference deployment's phone sizes. */
+        --haj-switcher-h: 46px;
+        --haj-tabs-max: 200px;
+    }
+
+    /* The bar gains vertical padding here — this is what makes it 62px,
+       taller than the desktop's 58px, despite the smaller switcher. */
+    .haj-topbar {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+
+    .haj-topbar .haj-icon-btn {
+        width: 40px;
+        height: 40px;
+    }
+
+    .haj-shell {
+        gap: var(--haj-s-1);
+        padding-inline: var(--haj-s-2);
+    }
+
+    /* The mark keeps its 45px here — it is the last thing to give ground,
+       and only at 360px. The tabs stay on the same row: with the written
+       name already hidden at this width, there is room for them. */
+
+    .haj-tab {
+        flex: 1;
+    }
+
+    .haj-tab-face {
+        justify-content: center;
+        padding: 10px var(--haj-s-2);
+    }
+
+    .haj-topbar-tools {
+        gap: var(--haj-s-1);
+    }
+
+    .haj-lang-current {
+        display: none;
+    }
+
+    .haj-quick {
+        padding: var(--haj-s-1);
+        border-radius: var(--haj-r-container);
+    }
+
+    /* Chips scroll sideways instead of stacking into a wall of buttons. */
+    .haj-quick-row {
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: auto;
+        gap: var(--haj-s-1);
+        padding: 2px;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .haj-quick-row::-webkit-scrollbar {
+        display: none;
+    }
+
+    .haj-chip {
+        min-height: 48px;
+    }
+
+    .haj-hero {
+        height: 104px;
+    }
+
+    #chat-view-content {
+        padding: var(--haj-s-3) var(--haj-s-2);
+        gap: var(--haj-s-2);
+    }
+
+    #chat-view-content .message.bot .bubble {
+        padding: var(--haj-s-3);
+        gap: var(--haj-s-2);
+    }
+
+    .haj-badge {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+    }
+
+    /* Sticky composer: always in reach, never covering the last answer. */
+    .haj-composer-wrap {
+        position: sticky;
+        bottom: 0;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .haj-composer {
+        padding: var(--haj-s-1);
+        gap: var(--haj-s-1);
+    }
+
+    /* The placeholder is a full sentence and wraps to two lines on a phone.
+       The box is sized for two lines up front, so the invitation to type is
+       never clipped by the box that is inviting you. */
+    #user-input.haj-input {
+        min-height: 66px;
+        padding: 10px var(--haj-s-3);
+    }
+
+    #user-input.haj-input::placeholder {
+        font-size: 15px;
+    }
+
+    .haj-icon-btn,
+    #send-btn.haj-send {
+        width: 52px;
+        height: 52px;
+    }
+
+    /* Four controls plus the input do not fit one phone line; the speaker
+       and keyboard buttons are the ones with alternatives elsewhere (the
+       speaker toggles from the answer card, the keyboard opens on focus). */
+    #tts-btn,
+    #haj-keyboard-btn {
+        display: none;
+    }
+
+    /* A phone screen is not big enough to hold the conversation, the composer
+       AND a companion without one of them getting in the way of the others.
+       The two that answer questions win. */
+    .pet-slot,
+    .pet-panel {
+        display: none;
+    }
+}
+
+/* Very small phones. */
+@media (max-width: 380px) {
+    .haj-brand-title {
+        font-size: 16px;
+    }
+
+    .haj-brand-mark {
+        width: 34px;
+        height: 34px;
+    }
+
+    .haj-hero {
+        height: 84px;
+    }
+
+    .pet-slot {
+        display: none;
+    }
+}
+
+/* Landscape phones: vertical space is the scarce resource. */
+@media (max-height: 520px) and (orientation: landscape) {
+    :root {
+        /* Every vertical pixel counts when the screen is this short. */
+        --haj-switcher-h: 42px;
+    }
+
+    .haj-quick {
+        display: none;
+    }
+
+    .haj-hero {
+        display: none;
+    }
+}
+
+
+/* ── Header breakpoints, last word ───────────────────────────────────
+   These sit at the end deliberately: the theme's older responsive section
+   targets the same elements at the same specificity, so source order is
+   what decides. Moving them earlier silently reverts the header spec. */
+@media (max-width: 430px) {
+    :root {
+        --haj-tabs-max: 150px;
+    }
+
+    .haj-topbar .haj-icon-btn {
+        width: 38.4px;
+        height: 38.4px;
+    }
+
+    .haj-topbar-tools {
+        gap: 4px;
+    }
+}
+
+@media (max-width: 360px) {
+    :root {
+        --haj-switcher-h: 42px;
+        --haj-tabs-max: 118px;
+    }
+
+    .haj-topbar {
+        padding: 6px;
+        gap: 6px;
+    }
+
+    .haj-topbar .haj-icon-btn {
+        width: 35.2px;
+        height: 35.2px;
+    }
+}
