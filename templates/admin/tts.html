@@ -30,52 +30,6 @@
 </div>
 
 {# ── The main job: type text, hear it ─────────────────────────────────── #}
-<div class="card mt-3">
-  <div class="card-header"><h3 class="card-title">متن شما</h3></div>
-  <div class="card-body">
-    <textarea id="tts-text" class="form-control" dir="rtl" rows="5"
-              maxlength="4000"
-              placeholder="متنی که می‌خواهید شنیده شود را اینجا بنویسید…"></textarea>
-    <div class="text-muted small mt-1"><span id="tts-char-count">۰</span> از ۴۰۰۰ نویسه</div>
-
-    <div class="row g-3 mt-2 align-items-end">
-      <div class="col-md-6">
-        <label class="form-label" for="tts-voice">صدای گوینده</label>
-        <select class="form-select" id="tts-voice">
-          <option value="">صدای پیش‌فرض مدل</option>
-        </select>
-      </div>
-      <div class="col-md-6 text-md-start">
-        <button class="btn btn-primary btn-lg w-100 w-md-auto" id="btn-speak">
-          <i class="fas fa-volume-high ms-2"></i>بشنو
-        </button>
-      </div>
-    </div>
-
-    {# Progress: the wait is long enough that a bare spinner reads as a #}
-    {# hang. The estimate comes from character count and the engine device. #}
-    <div id="tts-progress-box" class="mt-3 d-none">
-      <div class="progress mb-1" style="height:6px">
-        <div class="progress-bar progress-bar-indeterminate" id="tts-progress-bar"
-             style="width:0%; transition:width .25s linear"></div>
-      </div>
-      <div class="text-muted small" id="tts-progress-label"></div>
-    </div>
-
-    <div id="tts-player-box" class="mt-3 d-none">
-      <audio id="tts-audio" controls class="w-100"></audio>
-      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-        <a id="tts-download" class="btn btn-sm btn-outline-secondary" download="voice.wav" href="#">
-          <i class="fas fa-download ms-1"></i>دانلود فایل صدا
-        </a>
-        {# Why one preview is instant and the next takes seconds. Without this
-           the operator concludes the service is unreliable. #}
-        <span id="tts-cache-badge" class="badge bg-secondary-lt"></span>
-      </div>
-    </div>
-  </div>
-</div>
-
 {# ── Advanced: the three real Chatterbox knobs ────────────────────────── #}
 {# Side by side on wide screens: tuning a voice and auditioning it are
    one task, and making the operator scroll between them was needless.
@@ -84,14 +38,13 @@
   <div class="col-12 col-lg-6">
     <div class="card h-100">
       <div class="card-header py-2">
-        <a class="text-decoration-none text-reset d-flex align-items-center w-100" data-bs-toggle="collapse"
-           href="#tts-advanced" role="button" aria-expanded="false" aria-controls="tts-advanced">
+        <div class="d-flex align-items-center w-100">
           <i class="fas fa-sliders ms-2"></i>
           <span class="card-title mb-0">تنظیمات پیشرفته</span>
           <span class="text-muted small me-2">(اختیاری — بدون تغییر هم به‌خوبی کار می‌کند)</span>
-        </a>
+        </div>
       </div>
-      <div class="collapse" id="tts-advanced">
+      <div id="tts-advanced">
         <div class="card-body">
           <div class="mb-4">
             <label class="form-label d-flex justify-content-between" for="p-exaggeration">
@@ -100,8 +53,7 @@
             </label>
             <input type="range" class="form-range" id="p-exaggeration" dir="ltr"
                    min="0.25" max="2" step="0.05" value="0.5">
-            <div class="text-muted small">هرچه بیشتر، صدا پرهیجان‌تر و کم‌ثبات‌تر می‌شود.
-              اگر از ۰٫۷ بالاتر بردید، «سرعت و وفاداری» را کمتر کنید؛ چون احساسِ زیاد، گفتار را تند می‌کند.</div>
+            <div class="text-muted small">هرچه بیشتر، صدا پرهیجان‌تر و کم‌ثبات‌تر می‌شود.</div>
           </div>
 
           <div class="mb-4">
@@ -113,6 +65,22 @@
                    min="0.2" max="1" step="0.05" value="0.5">
             <div class="text-muted small">کمتر (حدود ۰٫۳) گفتار را آرام‌تر می‌کند — مناسب گوینده‌ای که تند حرف می‌زند.
               برای شبیه‌سازی صدای ضبط‌شده، ۰٫۶ تا ۰٫۷ به صدای اصلی نزدیک‌تر می‌ماند.</div>
+              {# The two sliders are NOT independent: high emotion already speeds
+                 the delivery up, so a high pace on top of it makes speech race.
+                 The old copy told the operator to compensate by hand — something
+                 they had to remember while looking at a different slider. The panel
+                 now says so only when it is actually happening, and offers to fix
+                 it rather than describing the fix. #}
+              <div class="alert alert-warning py-2 px-3 mt-2 d-none" id="params-conflict">
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                  <i class="fas fa-triangle-exclamation ms-1"></i>
+                  <span class="small flex-grow-1">
+                    احساسِ زیاد خودش گفتار را تند می‌کند؛ با این «سرعت و وفاداری»
+                    صدا شتاب‌زده می‌شود.
+                  </span>
+                  <button type="button" class="btn btn-sm btn-warning" id="btn-fix-params">اصلاح کن</button>
+                </div>
+              </div>
           </div>
 
           <div class="mb-4">
@@ -155,7 +123,7 @@
 
         <div class="row g-3">
           {# Recorder #}
-          <div class="col-lg-6">
+          <div class="col-12">
             <div class="card card-sm h-100">
               <div class="card-body">
                 <h4 class="mb-2"><i class="fas fa-microphone ms-2"></i>ضبط با میکروفون</h4>
@@ -182,7 +150,7 @@
           </div>
 
           {# File upload #}
-          <div class="col-lg-6">
+          <div class="col-12">
             <div class="card card-sm h-100">
               <div class="card-body">
                 <h4 class="mb-2"><i class="fas fa-file-audio ms-2"></i>انتخاب فایل صوتی</h4>
@@ -200,19 +168,65 @@
 
         {# One save box for both sources — the operator names the clip once. #}
         <div class="row g-2 align-items-end mt-3">
-          <div class="col-md-6">
+          <div class="col-12">
             <label class="form-label" for="voice-name">نام این صدا</label>
             <input type="text" class="form-control" id="voice-name" dir="ltr"
                    placeholder="masoud" maxlength="48">
             <div class="text-muted small mt-1">فقط حروف انگلیسی، عدد، خط تیره و زیرخط.</div>
           </div>
-          <div class="col-md-6">
+          <div class="col-12">
             <button class="btn btn-success w-100" id="btn-save-voice" disabled>
               <i class="fas fa-floppy-disk ms-1"></i>ذخیرهٔ این صدا
             </button>
           </div>
         </div>
         <div id="voice-save-msg" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">متن شما</h3></div>
+  <div class="card-body">
+    <textarea id="tts-text" class="form-control" dir="rtl" rows="5"
+              maxlength="4000"
+              placeholder="متنی که می‌خواهید شنیده شود را اینجا بنویسید…"></textarea>
+    <div class="text-muted small mt-1"><span id="tts-char-count">۰</span> از ۴۰۰۰ نویسه</div>
+
+    <div class="row g-3 mt-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label" for="tts-voice">صدای گوینده</label>
+        <select class="form-select" id="tts-voice">
+          <option value="">صدای پیش‌فرض مدل</option>
+        </select>
+      </div>
+      <div class="col-md-6 text-md-start">
+        <button class="btn btn-primary btn-lg w-100 w-md-auto" id="btn-speak">
+          <i class="fas fa-volume-high ms-2"></i>بشنو
+        </button>
+      </div>
+    </div>
+
+    {# Progress: the wait is long enough that a bare spinner reads as a #}
+    {# hang. The estimate comes from character count and the engine device. #}
+    <div id="tts-progress-box" class="mt-3 d-none">
+      <div class="progress mb-1" style="height:6px">
+        <div class="progress-bar progress-bar-indeterminate" id="tts-progress-bar"
+             style="width:0%; transition:width .25s linear"></div>
+      </div>
+      <div class="text-muted small" id="tts-progress-label"></div>
+    </div>
+
+    <div id="tts-player-box" class="mt-3 d-none">
+      <audio id="tts-audio" controls class="w-100"></audio>
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+        <a id="tts-download" class="btn btn-sm btn-outline-secondary" download="voice.wav" href="#">
+          <i class="fas fa-download ms-1"></i>دانلود فایل صدا
+        </a>
+        {# Why one preview is instant and the next takes seconds. Without this
+           the operator concludes the service is unreliable. #}
+        <span id="tts-cache-badge" class="badge bg-secondary-lt"></span>
       </div>
     </div>
   </div>

@@ -52,6 +52,7 @@ export async function initTTS() {
     el('btn-speak').onclick = speak;
     el('btn-reset-params').onclick = resetParams;
     el('btn-save-params').onclick = saveParams;
+    el('btn-fix-params').onclick = fixParamConflict;
     el('btn-record').onclick = startRecording;
     el('btn-stop').onclick = stopRecording;
     el('btn-save-voice').onclick = saveVoice;
@@ -60,7 +61,10 @@ export async function initTTS() {
 
     SLIDERS.forEach(s => {
         const input = el(s.input);
-        input.oninput = () => { el(s.out).innerText = Number(input.value).toFixed(2); };
+        input.oninput = () => {
+            el(s.out).innerText = Number(input.value).toFixed(2);
+            updateParamConflict();
+        };
         input.oninput();
     });
 
@@ -88,6 +92,7 @@ async function loadSavedParams() {
             }
         });
         if (saved.voice) savedVoice = saved.voice;
+        updateParamConflict();
     } catch (e) {
         // A missing or unreadable setting must not stop the page loading;
         // the built-in defaults are already in the markup.
@@ -136,6 +141,29 @@ function params() {
     SLIDERS.forEach(s => { out[s.key] = Number(el(s.input).value); });
     return out;
 }
+
+// The two sliders interact: exaggeration above ~0.7 already speeds delivery up,
+// so a cfg_weight above the neutral 0.5 on top of it makes speech race. Shown
+// only while it is true, because a warning that is always on stops being read.
+const EXAGGERATION_RUSHES_ABOVE = 0.7;
+const CFG_SAFE_WHEN_EXCITED = 0.4;
+
+
+function updateParamConflict() {
+    const box = el('params-conflict');
+    if (!box) return;
+    const clash = Number(el('p-exaggeration').value) > EXAGGERATION_RUSHES_ABOVE
+               && Number(el('p-cfg').value) > 0.5;
+    box.classList.toggle('d-none', !clash);
+}
+
+
+function fixParamConflict() {
+    const cfg = el('p-cfg');
+    cfg.value = CFG_SAFE_WHEN_EXCITED;
+    cfg.dispatchEvent(new Event('input'));
+}
+
 
 function resetParams() {
     SLIDERS.forEach(s => {
