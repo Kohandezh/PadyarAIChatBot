@@ -26,6 +26,11 @@ let pendingClip = null;      // { blob, filename }
 // set select.value before the <option> elements exist, so it is remembered here
 // and applied once the list is built.
 let savedVoice = '';
+// Which device the engine reported last. The wait is dominated by it: the same
+// sentence is roughly ten times slower on CPU than on the P40s, so a single
+// hard-coded estimate would be wrong for one of them.
+let engineDevice = 'cuda';
+let speakTimer = null;
 let mediaRecorder = null;
 let recTimer = null;
 let recStart = 0;
@@ -156,6 +161,7 @@ async function loadStatus() {
     try {
         const res = await fetchAuth('/admin/api/tts/health');
         data = await res.json();
+        if (data.device) engineDevice = data.device;
     } catch {
         data = { reachable: false, message_fa: 'ارتباط با سرور برقرار نشد.' };
     }
@@ -190,6 +196,54 @@ async function loadStatus() {
 
 // ── Preview ─────────────────────────────────────────────────────────────
 
+// Measured on this installation, not guessed:
+//   * the 16 seeded answers are 3968 characters and render to 304s of audio,
+//     so Persian speech runs at roughly 0.077 seconds per character;
+//   * a full pre-render pass took 7.5 minutes for 299s of audio on the P40s
+//     (RTF ~1.5), and the service measured RTF ~1.7 warm; on CPU the same work
+//     ran at RTF ~16.
+// The estimate is deliberately a little pessimistic: finishing early reads as
+// fast, finishing late reads as broken.
+const SECONDS_PER_CHAR = 0.077;
+const RTF_BY_DEVICE = { cuda: 2.0, cpu: 17.0 };
+
+
+function estimateSeconds(text) {
+    const audio = Math.max(1, text.length * SECONDS_PER_CHAR);
+    const rtf = RTF_BY_DEVICE[engineDevice] || RTF_BY_DEVICE.cpu;
+    return Math.max(2, Math.round(audio * rtf));
+}
+
+
+function startSpeakProgress(estimate) {
+    const box = el('tts-progress-box');
+    const bar = el('tts-progress-bar');
+    const label = el('tts-progress-label');
+    box.classList.remove('d-none');
+    bar.style.width = '0%';
+
+    const started = Date.now();
+    speakTimer = setInterval(() => {
+        const elapsed = Math.round((Date.now() - started) / 1000);
+        // Creep toward 95% and stop. A bar that hits 100% and then keeps
+        // waiting is worse than one that visibly has a little left to go.
+        const pct = Math.min(95, Math.round((elapsed / estimate) * 95));
+        bar.style.width = pct + '%';
+        label.innerText = elapsed <= estimate
+            ? `حدود ${estimate - elapsed} ثانیه دیگر…`
+            : 'کمی بیشتر از حد انتظار طول کشید — هنوز در حال کار است…';
+    }, 250);
+    label.innerText = `حدود ${estimate} ثانیه دیگر…`;
+}
+
+
+function stopSpeakProgress() {
+    if (speakTimer) { clearInterval(speakTimer); speakTimer = null; }
+    el('tts-progress-box').classList.add('d-none');
+    el('tts-progress-bar').style.width = '0%';
+}
+
+
 async function speak() {
     const text = el('tts-text').value.trim();
     if (!text) { showMsg('tts-msg', 'ابتدا متنی بنویسید', 'danger'); return; }
@@ -198,6 +252,8 @@ async function speak() {
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm ms-2"></span>در حال ساخت صدا…';
+    const started = Date.now();
+    startSpeakProgress(estimateSeconds(text));
 
     try {
         const res = await fetchAuth('/admin/api/tts/preview', {
@@ -216,15 +272,19 @@ async function speak() {
         el('tts-audio').src = url;
         el('tts-download').href = url;
         el('tts-download').download = 'padyar-voice.wav';
+        const took = Math.max(1, Math.round((Date.now() - started) / 1000));
         const badge = el('tts-cache-badge');
         // 'hit' means the engine had this exact text+settings on disk already.
         badge.className = cached === 'hit' ? 'badge bg-azure-lt' : 'badge bg-secondary-lt';
-        badge.innerText = cached === 'hit' ? 'از حافظه — بدون پردازش دوباره' : 'تازه ساخته شد';
+        badge.innerText = cached === 'hit'
+            ? 'از حافظه — بدون پردازش دوباره'
+            : `تازه ساخته شد — ${took} ثانیه`;
         el('tts-player-box').classList.remove('d-none');
         el('tts-audio').play().catch(() => { /* autoplay blocked: the controls are right there */ });
     } catch {
         showMsg('tts-msg', 'ارتباط با سرور برقرار نشد', 'danger');
     } finally {
+        stopSpeakProgress();
         btn.disabled = false;
         btn.innerHTML = original;
     }
