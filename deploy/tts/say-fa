@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Speak a Persian sentence — run this ON the server (gpuserver).
+#
+#   say-fa "سلام، به نمایشگاه خوش آمدید"
+#
+# The server is headless, so this writes the audio to a file and tells you how
+# to fetch it. Output goes to ~/tts-out/ as both .wav (what the model produced)
+# and .mp3 (small enough to copy over a slow link).
+set -euo pipefail
+
+TEXT="$*"
+[[ -n "$TEXT" ]] || { echo 'Usage: say-fa "متن فارسی"' >&2; exit 1; }
+
+OUTDIR="${HOME}/tts-out"
+mkdir -p "$OUTDIR"
+STAMP=$(date +%Y%m%d-%H%M%S)
+WAV="${OUTDIR}/${STAMP}.wav"
+
+# JSON built by python so Persian text, quotes and newlines survive intact.
+PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "$TEXT")
+
+echo "text: $TEXT"
+start=$(date +%s)
+printf '%s' "$PAYLOAD" | curl -s --max-time 900 -X POST http://127.0.0.1:8003/tts \
+  -H 'Content-Type: application/json' --data-binary @- -o "$WAV" -D "${WAV}.hdr"
+end=$(date +%s)
+
+if [[ ! -s "$WAV" ]] || ! head -c 4 "$WAV" | grep -q RIFF; then
+  echo "FAILED — the service did not return audio:" >&2
+  head -c 400 "$WAV" >&2; echo >&2
+  echo "check:  systemctl status padyar-tts  /  curl -s localhost:8003/health" >&2
+  rm -f "${WAV}.hdr"
+  exit 1
+fi
+
+# uvicorn lowercases header names; match case-insensitively or every hit
+# reads as a miss.
+CACHE=$(awk -F': ' 'tolower($0) ~ /^x-tts-cache/{print $2}' "${WAV}.hdr" | tr -d '\r')
+rm -f "${WAV}.hdr"
+
+BYTES=$(wc -c < "$WAV")
+# 24 kHz, 16-bit mono => 48000 bytes per second of audio.
+SECS=$(python3 -c "print(f'{($BYTES-44)/48000:.2f}')")
+ELAPSED=$((end-start))
+RTF=$(python3 -c "s=$SECS; print(f'{$ELAPSED/s:.1f}' if s>0 else 'n/a')")
+
+command -v ffmpeg >/dev/null && ffmpeg -loglevel error -y -i "$WAV" -b:a 96k "${WAV%.wav}.mp3" 2>/dev/null || true
+
+echo "  audio   : ${SECS}s"
+echo "  took    : ${ELAPSED}s  (RTF ${RTF})  cache=${CACHE:-miss}"
+echo "  wav     : $WAV"
+[[ -f "${WAV%.wav}.mp3" ]] && echo "  mp3     : ${WAV%.wav}.mp3"
+echo
+echo "To listen, run this ON YOUR MAC:"
+echo "  scp gpu@192.168.100.6:${WAV%.wav}.mp3 ~/Desktop/ && open ~/Desktop/$(basename "${WAV%.wav}.mp3")"

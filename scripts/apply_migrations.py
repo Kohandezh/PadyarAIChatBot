@@ -41,6 +41,7 @@ Usage:
     .venv/bin/python scripts/apply_migrations.py --dry-run  # show pending only
 """
 import hashlib
+import re
 import os
 import sys
 
@@ -109,6 +110,46 @@ def applied_versions(conn) -> dict:
     return out
 
 
+# Migrations 0001 and 0002 were written to be run by hand through psql, so they
+# open and close their own transaction with BEGIN; ... COMMIT;. That is fatal
+# under this runner: `with conn.transaction()` has already opened a transaction,
+# so the file's COMMIT commits it, and releasing psycopg's savepoint afterwards
+# fails with `InvalidSavepointSpecification: savepoint "_pg3_1" does not exist`.
+#
+# Worse than the error is what it leaves behind. The DDL is committed by the
+# file's own COMMIT before anything fails, but the schema_migrations INSERT is
+# not — so the database ends up with the new tables and no record of them,
+# while the runner prints "rolled back in full". That is the opposite of the
+# guarantee in this module's docstring.
+#
+# The fix belongs here, not in the .sql files: an applied migration must never
+# be edited, and 0001/0002 are already applied on the existing install. So the
+# runner strips the outer transaction control and supplies its own.
+# Both files open with a comment header, so the BEGIN is not at byte zero.
+_NOISE = r"(?:\s|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*"
+_TXN_START = re.compile(r"\A(" + _NOISE + r")(?:BEGIN|START\s+TRANSACTION)\s*;",
+                        re.I | re.S)
+_TXN_END = re.compile(r"(?:COMMIT|END)\s*;(" + _NOISE + r")\Z", re.I | re.S)
+
+
+def strip_outer_transaction(body: str) -> str:
+    """Remove a file's own outermost BEGIN/COMMIT so the runner can wrap it.
+
+    Only the outermost pair is touched, and only when the file both opens and
+    closes one — a migration that deliberately manages savepoints internally is
+    left exactly as written.
+    """
+    if not _TXN_START.search(body):
+        return body
+    # Keep the comment header; drop only the BEGIN token itself.
+    without_begin = _TXN_START.sub(r"\1", body, count=1)
+    if not _TXN_END.search(without_begin):
+        # Opens a transaction it never closes. Do not guess — run it verbatim
+        # and let PostgreSQL complain.
+        return body
+    return _TXN_END.sub(r"\1", without_begin, count=1)
+
+
 def main() -> int:
     dry_run = "--dry-run" in sys.argv
     migrations = discover()
@@ -161,7 +202,7 @@ def main() -> int:
             print(f"applying {version} ...", end=" ", flush=True)
             try:
                 with conn.transaction():
-                    conn.execute(body)
+                    conn.execute(strip_outer_transaction(body))
                     conn.execute(
                         "INSERT INTO app.schema_migrations (version, checksum) "
                         "VALUES (%s, %s)", (version, here))

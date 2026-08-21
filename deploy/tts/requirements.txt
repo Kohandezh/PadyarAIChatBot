@@ -1,0 +1,14 @@
+# Pinned for a Tesla P40 (Pascal, sm_61). DO NOT bump torch.
+#
+# PyTorch removed Maxwell/Pascal from its CUDA 12.8+ wheels, so any newer
+# build contains no sm_61 machine code and every kernel launch fails with
+# cudaErrorNoKernelImageForDevice. torch 2.6.0 from the cu124 index is both
+# what Chatterbox pins and the newest build these cards can run.
+#
+# Install torch FIRST, from the cu124 index (25-install-tts.sh does this):
+#   pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+
+chatterbox-tts==0.1.7
+fastapi
+uvicorn
+numpy<2.0.0

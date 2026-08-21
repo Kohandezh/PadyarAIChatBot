@@ -1,0 +1,42 @@
+[Unit]
+Description=PadyarAIChatbot — elecomp
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=padyar-elecomp
+Group=padyar-elecomp
+
+# MANDATORY. app/main.py mounts StaticFiles(directory="media"|"static"|"LOGO"|"data")
+# by RELATIVE path, so a wrong CWD makes the app raise at import time.
+WorkingDirectory=/opt/padyar-elecomp
+EnvironmentFile=/opt/padyar-elecomp/.env
+
+# --proxy-headers + --forwarded-allow-ips is not cosmetic: without it
+# request.client.host is 127.0.0.1 for every visitor, so the admin
+# brute-force lockout (app/routers/admin.py:37) blocks the real admin the
+# first time any bot guesses a password, and every access log row is useless.
+ExecStart=/opt/padyar-elecomp/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8002 \
+    --workers ${WEB_CONCURRENCY} \
+    --proxy-headers --forwarded-allow-ips=127.0.0.1
+
+Restart=always
+RestartSec=3
+TimeoutStartSec=120
+
+# Hardening. The app writes only to its own state directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/padyar/elecomp /var/log/padyar/elecomp /opt/padyar-elecomp
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=padyar-elecomp
+
+[Install]
+WantedBy=multi-user.target

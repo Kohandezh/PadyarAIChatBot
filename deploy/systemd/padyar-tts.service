@@ -1,0 +1,63 @@
+[Unit]
+Description=Padyar TTS — Chatterbox Persian on Tesla P40
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=padyar-tts
+Group=padyar-tts
+WorkingDirectory=/opt/padyar-tts
+
+# The MULTILINGUAL directory. The Persian fine-tune is a Chatterbox
+# Multilingual derivative (2454-token embedding) and will not load into the
+# English base — chatterbox-fa/ holds that failed pairing and is kept only as
+# the raw download.
+Environment=TTS_MODEL_DIR=/var/lib/padyar/tts/models/chatterbox-mtl
+Environment=TTS_LANGUAGE=fa
+Environment=TTS_CPU_THREADS=32
+# torch.set_num_threads() alone is not enough: OpenMP/MKL read these at first
+# use and otherwise default to all 40 cores. Oversubscribing measurably hurt
+# throughput here (RTF 19 vs 5.4 with the same text).
+Environment=OMP_NUM_THREADS=32
+Environment=MKL_NUM_THREADS=32
+Environment=TTS_CACHE_DIR=/var/lib/padyar/tts/cache
+Environment=TTS_VOICES_DIR=/var/lib/padyar/tts/voices
+Environment=TTS_DEVICE=cuda
+# Overrides everything above. This is how the service runs on CPU while the
+# P40s are unusable (the VM needs EFI firmware for their 24GB BAR), and how it
+# moves to the GPUs later: set TTS_DEVICE=cuda in that file and restart.
+# Do NOT switch to cuda before deploy/21-verify-gpu.sh passes.
+EnvironmentFile=-/etc/default/padyar-tts
+# GPU 0 only. The second P40 stays free — for a local LLM later, and so a
+# runaway TTS process cannot take both cards down.
+Environment=CUDA_VISIBLE_DEVICES=0
+# HF cache lives with the models, not in the service user's home.
+Environment=HF_HOME=/var/lib/padyar/tts/models/hf
+
+# Loopback only. This service has no auth and must never be reachable from
+# the internet; nginx does not proxy to it.
+ExecStart=/opt/padyar-tts/.venv/bin/uvicorn server:app \
+    --host 127.0.0.1 --port 8003 --workers 1
+
+# One worker, on purpose: the model is ~3 GB of float32 weights and
+# generation is serialised by a lock anyway. A second worker would double
+# VRAM for no throughput.
+
+Restart=always
+RestartSec=5
+# Loading 2 GB of weights onto a P40 is not fast.
+TimeoutStartSec=600
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/padyar/tts /var/log/padyar/tts
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=padyar-tts
+
+[Install]
+WantedBy=multi-user.target
