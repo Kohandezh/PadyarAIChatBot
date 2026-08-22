@@ -36,6 +36,29 @@ def _render(template_name: str, **context) -> HTMLResponse:
     return HTMLResponse(html)
 
 
+def admin_js_version(*names: str) -> str:
+    """Cache-buster for an admin page's own JavaScript.
+
+    Same reasoning as _asset_version below, applied to the admin panel, which
+    never had it. Nothing sends Cache-Control for /static, so browsers cache it
+    heuristically: a page was shipped whose HTML had a new button while the
+    browser kept running the previous script, so the button existed, was bound
+    to nothing, and did nothing when clicked — indistinguishable from a broken
+    feature. Stamping the newest mtime of the page's scripts forces a refetch.
+
+    Falls back to "0" if nothing can be read: a missing buster costs freshness,
+    it must never break the page.
+    """
+    newest = 0
+    for name in names:
+        try:
+            newest = max(newest, int(os.path.getmtime(
+                os.path.join(BASE_DIR, "static", "admin", "js", name))))
+        except OSError:
+            continue
+    return str(newest)
+
+
 def _asset_version(theme_name: str) -> str:
     """Cache-buster token for the chat stylesheets.
 
@@ -149,7 +172,8 @@ async def admin_dashboard(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
-    return _render("admin/dashboard.html", request=request, active_page="dashboard")
+    return _render("admin/dashboard.html", request=request, active_page="dashboard",
+                   js_version=admin_js_version("dashboard.js", "resources.js"))
 
 
 @router.get("/secure-panel-inotex/manage-datasets", response_class=HTMLResponse)

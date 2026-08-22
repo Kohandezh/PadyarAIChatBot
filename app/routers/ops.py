@@ -198,6 +198,25 @@ async def system_info():
     }
 
 
+@router.get("/admin/api/ops/resources", dependencies=[Depends(verify_admin)])
+def system_resources():
+    """Live CPU / memory / GPU / disk for the dashboard gauges.
+
+    Deliberately separate from /admin/api/ops/system: that one describes what
+    this installation IS (modules, process, health) and barely changes, while
+    this one is polled. Cached in the service layer, so a page open in several
+    tabs does not fork nvidia-smi once per tab per tick.
+
+    NOT `async def`, unlike everything else in this file. snapshot() sleeps for
+    the CPU measurement window and waits on nvidia-smi for up to five seconds;
+    awaited on the event loop that would freeze every chat request on the
+    server while a wedged driver timed out. A plain `def` puts it in FastAPI's
+    worker threadpool, where blocking is what threads are for.
+    """
+    from app.services import resources
+    return resources.snapshot()
+
+
 # ── Sessions ────────────────────────────────────────────────────────────
 
 @router.get("/admin/api/security/sessions", dependencies=[Depends(verify_admin)])

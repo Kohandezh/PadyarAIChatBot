@@ -166,7 +166,10 @@ def test_the_page_renders_for_an_admin(client):
     res = client.get("/secure-panel-inotex/ai/tts")
     assert res.status_code == 200
     assert "تبدیل متن به صدا" in res.text
-    assert "/static/admin/js/tts.js" in res.text
+    # With a NON-EMPTY cache-buster: `?v=` on its own is one cacheable URL for
+    # every release, which is the bug the buster exists to prevent.
+    import re
+    assert re.search(r"/static/admin/js/tts\.js\?v=\d+", res.text)
     # The three real Chatterbox knobs, and no invented fourth one.
     for slider in ("p-exaggeration", "p-cfg", "p-temperature"):
         assert slider in res.text

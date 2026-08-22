@@ -3,6 +3,17 @@
 {% block title %}داشبورد{% endblock %}
 
 {% block head %}
+<style>
+  /* The ring shows the proportion; the number in the middle says what it is of.
+     Absolutely positioned so it survives Chart.js resizing the canvas. */
+  .gauge-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; pointer-events: none;
+    line-height: 1.15;
+  }
+  .gauge-center .gauge-value { font-size: 1.5rem; font-weight: 700; }
+  .gauge-center .gauge-sub { font-size: .75rem; color: var(--tblr-muted, #888); }
+</style>
 <!-- Chart.js — only loaded on dashboard -->
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 {% endblock %}
@@ -100,6 +111,59 @@
 </div>
 
 <!-- AI control-plane summary — concise, drills down to AI pages -->
+{# ── Server resources ───────────────────────────────────────────────── #}
+{# Doughnuts rather than bars: the question an operator asks here is "how much
+   headroom is left", which is a proportion, and three of them side by side are
+   comparable at a glance. Numbers are repeated in the middle because a ring
+   alone cannot say "3.4 of 40 cores". #}
+<div class="row mb-4" id="resources-row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex align-items-center">
+        <span><i class="fas fa-microchip me-2"></i>منابع سرور</span>
+        <span class="ms-auto text-muted small" id="resources-updated"></span>
+      </div>
+      <div class="card-body">
+        <div id="resources-error" class="text-muted d-none"></div>
+        <div class="row g-3" id="resources-gauges">
+          <div class="col-12 col-md-4">
+            <div class="text-center">
+              <div style="max-width:190px;margin:0 auto;position:relative">
+                <canvas id="cpuGauge" height="190"></canvas>
+                <div class="gauge-center" id="cpuCenter"></div>
+              </div>
+              <div class="mt-2 fw-bold">پردازنده</div>
+              <div class="text-muted small" id="cpuDetail">در حال خواندن…</div>
+            </div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="text-center">
+              <div style="max-width:190px;margin:0 auto;position:relative">
+                <canvas id="memGauge" height="190"></canvas>
+                <div class="gauge-center" id="memCenter"></div>
+              </div>
+              <div class="mt-2 fw-bold">حافظه</div>
+              <div class="text-muted small" id="memDetail">در حال خواندن…</div>
+            </div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="text-center">
+              <div style="max-width:190px;margin:0 auto;position:relative">
+                <canvas id="gpuGauge" height="190"></canvas>
+                <div class="gauge-center" id="gpuCenter"></div>
+              </div>
+              <div class="mt-2 fw-bold">کارت گرافیک</div>
+              <div class="text-muted small" id="gpuDetail">در حال خواندن…</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3" id="gpuList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <div class="row mb-4" id="ai-summary-row">
     <div class="col-xl-3 col-md-6 mb-4">
         <a href="/secure-panel-inotex/ai/providers" class="text-decoration-none">
@@ -207,7 +271,9 @@
 
 {% block page_js %}
 <script type="module">
-    import { initDashboard } from '/static/admin/js/dashboard.js';
+    import { initDashboard } from '/static/admin/js/dashboard.js?v={{ js_version }}';
+    import { initResources } from '/static/admin/js/resources.js?v={{ js_version }}';
     initDashboard();
+    initResources();
 </script>
 {% endblock %}
