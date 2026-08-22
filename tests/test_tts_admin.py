@@ -148,6 +148,10 @@ def test_every_endpoint_refuses_an_anonymous_caller(anon, engine):
         ("get", "/admin/api/tts/voices", {}),
         ("post", "/admin/api/tts/preview", {"json": {"text": "سلام"}}),
         ("delete", "/admin/api/tts/voices/someone", {}),
+        ("get", "/admin/api/tts/cache", {}),
+        ("post", "/admin/api/tts/cache/warm", {}),
+        ("post", "/admin/api/tts/cache/cleanup", {}),
+        ("post", "/admin/api/tts/cache/clear", {}),
     ]
     for method, url, kwargs in calls:
         res = getattr(anon, method)(url, **kwargs)
@@ -212,22 +216,33 @@ def test_the_voice_list_is_forwarded_when_the_engine_is_up(client, engine):
 
 # ── Preview ─────────────────────────────────────────────────────────────
 
-def test_preview_forwards_every_parameter_and_returns_the_wav(client, engine):
+def test_preview_forwards_every_parameter_and_returns_the_audio(client, engine):
     engine.responses[("POST", "/tts")] = FakeResponse(
-        content=b"RIFF....WAVE",
-        headers={"x-tts-cache": "miss", "x-tts-key": "abc123"})
+        content=b"ID3\x03audio",
+        headers={"x-tts-cache": "miss", "x-tts-key": "abc123",
+                 "content-type": "audio/mpeg"})
 
     res = client.post("/admin/api/tts/preview", json={
         "text": "سلام دنیا", "voice": "masoud",
         "exaggeration": 0.9, "cfg_weight": 0.65, "temperature": 1.2,
     })
     assert res.status_code == 200
-    assert res.headers["content-type"] == "audio/wav"
-    assert res.content == b"RIFF....WAVE"
+    # The engine's content type, passed through rather than guessed. It serves
+    # mp3 now, and a hardcoded audio/wav here left the browser to work the
+    # format out from the bytes.
+    assert res.headers["content-type"] == "audio/mpeg"
+    assert res.content == b"ID3\x03audio"
 
     sent = engine.calls[-1]["json"]
     assert sent == {"text": "سلام دنیا", "voice": "masoud",
                     "exaggeration": 0.9, "cfg_weight": 0.65, "temperature": 1.2}
+
+
+def test_preview_falls_back_to_mp3_when_the_engine_names_no_type(client, engine):
+    """An engine too old to send a content type still plays, not downloads."""
+    engine.responses[("POST", "/tts")] = FakeResponse(content=b"ID3\x03audio")
+    res = client.post("/admin/api/tts/preview", json={"text": "سلام"})
+    assert res.headers["content-type"] == "audio/mpeg"
 
 
 def test_preview_forwards_the_cache_header(client, engine):
@@ -420,3 +435,135 @@ def test_a_corrupted_setting_does_not_break_the_page(client):
 
     got = client.get("/admin/api/tts/settings").json()
     assert got["exaggeration"] == 0.5
+
+
+# ── Ready-made audio ────────────────────────────────────────────────────
+#
+# The panel's promise is that a visitor never waits for an answer that was
+# already written down. These cover the part of that promise this router owns:
+# the operator names ANSWERS, and keys are never computed here.
+
+def _seed_answers(*texts):
+    """Put answers in the knowledge base the endpoints read from."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    for i, text in enumerate(texts, 1):
+        conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                     " VALUES (?, ?, ?, ?)", (f"a{i}", f"عنوان {i}", text, ""))
+    conn.commit()
+    conn.close()
+
+
+CACHE_STATS = {"files": 12, "bytes": 3_500_000,
+               "oldest": "2026-08-20T10:00:00+00:00",
+               "newest": "2026-08-22T09:00:00+00:00"}
+
+
+def test_cache_stats_pairs_the_engines_files_with_this_installs_answers(client, engine):
+    _seed_answers("پاسخ یکم", "پاسخ دوم")
+    engine.responses[("GET", "/cache/stats")] = FakeResponse(json_body=dict(CACHE_STATS))
+
+    body = client.get("/admin/api/tts/cache").json()
+
+    assert body["reachable"] is True
+    assert body["files"] == 12
+    # The number the engine cannot know: it has no concept of a dataset.
+    assert body["answers"] == 2
+
+
+def test_cache_stats_still_counts_answers_when_the_engine_is_down(client, engine):
+    _seed_answers("پاسخ یکم", "پاسخ دوم", "پاسخ سوم")
+    engine.responses[("GET", "/cache/stats")] = httpx.ConnectError("refused")
+
+    body = client.get("/admin/api/tts/cache").json()
+
+    assert body["reachable"] is False
+    assert body["answers"] == 3          # this install's own truth, still true
+    assert body["files"] == 0
+    assert body["message_fa"]
+
+
+def test_warming_sends_every_answer_with_the_saved_settings(client, engine):
+    _seed_answers("پاسخ یکم", "پاسخ دوم")
+    client.post("/admin/api/tts/settings",
+                json={"exaggeration": 0.7, "cfg_weight": 0.4, "temperature": 0.9,
+                      "voice": "narrator"})
+    engine.responses[("POST", "/prerender")] = FakeResponse(
+        json_body={"total": 2, "rendered": 2, "skipped": 0, "failed": 0, "errors": []})
+
+    res = client.post("/admin/api/tts/cache/warm")
+
+    assert res.status_code == 200
+    sent = [c for c in engine.calls if c["path"] == "/prerender"][-1]["json"]
+    assert sent["texts"] == ["پاسخ یکم", "پاسخ دوم"]
+    # Warming with settings the panel would not later ask for fills the cache
+    # with entries nothing ever hits, so these must be the SAVED ones.
+    assert sent["exaggeration"] == 0.7
+    assert sent["cfg_weight"] == 0.4
+    assert sent["temperature"] == 0.9
+    assert sent["voice"] == "narrator"
+
+
+def test_warming_an_empty_knowledge_base_never_reaches_the_engine(client, engine):
+    res = client.post("/admin/api/tts/cache/warm")
+    assert res.status_code == 400
+    assert engine.calls == []
+
+
+def test_warming_gets_a_timeout_fit_for_a_whole_dataset(client, engine):
+    _seed_answers("پاسخ یکم")
+    engine.responses[("POST", "/prerender")] = FakeResponse(
+        json_body={"total": 1, "rendered": 1, "skipped": 0, "failed": 0, "errors": []})
+
+    client.post("/admin/api/tts/cache/warm")
+
+    from app.config import TTS_TIMEOUT, TTS_PRERENDER_TIMEOUT
+    sent = [c for c in engine.calls if c["path"] == "/prerender"][-1]
+    assert sent["timeout"] == TTS_PRERENDER_TIMEOUT
+    assert TTS_PRERENDER_TIMEOUT > TTS_TIMEOUT
+
+
+def test_cleanup_sends_texts_and_never_computes_a_key(client, engine):
+    _seed_answers("پاسخ یکم", "پاسخ دوم")
+    engine.responses[("POST", "/cache/prune")] = FakeResponse(
+        json_body={"deleted": 4, "freed_bytes": 900_000})
+
+    res = client.post("/admin/api/tts/cache/cleanup")
+
+    assert res.status_code == 200
+    sent = [c for c in engine.calls if c["path"] == "/cache/prune"][-1]["json"]
+    assert sent["keep_texts"] == ["پاسخ یکم", "پاسخ دوم"]
+    # Keys are the engine's business. A key computed here could drift from the
+    # one the engine looks up by, and a cleanup would delete live audio.
+    assert not sent.get("keep")
+    assert not sent.get("delete_all")
+
+
+def test_cleanup_refuses_when_there_is_nothing_to_keep(client, engine):
+    """An empty knowledge base makes cleanup indistinguishable from wiping."""
+    res = client.post("/admin/api/tts/cache/cleanup")
+    assert res.status_code == 400
+    assert engine.calls == []
+
+
+def test_clearing_everything_says_so_explicitly(client, engine):
+    _seed_answers("پاسخ یکم")
+    engine.responses[("POST", "/cache/prune")] = FakeResponse(
+        json_body={"deleted": 9, "freed_bytes": 2_000_000})
+
+    res = client.post("/admin/api/tts/cache/clear")
+
+    assert res.status_code == 200
+    sent = [c for c in engine.calls if c["path"] == "/cache/prune"][-1]["json"]
+    assert sent["delete_all"] is True
+    assert sent["keep"] == []
+
+
+def test_a_stopped_engine_during_a_cleanup_is_a_persian_sentence(client, engine):
+    _seed_answers("پاسخ یکم")
+    engine.responses[("POST", "/cache/prune")] = httpx.ConnectError("refused")
+
+    res = client.post("/admin/api/tts/cache/cleanup")
+
+    assert res.status_code == 503
+    assert "در دسترس نیست" in res.json()["detail"]

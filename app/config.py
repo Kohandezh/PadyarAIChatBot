@@ -176,6 +176,11 @@ TTS_TIMEOUT = float(os.getenv("TTS_TIMEOUT", "180"))
 # Health and voice listing are cheap. If they hang, the service is wedged, and
 # the panel should say so within a few seconds rather than spin.
 TTS_STATUS_TIMEOUT = float(os.getenv("TTS_STATUS_TIMEOUT", "5"))
+# Warming the cache renders EVERY dataset answer, so its ceiling is a whole
+# dataset's worth of generation, not one clip's. Sixteen answers on the GPU is
+# about a minute; a customer with two hundred is not, which is why this is its
+# own number and not TTS_TIMEOUT.
+TTS_PRERENDER_TIMEOUT = float(os.getenv("TTS_PRERENDER_TIMEOUT", "1800"))
 
 # --- Module System ---
 from app.modules.registry import resolve_enabled_modules, module_enabled

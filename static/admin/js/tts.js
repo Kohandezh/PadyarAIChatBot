@@ -69,12 +69,116 @@ export async function initTTS() {
         input.oninput();
     });
 
+    el('btn-cache-warm').onclick = warmCache;
+    el('btn-cache-cleanup').onclick = cleanupCache;
+    el('btn-cache-clear').onclick = clearCache;
+
     updateCharCount();
     await loadStatus();
     // Saved defaults BEFORE the voice list, so loadVoices() can preselect the
     // saved voice instead of whatever happens to sort first.
     await loadSavedParams();
     await loadVoices();
+    await loadCacheStats();
+}
+
+
+// ── Ready-made audio ────────────────────────────────────────────────────
+//
+// Same rule as everywhere else on this page: the operator is shown answers and
+// files, never keys. Which entry belongs to which answer is the engine's
+// business, and the buttons below send TEXT for exactly that reason.
+
+function faNum(n) { return Number(n || 0).toLocaleString('fa-IR'); }
+
+function faBytes(bytes) {
+    if (!bytes) return '۰';
+    const mb = bytes / (1024 * 1024);
+    if (mb < 1) return `${faNum(Math.round(bytes / 1024))} کیلوبایت`;
+    return `${mb.toLocaleString('fa-IR', { maximumFractionDigits: 1 })} مگابایت`;
+}
+
+async function loadCacheStats() {
+    try {
+        const res = await fetchAuth('/admin/api/tts/cache');
+        const data = await res.json();
+        el('cache-answers').innerText = faNum(data.answers);
+        if (!data.reachable) {
+            // The count of answers is this install's own and stays true even
+            // when the engine is down; the rest would be a guess.
+            ['cache-files', 'cache-size', 'cache-newest'].forEach(
+                id => { el(id).innerText = '—'; });
+            return;
+        }
+        el('cache-files').innerText = faNum(data.files);
+        el('cache-size').innerText = faBytes(data.bytes);
+        el('cache-newest').innerText = data.newest
+            ? new Date(data.newest).toLocaleDateString('fa-IR')
+            : '—';
+    } catch (e) {
+        ['cache-answers', 'cache-files', 'cache-size', 'cache-newest'].forEach(
+            id => { el(id).innerText = '—'; });
+    }
+}
+
+// Every button here does the same three things, so they say so once. `busy` is
+// the label while it runs: warming a dataset is minutes, not milliseconds, and
+// a button that looks idle invites a second click that queues the whole job
+// again.
+async function cacheAction(button, url, busy, done) {
+    const btn = el(button);
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm ms-2"></span>${busy}`;
+    try {
+        const res = await fetchAuth(url, { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showMsg('tts-cache-msg', body.detail || 'انجام نشد', 'danger');
+        } else {
+            showMsg('tts-cache-msg', done(body), 'success');
+        }
+    } catch (e) {
+        showMsg('tts-cache-msg', 'ارتباط با سرور برقرار نشد', 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+        await loadCacheStats();
+    }
+}
+
+function warmCache() {
+    return cacheAction(
+        'btn-cache-warm', '/admin/api/tts/cache/warm', 'در حال ساخت…',
+        b => {
+            const parts = [`صدای ${faNum(b.rendered)} پاسخ ساخته شد`];
+            // "skipped" is the good case, not a failure: it means the audio was
+            // already there. Saying nothing about it makes a second press look
+            // like it did nothing at all.
+            if (b.skipped) parts.push(`${faNum(b.skipped)} پاسخ از قبل صدا داشت`);
+            if (b.failed) parts.push(`${faNum(b.failed)} پاسخ ساخته نشد`);
+            return parts.join('، ');
+        });
+}
+
+function cleanupCache() {
+    return cacheAction(
+        'btn-cache-cleanup', '/admin/api/tts/cache/cleanup', 'در حال پاک‌سازی…',
+        b => b.deleted
+            ? `${faNum(b.deleted)} فایل بلااستفاده حذف شد (${faBytes(b.freed_bytes)} آزاد شد)`
+            : 'چیزی برای پاک کردن نبود');
+}
+
+function clearCache() {
+    // Confirmed because it is not undoable and the audio cost GPU time. The
+    // question names the consequence, not the operation.
+    if (!confirm('همهٔ صداهای ساخته‌شده حذف شوند؟ '
+                 + 'بعد از این، اولین بازدیدکنندهٔ هر پاسخ باید منتظر ساخت دوبارهٔ صدا بماند.')) {
+        return Promise.resolve();
+    }
+    return cacheAction(
+        'btn-cache-clear', '/admin/api/tts/cache/clear', 'در حال حذف…',
+        b => `${faNum(b.deleted)} فایل حذف شد (${faBytes(b.freed_bytes)} آزاد شد)`);
 }
 
 
@@ -326,7 +430,7 @@ async function speak() {
         const url = swapUrl('preview', blob);
         el('tts-audio').src = url;
         el('tts-download').href = url;
-        el('tts-download').download = 'padyar-voice.wav';
+        el('tts-download').download = 'padyar-voice.mp3';
         const took = Math.max(1, Math.round((Date.now() - started) / 1000));
         const badge = el('tts-cache-badge');
         // 'hit' means the engine had this exact text+settings on disk already.

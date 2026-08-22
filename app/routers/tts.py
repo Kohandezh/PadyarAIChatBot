@@ -18,7 +18,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import HTMLResponse, Response
 
 from app.auth.security import verify_admin
-from app.config import TTS_URL, TTS_TIMEOUT, TTS_STATUS_TIMEOUT, logger
+from app.config import (TTS_URL, TTS_TIMEOUT, TTS_STATUS_TIMEOUT,
+                        TTS_PRERENDER_TIMEOUT, logger)
 from app.db.queries import get_setting, set_setting
 from app.models import TTSPreviewRequest
 from app.services import applog
@@ -119,7 +120,163 @@ async def tts_preview(req: TTSPreviewRequest):
         "Access-Control-Expose-Headers": "X-TTS-Cache, X-TTS-Key",
         "Cache-Control": "no-store",
     }
-    return Response(response.content, media_type="audio/wav", headers=headers)
+    # Whatever the engine encoded, not a guess. It serves mp3 now, and
+    # hardcoding audio/wav here left the browser to work the format out from
+    # the bytes.
+    return Response(response.content,
+                    media_type=response.headers.get("content-type", "audio/mpeg"),
+                    headers=headers)
+
+
+# ── Cache ───────────────────────────────────────────────────────────────
+#
+# Generating an answer costs seconds of GPU. Every answer in the dataset is
+# FIXED text, so it only ever has to be generated once — and if it is generated
+# before a visitor asks, they never wait at all. That is what this section is
+# for: see how much audio is stored, build the missing pieces, and throw away
+# what no longer belongs to any answer.
+#
+# The operator never sees a cache key. They see answers.
+
+
+def _dataset_texts() -> list:
+    """Every answer currently in the knowledge base, in dataset order."""
+    from app.db.connection import get_db_connection
+
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT text FROM dataset WHERE text IS NOT NULL AND text <> ''"
+            " ORDER BY id").fetchall()
+    finally:
+        conn.close()
+    return [str(r[0]).strip() for r in rows if str(r[0]).strip()]
+
+
+def _generation_settings() -> dict:
+    """The saved sliders, so warming produces the audio the panel would.
+
+    Keys are derived from these values. Warm with different numbers than the
+    service will later be asked for and every entry is a miss — the cache would
+    fill up and still never be hit.
+    """
+    saved = _saved_tts_settings()
+    return {"voice": saved["voice"], "exaggeration": saved["exaggeration"],
+            "cfg_weight": saved["cfg_weight"], "temperature": saved["temperature"]}
+
+
+@router.get("/admin/api/tts/cache", dependencies=[Depends(verify_admin)])
+async def tts_cache_stats():
+    """How much audio is stored, and how many answers could have some.
+
+    `answers` comes from this install's own database, not the engine — the
+    engine has no idea what a dataset is. Together they let the page say
+    "27 files for 16 answers", which is the shape of the only question an
+    operator actually has.
+    """
+    answers = len(_dataset_texts())
+    try:
+        async with httpx.AsyncClient(timeout=TTS_STATUS_TIMEOUT) as client:
+            response = await client.get(_upstream("/cache/stats"))
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("TTS cache stats failed: %s: %s", type(exc).__name__, exc)
+        return {"reachable": False, "message_fa": UNREACHABLE_FA, "answers": answers,
+                "files": 0, "bytes": 0, "oldest": None, "newest": None}
+    data["reachable"] = True
+    data["answers"] = answers
+    return data
+
+
+@router.post("/admin/api/tts/cache/warm")
+async def tts_cache_warm(username: str = Depends(verify_admin)):
+    """Render every dataset answer that has no audio yet.
+
+    Answers already in the cache are skipped by the engine, so pressing this
+    twice is cheap and pressing it after adding one answer generates one clip.
+    """
+    texts = _dataset_texts()
+    if not texts:
+        raise HTTPException(status_code=400,
+                            detail="هیچ پاسخی در پایگاه دانش نیست که صدا بسازیم")
+
+    payload = {"texts": texts, **_generation_settings()}
+    try:
+        async with httpx.AsyncClient(timeout=TTS_PRERENDER_TIMEOUT) as client:
+            response = await client.post(_upstream("/prerender"), json=payload)
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code,
+                            detail=_detail_of(response) or "ساخت صداها ممکن نشد")
+
+    body = response.json()
+    applog.audit("admin.tts.cache.warmed",
+                 f"صدای {body.get('rendered', 0)} پاسخ ساخته شد",
+                 actor=username,
+                 metadata={k: body.get(k) for k in ("total", "rendered", "skipped")})
+    return body
+
+
+@router.post("/admin/api/tts/cache/cleanup")
+async def tts_cache_cleanup(username: str = Depends(verify_admin)):
+    """Delete stored audio that no current answer would ever ask for.
+
+    The texts go up, not the keys: the engine derives keys with the same
+    function it looks them up by, so a cleanup can never delete a live entry
+    because two implementations disagreed. See PruneRequest.survivors().
+    """
+    texts = _dataset_texts()
+    if not texts:
+        raise HTTPException(
+            status_code=400,
+            detail="پایگاه دانش خالی است؛ برای پاک کردن همهٔ صداها از دکمهٔ حذف کامل استفاده کنید")
+
+    payload = {"keep_texts": texts, **_generation_settings()}
+    try:
+        async with httpx.AsyncClient(timeout=TTS_TIMEOUT) as client:
+            response = await client.post(_upstream("/cache/prune"), json=payload)
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code,
+                            detail=_detail_of(response) or "پاک‌سازی ممکن نشد")
+
+    body = response.json()
+    applog.audit("admin.tts.cache.cleaned",
+                 f"{body.get('deleted', 0)} فایل صوتی بلااستفاده حذف شد",
+                 actor=username, metadata=body)
+    return body
+
+
+@router.post("/admin/api/tts/cache/clear")
+async def tts_cache_clear(username: str = Depends(verify_admin)):
+    """Throw away ALL stored audio, including answers that are still live.
+
+    Separate from cleanup because it is a different decision, not a stronger
+    one: every clip here cost GPU time, and after this the next visitor to ask
+    anything waits for it to be made again. delete_all is spelled out so the
+    engine refuses an empty keep list that arrived by accident.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TTS_TIMEOUT) as client:
+            response = await client.post(_upstream("/cache/prune"),
+                                         json={"keep": [], "delete_all": True})
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code,
+                            detail=_detail_of(response) or "حذف ممکن نشد")
+
+    body = response.json()
+    applog.audit("admin.tts.cache.cleared",
+                 f"همهٔ صداهای ذخیره‌شده حذف شد ({body.get('deleted', 0)} فایل)",
+                 actor=username, metadata=body)
+    return body
 
 
 # ── Voices ──────────────────────────────────────────────────────────────
