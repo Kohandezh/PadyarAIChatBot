@@ -25,8 +25,10 @@ Environment=TTS_CACHE_DIR=/var/lib/padyar/tts/cache
 Environment=TTS_VOICES_DIR=/var/lib/padyar/tts/voices
 Environment=TTS_DEVICE=cuda
 # One model instance per card. Card 1 was measured at 0 MiB used while card 0
-# carried every generation, so this doubles generation throughput for the cost
-# of ~7.4 GB on a 24 GB card. Startup loads the instances one after another, so
+# carried every generation. An instance costs 3283-4311 MiB at load and
+# 6585-7447 MiB once warm, of 24576 per card. Four concurrent requests went
+# from four serial generations to two pairs: 25.8s, 25.8s, 44.6s, 46.4s.
+# Startup loads the instances one after another, so
 # expect roughly twice the start time (TimeoutStartSec below already allows it).
 # A single-GPU install sets 1, which is also the code's default.
 Environment=TTS_WORKERS=2

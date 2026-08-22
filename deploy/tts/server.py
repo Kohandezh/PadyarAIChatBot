@@ -86,8 +86,10 @@ LANGUAGE = os.getenv("TTS_LANGUAGE", "fa")
 CPU_THREADS = int(os.getenv("TTS_CPU_THREADS", "32"))
 # One model instance per worker, one worker per GPU. Default 1 because a
 # single-card install is a real customer configuration, not a hypothetical.
-# This host has two P40s and sets 2 in its systemd unit; an instance costs
-# about 7.4 GB of a 24 GB card, so both fit with room to spare.
+# This host has two P40s and sets 2 in its systemd unit. An instance measures
+# 3283-4311 MiB right after loading and grows to 6585-7447 MiB once it has
+# generated, out of 24576 per card. Size the card against the SECOND number:
+# the first one is only what a service looks like before anyone uses it.
 TTS_WORKERS = max(1, int(os.getenv("TTS_WORKERS", "1")))
 
 # --- output encoding -------------------------------------------------------
