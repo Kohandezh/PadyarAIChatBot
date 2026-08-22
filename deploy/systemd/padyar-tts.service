@@ -24,14 +24,21 @@ Environment=MKL_NUM_THREADS=32
 Environment=TTS_CACHE_DIR=/var/lib/padyar/tts/cache
 Environment=TTS_VOICES_DIR=/var/lib/padyar/tts/voices
 Environment=TTS_DEVICE=cuda
+# One model instance per card. Card 1 was measured at 0 MiB used while card 0
+# carried every generation, so this doubles generation throughput for the cost
+# of ~7.4 GB on a 24 GB card. Startup loads the instances one after another, so
+# expect roughly twice the start time (TimeoutStartSec below already allows it).
+# A single-GPU install sets 1, which is also the code's default.
+Environment=TTS_WORKERS=2
 # Overrides everything above. This is how the service runs on CPU while the
 # P40s are unusable (the VM needs EFI firmware for their 24GB BAR), and how it
 # moves to the GPUs later: set TTS_DEVICE=cuda in that file and restart.
 # Do NOT switch to cuda before deploy/21-verify-gpu.sh passes.
 EnvironmentFile=-/etc/default/padyar-tts
-# GPU 0 only. The second P40 stays free — for a local LLM later, and so a
-# runaway TTS process cannot take both cards down.
-Environment=CUDA_VISIBLE_DEVICES=0
+# Both P40s are visible. TTS_WORKERS above decides how many are actually used;
+# hiding card 1 here would make TTS_WORKERS=2 fail at load with "cuda:1 was
+# asked for but torch can see 1 CUDA device".
+Environment=CUDA_VISIBLE_DEVICES=0,1
 # HF cache lives with the models, not in the service user's home.
 Environment=HF_HOME=/var/lib/padyar/tts/models/hf
 
@@ -40,9 +47,10 @@ Environment=HF_HOME=/var/lib/padyar/tts/models/hf
 ExecStart=/opt/padyar-tts/.venv/bin/uvicorn server:app \
     --host 127.0.0.1 --port 8003 --workers 1
 
-# One worker, on purpose: the model is ~3 GB of float32 weights and
-# generation is serialised by a lock anyway. A second worker would double
-# VRAM for no throughput.
+# One uvicorn worker, on purpose. That is a PROCESS count and has nothing to
+# do with TTS_WORKERS: a second uvicorn process would fork a second copy of
+# every model for no extra throughput, while TTS_WORKERS adds one model per
+# GPU inside this process, which is where the throughput actually comes from.
 
 Restart=always
 RestartSec=5

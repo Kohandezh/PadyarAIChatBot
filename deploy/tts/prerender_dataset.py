@@ -32,7 +32,8 @@ from server import (                                   # noqa: E402
     load_model,
     normalize,
     split_for_synthesis,
-    to_wav_bytes,
+    to_mp3_bytes,
+    write_cache,
 )
 
 DRY = "--dry-run" in sys.argv
@@ -72,20 +73,18 @@ for i, (key, text) in enumerate(todo, 1):
                                  exaggeration=0.5, cfg_weight=0.5)
             pieces.append(wav.squeeze(0).detach().cpu().numpy())
             pieces.append(np.zeros(int(model.sr * 0.12), dtype=np.float32))
-        audio = to_wav_bytes(np.concatenate(pieces), model.sr)
+        samples = np.concatenate(pieces)
+        audio = to_mp3_bytes(samples, model.sr)
     except Exception as exc:                            # noqa: BLE001
         print(f"    FAILED: {type(exc).__name__}: {str(exc)[:120]}")
         failed += 1
         continue
 
-    path = cache_path(key)
-    tmp = f"{path}.tmp"
-    with open(tmp, "wb") as fh:
-        fh.write(audio)
-    os.replace(tmp, path)                               # atomic
+    write_cache(key, audio)
 
     el = time.perf_counter() - t0
-    secs = (len(audio) - 44) / (model.sr * 2)
+    # From the samples, not the file size: an mp3 has no fixed bytes per second.
+    secs = len(samples) / model.sr
     audio_total += secs
     wall_total += el
     done += 1

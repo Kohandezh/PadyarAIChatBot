@@ -101,10 +101,10 @@ elif echo "$body" | tr -d ' ' | grep -q '"model_loaded":true'; then
   t0=$(date +%s%N)
   curl -fsS --max-time 120 -X POST http://127.0.0.1:8003/tts \
     -H 'Content-Type: application/json' \
-    -d '{"text":"سلام، به نمایشگاه خوش آمدید."}' -o /tmp/tts-smoke.wav
+    -d '{"text":"سلام، به نمایشگاه خوش آمدید."}' -o /tmp/tts-smoke.mp3
   t1=$(date +%s%N)
-  if [[ -s /tmp/tts-smoke.wav ]]; then
-    ok "generated $(du -h /tmp/tts-smoke.wav | cut -f1) in $(( (t1-t0)/1000000 )) ms"
+  if [[ -s /tmp/tts-smoke.mp3 ]]; then
+    ok "generated $(du -h /tmp/tts-smoke.mp3 | cut -f1) in $(( (t1-t0)/1000000 )) ms"
   else
     bad "TTS returned no audio"
   fi
