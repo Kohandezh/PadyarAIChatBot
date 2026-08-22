@@ -1328,7 +1328,8 @@ body.high-contrast .header-subtitle,
 body.high-contrast .bubble strong { color: var(--inotex-primary); }
 
 body.high-contrast .suggest-chips button,
-body.high-contrast .questions-list li {
+body.high-contrast .questions-list li,
+body.high-contrast .reg-ask-option {
     background: #000;
     border-color: var(--inotex-white);
 }
@@ -1788,6 +1789,92 @@ body.high-contrast .questions-list li {
 }
 
 .reg-plan-note { margin-top: 10px; }
+
+/* ══ In-chat questions (شغل / سمت / علاقه‌مندی‌ها) ══════════════════════
+   Buttons, never a dropdown. On a phone a <select> is a spinning wheel and
+   eighteen options are a scroll inside a scroll; a chip is one tap. Tapping
+   writes the label into the message box, so the visitor edits it if they want
+   and presses the same send button they already know. */
+.reg-ask {
+    /* A block in the transcript rather than a message bubble: it takes the
+       full column so the options WRAP instead of scrolling sideways. */
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    /* Pulled up under the question it answers — the two are one unit. */
+    margin-top: -16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.reg-ask-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.reg-ask-option {
+    /* 44px: a comfortable thumb target, which is what this is used with. */
+    min-height: 44px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    border: var(--border-width) solid var(--color-border-subtle);
+    background: var(--color-surface-sunken);
+    color: var(--color-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+
+.reg-ask-option:hover { border-color: var(--inotex-primary); }
+
+.reg-ask-option:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+}
+
+/* Chosen reads as brand yellow — the same "this one is on" language the
+   registration card already uses for its chips. */
+.reg-ask-option[data-on="true"] {
+    background: var(--color-action-primary);
+    border-color: var(--color-action-primary);
+    color: var(--color-text-on-yellow);
+    font-weight: 700;
+}
+
+.reg-ask-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--color-text-muted);
+}
+
+.reg-ask-skip {
+    align-self: flex-start;
+    min-height: 40px;
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    color: var(--color-text-muted);
+    font-family: inherit;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.reg-ask-skip:hover { color: var(--color-text-primary); }
+
+@media (max-width: 430px) {
+    /* Eighteen interests on a small screen: the list scrolls VERTICALLY in its
+       own box so it never pushes the message field off screen — and never asks
+       for a sideways swipe or a pinch. */
+    .reg-ask-options { max-height: 42vh; overflow-y: auto; }
+    .reg-ask-option { font-size: 13.5px; padding: 10px 14px; }
+}
 
 @media (max-width: 430px) {
     .reg-digit { width: 42px; height: 52px; font-size: 20px; }

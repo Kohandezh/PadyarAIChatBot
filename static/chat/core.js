@@ -18,6 +18,12 @@ const ChatConfig = {
     switchTabFn: null,               // Override: function(tabName)
     playVideoTransitionFn: null,     // Override: function(videoUrl, muted)
     isTextOnly: false,               // Video and chat are both available in the public UI.
+    // Optional module hook: function(text) -> true when the module has taken
+    // this message and the chat engine must NOT send it to /chat. The
+    // registration module uses it to hold the first message until the visitor
+    // has signed up, and to read the answers to its in-chat questions. Left
+    // null on an install without such a module, so nothing changes there.
+    sendGateFn: null,
 };
 
 
@@ -350,6 +356,16 @@ async function sendMessage(fromPreset = false) {
 
     const text = userInput.value.trim();
     if (!text) return;
+
+    // A module may claim this message before the assistant answers it (see
+    // ChatConfig.sendGateFn). Whoever claims it owns what appears in the chat
+    // and what happens to the text — the engine simply stands down.
+    if (typeof ChatConfig.sendGateFn === 'function') {
+        let claimed = false;
+        try { claimed = ChatConfig.sendGateFn(text) === true; }
+        catch (e) { console.error('send gate failed:', e); }
+        if (claimed) return;
+    }
 
     addMessage(text, 'user');
 

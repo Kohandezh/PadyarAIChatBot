@@ -1,7 +1,19 @@
 /* ── Visitor registration (Smart Visit) ──
-   The yellow LEGO CTA opens a centred modal: profile fields first, then the
-   SMS code. On success the visitor's name replaces the CTA label and a
-   Logout control appears in the header.
+   Two ways in, one flow:
+
+     * the visitor's FIRST message to the chatbot — it is held, not answered,
+       and the sign-up card opens over the chat. The held question is sent for
+       real the moment sign-up is finished, so nothing anyone typed is lost;
+     * the yellow LEGO CTA, for someone who registers before asking anything.
+
+   Sign-up is deliberately three inputs: name, mobile, and the taxonomy's own
+   checkbox. Everything else about the visitor is asked AFTERWARDS, in the
+   chat, one question at a time, answered by TAPPING options that write
+   themselves into the message box — a dropdown is a bad control on a phone,
+   and this is used on phones at an exhibition.
+
+   The modal keeps only what must be a form: the two identity fields and the
+   SMS code.
 
    Mobile autofill, two independent paths:
 
@@ -22,6 +34,15 @@
     const KEY_SESSION = 'inotex-visitor';
     const OTP_LENGTH = 6;
 
+    /* Ask about interests in the chat? The owner may decide these belong on
+       the sign-up card instead. Flip this to false and the third in-chat
+       question disappears — nothing else changes. */
+    const ASK_INTERESTS = true;
+
+    // What /api/auth/profile accepts. Clamping here means a chatty answer is
+    // shortened rather than rejected with a 422 the visitor cannot read.
+    const MAX_JOB = 80, MAX_POSITION = 80, MAX_INTERESTS = 400;
+
     const btn = document.getElementById('visit-btn');
     const label = document.getElementById('visit-btn-label');
     if (!btn || !label) return;
@@ -35,9 +56,7 @@
             first: 'نام', last: 'نام خانوادگی', phone: 'شماره موبایل',
             job: 'شغل / حوزهٔ فعالیت', position: 'سمت',
             interests: 'زمینه‌های مورد علاقه',
-            interestsHint: 'مثلاً: هوش مصنوعی، فین‌تک، سلامت دیجیتال',
             targetedNote: 'با تکمیل این بخش، غرفه‌های مرتبط با کار و علاقهٔ شما پیشنهاد می‌شود.',
-            optional: '(اختیاری)',
             submit: 'دریافت کد تأیید',
             codeTitle: 'تأیید شماره',
             codeSub: 'کد ۶ رقمی ارسال‌شده را وارد کنید',
@@ -65,7 +84,24 @@
             editProfile: 'ویرایش اطلاعات و علاقه‌مندی‌ها',
             editTitle: 'ویرایش اطلاعات شما',
             editSub: 'نام و شماره ثابت است؛ شغل، سمت و علاقه‌مندی‌ها را می‌توانید تغییر دهید.',
-            saveEdit: 'ذخیره و به‌روزرسانی پیشنهادها'
+            saveEdit: 'ذخیره و به‌روزرسانی پیشنهادها',
+            // Sign-up card (three inputs)
+            signupSub: 'فقط دو کادر و یک تیک — بعد پاسخ شما را می‌فرستم.',
+            fullName: 'نام و نام خانوادگی',
+            needName: 'لطفاً نام و نام خانوادگی خود را بنویسید.',
+            // Holding the first message
+            held: 'سؤال شما را نگه داشتم. اول در چند ثانیه ثبت‌نام کنید تا پاسخ را بفرستم.',
+            // The three in-chat questions
+            hello2: function (name) {
+                return 'خوش آمدید ' + name + '! سه سؤال کوتاه می‌پرسم تا بهتر راهنمایی‌تان کنم.';
+            },
+            askJob: 'شغل یا حوزهٔ فعالیت شما چیست؟',
+            askPosition: 'سمت شما چیست؟',
+            askInterests: 'به کدام زمینه‌ها علاقه دارید؟',
+            tapOne: 'یکی را لمس کنید (یا خودتان بنویسید) و دکمهٔ ارسال را بزنید.',
+            tapMany: 'هر چند مورد که خواستید لمس کنید و دکمهٔ ارسال را بزنید.',
+            skip: 'رد کردن',
+            profileSaved: 'ممنون! ثبت شد.'
         },
         en: {
             cta: 'Smart Visit',
@@ -74,9 +110,7 @@
             first: 'First name', last: 'Last name', phone: 'Mobile number',
             job: 'Field of work', position: 'Job title',
             interests: 'Topics you care about',
-            interestsHint: 'e.g. AI, fintech, digital health',
             targetedNote: 'Fill this in and the assistant suggests the booths that match your work and interests.',
-            optional: '(optional)',
             submit: 'Send verification code',
             codeTitle: 'Verify your number',
             codeSub: 'Enter the 6-digit code we sent',
@@ -104,7 +138,21 @@
             editProfile: 'Edit your details and interests',
             editTitle: 'Edit your details',
             editSub: 'Name and number stay fixed; your job, title and interests can change.',
-            saveEdit: 'Save and update suggestions'
+            saveEdit: 'Save and update suggestions',
+            signupSub: 'Two boxes and one tick — then I will answer you.',
+            fullName: 'Full name',
+            needName: 'Please enter your full name.',
+            held: 'I am holding your question. Sign up — it takes seconds — and I will answer it.',
+            hello2: function (name) {
+                return 'Welcome ' + name + '! Three short questions so I can help you better.';
+            },
+            askJob: 'What is your field of work?',
+            askPosition: 'What is your job title?',
+            askInterests: 'Which topics do you care about?',
+            tapOne: 'Tap one (or type your own), then press send.',
+            tapMany: 'Tap as many as you like, then press send.',
+            skip: 'Skip',
+            profileSaved: 'Thank you — saved.'
         }
     };
     const t = function () { return isFa() ? T.fa : T.en; };
@@ -220,7 +268,7 @@
         document.body.append(modal);
 
         state = { status: status, body: body, heading: heading, sub: sub };
-        (step || renderProfileStep)();
+        (step || renderSignupStep)();
     }
 
     function onEsc(e) { if (e.key === 'Escape') closeModal(); }
@@ -348,49 +396,134 @@
         return String(text || '').split(/[،,]/).map(function (s) { return s.trim(); }).filter(Boolean);
     }
 
-    // ── Step 1: profile ──────────────────────────────────────────────
-    /* `prefill` carries the saved profile when a signed-in visitor edits it;
-       the same renderer serves first-time registration and editing so the two
-       can never drift apart. */
-    function renderProfileStep(prefill) {
-        const editing = !!prefill;
+    // ── Step 1: sign up — three inputs, nothing else ─────────────────
+    /* Name, mobile, and whatever checkbox the taxonomy defines. Job, position
+       and interests are deliberately NOT here: they are asked in the chat once
+       the number is verified, where each one is a single tap to answer. */
+    function renderSignupStep() {
         state.body.textContent = '';
-        setHead(editing ? t().editTitle : t().title, editing ? t().editSub : t().sub);
+        setHead(t().title, t().signupSub);
+
         const form = el('form', 'reg-form');
         state.body.append(form);
 
-        const identity = [
-            { id: 'reg-first', label: t().first, type: 'text', autocomplete: 'given-name', required: true },
-            { id: 'reg-last', label: t().last, type: 'text', autocomplete: 'family-name', required: true },
-            { id: 'reg-phone', label: t().phone, type: 'tel', autocomplete: 'tel', dir: 'ltr', required: true }
-        ];
-        identity.forEach(function (f) {
+        function field(id, labelText, type, autocomplete) {
+            const wrap = el('div', 'reg-field');
+            const lab = el('label', null, labelText);
+            lab.htmlFor = id;
+            const input = el('input');
+            input.id = id;
+            input.type = type;
+            input.autocomplete = autocomplete;
+            input.required = true;
+            wrap.append(lab, input);
+            form.append(wrap);
+            return input;
+        }
+
+        const nameInput = field('reg-name', t().fullName, 'text', 'name');
+        const phoneInput = field('reg-phone', t().phone, 'tel', 'tel');
+        phoneInput.dir = 'ltr';
+        phoneInput.inputMode = 'tel';
+        phoneInput.placeholder = '09xxxxxxxxx';
+
+        // The checkbox and its wording come from the taxonomy file, so an
+        // admin changes the question without anyone touching this file.
+        const flagsWrap = el('div', 'reg-flags');
+        form.append(flagsWrap);
+
+        const submit = el('button', 'reg-submit', t().submit);
+        submit.type = 'submit';
+        form.append(submit);
+
+        loadOptions().then(function (o) {
+            (o.flags || []).forEach(function (f) {
+                const row = el('label', 'reg-check');
+                const box = el('input');
+                box.type = 'checkbox';
+                box.value = f.label;
+                box.dataset.flag = f.id;
+                row.append(box, el('span', null, f.label));
+                flagsWrap.append(row);
+            });
+        });
+
+        function checkedFlags() {
+            return [].slice.call(flagsWrap.querySelectorAll('input:checked'))
+                .map(function (b) { return b.value; });
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const full = nameInput.value.trim().replace(/\s+/g, ' ');
+            const phone = phoneInput.value.trim();
+            if (!full) { say(t().needName, 'error'); nameInput.focus(); return; }
+            if (!phone) { say(t().badPhone, 'error'); phoneInput.focus(); return; }
+
+            // One field, two database columns: the first word is the given
+            // name, the rest the family name. A single-word name is accepted
+            // rather than refused — plenty of people have one.
+            // 60 characters each is what the endpoint stores; clamping here
+            // turns an over-long name into a shorter one rather than a 422.
+            const parts = full.split(' ');
+            const first = parts.shift().slice(0, 60);
+            const last = parts.join(' ').slice(0, 60);
+
+            submit.disabled = true;
+            say('…');
+            const flags = checkedFlags();
+            post('/api/auth/otp/request', {
+                destination: phone, first_name: first, last_name: last,
+                job: '', position: '', interests: flags.join('، ')
+            })
+                .then(function (data) {
+                    // Remembered so the interests answered in the chat later
+                    // are MERGED with the checkbox instead of replacing it —
+                    // both live in the same stored field.
+                    state.flags = flags;
+                    state.profile = { first_name: first, last_name: last };
+                    renderCodeStep(data);
+                })
+                .catch(function (err) {
+                    submit.disabled = false;
+                    say(err.detail || t().network, 'error');
+                });
+        });
+
+        setTimeout(function () { nameInput.focus(); }, 60);
+    }
+
+    // ── Editing a profile that already exists ────────────────────────
+    /* Reached from the visit plan, never from sign-up. The visitor has already
+       proved this number, so identity is shown locked and only the three
+       descriptive fields can move. */
+    function renderEditStep(prefill) {
+        state.body.textContent = '';
+        setHead(t().editTitle, t().editSub);
+        const form = el('form', 'reg-form');
+        state.body.append(form);
+
+        [
+            { id: 'reg-first', label: t().first, value: prefill.first_name || '' },
+            { id: 'reg-last', label: t().last, value: prefill.last_name || '' },
+            { id: 'reg-phone', label: t().phone, value: prefill.destination_masked || '' }
+        ].forEach(function (f) {
             const wrap = el('div', 'reg-field');
             const lab = el('label', null, f.label);
             lab.htmlFor = f.id;
             const input = el('input');
             input.id = f.id;
-            input.type = f.type;
-            input.autocomplete = f.autocomplete;
-            input.required = true;
-            if (f.dir) { input.dir = f.dir; input.inputMode = 'tel'; input.placeholder = '09xxxxxxxxx'; }
-            // Editing keeps identity visible but read-only: the code verified
-            // this name and number, so changing them here would be a lie.
-            if (editing) {
-                input.value = f.id === 'reg-first' ? (prefill.first_name || '')
-                    : f.id === 'reg-last' ? (prefill.last_name || '')
-                        : (prefill.destination_masked || '');
-                input.readOnly = true;
-                input.dataset.locked = 'true';
-            }
+            input.type = 'text';
+            input.value = f.value;
+            input.readOnly = true;
+            input.dataset.locked = 'true';
+            if (f.id === 'reg-phone') input.dir = 'ltr';
             wrap.append(lab, input);
             form.append(wrap);
         });
 
-        // Job — a fixed list, because a dropdown is faster and keeps the data
-        // comparable. "سایر" is always there for anyone it does not fit.
         const jobWrap = el('div', 'reg-field');
-        const jobLab = el('label', null, t().job + ' ' + t().optional);
+        const jobLab = el('label', null, t().job);
         jobLab.htmlFor = 'reg-job';
         const jobSel = el('select', 'reg-select');
         jobSel.id = 'reg-job';
@@ -399,20 +532,19 @@
         // سمت — its own field, because "what you do" and "how senior you are"
         // are different questions and the client asked for both.
         const posWrap = el('div', 'reg-field');
-        const posLab = el('label', null, t().position + ' ' + t().optional);
+        const posLab = el('label', null, t().position);
         posLab.htmlFor = 'reg-position';
         form.append(posWrap);
 
         const interestWrap = el('div', 'reg-field');
-        const interestLab = el('label', null, t().interests + ' ' + t().optional);
-        interestWrap.append(interestLab);
+        interestWrap.append(el('label', null, t().interests));
         form.append(interestWrap);
 
         const flagsWrap = el('div', 'reg-flags');
         form.append(flagsWrap);
 
         form.append(el('p', 'reg-note', t().targetedNote));
-        const submit = el('button', 'reg-submit', editing ? t().saveEdit : t().submit);
+        const submit = el('button', 'reg-submit', t().saveEdit);
         submit.type = 'submit';
         form.append(submit);
 
@@ -440,39 +572,31 @@
             }
         }
 
-        function selectField(id, items, saved) {
-            const sel = el('select', 'reg-select');
-            sel.id = id;
-            fillSelect(sel, items, saved);
-            return sel;
-        }
-
-        function textField(id, saved) {
-            const input = el('input');
-            input.id = id;
-            input.type = 'text';
-            input.autocomplete = 'organization-title';
-            input.value = saved || '';
-            return input;
-        }
-
         loadOptions().then(function (o) {
-            fillSelect(jobSel, o.jobs, editing ? prefill.job : '');
+            fillSelect(jobSel, o.jobs, prefill.job || '');
             jobWrap.append(jobLab, jobSel);
 
             // A taxonomy that lists positions gets a dropdown; one that does not
             // gets a plain text box, so the field never degrades into an empty
             // select the visitor cannot answer.
-            posField = (o.positions && o.positions.length)
-                ? selectField('reg-position', o.positions, editing ? prefill.position : '')
-                : textField('reg-position', editing ? prefill.position : '');
+            if (o.positions && o.positions.length) {
+                posField = el('select', 'reg-select');
+                posField.id = 'reg-position';
+                fillSelect(posField, o.positions, prefill.position || '');
+            } else {
+                posField = el('input');
+                posField.id = 'reg-position';
+                posField.type = 'text';
+                posField.autocomplete = 'organization-title';
+                posField.value = prefill.position || '';
+            }
             posWrap.append(posLab, posField);
 
             // Flags are stored in the same field as the interests, so on the way
             // back in they must go to the checkbox that owns them — not also
             // become a chip, which would save them twice.
             const flagLabels = (o.flags || []).map(function (f) { return f.label; });
-            const saved = editing ? splitInterests(prefill.interests) : [];
+            const saved = splitInterests(prefill.interests);
             picker = multiSelect(o.interests || [], saved.filter(function (s) {
                 return flagLabels.indexOf(s) === -1;
             }));
@@ -490,10 +614,6 @@
             });
         });
 
-        function positionValue() {
-            return posField ? posField.value.trim() : '';
-        }
-
         function collect() {
             // Checked flags ride along with the interests, so the planner and
             // the stored profile stay a single field — no schema change.
@@ -506,44 +626,18 @@
 
         form.addEventListener('submit', function (e) {
             e.preventDefault();
-
-            if (editing) {
-                submit.disabled = true;
-                say('…');
-                post('/api/auth/profile', {
-                    challenge_id: state.challenge || (session() || {}).challenge_id || '',
-                    job: jobSel.value.trim(), position: positionValue(), interests: collect()
-                })
-                    .then(function (data) {
-                        const merged = Object.assign({}, session(), data.profile || {});
-                        saveSession(merged);
-                        renderPlanStep();
-                    })
-                    .catch(function (err) {
-                        submit.disabled = false;
-                        say(err.detail || t().network, 'error');
-                    });
-                return;
-            }
-
-            const first = form.querySelector('#reg-first').value.trim();
-            const last = form.querySelector('#reg-last').value.trim();
-            const phone = form.querySelector('#reg-phone').value.trim();
-            if (!first || !last || !phone) { say(t().required, 'error'); return; }
-
             submit.disabled = true;
             say('…');
-            const job = jobSel.value.trim();
-            const position = positionValue();
-            const interests = collect();
-
-            post('/api/auth/otp/request', {
-                destination: phone, first_name: first, last_name: last,
-                job: job, position: position, interests: interests
+            post('/api/auth/profile', {
+                challenge_id: state.challenge || (session() || {}).challenge_id || '',
+                job: jobSel.value.trim().slice(0, MAX_JOB),
+                position: (posField ? posField.value.trim() : '').slice(0, MAX_POSITION),
+                interests: collect().slice(0, MAX_INTERESTS)
             })
                 .then(function (data) {
-                    state.profile = { first_name: first, last_name: last };
-                    renderCodeStep(data);
+                    const merged = Object.assign({}, session(), data.profile || {});
+                    saveSession(merged);
+                    renderPlanStep();
                 })
                 .catch(function (err) {
                     submit.disabled = false;
@@ -552,7 +646,7 @@
         });
 
         setTimeout(function () {
-            const target = editing ? form.querySelector('#reg-job') : form.querySelector('#reg-first');
+            const target = form.querySelector('#reg-job');
             if (target) target.focus();
         }, 60);
     }
@@ -607,7 +701,7 @@
                 const actions = el('div', 'reg-actions');
                 const edit = el('button', 'reg-link', t().editProfile);
                 edit.type = 'button';
-                edit.addEventListener('click', function () { renderProfileStep(session() || {}); });
+                edit.addEventListener('click', function () { renderEditStep(session() || {}); });
                 actions.append(edit);
                 state.body.append(actions);
 
@@ -687,7 +781,7 @@
         state.resendBtn = resend;
         const change = el('button', 'reg-link', t().change);
         change.type = 'button';
-        change.addEventListener('click', function () { stopTimer(); abortOtpListener(); renderProfileStep(); });
+        change.addEventListener('click', function () { stopTimer(); abortOtpListener(); renderSignupStep(); });
         actions.append(resend, change);
         state.body.append(actions);
 
@@ -808,10 +902,12 @@
                 profile.challenge_id = state.challenge;
                 saveSession(profile);
                 say(data.message || '', 'ok');
-                // A visitor who described their work has earned a plan; one who
-                // skipped those fields just gets their name on the brick.
-                const targeted = profile.job || profile.position || profile.interests;
-                setTimeout(targeted ? renderPlanStep : closeModal, 900);
+                // Verified. The rest of the conversation belongs in the chat,
+                // not in a modal: close the card and let the assistant ask.
+                setTimeout(function () {
+                    closeModal();
+                    startChatQuestions(profile);
+                }, 900);
             })
             .catch(function (err) {
                 state.verifyBtn.disabled = false;
@@ -847,6 +943,248 @@
         });
     }
 
+    // ── In the chat: a welcome, then the questions ───────────────────
+    /* Why the questions live here and not on the sign-up card: on a phone a
+       <select> is a spinning wheel and eighteen interests are a scroll inside
+       a scroll. A chip is one tap. And because a tap WRITES INTO THE MESSAGE
+       BOX instead of sending, the visitor can still edit the answer — or type
+       something the list never had — before pressing the send button they
+       already know.
+
+       The three questions are the same three fields /api/auth/profile has
+       always accepted; only the way they are asked has changed. */
+
+    function chatSteps() {
+        const steps = [
+            /* شغل and سمت take ONE answer each. They are single facts about a
+               person, and the endpoint stores each in its own 80-character
+               field — a joined list would be truncated mid-word and would make
+               the visit planner match on two contradictory jobs. Interests is
+               the opposite: a list is the honest answer, and the endpoint
+               gives it 400 characters. */
+            { key: 'job', list: 'jobs', prompt: t().askJob, multi: false, max: MAX_JOB },
+            { key: 'position', list: 'positions', prompt: t().askPosition, multi: false, max: MAX_POSITION }
+        ];
+        if (ASK_INTERESTS) {
+            steps.push({
+                key: 'interests', list: 'interests', prompt: t().askInterests,
+                multi: true, max: MAX_INTERESTS
+            });
+        }
+        return steps;
+    }
+
+    const ask = { steps: [], index: -1, answers: {}, box: null, watcher: null };
+    let heldMessage = '';
+
+    function chatInput() { return document.getElementById('user-input'); }
+
+    function botSay(text) {
+        if (typeof addMessage === 'function') addMessage(text, 'bot', true, true);
+    }
+
+    function visitorSaid(text) {
+        if (typeof addMessage === 'function') addMessage(text, 'user');
+    }
+
+    function appendToChat(node) {
+        const log = document.getElementById('chat-view-content');
+        if (!log) return false;
+        const loader = document.getElementById('loading-bubble');
+        if (loader && loader.parentNode === log) log.insertBefore(node, loader);
+        else log.append(node);
+        log.scrollTop = log.scrollHeight;
+        return true;
+    }
+
+    function setInput(value) {
+        const input = chatInput();
+        if (!input) return;
+        input.value = value;
+        // The chat engine enables its send button on this event, and a value
+        // written by script does not fire one by itself.
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function isSignedIn() {
+        const p = session();
+        return !!(p && displayName(p));
+    }
+
+    function startChatQuestions(profile) {
+        if (typeof switchTab === 'function') { try { switchTab('text'); } catch (e) { } }
+        const who = (profile && profile.first_name) || displayName(profile || {});
+        botSay(t().hello2(who));
+        ask.steps = chatSteps();
+        ask.answers = {};
+        ask.index = -1;
+        // The options are already cached from the sign-up card; this only
+        // matters when that fetch failed, in which case the question is still
+        // asked and simply has no chips to tap.
+        loadOptions().then(nextQuestion, nextQuestion);
+    }
+
+    function nextQuestion() {
+        ask.index += 1;
+        const step = ask.steps[ask.index];
+        if (!step) { saveChatAnswers(); return; }
+        botSay(step.prompt);
+        renderChoices(step);
+    }
+
+    function sameLabel(a, b) {
+        return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    }
+
+    function chosenNow() {
+        const input = chatInput();
+        return splitInterests(input ? input.value : '');
+    }
+
+    function renderChoices(step) {
+        clearChoices();
+        const items = (options && options[step.list]) || [];
+        // Deliberately NOT a `.message`: the companion's mini chat mirrors
+        // messages as plain text, and a mirrored wall of option labels helps
+        // nobody. This block is transient UI, so it is not saved to history
+        // either — a reloaded page shows the conversation, not stale buttons.
+        const box = el('div', 'reg-ask');
+
+        if (items.length) {
+            const list = el('div', 'reg-ask-options');
+            items.forEach(function (item) {
+                const option = el('button', 'reg-ask-option', item.label);
+                option.type = 'button';
+                option.addEventListener('click', function () { toggleChoice(step, item.label); });
+                list.append(option);
+            });
+            box.append(list);
+        }
+
+        box.append(el('p', 'reg-ask-hint', step.multi ? t().tapMany : t().tapOne));
+
+        // A visitor whose answer is not on the list and who does not want to
+        // type one must still be able to reach their own question.
+        const skip = el('button', 'reg-ask-skip', t().skip);
+        skip.type = 'button';
+        skip.addEventListener('click', function () { acceptAnswer(''); });
+        box.append(skip);
+
+        if (!appendToChat(box)) return;
+        ask.box = box;
+
+        // Typing in the box moves the chips with it: the message box is the
+        // answer, the chips are only a fast way to fill it.
+        ask.watcher = function () { paintChoices(); };
+        const input = chatInput();
+        if (input) input.addEventListener('input', ask.watcher);
+        paintChoices();
+    }
+
+    function toggleChoice(step, labelText) {
+        const current = chosenNow();
+        let at = -1;
+        current.forEach(function (c, i) { if (at === -1 && sameLabel(c, labelText)) at = i; });
+
+        let next;
+        if (at !== -1) next = current.filter(function (_, i) { return i !== at; });
+        else if (step.multi) next = current.concat([labelText]);
+        else next = [labelText];   // one answer replaces the other
+        setInput(next.join('، ').slice(0, step.max));
+        paintChoices();
+    }
+
+    function paintChoices() {
+        if (!ask.box) return;
+        const current = chosenNow();
+        [].slice.call(ask.box.querySelectorAll('.reg-ask-option')).forEach(function (option) {
+            const on = current.some(function (c) { return sameLabel(c, option.textContent); });
+            option.dataset.on = on ? 'true' : 'false';
+            option.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    function clearChoices() {
+        const input = chatInput();
+        if (ask.watcher && input) input.removeEventListener('input', ask.watcher);
+        ask.watcher = null;
+        if (ask.box) ask.box.remove();
+        ask.box = null;
+    }
+
+    function acceptAnswer(text) {
+        const step = ask.steps[ask.index];
+        if (!step) return;
+        const value = String(text || '').trim().slice(0, step.max);
+        clearChoices();
+        if (value) visitorSaid(value);
+        ask.answers[step.key] = value;
+        setInput('');
+        nextQuestion();
+    }
+
+    function saveChatAnswers() {
+        const stored = session() || {};
+        /* The sign-up checkbox is stored in the SAME field as the interests
+           (that is the existing schema), so it is merged back in here —
+           answering the interests question must never silently untick it. */
+        const flags = (state.flags && state.flags.length)
+            ? state.flags : splitInterests(stored.interests);
+        const all = flags.concat(splitInterests(ask.answers.interests || ''));
+        const interests = all.filter(function (v, i) {
+            let first = -1;
+            all.forEach(function (o, j) { if (first === -1 && sameLabel(o, v)) first = j; });
+            return first === i;
+        }).join('، ').slice(0, MAX_INTERESTS);
+
+        post('/api/auth/profile', {
+            challenge_id: stored.challenge_id || state.challenge || '',
+            job: ask.answers.job || '',
+            position: ask.answers.position || '',
+            interests: interests
+        })
+            .then(function (data) {
+                saveSession(Object.assign({}, stored, data.profile || {}));
+                botSay(t().profileSaved);
+            })
+            .catch(function () {
+                // The visitor's own question matters more than their profile:
+                // a failed save must not swallow the answer they are waiting for.
+            })
+            .then(deliverHeld);
+    }
+
+    /** Send the message that was held back at the start, now that there is
+        someone to answer. It goes through the normal path, so it appears in
+        the chat and is answered exactly as if it had just been typed. */
+    function deliverHeld() {
+        if (heldMessage) {
+            const text = heldMessage;
+            heldMessage = '';
+            setInput(text);
+            if (typeof sendMessage === 'function') sendMessage(true);
+            return;
+        }
+        // Nobody was waiting on an answer — this visitor came in through the
+        // brick, so give them what the brick promises: their visit plan.
+        openModal(renderPlanStep);
+    }
+
+    /** ChatConfig.sendGateFn — see static/chat/core.js.
+        Returns true when this module has taken the message. */
+    function gate(text) {
+        // An open question owns the message box until it is answered.
+        if (ask.steps[ask.index]) { acceptAnswer(text); return true; }
+        if (isSignedIn()) return false;
+        // First message from a stranger: hold it, do not answer it, and ask
+        // them to sign up. Nothing they typed is thrown away.
+        heldMessage = text;
+        setInput('');
+        botSay(t().held);
+        openModal(renderSignupStep);
+        return true;
+    }
+
     // ── Boot ─────────────────────────────────────────────────────────
     // The CTA starts hidden and only appears once the server confirms the
     // registration module is switched on — an operator turning it off in the
@@ -854,13 +1192,19 @@
     btn.hidden = true;
     fetch('/api/auth/registration-status')
         .then(function (r) { return r.ok ? r.json() : { enabled: false }; })
-        .then(function (s) { btn.hidden = !s.enabled; })
+        .then(function (s) {
+            btn.hidden = !s.enabled;
+            // The chat asks a visitor to sign up ONLY where registration
+            // exists and is switched on. On any other install the gate is
+            // never installed and the chat engine behaves exactly as before.
+            if (s.enabled && typeof ChatConfig !== 'undefined') ChatConfig.sendGateFn = gate;
+        })
         .catch(function () { btn.hidden = true; });
 
     btn.addEventListener('click', function () {
         // Signed in already: the brick shows the plan instead of restarting
         // registration — Logout in the header is the way out.
-        if (session() && displayName(session())) { openModal(renderPlanStep); return; }
+        if (isSignedIn()) { openModal(renderPlanStep); return; }
         openModal();
     });
     paintSession();
