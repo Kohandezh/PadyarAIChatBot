@@ -1,5 +1,8 @@
 {% extends "admin/layout.html" %}
-{% block content %}
+
+{% block title %}{{ page_title or 'لاگ‌ها' }}{% endblock %}
+
+{% block page_content %}
 <div class="page-header d-print-none">
   <div class="row align-items-center">
     <div class="col">
@@ -123,6 +126,9 @@
   <div class="offcanvas-body" id="detail-body"></div>
 </div>
 
+{% endblock %}
+
+{% block page_js %}
 <script type="module">
   import { initLogs } from '/static/admin/js/logs.js';
   initLogs();

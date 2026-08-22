@@ -1,5 +1,8 @@
 {% extends "admin/layout.html" %}
-{% block content %}
+
+{% block title %}تنظیمات لاگ{% endblock %}
+
+{% block page_content %}
 <div class="page-header"><h2 class="page-title">تنظیمات لاگ</h2></div>
 <div id="logs-msg"></div>
 
@@ -103,6 +106,9 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block page_js %}
 <script type="module">
   import { initLogsSettings } from '/static/admin/js/logs_settings.js';
   initLogsSettings();

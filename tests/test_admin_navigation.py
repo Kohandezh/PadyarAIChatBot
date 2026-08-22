@@ -115,3 +115,82 @@ def test_menus_hide_when_their_module_is_disabled(tmp_path, monkeypatch):
         sidebar = c.get("/secure-panel-inotex").text
     assert 'nav-link-title">لاگ‌ها<' not in sidebar
     assert 'nav-link-title">زیرساخت<' not in sidebar
+
+
+# ── The sidebar must survive on the page itself ──────────────────────────
+#
+# A link in the sidebar is only half the journey. These seven pages each
+# overrode `{% block content %}`, which is the block admin/layout.html uses
+# for the sidebar PLUS a nested `{% block page_content %}`. Overriding the
+# outer block replaced the layout's whole body — sidebar included — so the
+# pages rendered as bare full-page views with no navigation, and the only way
+# back was the browser's back button. Every other admin page overrides
+# `page_content`; these now do too.
+#
+# Each tuple is (url, the sidebar entry that must be highlighted for it).
+LAYOUT_PAGES = [
+    ("/secure-panel-inotex/ops", "/secure-panel-inotex/ops",
+     "/static/admin/js/ops_dashboard.js"),
+    ("/secure-panel-inotex/ops/services", "/secure-panel-inotex/ops/services",
+     "/static/admin/js/ops_services.js"),
+    ("/secure-panel-inotex/security/sessions", "/secure-panel-inotex/security/sessions",
+     "/static/admin/js/security_sessions.js"),
+    ("/secure-panel-inotex/logs", "/secure-panel-inotex/logs",
+     "/static/admin/js/logs.js"),
+    ("/secure-panel-inotex/logs/overview", "/secure-panel-inotex/logs/overview",
+     "/static/admin/js/logs_overview.js"),
+    ("/secure-panel-inotex/logs/settings", "/secure-panel-inotex/logs/settings",
+     "/static/admin/js/logs_settings.js"),
+    ("/secure-panel-inotex/infrastructure/database",
+     "/secure-panel-inotex/infrastructure/database",
+     "/static/admin/js/infra_database.js"),
+]
+
+
+@pytest.mark.parametrize("url,active_href,js", LAYOUT_PAGES)
+def test_page_renders_with_the_sidebar(client, url, active_href, js):
+    res = client.get(url, follow_redirects=False)
+    assert res.status_code == 200, url
+    html = res.text
+    assert 'id="adminSidebar"' in html, (
+        f"{url} rendered without the sidebar — it is overriding "
+        f"{{% block content %}} instead of {{% block page_content %}}")
+    # The shared sidebar actions (logout / reload / CSV) come with the layout.
+    assert "/static/admin/js/auth.js" in html, url
+
+
+@pytest.mark.parametrize("url,active_href,js", LAYOUT_PAGES)
+def test_page_highlights_its_own_sidebar_entry(client, url, active_href, js):
+    """active_page must match what layout.html tests for, or the admin sees a
+    sidebar with nothing marked and no idea where they are."""
+    html = client.get(url).text
+    assert f'class="dropdown-item active" href="{active_href}"' in html, (
+        f"{url} does not light its sidebar entry — check the active_page "
+        f"passed by app/routers/public.py")
+    # …and its parent dropdown is open, so the highlighted item is visible.
+    assert "dropdown-menu show" in html, url
+
+
+@pytest.mark.parametrize("url,active_href,js", LAYOUT_PAGES)
+def test_page_keeps_its_own_javascript(client, url, active_href, js):
+    """Moving the body between blocks must not drop the page's ES module —
+    without it the page renders and then does nothing at all."""
+    assert js in client.get(url).text, url
+
+
+@pytest.mark.parametrize("url,active_href,js", LAYOUT_PAGES)
+def test_page_sets_its_own_title(client, url, active_href, js):
+    html = client.get(url).text
+    assert "<title>" in html and "<title>پنل مدیریت |" not in html, (
+        f"{url} fell back to the layout's default title")
+
+
+@pytest.mark.parametrize("url,active_href,js", LAYOUT_PAGES)
+def test_rendered_divs_balance(client, url, active_href, js):
+    """Assert on the RENDERED html: an unbalanced <div> in a template only
+    shows up once the layout has wrapped it."""
+    import re
+    html = client.get(url).text
+    opened = len(re.findall(r"<div\b", html))
+    closed = html.count("</div>")
+    assert opened == closed, f"{url}: {opened} <div> vs {closed} </div>"

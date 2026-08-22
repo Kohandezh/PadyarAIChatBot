@@ -1,5 +1,8 @@
 {% extends "admin/layout.html" %}
-{% block content %}
+
+{% block title %}مرکز عملیات{% endblock %}
+
+{% block page_content %}
 <div class="page-header"><h2 class="page-title">مرکز عملیات</h2></div>
 
 <div class="row row-cards mt-3">
@@ -66,6 +69,9 @@
   </div></div></div>
 </div>
 
+{% endblock %}
+
+{% block page_js %}
 <script type="module">
   import { initOpsDashboard } from '/static/admin/js/ops_dashboard.js';
   initOpsDashboard();

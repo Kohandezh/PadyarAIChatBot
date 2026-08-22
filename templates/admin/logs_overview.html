@@ -1,5 +1,8 @@
 {% extends "admin/layout.html" %}
-{% block content %}
+
+{% block title %}نمای کلی لاگ‌ها{% endblock %}
+
+{% block page_content %}
 <div class="page-header">
   <div class="row align-items-center">
     <div class="col"><h2 class="page-title">نمای کلی لاگ‌ها</h2></div>
@@ -83,6 +86,9 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block page_js %}
 <script type="module">
   import { initLogsOverview } from '/static/admin/js/logs_overview.js';
   initLogsOverview();

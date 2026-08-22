@@ -1,5 +1,8 @@
 {% extends "admin/layout.html" %}
-{% block content %}
+
+{% block title %}نشست‌ها و حساب‌های مدیر{% endblock %}
+
+{% block page_content %}
 <div class="page-header">
   <div class="row align-items-center">
     <div class="col">
@@ -36,6 +39,9 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block page_js %}
 <script type="module">
   import { initSessions } from '/static/admin/js/security_sessions.js';
   initSessions();
