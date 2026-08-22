@@ -253,7 +253,12 @@ async function loadStatus() {
 // The estimate is deliberately a little pessimistic: finishing early reads as
 // fast, finishing late reads as broken.
 const SECONDS_PER_CHAR = 0.077;
-const RTF_BY_DEVICE = { cuda: 2.0, cpu: 17.0 };
+// 2.4, not the 1.7 originally recorded. A 440-request load test measured the
+// real-time factor at 1.70-2.51 with a mean of 2.2 — 1.7 was the best case,
+// not the typical one, so the first estimate here was optimistic while
+// claiming to be pessimistic. Rounded up on purpose: finishing early reads as
+// fast, finishing late reads as broken.
+const RTF_BY_DEVICE = { cuda: 2.4, cpu: 17.0 };
 
 
 function estimateSeconds(text) {
@@ -298,8 +303,10 @@ async function speak() {
 
     const btn = el('btn-speak');
     const original = btn.innerHTML;
+    // Disabled to stop a second submit, but NOT given a spinner: the progress
+    // bar below already says what is happening, and with an estimate the
+    // spinner cannot give. Two indicators for one wait is one too many.
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm ms-2"></span>در حال ساخت صدا…';
     const started = Date.now();
     startSpeakProgress(estimateSeconds(text));
 

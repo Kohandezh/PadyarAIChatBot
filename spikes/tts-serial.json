@@ -1,0 +1,152 @@
+{
+  "report": {
+    "sentences": 33,
+    "sentence_chars": [
+      208,
+      83,
+      175,
+      159,
+      158,
+      172,
+      118,
+      60,
+      156,
+      102,
+      92,
+      236,
+      51,
+      57,
+      125,
+      69,
+      220,
+      134,
+      21,
+      106,
+      102,
+      168,
+      49,
+      99,
+      172,
+      92,
+      197,
+      84,
+      84,
+      103,
+      140,
+      162,
+      182
+    ],
+    "phases": [
+      {
+        "phase": "CALIBRATE",
+        "requests": 10,
+        "concurrency": 1,
+        "wall": 281.51767410900356,
+        "ok": 10,
+        "failed": 0,
+        "hits": 0,
+        "misses": 10,
+        "throughput": 0.03552174843604314,
+        "latency": {
+          "min": 3.7362634899982368,
+          "p50": 27.712488126002427,
+          "p90": 47.038438408999355,
+          "p99": 47.038438408999355,
+          "max": 47.038438408999355,
+          "mean": 28.15118409130009
+        },
+        "hit_latency": {},
+        "miss_latency": {
+          "min": 3.7362634899982368,
+          "p50": 27.712488126002427,
+          "p90": 47.038438408999355,
+          "p99": 47.038438408999355,
+          "max": 47.038438408999355,
+          "mean": 28.15118409130009
+        }
+      }
+    ]
+  },
+  "requests": [
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 37,
+      "seconds": 11.602688177001255,
+      "bytes": 244844,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 73,
+      "seconds": 17.553234072998748,
+      "bytes": 427244,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 99,
+      "seconds": 3.7362634899982368,
+      "bytes": 35564,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 108,
+      "seconds": 27.712488126002427,
+      "bytes": 615404,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 118,
+      "seconds": 25.605980442000146,
+      "bytes": 527084,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 122,
+      "seconds": 27.3899288169996,
+      "bytes": 571244,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 150,
+      "seconds": 35.103024971002014,
+      "bytes": 673004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 174,
+      "seconds": 47.038438408999355,
+      "bytes": 936044,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 184,
+      "seconds": 42.69773445100145,
+      "bytes": 817004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "CALIBRATE",
+      "chars": 191,
+      "seconds": 43.07205995699769,
+      "bytes": 849644,
+      "cache": "miss"
+    }
+  ]
+}

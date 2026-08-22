@@ -1,0 +1,33 @@
+# Pinned for a Tesla P40 (Pascal, sm_61). Same constraint as deploy/tts.
+#
+# This file is for a SEPARATE virtualenv — do not merge it into the project's
+# requirements.txt. Nothing in app/ imports any of this.
+#
+# Install torch FIRST, from the cu124 index:
+#   pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+#
+# torch 2.6.0/cu124 is the newest build that drives these cards: PyTorch
+# removed Maxwell/Pascal from its CUDA 12.8+ wheels, and a newer build fails
+# every kernel launch with cudaErrorNoKernelImageForDevice. DO NOT BUMP IT.
+#
+# torchvision and torchaudio are deliberately absent. Nothing here needs them,
+# and each one adds a torch version pin that will eventually try to drag torch
+# forward past the last version this hardware can run.
+
+torch==2.6.0
+
+# 4.x, NOT 5.x. OpenCV 5.0 removed cv2.CascadeClassifier, which is the whole
+# face detector here — the alternative (FaceDetectorYN) needs an ONNX file
+# downloaded at runtime, and this host has no reliable internet.
+opencv-python-headless==4.11.0.86
+
+# <2.0 to match deploy/tts/requirements.txt, so both services can be built
+# from one offline wheelhouse. Nothing here needs a numpy 2 feature.
+numpy<2.0.0
+
+# NOT a Python package: ffmpeg must be on PATH (apt install ffmpeg). It decodes
+# the input audio and encodes the output MP4. Using it for both is what lets
+# this drop librosa, soundfile and torchaudio entirely.
+#
+# NOT installed, dev-only: librosa, for verify_port.py. Install it by hand on a
+# machine that can reach PyPI when you need to re-verify the audio front-end.

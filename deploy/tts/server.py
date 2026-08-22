@@ -286,6 +286,30 @@ def cache_path(key: str) -> str:
     return os.path.join(sub, f"{key}.wav")
 
 
+# Persian speech runs at roughly 0.077 seconds of audio per character —
+# measured across this installation's own 16 seeded answers (3968 characters
+# rendering to 304 seconds). Used only as a floor, never to reject anything a
+# human would accept.
+SECONDS_PER_CHAR = 0.077
+# A clip shorter than this fraction of the predicted length is not a short
+# reading, it is a truncated one. A load test caught a 99-character sentence
+# returning 0.7s of audio instead of ~12s — with HTTP 200, counted as success
+# everywhere, and then CACHED, so every later visitor asking that question
+# would have been served the same broken clip forever. Generation is sampled,
+# so a retry usually lands correctly.
+TRUNCATION_FLOOR = 0.4
+# Below this there is nothing to compare against: two words legitimately
+# produce a very short clip.
+MIN_CHARS_TO_CHECK = 40
+
+
+def looks_truncated(text: str, audio_seconds: float) -> bool:
+    if len(text) < MIN_CHARS_TO_CHECK:
+        return False
+    expected = len(text) * SECONDS_PER_CHAR
+    return audio_seconds < expected * TRUNCATION_FLOOR
+
+
 def synthesize(text: str, voice: str, exaggeration: float, cfg_weight: float,
                language: str = LANGUAGE, temperature: float = 0.8) -> bytes:
     model = load_model()
@@ -312,7 +336,22 @@ def synthesize(text: str, voice: str, exaggeration: float, cfg_weight: float,
         return to_wav_bytes(np.concatenate(pieces), model.sr)
 
     # Blocks the request thread, which is correct: the caller wants the audio.
-    return _generate_pool.submit(_run).result()
+    audio = _generate_pool.submit(_run).result()
+
+    seconds = (len(audio) - 44) / float(model.sr * 2)   # 16-bit mono
+    if looks_truncated(text, seconds):
+        logger.warning("truncated generation: %d chars produced %.2fs, retrying",
+                       len(text), seconds)
+        audio = _generate_pool.submit(_run).result()
+        seconds = (len(audio) - 44) / float(model.sr * 2)
+        if looks_truncated(text, seconds):
+            # Refusing is the point. Returning it would cache a broken clip and
+            # serve it to every visitor who asks that question afterwards.
+            raise HTTPException(
+                status_code=502,
+                detail=(f"generation produced only {seconds:.1f}s of audio for "
+                        f"{len(text)} characters, twice — refusing to cache it"))
+    return audio
 
 
 # --- API -------------------------------------------------------------------

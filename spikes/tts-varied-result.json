@@ -1,0 +1,3661 @@
+{
+  "report": {
+    "sentences": 33,
+    "sentence_chars": [
+      208,
+      83,
+      175,
+      159,
+      158,
+      172,
+      118,
+      60,
+      156,
+      102,
+      92,
+      236,
+      51,
+      57,
+      125,
+      69,
+      220,
+      134,
+      21,
+      106,
+      102,
+      168,
+      49,
+      99,
+      172,
+      92,
+      197,
+      84,
+      84,
+      103,
+      140,
+      162,
+      182
+    ],
+    "phases": [
+      {
+        "phase": "MIX (realistic)",
+        "requests": 400,
+        "concurrency": 20,
+        "wall": 1015.2397871330031,
+        "ok": 400,
+        "failed": 0,
+        "hits": 352,
+        "misses": 48,
+        "throughput": 0.39399559106089027,
+        "latency": {
+          "min": 0.003699128996231593,
+          "p50": 0.005947824000031687,
+          "p90": 174.80546280099952,
+          "p99": 464.8195389399989,
+          "max": 483.74479258599604,
+          "mean": 40.910100821890154
+        },
+        "hit_latency": {
+          "min": 0.003699128996231593,
+          "p50": 0.005706014002498705,
+          "p90": 0.014067062998947222,
+          "p99": 0.9988383310046629,
+          "max": 1.0197016750025796,
+          "mean": 0.050904497639418296
+        },
+        "miss_latency": {
+          "min": 15.85205073099496,
+          "p50": 396.23244456900284,
+          "p90": 463.06104212399805,
+          "p99": 483.74479258599604,
+          "max": 483.74479258599604,
+          "mean": 340.5442071997289
+        }
+      },
+      {
+        "phase": "REWARM (same fresh sentences again)",
+        "requests": 20,
+        "concurrency": 20,
+        "wall": 0.09190850500453962,
+        "ok": 20,
+        "failed": 0,
+        "hits": 20,
+        "misses": 0,
+        "throughput": 217.60771757752065,
+        "latency": {
+          "min": 0.025519217997498345,
+          "p50": 0.05795396699977573,
+          "p90": 0.06310535699594766,
+          "p99": 0.06415203800133895,
+          "max": 0.06415203800133895,
+          "mean": 0.05206871575028345
+        },
+        "hit_latency": {
+          "min": 0.025519217997498345,
+          "p50": 0.05795396699977573,
+          "p90": 0.06310535699594766,
+          "p99": 0.06415203800133895,
+          "max": 0.06415203800133895,
+          "mean": 0.05206871575028345
+        },
+        "miss_latency": {}
+      },
+      {
+        "phase": "BURST (pure miss)",
+        "requests": 20,
+        "concurrency": 8,
+        "wall": 596.4067709060037,
+        "ok": 20,
+        "failed": 0,
+        "hits": 0,
+        "misses": 20,
+        "throughput": 0.03353415986478143,
+        "latency": {
+          "min": 35.72951950699644,
+          "p50": 220.36538132799615,
+          "p90": 276.4189156870052,
+          "p99": 281.53301810799894,
+          "max": 281.53301810799894,
+          "mean": 202.55519807890013
+        },
+        "hit_latency": {},
+        "miss_latency": {
+          "min": 35.72951950699644,
+          "p50": 220.36538132799615,
+          "p90": 276.4189156870052,
+          "p99": 281.53301810799894,
+          "max": 281.53301810799894,
+          "mean": 202.55519807890013
+        }
+      }
+    ],
+    "length_vs_latency": {
+      "n": 68,
+      "pearson_r": -0.03404234385056311,
+      "seconds_per_100_chars": -9.066910305805905,
+      "intercept": 311.75152139133036
+    }
+  },
+  "requests": [
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.9988383310046629,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 1.0007934410023154,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 1.0034403480021865,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.9502822889990057,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.9693015270022443,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.9803068840046762,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.9308478000020841,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 1.0197016750025796,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.967967327000224,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.9576254009953118,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 208,
+      "seconds": 75.32132778399682,
+      "bytes": 836204,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.962353738003003,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.9727332569964346,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.9870739150064765,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.957071499004087,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.9979766199976439,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.9824892190008541,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 217.99190184399777,
+      "bytes": 367724,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 249.57491642900277,
+      "bytes": 569324,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 225.67936372999975,
+      "bytes": 202604,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 15.85205073099496,
+      "bytes": 402284,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 38.68020131600497,
+      "bytes": 546284,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 100.33092895799928,
+      "bytes": 337004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 127.92338671399921,
+      "bytes": 653804,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 87.26470263399824,
+      "bytes": 346604,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 138.67974477299867,
+      "bytes": 287084,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 154.98963259100128,
+      "bytes": 408044,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 174.80546280099952,
+      "bytes": 484844,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 202.5080411300005,
+      "bytes": 665324,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 276.67155962700053,
+      "bytes": 653804,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 83,
+      "seconds": 289.2504486070029,
+      "bytes": 310124,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.0162122800029465,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.016485869004100095,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.01588071400328772,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.01779238499875646,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.012667192997469101,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.014208360000338871,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.009157900996797252,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.025699251993501093,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.02660731499781832,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.015931154004647397,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.014895879001414869,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.018439625004248228,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.02135946699854685,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.0211144190034247,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.02361415699851932,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.012264746997971088,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 304.68417538800713,
+      "bytes": 381164,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 329.4365883529972,
+      "bytes": 580844,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 354.972380195999,
+      "bytes": 214124,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 175,
+      "seconds": 384.50743836599577,
+      "bytes": 671084,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 346.7068031979943,
+      "bytes": 434924,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 400.6588201449995,
+      "bytes": 767084,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 391.80088328700367,
+      "bytes": 342764,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 389.78104156000336,
+      "bytes": 721004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.00559242600138532,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 390.3188417209967,
+      "bytes": 298604,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 396.23244456900284,
+      "bytes": 452204,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 390.2534884580018,
+      "bytes": 492524,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 407.90938068599644,
+      "bytes": 648044,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 424.7450695649968,
+      "bytes": 722924,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.008004226998309605,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.009559874997648876,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.005447379000543151,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006190371997945476,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.006114631003583781,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.012995269004022703,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.011710017999575939,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.007594693997816648,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.006409702997189015,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 159,
+      "seconds": 430.67745330700563,
+      "bytes": 590444,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.007700191003095824,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.008489425003062934,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005490037998242769,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004935778000799473,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005075410001154523,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.012114084005588666,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.0047161519978544675,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 419.9459080500019,
+      "bytes": 377324,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 431.6553744949997,
+      "bytes": 584684,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.006266119999054354,
+      "bytes": 202604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.006500376002804842,
+      "bytes": 402284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.010536968999076635,
+      "bytes": 546284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.0059869869946851395,
+      "bytes": 337004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.006310295000730548,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.005828786001075059,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.00608954800554784,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.005594828995526768,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.00561650099552935,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.005914941000810359,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 158,
+      "seconds": 449.95361634599976,
+      "bytes": 594284,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 455.28065634700033,
+      "bytes": 644204,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.006923268003447447,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.0077925720033817925,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.006569712997588795,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006209252998814918,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.0065566659977776,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.015260783999110572,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.012314465995586943,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.006800192000810057,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.005525863998627756,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.005871501998626627,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.005581275996519253,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005291285000566859,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.005318686002283357,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005220381994149648,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.009374651999678463,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.005083727002784144,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.0048531450011068955,
+      "bytes": 367724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.005282965001242701,
+      "bytes": 569324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 456.16958553400036,
+      "bytes": 657644,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.005947824000031687,
+      "bytes": 202604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.004636937999748625,
+      "bytes": 402284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.008054717000050005,
+      "bytes": 546284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.004967432003468275,
+      "bytes": 337004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.005644238997774664,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004673426999943331,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004577000996505376,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.004877823994320352,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.004743928999232594,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.005080770002678037,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.005317792994901538,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.006080589002522174,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.0051518090040190145,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.004928135997033678,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.005557297998166177,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.00529315099993255,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.01428687600127887,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.010429207999550272,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.006026782997651026,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 118,
+      "seconds": 463.06104212399805,
+      "bytes": 450284,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.0071443699998781085,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.009951693995390087,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.006082784995669499,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.006182757999340538,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.005644135002512485,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.00580690100468928,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.010859078000066802,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.005402296999818645,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.005511360999662429,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.005992623002384789,
+      "bytes": 569324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.005031155997130554,
+      "bytes": 202604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.005697747001249809,
+      "bytes": 402284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.005411385005572811,
+      "bytes": 546284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.005153855003300123,
+      "bytes": 337004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.00552579399663955,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.005272559996228665,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004878298997937236,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.005195557001570705,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.004761231997690629,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 60,
+      "seconds": 457.4049234050035,
+      "bytes": 258284,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.006363200998748653,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.008405255000980105,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.005744030997448135,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.005134627004736103,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.00490756900398992,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.005382081006246153,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.005337775997759309,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.008614144993771333,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.01048231700406177,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.00657007799600251,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.005482293003296945,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.005975963998935185,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.005396376996941399,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004836143001739401,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004786862002220005,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.00469885300117312,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.008690670001669787,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.004473019995202776,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.004166304002865218,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 156,
+      "seconds": 456.84350636399904,
+      "bytes": 529004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.006291111996688414,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.009307448002800811,
+      "bytes": 202604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.0055940870006452315,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.005568817003222648,
+      "bytes": 546284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.005235337004705798,
+      "bytes": 337004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.005477398000948597,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.005493620999914128,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004797340996447019,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.005383586001698859,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.005529121001018211,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.00581728699762607,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.0065579680012888275,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.006358311999065336,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.005875557995750569,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.004914153003483079,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006217185000423342,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.006324402995232958,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.009341109995148145,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.01068857100472087,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 457.6588127260038,
+      "bytes": 415724,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.012393900004099123,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.006264513998758048,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.006226042001799215,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.006312741999863647,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.00612260199704906,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.005366325000068173,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005129700999532361,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.010040834997198544,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.005424492999736685,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.0044545459968503565,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.004390838003018871,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.005324072997609619,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.004374726006062701,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.004491871994105168,
+      "bytes": 546284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.004467582002689596,
+      "bytes": 337004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.004799897003977094,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.0043300780016579665,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004468502003874164,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.004369709997263271,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 464.8195389399989,
+      "bytes": 352364,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.006572956997842994,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.005599850999715272,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.008004569994227495,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.0073140070016961545,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.005766351001511794,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.0058855400056927465,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.0060293740025372244,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.006012776997522451,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.014401694999833126,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.010811109998030588,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.00721365100616822,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.00615073399967514,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.006224548000318464,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.004801526003575418,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.0048131060029845685,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004425011997227557,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004419645003508776,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.00904502600315027,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.00447274099860806,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 236,
+      "seconds": 483.74479258599604,
+      "bytes": 993644,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.009886227999231778,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.005943790994933806,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.004542128001048695,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.005493071003002115,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.006065078996471129,
+      "bytes": 767084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.004753054003231227,
+      "bytes": 337004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.005739362997701392,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.005200790001254063,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004692817004979588,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.005289981003443245,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.005211707000853494,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.006255344000237528,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.006005416005791631,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.0071673269994789734,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.006471744993177708,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.005885988000954967,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006806002995290328,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.006727929998305626,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.014765928994165733,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 51,
+      "seconds": 461.7991691329953,
+      "bytes": 229484,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.009861616999842227,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.0069394130041473545,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.0052720000021508895,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.005706014002498705,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.005225098997470923,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004961258004186675,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004799050002475269,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005523279003682546,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.009037641000759322,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.004521090006164741,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.004922972002532333,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.005002179997973144,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.004028998002468143,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.004908898001303896,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.005200055995373987,
+      "bytes": 767084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.0044315060004009865,
+      "bytes": 342764,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.0049616649994277395,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004712401998403948,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004134574999625329,
+      "bytes": 287084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 57,
+      "seconds": 458.9203974510019,
+      "bytes": 269804,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.007109510006557684,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.008935940997616854,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.006441827994422056,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.00560633900022367,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.006648130998655688,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.006024247995810583,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.005246027998509817,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006225221004569903,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.005727713993110228,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.014495713003270794,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.011216793005587533,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.0072631119983270764,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.0059026240051025525,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.006678462006675545,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.005885733997274656,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.0055275470003834926,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004659074002120178,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004740111995488405,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.009118673006014433,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 125,
+      "seconds": 446.59869468800025,
+      "bytes": 481004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.008122142004140187,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.0050566400022944435,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.005039786999986973,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.004629520000889897,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.004998793003323954,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.005752708995714784,
+      "bytes": 767084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.005579413998930249,
+      "bytes": 342764,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.00551412500499282,
+      "bytes": 721004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004996146999474149,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004906742004095577,
+      "bytes": 298604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.004835735999222379,
+      "bytes": 408044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.006602066998311784,
+      "bytes": 484844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.00521923899941612,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.005446515999210533,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.0066395640023984015,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.005621532996883616,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.005380583999794908,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006399231999239419,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.006374778997269459,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 69,
+      "seconds": 445.6138090999957,
+      "bytes": 290924,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.015430510000442155,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.012325643001531716,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.00743207499908749,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.005956529996183235,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.005971283993858378,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.006064246001187712,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.005822171006002463,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.0056978360007633455,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.006416611999156885,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.010011414997279644,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.00576140200428199,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.005218124002567492,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.0050295710025238805,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.003699128996231593,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.004628671995305922,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.004746929997054394,
+      "bytes": 767084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.004213266001897864,
+      "bytes": 342764,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.0046985769949969836,
+      "bytes": 721004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004189295003016014,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 220,
+      "seconds": 467.2708539669984,
+      "bytes": 830444,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.008795364999969024,
+      "bytes": 298604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.005422659000032581,
+      "bytes": 452204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.004892529999779072,
+      "bytes": 492524,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.005308086001605261,
+      "bytes": 665324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.005498750004335307,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.0058034929970745,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.005365883000195026,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.004897177997918334,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.005427634998341091,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.005662244999257382,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.013729240003158338,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.0108337420024327,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.006357382000715006,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.005040614996687509,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.005009592998248991,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.004819121000764426,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004536432003078517,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004303730995161459,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004416146002768073,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 134,
+      "seconds": 469.29200530699745,
+      "bytes": 511724,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.013523246001568623,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.004943931999150664,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.004574430000502616,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.005206418005400337,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.003737753002496902,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.004308964002120774,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.0053621490005753,
+      "bytes": 767084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.004669052999815904,
+      "bytes": 342764,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.005290048997267149,
+      "bytes": 721004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.005247282002528664,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.004637497004296165,
+      "bytes": 298604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.004938188998494297,
+      "bytes": 452204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.005174710000574123,
+      "bytes": 492524,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.0054553240042878315,
+      "bytes": 648044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.005484674999024719,
+      "bytes": 653804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.006003251997753978,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.005828408000525087,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.005444094997073989,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 232,
+      "seconds": 0.006322610002825968,
+      "bytes": 937004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 21,
+      "seconds": 447.47410344499804,
+      "bytes": 145004,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 237,
+      "seconds": 0.007388252000964712,
+      "bytes": 988844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 456,
+      "seconds": 0.014067062998947222,
+      "bytes": 1858604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 314,
+      "seconds": 0.0105807680010912,
+      "bytes": 1073324,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.005883322002773639,
+      "bytes": 1186604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 234,
+      "seconds": 0.004469471001357306,
+      "bytes": 837164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 340,
+      "seconds": 0.00486071000341326,
+      "bytes": 1033004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 223,
+      "seconds": 0.004486835001443978,
+      "bytes": 827564,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004250243000569753,
+      "bytes": 695084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 129,
+      "seconds": 0.004277164000086486,
+      "bytes": 595244,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 181,
+      "seconds": 0.004282380003132857,
+      "bytes": 631724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 551,
+      "seconds": 0.00854470699414378,
+      "bytes": 1622444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 144,
+      "seconds": 0.0041927459969883785,
+      "bytes": 512684,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 102,
+      "seconds": 0.0038308910006890073,
+      "bytes": 381164,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 168,
+      "seconds": 0.0040788059995975345,
+      "bytes": 580844,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 49,
+      "seconds": 0.00384177100204397,
+      "bytes": 214124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 99,
+      "seconds": 0.00390986700222129,
+      "bytes": 434924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 172,
+      "seconds": 0.00439990300219506,
+      "bytes": 767084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 92,
+      "seconds": 0.0038761909963795915,
+      "bytes": 342764,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 197,
+      "seconds": 0.004382109000289347,
+      "bytes": 721004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 106,
+      "seconds": 434.40667711100104,
+      "bytes": 444524,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.006667424000625033,
+      "bytes": 346604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 84,
+      "seconds": 0.005438645996036939,
+      "bytes": 298604,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 103,
+      "seconds": 0.00903355600166833,
+      "bytes": 452204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 140,
+      "seconds": 0.005918334994930774,
+      "bytes": 492524,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 162,
+      "seconds": 0.005879918004211504,
+      "bytes": 648044,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 182,
+      "seconds": 0.005269515000691172,
+      "bytes": 722924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 278,
+      "seconds": 0.00610646099812584,
+      "bytes": 967724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 187,
+      "seconds": 0.0054899249953450635,
+      "bytes": 764204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "MIX (realistic)",
+      "chars": 141,
+      "seconds": 0.005301641998812556,
+      "bytes": 506924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 208,
+      "seconds": 0.02771005599788623,
+      "bytes": 836204,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 83,
+      "seconds": 0.03494123499694979,
+      "bytes": 310124,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 175,
+      "seconds": 0.03548059299646411,
+      "bytes": 671084,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 159,
+      "seconds": 0.025519217997498345,
+      "bytes": 590444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 158,
+      "seconds": 0.05143425300047966,
+      "bytes": 594284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 172,
+      "seconds": 0.058068483995157294,
+      "bytes": 657644,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 118,
+      "seconds": 0.0528658860057476,
+      "bytes": 450284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 60,
+      "seconds": 0.04875142699893331,
+      "bytes": 258284,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 156,
+      "seconds": 0.052467633002379443,
+      "bytes": 529004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 102,
+      "seconds": 0.061495763999118935,
+      "bytes": 415724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 92,
+      "seconds": 0.062224355002399534,
+      "bytes": 352364,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 236,
+      "seconds": 0.06310535699594766,
+      "bytes": 993644,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 51,
+      "seconds": 0.05829619299765909,
+      "bytes": 229484,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 57,
+      "seconds": 0.05265619900455931,
+      "bytes": 269804,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 125,
+      "seconds": 0.05326142900594277,
+      "bytes": 481004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 69,
+      "seconds": 0.06415203800133895,
+      "bytes": 290924,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 220,
+      "seconds": 0.06126015399786411,
+      "bytes": 830444,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 134,
+      "seconds": 0.05795396699977573,
+      "bytes": 511724,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 21,
+      "seconds": 0.058946752003976144,
+      "bytes": 145004,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "REWARM (same fresh sentences again)",
+      "chars": 106,
+      "seconds": 0.06078332200559089,
+      "bytes": 444524,
+      "cache": "hit"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 199,
+      "seconds": 167.14004980900063,
+      "bytes": 976364,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 179,
+      "seconds": 35.72951950699644,
+      "bytes": 763244,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 157,
+      "seconds": 119.22659709399886,
+      "bytes": 726764,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 120,
+      "seconds": 84.5182177789975,
+      "bytes": 536684,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 101,
+      "seconds": 57.62652724299551,
+      "bytes": 525164,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 101,
+      "seconds": 188.00714054400305,
+      "bytes": 477164,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 214,
+      "seconds": 276.4189156870052,
+      "bytes": 1298924,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 109,
+      "seconds": 213.2059276229993,
+      "bytes": 567404,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 189,
+      "seconds": 276.2519729150008,
+      "bytes": 713324,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 116,
+      "seconds": 281.53301810799894,
+      "bytes": 605804,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 66,
+      "seconds": 271.08948812900053,
+      "bytes": 356204,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 185,
+      "seconds": 271.86863325000013,
+      "bytes": 711404,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 119,
+      "seconds": 246.99245398100174,
+      "bytes": 492524,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 123,
+      "seconds": 252.09773963000043,
+      "bytes": 586604,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 38,
+      "seconds": 237.8015275630023,
+      "bytes": 258284,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 151,
+      "seconds": 207.29677611600346,
+      "bytes": 646124,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 237,
+      "seconds": 220.36538132799615,
+      "bytes": 924524,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 86,
+      "seconds": 214.96430394799972,
+      "bytes": 477164,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 142,
+      "seconds": 223.66233473800094,
+      "bytes": 515564,
+      "cache": "miss"
+    },
+    {
+      "ok": true,
+      "phase": "BURST (pure miss)",
+      "chars": 74,
+      "seconds": 205.30743658600113,
+      "bytes": 371564,
+      "cache": "miss"
+    }
+  ]
+}

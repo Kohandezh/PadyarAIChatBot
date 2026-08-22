@@ -1,0 +1,12 @@
+# The root .gitignore has no rule for model weights, and the checkpoint this
+# spike loads is a 435 MB file whose licence forbids commercial use. Committing
+# it would put a non-commercial artifact inside a product we sell — the one
+# mistake in this directory that would be genuinely expensive to undo, because
+# git history is forever. Hence a local ignore rather than a note in the README.
+weights/
+*.pth
+*.onnx
+
+# Renders and test assets.
+out/
+*.mp4
