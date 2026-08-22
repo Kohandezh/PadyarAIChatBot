@@ -601,3 +601,81 @@ def test_keys_and_texts_can_be_mixed_in_one_request(client):
     assert os.path.exists(server.cache_path(by_text))
     assert os.path.exists(by_key)
     assert res.json()["deleted"] == 0
+
+
+# ── The out-of-range speech token ───────────────────────────────────────
+#
+# What actually caused the 2026-08-22 outage. mtl_tts.py is missing the filter
+# its monolingual sibling has, T3 samples its tokens, and one id past the end
+# of the vocabulary reaches an embedding lookup and takes the whole CUDA
+# context with it. numpy stands in for torch here: every operation the guard
+# uses (<, ~, .all(), .sum(), .max(), boolean indexing) means the same thing in
+# both, and this suite has no torch.
+
+class FakeS3Gen:
+    def __init__(self):
+        self.seen = None
+
+    def inference(self, *, speech_tokens, ref_dict=None):
+        self.seen = speech_tokens
+        return "wav", None
+
+
+class ModelWithVocoder:
+    sr = 24000
+
+    def __init__(self):
+        self.s3gen = FakeS3Gen()
+
+
+@pytest.fixture
+def vocab(monkeypatch):
+    """chatterbox's constant, without chatterbox."""
+    pkg = types.ModuleType("chatterbox.models.s3tokenizer")
+    pkg.SPEECH_VOCAB_SIZE = 6561
+    monkeypatch.setitem(sys.modules, "chatterbox", types.ModuleType("chatterbox"))
+    monkeypatch.setitem(sys.modules, "chatterbox.models",
+                        types.ModuleType("chatterbox.models"))
+    monkeypatch.setitem(sys.modules, "chatterbox.models.s3tokenizer", pkg)
+    return pkg.SPEECH_VOCAB_SIZE
+
+
+def test_an_out_of_range_token_is_dropped_before_it_reaches_the_vocoder(vocab):
+    model = ModelWithVocoder()
+    server._guard_speech_tokens(model)
+
+    # 6598 is the exact id from the production journal: "6598.0>6561".
+    model.s3gen.inference(speech_tokens=np.array([12, 6598, 40, 6561]))
+
+    assert list(model.s3gen.seen) == [12, 40]
+
+
+def test_ordinary_tokens_pass_through_untouched(vocab):
+    model = ModelWithVocoder()
+    server._guard_speech_tokens(model)
+    tokens = np.array([0, 12, 6560])
+
+    model.s3gen.inference(speech_tokens=tokens)
+
+    assert list(model.s3gen.seen) == [0, 12, 6560]
+
+
+def test_the_boundary_is_exclusive(vocab):
+    """6561 is the START of the special tokens, not a valid speech token."""
+    model = ModelWithVocoder()
+    server._guard_speech_tokens(model)
+
+    model.s3gen.inference(speech_tokens=np.array([6560, 6561]))
+
+    assert list(model.s3gen.seen) == [6560]
+
+
+def test_the_other_arguments_still_reach_the_vocoder(vocab):
+    model = ModelWithVocoder()
+    captured = {}
+    model.s3gen.inference = lambda **kw: captured.update(kw)
+    server._guard_speech_tokens(model)
+
+    model.s3gen.inference(speech_tokens=np.array([1, 2]), ref_dict={"a": 1})
+
+    assert captured["ref_dict"] == {"a": 1}

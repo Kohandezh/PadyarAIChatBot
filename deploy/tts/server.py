@@ -322,6 +322,44 @@ def split_for_synthesis(text: str) -> List[str]:
 
 # --- model -----------------------------------------------------------------
 
+def _guard_speech_tokens(model) -> None:
+    """Drop speech tokens the vocoder has no embedding for.
+
+    UPSTREAM BUG, and the direct cause of a six-hour outage on 2026-08-22.
+    T3 SAMPLES its speech tokens, so it occasionally emits an id past the end
+    of the 6561-entry vocabulary. The MONOLINGUAL model filters exactly that
+    (chatterbox/tts.py: `speech_tokens = speech_tokens[speech_tokens < 6561]`,
+    and tts_turbo.py has it too); mtl_tts.py, the multilingual model this
+    install runs, is missing the line. s3gen's flow.py then notices the bad id,
+    logs "6598.0>6561", and indexes with it ANYWAY — which fires a device-side
+    assert and poisons the CUDA context for the whole process.
+
+    Because it is sampled, the same text can generate a hundred times and fail
+    on the hundred and first. That is why this looked like a bad piece of text
+    for a while: it is not the text, it is the dice.
+
+    Patched at the vocoder boundary rather than in site-packages: an edit there
+    would be silently undone by a reinstall of the wheel, and this is the same
+    seam the monolingual filter protects.
+    """
+    from chatterbox.models.s3tokenizer import SPEECH_VOCAB_SIZE
+
+    inner = model.s3gen.inference
+
+    def inference(*, speech_tokens, **kwargs):
+        keep = speech_tokens < SPEECH_VOCAB_SIZE
+        if not bool(keep.all()):
+            logger.warning(
+                "dropped %d speech token(s) outside the %d-entry vocabulary "
+                "(highest %d) — this generation would otherwise have taken the "
+                "CUDA context down",
+                int((~keep).sum()), SPEECH_VOCAB_SIZE, int(speech_tokens.max()))
+            speech_tokens = speech_tokens[keep]
+        return inner(speech_tokens=speech_tokens, **kwargs)
+
+    model.s3gen.inference = inference
+
+
 def load_model(device: str = DEVICE):
     """Build ONE model instance on `device`. One call per worker.
 
@@ -372,6 +410,7 @@ def load_model(device: str = DEVICE):
     logger.info("loading Chatterbox from %s onto %s", MODEL_DIR, device)
     started = time.perf_counter()
     model = ChatterboxMultilingualTTS.from_local(MODEL_DIR, device=device)
+    _guard_speech_tokens(model)
     # float32 is deliberate, see the module docstring.
     logger.info("model ready on %s in %.0fs, sample rate %s Hz",
                 device, time.perf_counter() - started, model.sr)
