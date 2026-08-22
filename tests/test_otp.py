@@ -207,14 +207,33 @@ def test_destination_hourly_rate_limit(client, outbox):
 
 # ── Page and audit hygiene ──────────────────────────────────────────────
 
-def test_verify_page_renders_with_pet_and_digit_group(client):
+def _without_html_comments(html: str) -> str:
+    """What the BROWSER sees.
+
+    The companion is commented out rather than deleted, and an HTML comment is
+    still bytes in the response — so `'id="pet-canvas"' in r.text` passes
+    whether the element renders or not. A test that cannot fail proves
+    nothing, which is exactly what this one did after the companion was
+    switched off.
+    """
+    return re.sub(r"<!--.*?-->", "", html, flags=re.S)
+
+
+def test_verify_page_renders_the_digit_group_without_the_companion(client):
     r = client.get("/verify")
     assert r.status_code == 200
     html = r.text
-    assert 'id="pet-canvas"' in html            # Pet-INOTEX companion slot
-    assert 'id="otp-digits"' in html            # semantic group
-    assert 'role="group"' in html
-    assert 'aria-live="polite"' in html
+    visible = _without_html_comments(html)
+
+    # The companion is deliberately off. Asserted on the comment-stripped
+    # markup, so re-enabling it fails HERE and whoever does it updates this
+    # test on purpose rather than discovering later that it never checked.
+    assert 'id="pet-canvas"' not in visible
+    assert 'id="pet-canvas"' in html, "expected it commented out, not deleted"
+
+    assert 'id="otp-digits"' in visible          # semantic group
+    assert 'role="group"' in visible
+    assert 'aria-live="polite"' in visible
     assert "otp.PNG" not in html                # reference board is not shipped as UI
 
 

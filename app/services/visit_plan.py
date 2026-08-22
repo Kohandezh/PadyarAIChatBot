@@ -200,9 +200,9 @@ def recommend(profile: dict, lang: str = "fa") -> dict:
             "directory is not published on the official site yet — follow https://inotex.com/ for it."
         ),
         "empty_hint": (
-            "برای پیشنهاد دقیق‌تر، در «بازدید هوشمند» شغل و زمینه‌های مورد علاقه‌تان را بنویسید."
+            "برای پیشنهاد دقیق‌تر، شغل و زمینه‌های مورد علاقه‌تان را در همین گفتگو بنویسید."
             if lang == "fa" else
-            "For sharper suggestions, add your field of work and interests in Smart Visit."
+            "For sharper suggestions, tell me your field of work and interests here in the chat."
         ),
     }
 

@@ -57,9 +57,22 @@
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     const canvas = canvasEl;
-    // No canvas or no configured atlas → expose a no-op so every caller stays
-    // unconditional and the page works identically without a companion.
-    if (!canvas || !ATLAS_URL) { window.PetCompanion = { set: function () { } }; return; }
+    // No canvas or no configured atlas → expose a COMPLETE no-op so every
+    // caller stays unconditional and the page works identically without a
+    // companion. This is the live path right now: the character's markup is
+    // commented out in the theme footers and templates/otp/verify.html (search
+    // COMPANION-OFF), so there is no #pet-canvas to find. Every method the
+    // real object publishes is stubbed — a partial stub would turn a missing
+    // character into a TypeError the first time anything called lookAt().
+    const NOOP = function () { };
+    if (!canvas || !ATLAS_URL) {
+        window.PetCompanion = {
+            set: NOOP, lookAt: NOOP, flap: NOOP, resume: NOOP,
+            playTransition: function (reverse, done) { if (done) done(); },
+            getState: function () { return 'off'; }
+        };
+        return;
+    }
     const ctx = canvas.getContext('2d');
 
     let atlas = null;

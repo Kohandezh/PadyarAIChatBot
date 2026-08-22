@@ -1,3 +1,4 @@
+import re
 """Static-content tests for the public chat UI (R2/R3/R4/R5).
 
 These read the theme files directly so they run without the FastAPI app or its
@@ -41,44 +42,41 @@ def test_header_carries_the_brand_mark_not_a_character():
     assert 'class="brand-mark"' in inotex_header
 
 
-def test_companion_interaction_is_keyboard_reachable():
-    """The companion is interactive (Pet-INOTEX parity: rail controls, drag,
-    tap-to-open chat), so its affordances must be real controls.
+def _without_html_comments(markup: str) -> str:
+    """What the browser actually renders. An HTML comment is still bytes in the
+    file, so asserting against raw text cannot tell "present" from
+    "commented out"."""
+    return re.sub(r"<!--.*?-->", "", markup, flags=re.S)
 
-    Policy history: the companion was first barred from the chat UI, then
-    restored on request (2026-08-15) with the full Pet-INOTEX interaction set.
-    The invariant that survived every revision: the drawing itself is
-    decorative and every ACTION is a focusable, labelled button — a
-    keyboard-only or screen-reader visitor can do everything a mouse can.
+
+def test_companion_is_switched_off_but_kept_restorable():
+    """The companion is commented out, not deleted — and this pins BOTH halves.
+
+    Policy history: barred from the chat UI, restored on request (2026-08-15)
+    with the full Pet-INOTEX interaction set, then switched off again
+    (2026-08-21) because the owner did not want it. It was commented rather
+    than removed so it can come back.
+
+    This test used to assert the companion's controls were focusable buttons.
+    Once the markup was commented out that assertion kept passing, because a
+    comment is still text in the file — it proved nothing. It now asserts on
+    the comment-stripped markup, so re-enabling the companion fails HERE and
+    whoever does it restores the accessibility checks deliberately.
     """
     footer = read(ROOT / "themes" / "inotex" / "partials" / "footer.html")
+    visible = _without_html_comments(footer)
 
-    # The canvas is the decorative layer, hidden from assistive tech.
-    canvas_tag = "<canvas" + footer.split("<canvas", 1)[1].split(">", 1)[0]
-    assert 'id="pet-canvas"' in canvas_tag
-    assert 'aria-hidden="true"' in canvas_tag, "the drawing must stay decorative"
+    assert 'id="pet-canvas"' not in visible, "companion should be switched off"
+    assert "COMPANION-OFF" in footer, "expected the off-markers, not a deletion"
+    assert 'id="pet-canvas"' in footer, "expected it commented out, not deleted"
 
-    # Every action is a real button carrying an accessible name.
+    # The accessibility contract to restore WITH it: the drawing is decorative
+    # and every action is a real, labelled button. Kept here so bringing the
+    # companion back means making these pass again rather than rediscovering
+    # the requirement.
     for control in ('id="pet-eye"', 'id="pet-larger"', 'id="pet-smaller"',
                     'id="pet-hit"', 'id="pet-close"'):
-        assert control in footer, f"missing companion control {control}"
-        markup = footer.split(control, 1)[0][-320:] + footer.split(control, 1)[1][:320]
-        assert "button" in markup, f"{control} must be a real button"
-        assert "aria-label" in markup, f"{control} needs an accessible name"
-
-    # The mini chat is announced like a conversation, not a decoration.
-    assert 'role="log"' in footer
-    assert 'aria-live="polite"' in footer
-    assert 'aria-expanded' in footer
-
-    css = read(ROOT / "themes" / "inotex" / "static" / "style.css")
-    # Present on BOTH tabs (chat and video) — it is a theme-level companion,
-    # not a chat-only decoration. On the video tab it is repositioned, never
-    # removed; a `display: none` there is the regression this guards.
-    assert "body.video-mode .pet-slot { bottom:" in css
-    assert "body.video-mode .pet-slot { display: none" not in css
-    # It still yields on viewports too short to hold it and the composer.
-    assert "@media (max-height: 620px)" in css
+        assert control in footer, f"companion control {control} was deleted, not commented"
 
 
 def test_one_sound_control_for_the_surface_in_view():

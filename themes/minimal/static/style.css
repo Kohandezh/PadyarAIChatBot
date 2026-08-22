@@ -192,15 +192,6 @@ header {
 #send-btn.stop-mode { background: var(--error-red); }
 
 
-/* ── High Contrast Mode ── */
-body.high-contrast { background: #000; }
-body.high-contrast .bubble { background: #111; border-color: #555; color: #fff; }
-body.high-contrast .message.user .bubble { background: #1a3a5a; }
-body.high-contrast .input-wrapper { background: #111; border-color: #888; }
-body.high-contrast header { background: #111; border-color: #888; }
-body.high-contrast .action-btn { background: #222; border-color: #888; }
-
-
 /* ── Mobile ── */
 @media (max-width: 768px) {
     header { padding: 0.5rem 0.75rem; }

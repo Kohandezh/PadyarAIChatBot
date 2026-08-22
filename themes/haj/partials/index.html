@@ -12,6 +12,25 @@
      without touching the rest. -->
 <body class="haj">
 
+    <!-- Colour mode, applied BEFORE anything paints. The toggle at the bottom
+         of footer.html owns the control; this only resolves the same answer
+         early enough that the first paint is already correct instead of
+         flipping once the footer runs.
+
+         Precedence (identical in the footer): a choice this visitor made wins;
+         with nothing stored the device's own setting decides. -->
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('haj-color-mode');
+                var dark = saved === null
+                    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                    : saved === 'dark';
+                if (dark) document.body.classList.add('haj-dark');
+            } catch (e) { /* storage blocked — the light default stands */ }
+        })();
+    </script>
+
     {% include "pattern.html" %}
 
     <!-- The bar spans the whole viewport; only the chatbot below it sits in

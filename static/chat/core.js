@@ -60,7 +60,6 @@ const I18N = {
         textTab: "چت",
         videoReady: "ویدیوهای راهنمای اینوتکس در این بخش نمایش داده می‌شوند",
         startVideo: "شروع",
-        smartVisit: "بازدید هوشمند",
         videoReadyHint: "برای گفتگو یا دریافت راهنمایی، تب چت را انتخاب کنید.",
         placeholder: "سوال خود را بنویسید...",
         sendTitle: "ارسال پیام",
@@ -80,7 +79,6 @@ const I18N = {
         a11yTitle: "تنظیمات دسترسی‌پذیری",
         fontInc: "افزایش سایز متن",
         fontDec: "کاهش سایز متن",
-        contrast: "تغییر کنتراست",
     },
     en: {
         html_lang: 'en', html_dir: 'ltr',
@@ -90,7 +88,6 @@ const I18N = {
         textTab: "Chat",
         videoReady: "INOTEX guide videos will appear here",
         startVideo: "Start",
-        smartVisit: "Smart Visit",
         videoReadyHint: "Choose the Chat tab to start a conversation or get help.",
         placeholder: "Type your question...",
         sendTitle: "Send message",
@@ -110,7 +107,6 @@ const I18N = {
         a11yTitle: "Accessibility settings",
         fontInc: "Increase font size",
         fontDec: "Decrease font size",
-        contrast: "Toggle contrast",
     },
 };
 
@@ -757,12 +753,6 @@ function adjustFontSize(change) {
     if (content) content.style.fontSize = `${currentFontSize}%`;
 }
 
-function toggleHighContrast() {
-    document.body.classList.toggle('high-contrast');
-    const isHighContrast = document.body.classList.contains('high-contrast');
-    localStorage.setItem('high-contrast', isHighContrast);
-}
-
 
 // ── Initialization ─────────────────────────────────────────────────────
 
@@ -851,11 +841,6 @@ function initChat() {
                 a11yHamburger.setAttribute('aria-expanded', 'false');
             }
         });
-    }
-
-    // Load preferences
-    if (localStorage.getItem('high-contrast') === 'true') {
-        document.body.classList.add('high-contrast');
     }
 
     // Load chat history

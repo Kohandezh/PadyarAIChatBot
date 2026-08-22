@@ -585,9 +585,9 @@
     })();
 
     // ── Light / dark theme ──────────────────────────────────────────────
-    // `toggleHighContrast()` in core.js is the accessibility high-contrast
-    // mode (it forces white-on-black), NOT a light theme — so this is a real
-    // second theme: a body class plus a semantic-token swap in style.css.
+    // A real second theme: a body class plus a semantic-token swap in
+    // style.css. With no stored choice the device preference wins; an
+    // explicit choice is stored and overrides it from then on.
     (function () {
         const KEY = 'inotex-theme';
         const btn = document.getElementById('theme-btn');
@@ -606,7 +606,21 @@
             btn.setAttribute('aria-label', light ? COPY.en.toDark : COPY.en.toLight);
         }
 
-        paint(localStorage.getItem(KEY) === 'light');
+        // Precedence: an explicit choice this visitor made wins; with nothing
+        // stored the device's own setting decides. Reading the key with `===
+        // 'light'` alone (what this did before) silently ignored a device set
+        // to light and always opened dark. The boot script in the theme's
+        // index.html applies the same answer before first paint, so this pass
+        // only labels the control.
+        const device = window.matchMedia('(prefers-color-scheme: light)');
+        const stored = localStorage.getItem(KEY);
+        paint(stored === null ? device.matches : stored === 'light');
+
+        // Follow the device live, but only while nothing is stored — a stored
+        // choice is never overruled.
+        device.addEventListener('change', function (e) {
+            if (localStorage.getItem(KEY) === null) paint(e.matches);
+        });
 
         if (btn) {
             btn.addEventListener('click', function () {

@@ -1,10 +1,19 @@
 /* ── Visitor registration (Smart Visit) ──
-   Two ways in, one flow:
+   One way in: the visitor's FIRST message to the chatbot. It is held, not
+   answered, and the sign-up card opens over the chat. The held question is
+   sent for real the moment sign-up is finished, so nothing anyone typed is
+   lost.
 
-     * the visitor's FIRST message to the chatbot — it is held, not answered,
-       and the sign-up card opens over the chat. The held question is sent for
-       real the moment sign-up is finished, so nothing anyone typed is lost;
-     * the yellow LEGO CTA, for someone who registers before asking anything.
+   There used to be a second entry point — a «بازدید هوشمند» CTA in the
+   theme footer — which was removed as a redundant duplicate of this gate.
+   Two consequences worth knowing before changing anything here:
+     * the visit-plan card (renderPlanStep) and the profile editor
+       (renderEditStep) it links to have no UI entry point any more. The code
+       and /api/visit-plan are deliberately left intact; only the door is
+       gone. Restoring a control that calls `openModal(renderPlanStep)` is
+       all it takes to bring them back;
+     * the whole module used to abort when the CTA was absent. It no longer
+       depends on any markup, so it loads on every theme.
 
    Sign-up is deliberately three inputs: name, mobile, and the taxonomy's own
    checkbox. Everything else about the visitor is asked AFTERWARDS, in the
@@ -43,14 +52,9 @@
     // shortened rather than rejected with a 422 the visitor cannot read.
     const MAX_JOB = 80, MAX_POSITION = 80, MAX_INTERESTS = 400;
 
-    const btn = document.getElementById('visit-btn');
-    const label = document.getElementById('visit-btn-label');
-    if (!btn || !label) return;
-
     const isFa = function () { return document.documentElement.lang !== 'en'; };
     const T = {
         fa: {
-            cta: 'بازدید هوشمند',
             title: 'ثبت‌نام بازدید هوشمند',
             sub: 'برای شروع، مشخصات خود را وارد کنید.',
             first: 'نام', last: 'نام خانوادگی', phone: 'شماره موبایل',
@@ -67,8 +71,6 @@
             required: 'لطفاً همهٔ فیلدها را کامل کنید.',
             badPhone: 'شماره موبایل معتبر نیست.',
             network: 'خطای شبکه. دوباره تلاش کنید.',
-            welcome: 'خوش آمدید',
-            hello: function (name) { return 'سلام ' + name; },
             logout: 'خروج',
             autofilled: 'کد از پیامک خوانده شد.',
             planTitle: 'بازدید هدفمند شما',
@@ -104,7 +106,6 @@
             profileSaved: 'ممنون! ثبت شد.'
         },
         en: {
-            cta: 'Smart Visit',
             title: 'Smart Visit registration',
             sub: 'Enter your details to get started.',
             first: 'First name', last: 'Last name', phone: 'Mobile number',
@@ -121,8 +122,6 @@
             required: 'Please complete every field.',
             badPhone: 'That mobile number is not valid.',
             network: 'Network error. Please try again.',
-            welcome: 'Welcome',
-            hello: function (name) { return 'Hi ' + name; },
             logout: 'Log out',
             autofilled: 'Code read from the SMS.',
             planTitle: 'Your targeted visit',
@@ -175,22 +174,12 @@
         return [p.first_name, p.last_name].filter(Boolean).join(' ').trim();
     }
 
-    /* The brick is narrow, so the greeting uses the FIRST name only — a full
-       name would be ellipsised into meaninglessness on most registrations. */
-    function greeting(p) {
-        const first = (p.first_name || '').trim() || displayName(p);
-        return t().hello(first);
-    }
-
     function paintSession() {
         const p = session();
         const header = document.querySelector('.header-tools');
         let logout = document.getElementById('visitor-logout');
 
         if (p && displayName(p)) {
-            btn.dataset.state = 'member';
-            label.textContent = greeting(p);
-            btn.setAttribute('aria-label', t().welcome + ' ' + displayName(p));
             if (!logout && header) {
                 logout = document.createElement('button');
                 logout.type = 'button';
@@ -209,9 +198,6 @@
                 logout.setAttribute('aria-label', t().logout);
             }
         } else {
-            btn.dataset.state = 'guest';
-            label.textContent = t().cta;
-            btn.setAttribute('aria-label', t().cta);
             if (logout) logout.remove();
         }
     }
@@ -225,7 +211,10 @@
         abortOtpListener();
         modal.remove();
         modal = null;
-        btn.focus();
+        // Focus goes back to the message box — the CTA that used to own it
+        // is gone, and the chat is where the visitor was.
+        const input = document.getElementById('user-input');
+        if (input) input.focus();
     }
 
     function el(tag, cls, text) {
@@ -1186,26 +1175,16 @@
     }
 
     // ── Boot ─────────────────────────────────────────────────────────
-    // The CTA starts hidden and only appears once the server confirms the
-    // registration module is switched on — an operator turning it off in the
-    // panel takes the button away rather than leaving a control that fails.
-    btn.hidden = true;
+    // The sign-up gate is installed ONLY once the server confirms the
+    // registration module is switched on. With the admin switch off, nothing
+    // is installed and the chat behaves exactly as it does on an install that
+    // never had the module: the first message is answered, not held.
     fetch('/api/auth/registration-status')
         .then(function (r) { return r.ok ? r.json() : { enabled: false }; })
         .then(function (s) {
-            btn.hidden = !s.enabled;
-            // The chat asks a visitor to sign up ONLY where registration
-            // exists and is switched on. On any other install the gate is
-            // never installed and the chat engine behaves exactly as before.
             if (s.enabled && typeof ChatConfig !== 'undefined') ChatConfig.sendGateFn = gate;
         })
-        .catch(function () { btn.hidden = true; });
+        .catch(function () { /* status unknown — leave the chat ungated */ });
 
-    btn.addEventListener('click', function () {
-        // Signed in already: the brick shows the plan instead of restarting
-        // registration — Logout in the header is the way out.
-        if (isSignedIn()) { openModal(renderPlanStep); return; }
-        openModal();
-    });
     paintSession();
 })();

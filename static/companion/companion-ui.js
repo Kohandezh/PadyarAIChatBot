@@ -17,6 +17,11 @@
 (function () {
     'use strict';
 
+    // The character's markup is currently COMMENTED OUT in the theme footers
+    // (search COMPANION-OFF) at the owner's request, so #pet-slot does not
+    // exist and this whole module returns here without binding anything. The
+    // mini chat panel is only reachable through the character, so it is
+    // dormant with it; uncommenting the markup brings both back unchanged.
     const pet = window.PetCompanion;
     const slot = document.getElementById('pet-slot');
     const rail = document.getElementById('pet-rail');

@@ -354,21 +354,9 @@ button:disabled {
     pointer-events: auto;
 }
 
-body.video-mode .a11y-dropdown-content .a11y-btn:nth-child(1),
-body.video-mode .a11y-dropdown-content .a11y-btn:nth-child(2) {
-    display: none;
-}
-
-.a11y-btn .dark,
-.a11y-btn .light {
-    display: none;
-    cursor: pointer;
-    justify-content: center;
-    align-content: center;
-}
-
-body.high-contrast .light { display: flex; }
-body:not(.high-contrast) .dark { display: flex; }
+/* The video tab used to hide the two text-size buttons and leave only the
+   contrast toggle in the menu. With the contrast toggle gone that rule would
+   empty the menu completely, so text size now stays available on both tabs. */
 
 
 /* ── Mobile Responsive ── */

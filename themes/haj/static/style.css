@@ -2220,7 +2220,7 @@ body.haj-dark .pet-panel-title {
 }
 
 
-/* ── 13. Focus, contrast, motion ──────────────────────────────────── */
+/* ── 13. Focus and motion ─────────────────────────────────────────── */
 
 /* One focus ring, everywhere, impossible to miss. */
 :focus-visible {
@@ -2233,29 +2233,6 @@ body.haj-dark :focus-visible {
     outline-color: var(--haj-primary-light-2);
 }
 
-/* High contrast (the ◐ control): heavier lines, darker ink, no soft tints. */
-body.high-contrast {
-    --haj-ink: var(--haj-navy);
-    --haj-ink-soft: var(--haj-navy);
-    --haj-ink-faint: var(--haj-text-dark);
-    --haj-line: var(--haj-navy);
-    --haj-bw: 2px;
-    --haj-bw-active: 3px;
-    --haj-surface-sunken: var(--haj-white);
-}
-
-body.high-contrast.haj-dark {
-    --haj-ink: var(--haj-white);
-    --haj-ink-soft: var(--haj-white);
-    --haj-ink-faint: var(--haj-white);
-    --haj-line: var(--haj-white);
-    --haj-surface-sunken: rgba(255, 255, 255, 0.14);
-}
-
-body.high-contrast .haj-pattern,
-body.high-contrast .haj-hero {
-    opacity: 0;
-}
 
 @media (prefers-reduced-motion: reduce) {
 

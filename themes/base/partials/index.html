@@ -9,6 +9,31 @@
      answers people. The video tab opens only once INOTEX media is connected. -->
 <body>
 
+    <!-- Colour mode, applied BEFORE anything paints.
+         The themes that have a light mode (inotex, liquid-glass) are dark by
+         default and switch with `body.light-mode`, and their toggles live at
+         the bottom of footer.html — far too late: the page would paint dark
+         and then flip. Resolving it here, on the first line inside <body>,
+         means the very first paint is already right.
+
+         Precedence, and it is the same in the footer toggles: an explicit
+         choice this visitor made wins; with nothing stored the device's own
+         setting decides. The two keys are the two themes' own storage keys;
+         a theme with no light mode simply has neither, and the class it would
+         set means nothing in its CSS. -->
+    <script>
+        (function () {
+            try {
+                var stored = localStorage.getItem('inotex-light-mode');   /* inotex: '1' | '0' */
+                var glass = localStorage.getItem('inotex-theme');         /* liquid-glass: 'light' | 'dark' */
+                var light = stored !== null ? stored === '1'
+                    : glass !== null ? glass === 'light'
+                        : window.matchMedia('(prefers-color-scheme: light)').matches;
+                if (light) document.body.classList.add('light-mode');
+            } catch (e) { /* storage blocked — the dark default stands */ }
+        })();
+    </script>
+
     <div class="app-layout">
         {% include "header.html" %}
 

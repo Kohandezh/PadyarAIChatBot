@@ -212,8 +212,8 @@ html[dir="ltr"] {
 
 
 /* ── Light mode ───────────────────────────────────────────────────────
-   A genuine second theme, not the high-contrast a11y mode. Only semantic
-   tokens are redefined; every component rule below is written once. */
+   A genuine second theme. Only semantic tokens are redefined; every
+   component rule below is written once. */
 body.light-mode {
   --canvas-bg: var(--canvas-light);
   --video-scrim: rgba(255, 255, 255, 0.55);
@@ -1824,91 +1824,6 @@ body:not(.video-mode) .app-layout { background: var(--canvas-bg); }
   .morph-transition { animation-duration: 0.01ms; }
   .pet-panel { animation: none; }
 }
-
-
-/* ── High Contrast Mode ──
-   The a11y mode, deliberately declared AFTER light mode so it always wins
-   when both are active. */
-body.high-contrast {
-  --color-primary: #000000; --color-primary-hover: #333333;
-  --color-secondary: #ffffff; --accent-light: #000000;
-  --surface-bg: #222; --subtle-bg: #ffffff;
-  --text-primary: #000000; --text-secondary: #000000;
-  --border-color: #000000;
-  --send-bg: #000000; --send-bg-hover: #333333;
-  --canvas-bg: #000000;
-  --header-tint: transparent;
-  --input-tint: transparent;
-  --bubble-bot-fill: transparent;
-  --text-shadow-glass: none;
-  --text-shadow-strong: none;
-  background: #44444444;
-}
-
-body.high-contrast * { color: #fff !important; }
-
-body.high-contrast .message.bot .bubble {
-  background-color: #303030; border: 2px solid #000000;
-  color: #e1e2e3 !important; border-end-start-radius: 0;
-}
-
-body.high-contrast .message.user .bubble {
-  background-color: #181818; color: #fff; border: 2px solid #000;
-}
-body.high-contrast .message.user .liquidGlass-tint { background: none; }
-
-body.high-contrast svg { color: #e1e2e3 !important; }
-
-body.high-contrast header { color: #fff; gap: 11px; }
-
-body.high-contrast .switcher {
-  background: #0000008a; border: 2px solid #000;
-  box-shadow: 0 0 0 1px #000, 0 1px 3px 0 rgba(255, 255, 255, 0.15),
-    0 -2px 4px 0 rgba(0, 0, 0, 0.4) inset, 0 1px 5px 0 rgba(0, 0, 0, 0.05) inset;
-}
-.high-contrast .switcher::after {
-  background: linear-gradient(0deg, #151515 0%, #252525 92.05%);
-  box-shadow: 0 1px 1px 0 rgba(255, 255, 255, 0.15) inset,
-    0 4px 6px -2px rgba(0, 0, 0, 0.4), 0 2px 2px -1px rgba(10, 13, 18, 0.4), 0 0 0 1px #000;
-}
-
-body.high-contrast .a11y-dropdown-content {
-  background: linear-gradient(0deg, #151515 0%, #252525 92.05%);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6),
-    0 1px 1px 0 rgba(255, 255, 255, 0.15) inset, 0 0 0 1px #000;
-}
-
-body.high-contrast .a11y-btn,
-body.high-contrast .a11y-hamburger,
-body.high-contrast .lang-btn,
-body.high-contrast .theme-btn,
-body.high-contrast #send-btn,
-.high-contrast .mic-btn,
-.high-contrast .tts-btn {
-  background: linear-gradient(0deg, #151515 0%, #252525 92.05%);
-  box-shadow: 0 1px 1px 0 rgba(255, 255, 255, 0.15) inset,
-    0 4px 6px -2px rgba(0, 0, 0, 0.4), 0 2px 2px -1px rgba(10, 13, 18, 0.4), 0 0 0 1px #000;
-}
-body.high-contrast #send-btn svg path { fill: #fff; }
-
-body.high-contrast .action-btn { color: #fff; border: 2px solid #000; background: #000000a3; }
-body.high-contrast .action-btn > .liquidGlass-tint { background: rgba(0, 0, 0, 0.9); }
-body.high-contrast .action-btn:hover > .liquidGlass-tint { background: rgba(255, 255, 255, 0.9); }
-body.high-contrast .action-btn:hover { color: #000; }
-
-body.high-contrast .suggest-chip {
-  background: #000; border: 2px solid #fff; text-shadow: none;
-}
-
-.high-contrast #user-input {
-  background: #000000a3;
-  box-shadow: 0 0 0 1px #000, 0 1px 3px 0 rgba(255, 255, 255, 0.15),
-    0 -2px 4px 0 rgba(0, 0, 0, 0.4) inset, 0 1px 5px 0 rgba(0, 0, 0, 0.05) inset;
-  color: #e1e2e3;
-}
-.high-contrast #user-input::placeholder { color: #e1e2e3; }
-
-.high-contrast .questions-list li:hover { background: #0a0a0a; border-color: #989898; }
 
 
 /* ── Sheet touch targets ──────────────────────────────────────────────

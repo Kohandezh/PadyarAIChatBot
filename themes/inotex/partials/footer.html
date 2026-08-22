@@ -43,11 +43,29 @@
     <button type="button" class="voice-stop" id="voice-stop" data-i18n="voiceStop">توقف</button>
 </div>
 
+<!-- ══ COMPANION CHARACTER — DISABLED ═══════════════════════════════════
+     The "pet" companion is switched off at the owner's request. It is
+     COMMENTED OUT rather than deleted so it can come back unchanged.
+
+     TO RESTORE: delete the two marker lines below (the comment opener and
+     its closer) so the markup between them is live again. Nothing else
+     needs changing — the sprite assets are still on disk, and
+     static/companion/companion.js + companion-ui.js both detect the markup
+     and wire themselves up automatically when it is present.
+
+     While it is off: companion.js finds no #pet-canvas and publishes a
+     no-op PetCompanion, and companion-ui.js finds no #pet-slot and returns
+     before binding anything, so every `pet.set(...)` call elsewhere on the
+     page is a safe no-op and nothing dereferences a missing element. The
+     mini chat panel below is only reachable through the character, so it is
+     dormant too — it comes back with it.
+     ═════════════════════════════════════════════════════════════════════ -->
 <!-- Pet-INOTEX companion. Theme level, so it is present on both tabs.
      Ported from the Pet-Inotex module: control rail (hide / − / +), pointer
      drag, tap to open the chat panel, double-tap for one energetic reaction.
      The character never carries information on its own — the chat text and
      #pet-status always do. -->
+<!-- COMPANION-OFF (start)
 <div class="pet-slot" id="pet-slot" data-open="false" data-hidden="false">
     <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه اینوتکس">
         <button type="button" class="pet-rail-btn" id="pet-eye" aria-pressed="false"
@@ -77,16 +95,7 @@
         aria-controls="pet-panel" aria-label="گفت‌وگو با دستیار اینوتکس"></button>
 
 </div>
-
-<!-- Smart-visit CTA. A SIBLING of the companion, not a child: it stands to
-     the character's right at waist height with a fixed gap, the way the two
-     are composed in the scene. The brick face is a rendered image; the label
-     stays real HTML text so it can be translated, selected and read aloud. -->
-<button type="button" class="lego-btn" id="visit-btn" data-state="guest">
-    <img class="lego-brick" src="/static/companion/button/lego-btn-rest.webp"
-         alt="" aria-hidden="true" width="900" height="279" />
-    <span class="lego-label" id="visit-btn-label" data-i18n="smartVisit">بازدید هوشمند</span>
-</button>
+COMPANION-OFF (end) -->
 
 
 <!-- Mini chat: a compact VIEW of the same conversation, not a second one. -->
@@ -439,25 +448,36 @@
         if (!btn) return;
         const KEY = 'inotex-light-mode';
 
-        function apply(light) {
+        /* `persist` is deliberate. Writing the resolved value on load would
+           freeze whatever the device happened to say on the FIRST visit and
+           store it as if the visitor had chosen it — after that their device
+           switching to light would never reach this page again. Only a tap
+           on the control is a choice. */
+        function apply(light, persist) {
             document.body.classList.toggle('light-mode', light);
             btn.setAttribute('aria-pressed', light ? 'true' : 'false');
             const fa = document.documentElement.lang !== 'en';
             btn.title = light ? (fa ? 'حالت تاریک' : 'Dark mode')
                               : (fa ? 'حالت روشن' : 'Light mode');
             btn.setAttribute('aria-label', btn.title);
-            localStorage.setItem(KEY, light ? '1' : '0');
+            if (persist) localStorage.setItem(KEY, light ? '1' : '0');
         }
 
         btn.addEventListener('click', function () {
-            apply(!document.body.classList.contains('light-mode'));
+            apply(!document.body.classList.contains('light-mode'), true);
         });
 
-        // Saved choice wins; otherwise follow the device preference.
+        // Saved choice wins; otherwise follow the device preference. The
+        // boot script in the theme's index.html already applied this before
+        // first paint — this pass is what labels the control.
+        const device = window.matchMedia('(prefers-color-scheme: light)');
         const saved = localStorage.getItem(KEY);
-        apply(saved === null
-            ? window.matchMedia('(prefers-color-scheme: light)').matches
-            : saved === '1');
+        apply(saved === null ? device.matches : saved === '1', false);
+
+        // Follow the device live, but only while nothing is stored.
+        device.addEventListener('change', function (e) {
+            if (localStorage.getItem(KEY) === null) apply(e.matches, false);
+        });
     })();
 
     // ── Video tab: the placeholder is a fallback, not a permanent overlay ──
@@ -565,6 +585,11 @@
     // Driven by the same signals the voice stage uses, so the character is
     // always showing what the app is actually doing — never a decorative
     // animation running on its own timer.
+    //
+    // Inert while the character is switched off (see COMPANION-OFF above):
+    // window.PetCompanion is then a complete no-op, so every set() here does
+    // nothing. Left wired on purpose — uncommenting the markup brings the
+    // reactions back with it.
     (function () {
         const pet = window.PetCompanion;
         if (!pet) return;

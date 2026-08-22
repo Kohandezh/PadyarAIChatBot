@@ -1,3 +1,20 @@
+<!-- ══ COMPANION CHARACTER — DISABLED ═══════════════════════════════════
+     The "pet" companion is switched off at the owner's request. It is
+     COMMENTED OUT rather than deleted so it can come back unchanged.
+
+     TO RESTORE: delete the two marker lines below (the comment opener and
+     its closer) so the markup between them is live again. Nothing else
+     needs changing — the sprite assets are still on disk, and
+     static/companion/companion.js + companion-ui.js both detect the markup
+     and wire themselves up automatically when it is present.
+
+     While it is off: companion.js finds no #pet-canvas and publishes a
+     no-op PetCompanion, and companion-ui.js finds no #pet-slot and returns
+     before binding anything, so every `pet.set(...)` call elsewhere on the
+     page is a safe no-op and nothing dereferences a missing element. The
+     mini chat panel below is only reachable through the character, so it is
+     dormant too — it comes back with it.
+     ═════════════════════════════════════════════════════════════════════ -->
 <!-- ── Companion ─────────────────────────────────────────────────────────
      The approved Haj-Pet avatar, rendered by the shared sprite-atlas renderer
      (static/companion/companion.js). Nothing about that renderer changes here:
@@ -9,6 +26,7 @@
      ACTION beside it (hide, bigger, smaller, open the chat) is a real
      focusable button with a name, so a keyboard-only visitor can do
      everything a pointer can. -->
+<!-- COMPANION-OFF (start)
 <div class="pet-slot haj-pet" id="pet-slot" data-open="false" data-hidden="false">
     <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه">
         <button type="button" class="pet-rail-btn" id="pet-eye" aria-pressed="false" title="مخفی‌کردن همراه"
@@ -29,13 +47,13 @@
         <button type="button" class="pet-rail-btn" id="pet-smaller" title="کوچک‌تر" aria-label="کوچک‌تر کردن همراه">−</button>
     </div>
 
-    <!-- 12-pose, 384px-cell atlas — the sheet this install's renderer can
+    (note: 12-pose, 384px-cell atlas — the sheet this install's renderer can
          actually draw. static/companion/companion.js here registers poses 0-11
          (three rows of four) and has no fourth-row detection, so the 4096px HD
          sheet's four extra poses would be 3.6 MB that never reach the screen
          while making the first paint wait on them. The HD files ship alongside
          (haj-pose-atlas-hd.webp + haj-pose-manifest-hd.json): the day the
-         shared renderer learns the fourth row, this block is the only edit. -->
+         shared renderer learns the fourth row, this block is the only edit.)
     <canvas id="pet-canvas" width="384" height="384" aria-hidden="true"
         data-atlas="/themes/haj/static/haj-pose-atlas.webp" data-cell="384"
         data-fallback="/themes/haj/static/haj-fallback.webp"
@@ -44,6 +62,7 @@
     <button type="button" class="pet-hit" id="pet-hit" aria-expanded="false" aria-controls="pet-panel"
         aria-label="گفت‌وگوی کوتاه با دستیار"></button>
 </div>
+COMPANION-OFF (end) -->
 
 <!-- Mini chat: a compact VIEW of the same conversation, never a second one. -->
 <section class="pet-panel haj-pet-panel" id="pet-panel" hidden aria-labelledby="pet-panel-title">
@@ -116,7 +135,7 @@
                 keyboard: 'نوشتن با صفحه‌کلید',
                 themeToDark: 'رفتن به حالت تاریک',
                 themeToLight: 'رفتن به حالت روشن',
-                a11y: 'اندازه متن و کنتراست',
+                a11y: 'اندازه متن',
                 petEyebrow: 'سازمان حج و زیارت',
                 petTitle: 'پرسش کوتاه',
                 hintListening: 'در حال شنیدن… وقتی حرفتان تمام شد دوباره روی میکروفون بزنید.',
@@ -404,21 +423,33 @@
         if (!btn) return;
         var KEY = 'haj-color-mode';
 
-        function apply(dark) {
+        /* `persist` is the whole point of the split. Writing the resolved
+           value on load would freeze whatever the device happened to say on
+           the FIRST visit and store it as if the pilgrim had chosen it — from
+           then on their phone switching to dark at night would change nothing
+           here. Only a real tap on the control is a choice. */
+        function apply(dark, persist) {
             document.body.classList.toggle('haj-dark', dark);
             btn.setAttribute('aria-checked', dark ? 'true' : 'false');
-            localStorage.setItem(KEY, dark ? 'dark' : 'light');
+            if (persist) localStorage.setItem(KEY, dark ? 'dark' : 'light');
             HajCopy.paint();
         }
 
         btn.addEventListener('click', function () {
-            apply(!document.body.classList.contains('haj-dark'));
+            apply(!document.body.classList.contains('haj-dark'), true);
         });
 
+        var device = window.matchMedia('(prefers-color-scheme: dark)');
         var saved = localStorage.getItem(KEY);
-        apply(saved === null
-            ? window.matchMedia('(prefers-color-scheme: dark)').matches
-            : saved === 'dark');
+        // index.html already applied this before first paint; repeating it
+        // here is what paints the control's own label and state.
+        apply(saved === null ? device.matches : saved === 'dark', false);
+
+        // Follow the device live, but only while this visitor has made no
+        // choice of their own — a stored choice is never overruled.
+        device.addEventListener('change', function (e) {
+            if (localStorage.getItem(KEY) === null) apply(e.matches, false);
+        });
     })();
 
 
@@ -702,7 +733,12 @@
 
     /* ── Companion reacts to what the assistant is actually doing ─────
        Driven by the same signals the composer's voice state uses, so the
-       character never runs a decorative animation on its own timer. */
+       character never runs a decorative animation on its own timer.
+
+       Inert while the character is switched off (see COMPANION-OFF above):
+       window.PetCompanion is then a complete no-op, so every set() here does
+       nothing. Left wired on purpose — uncommenting the markup brings the
+       reactions back with it. */
     (function () {
         var pet = window.PetCompanion;
         if (!pet) return;
