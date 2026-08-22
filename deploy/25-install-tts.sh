@@ -37,24 +37,33 @@ sudo -u "$USER" "${APP_DIR}/.venv/bin/pip" install \
   torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
 log "Verifying this torch can actually drive a P40"
-# get_arch_list() returns an EMPTY list when the CUDA runtime cannot
-# initialise — which is indistinguishable, from here, from a wheel that
-# genuinely lacks sm_61. So the assertion only runs when CUDA is actually
-# usable; otherwise it is deferred, because a host whose GPUs are not yet
-# working must still be able to install and run the service on CPU.
+# NOT a string match on get_arch_list(). The cu124 wheel ships sm_50, sm_60,
+# sm_70+ and NO sm_61, yet it drives a P40 correctly: CUDA guarantees binary
+# compatibility within one major compute capability, so sm_60 cubins run on
+# sm_61. An earlier version of this file asserted sm_61 was listed and would
+# therefore have refused to install on exactly the hardware it was written for
+# — it never fired only because the GPUs were broken when the host was first
+# provisioned, so the check was skipped. server.py and 21-verify-gpu.sh were
+# corrected; this one was missed. The only honest test is to launch a kernel.
 sudo -u "$USER" "${APP_DIR}/.venv/bin/python" - <<'PY'
 import sys, torch
 print("torch", torch.__version__)
 if not torch.cuda.is_available():
     print("WARNING: CUDA is not available (no working driver yet).")
-    print("         Skipping the sm_61 check — re-run deploy/21-verify-gpu.sh")
-    print("         once nvidia-smi works, BEFORE switching TTS_DEVICE to cuda.")
+    print("         Install continues; the service will run on CPU until")
+    print("         deploy/21-verify-gpu.sh passes and TTS_DEVICE=cuda is set.")
     sys.exit(0)
-arches = torch.cuda.get_arch_list()
-print("arches:", arches)
-if "sm_61" not in arches:
-    sys.exit("FATAL: no sm_61 kernels in this build. Do not continue.")
-print("sm_61 present — this build can drive a P40")
+cap = torch.cuda.get_device_capability(0)
+name = torch.cuda.get_device_name(0)
+print(f"device: {name} (sm_{cap[0]}{cap[1]})   arches: {torch.cuda.get_arch_list()}")
+try:
+    probe = torch.zeros(64, 64, device="cuda")
+    (probe @ probe).sum().item()
+    torch.cuda.synchronize()
+except Exception as exc:
+    sys.exit(f"FATAL: CUDA kernels will not run on {name} with torch "
+             f"{torch.__version__}: {exc}")
+print("kernel launch OK — this build can drive this card")
 PY
 
 log "Installing chatterbox-tts and the service dependencies"
