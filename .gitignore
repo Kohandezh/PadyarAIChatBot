@@ -72,9 +72,22 @@ Thumbs.db
 # Large model archives (downloaded, not source)
 *.tar.bz2
 
-# Large media files
+# Large media files.
+#
+# Both of these are RUNTIME storage, written by the admin panel while the
+# install is in use, and a fresh clone is supposed to arrive with them empty.
+# media/uploads/ was not listed here and five files from a media-upload test
+# had already been committed into it.
 media/videos/
+media/uploads/
 .gstack/
+
+# Generated speech. TTS_CACHE_DIR points outside the repo on a real install
+# (/var/lib/padyar/tts/cache), but a developer running the engine locally gets
+# it here, and a cache is regenerable by definition — the panel's "build audio
+# for every answer" button is how it comes back.
+media/tts-cache/
+tts-cache/
 
 # Graphify code-graph output (regenerated, not source)
 graphify-out/
