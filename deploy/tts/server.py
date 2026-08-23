@@ -282,6 +282,31 @@ _SENTENCE_END = re.compile(r"(?<=[.!?؟؛\n])\s+")
 # character and removing it changes how words are pronounced.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+# Arabic codepoints for letters Persian writes with its own. A Persian keyboard
+# layout, a copy-paste out of Word, or an older CMS all produce these, and to a
+# human they are invisible: ي and ی render the same and are the same sound.
+#
+# The model does not see them as the same. Its Persian fine-tune was trained on
+# Persian forms, so a word carrying an Arabic yeh is out of distribution and is
+# read as something else — measured on this install, «عدسي است» came back as
+# «عدسه است», and the same sentence written with ی was 23% longer because the
+# syllables it had been swallowing were back.
+#
+# This is character UNIFICATION, not the folding normalize() refuses below.
+# Each pair is one letter with one pronunciation; nothing a reader would say
+# differently is being changed. Folding أ/إ/آ to ا or stripping diacritics
+# WOULD change the reading, so none of that is here.
+_ARABIC_FORMS = str.maketrans({
+    "\u064a": "\u06cc",  # ARABIC YEH            ي -> ی
+    "\u0649": "\u06cc",  # ALEF MAKSURA          ى -> ی
+    "\u0643": "\u06a9",  # ARABIC KAF            ك -> ک
+    "\u06aa": "\u06a9",  # SWASH KAF             ڪ -> ک
+    "\u0629": "\u0647",  # TEH MARBUTA           ة -> ه
+    "\u0660": "\u06f0", "\u0661": "\u06f1", "\u0662": "\u06f2", "\u0663": "\u06f3",
+    "\u0664": "\u06f4", "\u0665": "\u06f5", "\u0666": "\u06f6", "\u0667": "\u06f7",
+    "\u0668": "\u06f8", "\u0669": "\u06f9",  # Arabic-Indic digits -> Persian
+})
+
 
 def normalize(text: str) -> str:
     """Minimal cleanup. Deliberately NOT the app's Persian normalizer.
@@ -289,8 +314,13 @@ def normalize(text: str) -> str:
     app/utils/normalizer.py exists to make retrieval match — it folds
     characters and expands synonyms, which is exactly wrong for speech, where
     the literal written form is what should be read aloud.
+
+    The one thing it DOES fold is Arabic letter forms, because those are not a
+    different written form of the word: they are the same letter typed from a
+    different keyboard, and the model mispronounces them. See _ARABIC_FORMS.
     """
     text = _CONTROL.sub("", text or "")
+    text = text.translate(_ARABIC_FORMS)
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
 

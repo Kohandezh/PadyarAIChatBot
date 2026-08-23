@@ -146,6 +146,42 @@ def client(monkeypatch, model):
         yield api
 
 
+# ── Text normalisation ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize("typed, spoken", [
+    # The three that were mispronounced on the live install, as an operator
+    # actually typed them.
+    ("عدسي است", "عدسی است"),
+    ("لايه هاي اوليه", "لایه های اولیه"),
+    ("شَبَكيه", "شَبَکیه"),
+    ("ى", "ی"),
+    ("ة", "ه"),
+    ("٤٥ درصد", "۴۵ درصد"),
+])
+def test_arabic_letter_forms_are_unified_to_persian(typed, spoken):
+    assert server.normalize(typed) == spoken
+
+
+@pytest.mark.parametrize("text", [
+    # ZWNJ is a real Persian character: removing it changes the reading.
+    "می\u200cکنیم و ژرف\u200cنگری",
+    # Hamza carriers are different letters with different sounds, not forms.
+    "آأإؤئء",
+    # Diacritics are the operator telling the model how to read a word.
+    "شکلِ شگفت\u200cانگیزی",
+])
+def test_normalisation_leaves_real_persian_alone(text):
+    assert server.normalize(text) == text
+
+
+def test_the_same_sentence_typed_two_ways_lands_on_one_cache_entry():
+    """The point of unifying: one answer, not two takes of it."""
+    arabic = server.normalize("عدسي است كه تغيير شكل ميدهد")
+    persian = server.normalize("عدسی است که تغییر شکل میدهد")
+    assert (server.cache_key(arabic, "", 0.5, 0.5, "fa", 0.8)
+            == server.cache_key(persian, "", 0.5, 0.5, "fa", 0.8))
+
+
 # ── Cache key ───────────────────────────────────────────────────────────
 
 def test_cache_key_is_stable_for_identical_input():
