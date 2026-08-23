@@ -125,6 +125,7 @@ CATEGORIES: dict[str, str] = {
     "api":         "درخواست‌های API",
     "retrieval":   "جستجو و بازیابی",
     "content":     "محتوا و دیتاست",
+    "leads":       "جذب سرنخ نمایشگاه",
     "backup":      "پشتیبان‌گیری",
     "integration": "سرویس‌های بیرونی",
     "service":     "سرویس‌ها و سلامت",

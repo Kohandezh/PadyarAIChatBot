@@ -23,3 +23,9 @@ python-dotenv
 bcrypt
 cryptography
 model2vec
+# Pure-Python QR encoder used by the exhibition lead-capture module to render
+# the company edit invite as an on-screen SVG the contact scans at the booth.
+# No Pillow: the SVG factory needs no imaging library, so this adds ~45 KB and
+# nothing else. It exists because the SMS channel cannot be relied on to carry
+# a link (see app/services/sms.py, Asanak error 1014).
+qrcode

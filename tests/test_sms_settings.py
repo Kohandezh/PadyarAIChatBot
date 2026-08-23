@@ -93,6 +93,19 @@ def test_page_renders_for_admin(client):
     assert 'id="sms-enabled"' in html          # the registration switch
     assert 'id="sms-test-form"' in html        # the test-SMS control
     assert '/static/admin/js/settings_sms.js' in html
+    # Every gateway field an operator has to set must have an input. A setting
+    # that exists only in .env cannot be set by the staff who run the event.
+    for field in ("sms-template-id", "sms-invite-template-id",
+                  "sms-reject-template-id", "sms-daily-budget"):
+        assert 'id="%s"' % field in html, f"missing input #{field}"
+
+
+def test_daily_budget_consequence_is_on_the_page(client):
+    """The cap stops sending. That has to be readable, not hidden in a tooltip."""
+    _login(client)
+    html = client.get("/secure-panel-inotex/settings/sms").text
+    assert "هیچ پیامکی فرستاده" in html
+    assert "سقفی وجود" in html
 
 
 def test_sidebar_links_to_the_page(client):
@@ -155,6 +168,66 @@ def test_no_secrets_stored_reports_false(client):
     body = client.get("/admin/api/sms").json()
     assert body["has_password"] is False
     assert body["has_api_key"] is False
+
+
+# ── Template ids and the daily budget ───────────────────────────────────
+
+def test_template_ids_and_budget_round_trip(client):
+    """Save, read back, and get exactly what was typed into each box."""
+    _login(client)
+    assert client.post("/admin/api/sms", json=_payload(
+        template_id="1654", invite_template_id="1655",
+        reject_template_id="1656", daily_budget="250")).status_code == 200
+
+    body = client.get("/admin/api/sms").json()
+    assert body["template_id"] == "1654"
+    assert body["invite_template_id"] == "1655"
+    assert body["reject_template_id"] == "1656"
+    assert body["daily_budget"] == "250"
+
+    # The sender reads the same values, so what the panel shows is what the
+    # gateway will actually use.
+    from app.services import sms as sms_service
+    assert sms_service.setting("sms_asanak_invite_template_id") == "1655"
+    assert sms_service.setting("sms_asanak_reject_template_id") == "1656"
+    assert sms_service.daily_budget() == 250
+
+
+def test_the_three_new_fields_are_not_masked(client):
+    """They are template ids and a number, not secrets. Readable on purpose."""
+    _login(client)
+    client.post("/admin/api/sms", json=_payload(
+        invite_template_id="1655", reject_template_id="1656", daily_budget="7"))
+    text = client.get("/admin/api/sms").text
+    assert "1655" in text and "1656" in text and '"7"' in text
+
+
+def test_budget_defaults_to_no_cap(client):
+    """An install that never touched this setting keeps sending."""
+    _login(client)
+    client.post("/admin/api/sms", json=_payload())
+    assert client.get("/admin/api/sms").json()["daily_budget"] == "0"
+    from app.services import sms as sms_service
+    assert sms_service.daily_budget() == 0
+
+
+def test_budget_refuses_a_value_that_is_not_a_number(client):
+    """A typo must not quietly read back as "no cap" at send time."""
+    _login(client)
+    r = client.post("/admin/api/sms", json=_payload(daily_budget="دویست"))
+    assert r.status_code == 400
+    assert "عدد" in r.json()["detail"]
+
+
+def test_budget_accepts_persian_digits(client):
+    _login(client)
+    assert client.post("/admin/api/sms", json=_payload(daily_budget="۱۲۰")).status_code == 200
+    assert client.get("/admin/api/sms").json()["daily_budget"] == "120"
+
+
+def test_get_reports_todays_spend(client):
+    _login(client)
+    assert client.get("/admin/api/sms").json()["sent_today"] == 0
 
 
 # ── The registration on/off switch ──────────────────────────────────────

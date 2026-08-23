@@ -1,0 +1,188 @@
+/* Exhibition lead capture — the visitor panel and the company edit page.
+   One stylesheet for both: they are the same product seen from two sides, and
+   a second file would drift. Everything is sized for a phone held in one hand
+   at a noisy exhibition, so no text is smaller than 16px and every tap target
+   clears 48px. */
+:root {
+  --brand-primary: #2D5CA7;
+  --brand-accent: #FCB715;
+  --ink: #16233d;
+  --muted: #5a6880;
+  --line: #dfe5ef;
+  --bg: #f4f6fb;
+  --card: #ffffff;
+  --ok: #04A584;
+  --bad: #c8322c;
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Vazirmatn, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  direction: rtl;
+  font-size: 17px;
+  line-height: 1.8;
+  -webkit-text-size-adjust: 100%;
+}
+
+.wrap { max-width: 560px; margin: 0 auto; padding: 16px 16px 64px; }
+
+header.bar {
+  background: var(--brand-primary);
+  color: #fff;
+  padding: 18px 16px;
+}
+header.bar .inner { max-width: 560px; margin: 0 auto; }
+header.bar h1 { margin: 0; font-size: 21px; font-weight: 700; }
+header.bar p { margin: 4px 0 0; font-size: 16px; opacity: .9; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-top: 16px;
+}
+
+.card h2 { margin: 0 0 6px; font-size: 19px; }
+.card .hint { margin: 0 0 14px; color: var(--muted); font-size: 16px; }
+
+label { display: block; font-size: 16px; font-weight: 600; margin: 14px 0 6px; }
+
+input, textarea, button {
+  font-family: inherit;
+  font-size: 17px; /* never under 16px: anything smaller makes iOS zoom on focus */
+}
+
+input[type="text"], input[type="tel"], input[type="search"], textarea {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  min-height: 52px;
+}
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(45, 92, 167, .15);
+}
+textarea { min-height: 240px; resize: vertical; line-height: 1.9; }
+
+button {
+  width: 100%;
+  min-height: 56px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--brand-primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: transparent; color: var(--brand-primary); border: 1px solid var(--line); }
+button + button { margin-top: 10px; }
+
+/* Company picker — a list of real rows, never a free-text box. A typed company
+   name is a company nobody can later find. */
+.results { padding: 0; margin: 10px 0 0; max-height: 320px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 12px; }
+.results li {
+  list-style: none;
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  background: #fff;
+  min-height: 52px;
+}
+.results li:last-child { border-bottom: 0; }
+.results li:active { background: #eef2fa; }
+.results:empty { display: none; }
+
+.chosen {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #eef2fa; border-radius: 12px; padding: 10px 14px; font-weight: 700;
+}
+.chosen button { width: auto; min-height: 48px; padding: 6px 14px; font-size: 16px;
+  background: transparent; color: var(--brand-primary); margin: 0; }
+
+/* The code the contact reads out loud. Big, spaced, digits only. */
+.code-input {
+  text-align: center; letter-spacing: .5em; font-size: 30px; font-weight: 700;
+  padding: 16px 14px 16px 0;
+}
+
+.qr { text-align: center; padding: 8px 0; }
+.qr svg { width: min(280px, 74vw); height: auto; }
+
+.note { font-size: 16px; border-radius: 12px; padding: 12px 14px; margin-top: 12px; }
+.note.warn { background: #fff6e5; color: #8a5b00; }
+.note.err  { background: #fdecec; color: var(--bad); }
+.note.ok   { background: #e6f7f3; color: #076b58; }
+.note:empty { display: none; }
+
+/* A question the visitor has to answer, not a message they can wave away.
+   Amber, framed, and holding the only two buttons on the card. */
+.ask {
+  margin-top: 16px; padding: 16px;
+  background: #fff6e5; border: 2px solid var(--brand-accent); border-radius: var(--radius);
+}
+.ask h3 { margin: 0 0 6px; font-size: 18px; color: #7a4f00; }
+.ask p { margin: 0 0 10px; font-size: 16px; color: #6b4a08; }
+.ask .fine { font-size: 16px; opacity: .8; }
+.ask button { margin-top: 0; }
+.ask button.ghost { background: #fff; border-color: #e2c98d; color: #7a4f00; margin-top: 10px; }
+
+.steps { display: flex; gap: 6px; margin: 14px 0 0; }
+.steps span { flex: 1; height: 5px; border-radius: 3px; background: var(--line); }
+.steps span.done { background: var(--brand-accent); }
+
+/* The visitor's own tally. Each row says the company and, in plain words,
+   what is still missing. */
+.leads { margin: 0; padding: 0; list-style: none; }
+.leads li {
+  display: flex; justify-content: space-between; gap: 10px; align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 17px;
+}
+.leads li:last-child { border-bottom: 0; }
+.lead-main { flex: 1 1 60%; min-width: 0; }
+.lead-name { font-weight: 700; display: block; }
+.lead-note { display: block; color: var(--muted); font-size: 16px; }
+.badge {
+  font-size: 16px; padding: 4px 12px; border-radius: 999px;
+  background: #eef2fa; color: var(--muted); white-space: nowrap;
+}
+.badge.ok { background: #e6f7f3; color: #076b58; }
+.badge.wait { background: #fff6e5; color: #8a5b00; }
+.badge.info { background: #e8effb; color: #24457c; }
+
+/* The consent text the contact was read at the booth, in writing this time. */
+.consent { background: #f7f9fc; border-radius: 12px; padding: 14px; margin: 0 0 14px; }
+.consent .who { margin: 0 0 8px; font-weight: 700; font-size: 16px; }
+.consent blockquote {
+  margin: 0; padding-right: 12px; border-right: 4px solid var(--brand-accent);
+  font-size: 17px; color: var(--ink);
+}
+
+.counter { text-align: left; font-size: 16px; color: var(--muted); margin-top: 8px; }
+.counter.over { color: var(--bad); font-weight: 700; }
+
+/* The end of the road for the contact: done, and nothing left to press. */
+.final { text-align: center; padding: 8px 0 4px; }
+.final .tick {
+  width: 72px; height: 72px; margin: 0 auto 14px; border-radius: 50%;
+  background: #e6f7f3; color: #04A584; font-size: 40px; line-height: 72px;
+}
+.final h2 { font-size: 21px; margin: 0 0 8px; }
+.final p { margin: 0 0 8px; font-size: 17px; }
+.final .fine { color: var(--muted); }
+
+.center { text-align: center; padding: 48px 20px; max-width: 480px; margin: 0 auto; }
+.center h1 { font-size: 22px; }
+.center p { color: var(--muted); font-size: 17px; }

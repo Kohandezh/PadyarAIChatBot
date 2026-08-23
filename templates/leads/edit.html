@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>اطلاعات شرکت شما — <!-- APP_NAME --></title>
+<link rel="stylesheet" href="/static/vendor/vazirmatn/Vazirmatn-font-face.css">
+<link rel="stylesheet" href="/static/leads/leads.css">
+<!-- BRAND_CSS -->
+</head>
+<body>
+<header class="bar">
+  <div class="inner">
+    <!-- The company's own name, read-only, so the contact knows whose
+         information they are confirming. It stays as written here until the
+         server names the company. -->
+    <h1 id="company">اطلاعات شرکت شما</h1>
+    <p>یک بار بخوانید، اگر لازم بود اصلاح کنید، و تأیید بزنید.</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="card" id="form-card">
+    <!-- What was said out loud at the booth, in writing this time. A noisy
+         hall and thirty seconds is not informed consent. -->
+    <div class="consent">
+      <p class="who">همکار ما در غرفه این را به شما گفت:</p>
+      <blockquote id="consent-text">سلام، من از تیم چت‌بات نمایشگاه هستم. کاری که انجام می‌دهیم تأیید اطلاعات شرکت شما برای نمایش در چت‌بات نمایشگاه است. الان یک کد پیامکی برای شما می‌آید، لطفاً آن را برای من بخوانید. بعد از ثبت، خودتان باید بروید و ببینید اطلاعات شرکتتان درست وارد شده باشد. این اطلاعات شامل یک متن معرفی است که شرکت شما و محصولاتش را توصیف می‌کند.</blockquote>
+    </div>
+
+    <h2>متن پاسخ</h2>
+    <p class="hint">این همان متنی است که چت‌بات نمایشگاه در پاسخ به بازدیدکننده‌ها دربارهٔ شرکت شما می‌گوید. هر جای آن را لازم دیدید اصلاح کنید.</p>
+    <div class="note warn" id="pending-note" hidden>متن قبلی شما ثبت شده و در انتظار بررسی است. اگر لازم است اصلاحش کنید و دوباره تأیید بزنید.</div>
+    <textarea id="text" maxlength="4000" placeholder="متن معرفی شرکت…"></textarea>
+    <div class="counter" id="counter" hidden></div>
+    <div class="note err" id="error"></div>
+    <div style="margin-top:16px"><button type="button" id="save">تأیید می‌کنم</button></div>
+    <p class="hint" style="margin:10px 0 0">با زدن این دکمه، کار شما تمام می‌شود و این صفحه بسته می‌شود.</p>
+  </section>
+
+  <!-- The end of the road. No button, nothing to press twice. -->
+  <section class="card final" id="final-card" hidden>
+    <div class="tick">✓</div>
+    <h2>ثبت شد. کار شما تمام است.</h2>
+    <p>متن شما را گرفتیم. بعد از بررسی، روی چت‌بات نمایشگاه قرار می‌گیرد.</p>
+    <p class="fine">این لینک دیگر باز نمی‌شود. لازم نیست کار دیگری بکنید.</p>
+  </section>
+</div>
+
+<script src="/static/leads/edit.js"></script>
+</body>
+</html>

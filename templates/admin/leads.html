@@ -1,0 +1,184 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}جذب سرنخ نمایشگاه{% endblock %}
+
+{% block page_content %}
+<div class="topbar">
+    <h5 class="m-0 text-dark">جذب سرنخ نمایشگاه</h5>
+    <div class="user-profile">
+        <span class="text-muted small">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<!-- Anything that fails on this page fails here, in words, not in the console. -->
+<div id="leads-alert" class="alert alert-danger d-none" role="alert"></div>
+
+<!-- Three states and the review count. A registration sits in exactly one of the
+     three, so these are places, not stages, and the numbers do not nest. -->
+<div class="row g-3 mb-2" id="funnel"></div>
+
+<!-- Overrides and releases are counted apart on purpose: neither is a state a
+     registration passes through, and folding them into the funnel would hide
+     exactly the two things an operator needs to notice. -->
+<p class="text-muted small mb-4" id="funnel-side"></p>
+
+<div class="row g-3">
+
+    <!-- The queue that stands between a stranger's text and the answer the
+         chatbot gives the public. Everything else on this page is secondary. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-inbox me-2"></i>متن‌های در انتظار بررسی</span>
+                <span class="badge bg-warning text-dark" id="pending-count">۰</span>
+            </div>
+            <div class="card-body" id="edits">
+                <p class="text-muted mb-0">در حال بارگذاری…</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Verified but silent. This list is the only place a permanently
+         unreachable company becomes visible, so it says why it matters. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-hourglass-half me-2"></i>شرکت‌های منتظر مانده</span>
+                <span class="badge bg-secondary" id="stuck-count">۰</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    شمارهٔ مخاطب این شرکت‌ها تأیید شده، پس نام شرکت از فهرست جستجوی
+                    همهٔ همکاران غرفه بیرون رفته است. ولی هنوز هیچ متنی از شرکت نرسیده.
+                    اگر مخاطب هیچ‌وقت لینک را باز نکند، هیچ همکار دیگری نمی‌تواند این
+                    شرکت را ثبت کند. با «آزاد کردن»، نام شرکت به فهرست جستجو برمی‌گردد
+                    و لینک قبلی از کار می‌افتد.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="bg-light"><tr>
+                            <th class="ps-4">شرکت</th><th>مخاطب</th><th>شماره</th>
+                            <th>همکار غرفه</th><th>مدت انتظار</th><th></th>
+                        </tr></thead>
+                        <tbody id="stuck"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approving publishes text to the public, so the way back has to be here
+         and not in a runbook nobody opens at the exhibition. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-rotate-left me-2"></i>متن‌های تأییدشده</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="approved-toggle">
+                    نمایش
+                </button>
+            </div>
+            <div class="card-body d-none" id="approved-body">
+                <p class="text-muted small mb-3">
+                    این متن‌ها همین حالا روی چت‌بات هستند. اگر یکی اشتباه تأیید شد،
+                    «برگرداندن» متن قبلی را دوباره روی چت‌بات می‌نشاند.
+                </p>
+                <div id="approved">
+                    <p class="text-muted mb-0">در حال بارگذاری…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Field visitors and their personal links. -->
+    <div class="col-12 col-lg-6">
+        <div class="content-card h-100">
+            <div class="card-header"><span><i class="fas fa-id-badge me-2"></i>همکاران غرفه</span></div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="visitor-name" placeholder="نام همکار">
+                    <button class="btn btn-primary" id="add-visitor" type="button">
+                        <i class="fas fa-plus me-1"></i>افزودن
+                    </button>
+                </div>
+
+                <!-- Shown once, at creation or after a rotation. There is no way
+                     back to it, which is what makes rotating the honest fix for a
+                     lost phone. -->
+                <div id="new-visitor" class="alert alert-success d-none">
+                    <p class="mb-1 fw-bold" id="new-visitor-title"></p>
+                    <p class="small mb-2">
+                        این لینک فقط همین یک بار نشان داده می‌شود. همین حالا بگذارید
+                        همکارتان اسکنش کند. اگر بعداً گم شد، از «ساخت لینک تازه» در
+                        همین جدول استفاده کنید.
+                    </p>
+                    <div class="text-center mb-2" id="new-visitor-qr" style="max-width:220px;margin:0 auto"></div>
+                    <code class="d-block text-break small" id="new-visitor-link" dir="ltr"></code>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="bg-light"><tr>
+                            <th class="ps-4">نام</th><th>ثبت‌ها</th><th>تأییدشده</th><th></th>
+                        </tr></thead>
+                        <tbody id="visitors"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- How the contact receives the edit link, and what the visitor reads aloud
+         before sending a code. Both are one setting away from the funnel above. -->
+    <div class="col-12 col-lg-6">
+        <div class="content-card h-100">
+            <div class="card-header"><span><i class="fas fa-paper-plane me-2"></i>تحویل لینک و متن غرفه</span></div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">لینک ویرایش چطور به دست مخاطب برسد؟</p>
+                <div id="channel"></div>
+
+                <hr>
+
+                <label class="form-label small text-muted" for="consent-script">
+                    متنی که همکار غرفه پای غرفه می‌خواند
+                </label>
+                <textarea class="form-control" id="consent-script" rows="6" dir="rtl"></textarea>
+                <p class="text-muted small mt-2 mb-3">
+                    با هر بار ذخیره یک نسخهٔ تازه ساخته می‌شود. ثبت‌های قبلی همان نسخه‌ای
+                    را که واقعاً به مخاطبشان گفته شده نگه می‌دارند.
+                </p>
+
+                <button type="button" class="btn btn-primary" id="settings-save">
+                    <i class="fas fa-save me-1"></i>ذخیره
+                </button>
+                <div id="settings-msg" class="fw-bold mt-2 small"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- The raw capture log. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header"><span><i class="fas fa-list me-2"></i>آخرین ثبت‌ها</span></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="bg-light"><tr>
+                            <th class="ps-4">شرکت</th><th>مخاطب</th><th>شماره</th><th>وضعیت</th>
+                        </tr></thead>
+                        <tbody id="leads"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initLeads } from '/static/admin/js/leads.js';
+    initLeads();
+</script>
+{% endblock %}

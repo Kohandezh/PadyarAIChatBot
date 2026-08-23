@@ -103,6 +103,13 @@ MODULES: dict[str, ModuleDef] = {
         is_core=False,
         router_module="app.routers.otp",
     ),
+    "leads": ModuleDef(
+        name="leads",
+        description="Exhibition lead capture: field visitors, company contacts, "
+                    "one-time edit invites and the edit review queue",
+        is_core=False,
+        router_module="app.routers.leads",
+    ),
 }
 
 CORE_MODULE_NAMES = [m.name for m in MODULES.values() if m.is_core]

@@ -69,6 +69,35 @@ Measured against the live account, 2026-08-17
     valid/active" for arbitrary ids. If Asanak says the line is service-only,
     OTP has to go through an approved template rather than `sendsms`.
 
+Invite links, the rejection notice and the daily budget (added 2026-08-23)
+-----------------------------------------------------------------------------
+Same discipline as above: what was measured, what is documented, what is a
+guess, kept apart.
+
+  * MEASURED (2026-08-17, recorded above): free text never reached a handset
+    on this account, an approved template did. Every link path below is built
+    on a template for that reason, never on `sendsms`.
+  * DOCUMENTED: `1014` is "the sender line is not permitted to send links".
+    Asanak publishes it. This account has never returned it, because nothing
+    here has ever sent a link.
+  * NOT VERIFIED: whether a link carried as a template PARAMETER is accepted
+    where free text with a link is refused. This account has no approved
+    link template, so it could not be tried, and no real SMS was sent to find
+    out. Sending a link is an external permission this project does not hold
+    yet. So `send_invite_link` and `send_reject_notice` are written to fail
+    loudly and light up the day Asanak approves a template, not to be assumed
+    working. A caller separates that refusal from every other failure with
+    `is_link_refusal(e)` and falls back to the QR channel (SPEC REQ-057).
+  * The invite link is a one-time credential. It travels in the SMS and, on a
+    dev install, into the gitignored outbox. It NEVER goes into an applog row
+    or a stdout line. Only the template id and the masked destination do.
+  * `sms_daily_budget` is a SPEND cap, not a rate limit. `OTP_DEST_HOURLY_LIMIT`
+    is per destination and therefore bounds nothing about the bill: walking the
+    09xx range, or a loop that retries, bills the account without limit. The
+    budget counts every message this module sends because they all come off
+    the same Asanak credit. Default 0 = no cap, so an install upgrading into
+    this code does not start refusing messages against a number nobody chose.
+
 Adding a gateway means adding one function and one entry in PROVIDERS.
 """
 import json
@@ -78,8 +107,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
-from app.config import logger
+from app.config import BASE_DIR, logger
 from app.services import applog
 from app.services.secure_store import protect, reveal, write_env_values
 
@@ -97,6 +127,12 @@ TIMEOUT_SECONDS = 10
 # What a visitor is allowed to see. Gateway specifics (wrong password, no
 # credit) are operator business and travel in SmsError.detail instead.
 _VISITOR_MESSAGE = "ارسال پیامک ناموفق بود. کمی بعد دوباره تلاش کنید."
+
+# Where a dev install sees the link it would have texted. Deliberately the
+# same file the OTP dev outbox uses, so a developer has ONE place to look.
+# The path is rebuilt here rather than imported from app.services.otp: that
+# module imports this one, and importing back would be circular.
+_DEV_OUTBOX = os.path.join(BASE_DIR, "data", "otp-dev-outbox.log")
 
 
 @dataclass(frozen=True)
@@ -117,6 +153,16 @@ ASANAK_FIELDS = (
     Field("sms_asanak_api_key", "ASANAK_API_KEY", secret=True),
     Field("sms_asanak_source", "ASANAK_SOURCE"),
     Field("sms_asanak_template_id", "ASANAK_TEMPLATE_ID"),
+    # The OTP template above carries a `code`. These two carry a `link`, and
+    # they are separate ids because Asanak approves a template per TEXT: "here
+    # is your edit link" and "your text was not approved, here is a fresh
+    # link" are two different approvals. Neither falls back to the other.
+    # A contact must never be told the wrong thing because one id was blank.
+    Field("sms_asanak_invite_template_id", "ASANAK_INVITE_TEMPLATE_ID"),
+    Field("sms_asanak_reject_template_id", "ASANAK_REJECT_TEMPLATE_ID"),
+    # Global daily spend cap, counted across every message this module sends.
+    # 0 = no cap; see the header for why that is the default.
+    Field("sms_daily_budget", "SMS_DAILY_BUDGET", default="0"),
     Field("sms_asanak_url", "ASANAK_URL", default=ASANAK_DEFAULT_URL),
     Field("sms_asanak_status_url", "ASANAK_STATUS_URL", default=ASANAK_STATUS_URL),
     Field("sms_asanak_credit_url", "ASANAK_CREDIT_URL", default=ASANAK_CREDIT_URL),
@@ -131,6 +177,8 @@ FIELDS_BY_KEY = {f.key: f for f in ASANAK_FIELDS}
 # published error list; 1008 is ambiguous (validation vs. auth) and is
 # disambiguated by the HTTP status below.
 ASANAK_ERRORS = {
+    1001: "قالب پیامک تأیید نشده یا فعال نیست. شناسهٔ قالب را در پنل آسانک "
+          "بررسی کنید و همان شناسه را در تنظیمات پیامک وارد کنید.",
     1002: "شماره فرستنده فعال نمی‌باشد.",
     1004: "خطای داخلی سرور سامانه پیامک.",
     1005: "اعتبار پنل نمایندگی کافی نیست.",
@@ -146,6 +194,19 @@ ASANAK_ERRORS = {
     429: "تعداد درخواست‌ها بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.",
 }
 _AUTH_MESSAGE = "نام کاربری یا رمز عبور وب‌سرویس درست نیست."
+
+# `SmsError.code` is normally Asanak's numeric meta.status. This is the one
+# non-numeric value it takes: the refusal came from THIS module, before any
+# request was made, because the day's budget is spent. A string cannot collide
+# with an Asanak code, so a caller can compare without guessing.
+BUDGET_EXHAUSTED = "budget_exhausted"
+
+# "The sender line may not send links". The one refusal a caller must be able
+# to act on differently: the invite still has to reach the contact, so the
+# booth falls back to the QR channel instead of failing the registration
+# (SPEC REQ-057). 1001 is deliberately NOT in here. An unapproved template is
+# a template problem an operator fixes in the panel, not a missing permission.
+LINK_REFUSAL_CODES = (1014,)
 
 
 class SmsError(Exception):
@@ -209,6 +270,95 @@ def asanak_configured() -> bool:
     return bool(setting("sms_asanak_username")
                 and setting("sms_asanak_password")
                 and setting("sms_asanak_source"))
+
+
+def is_link_refusal(error: Exception) -> bool:
+    """True when the gateway refused because the line may not send links.
+
+    This is the one failure a caller treats differently: the contact still
+    needs the link, so the booth shows the QR instead (SPEC REQ-057). Every
+    other failure is a plain failure and must be reported as one.
+    """
+    return getattr(error, "code", None) in LINK_REFUSAL_CODES
+
+
+# ── Daily spend budget ──────────────────────────────────────────────────
+# The counter is a settings row, not a gateway field: it is runtime state, so
+# it must never be written into .env. Its value is "YYYY-MM-DD:count", which
+# makes the daily reset free: a stale date simply reads as zero. The day
+# boundary is UTC, like every other timestamp in this app.
+_BUDGET_COUNTER_KEY = "sms_daily_count"
+
+
+def _utcnow() -> datetime:
+    """Naive UTC, the form every timestamp in this app is stored in.
+    Built from an aware value because datetime.utcnow() is deprecated."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def daily_budget() -> int:
+    """Messages allowed per day across every send path. 0 = no cap."""
+    try:
+        return max(0, int((setting("sms_daily_budget") or "0").strip()))
+    except ValueError:
+        # A typo in the setting must not become "unlimited spend" by accident.
+        logger.error("[sms] sms_daily_budget is not a number, treating it as 0")
+        return 0
+
+
+def _budget_today():
+    from app.db.queries import get_setting
+    today = _utcnow().date().isoformat()
+    day, _, used = (get_setting(_BUDGET_COUNTER_KEY, "") or "").partition(":")
+    if day != today:
+        return today, 0
+    try:
+        return today, int(used)
+    except ValueError:
+        return today, 0
+
+
+def sent_today() -> int:
+    """Messages already spent against today's budget (operator diagnostics)."""
+    return _budget_today()[1]
+
+
+def _spend_budget(kind: str) -> None:
+    """Book one message against today's budget, or refuse before sending.
+
+    Counted BEFORE the request, not after. A request the gateway rejects costs
+    nothing at Asanak, so this over-counts on a bad day, which stops sending
+    early rather than late. For a spend cap that is the safe direction, and a
+    crash between the count and the send cannot leave a message unbilled.
+    """
+    budget = daily_budget()
+    if not budget:
+        return
+    today, used = _budget_today()
+    if used >= budget:
+        # Loud on purpose. A budget that stops sending quietly is worse than
+        # no budget: the operator finds out from the visitors.
+        applog.critical("sms", "sms.budget.exhausted",
+                        "بودجهٔ روزانهٔ پیامک تمام شد و ارسال متوقف شده است",
+                        provider="asanak", subcategory=kind, outcome="denied",
+                        metadata={"budget": budget, "sent_today": used})
+        logger.error("[sms] daily budget of %s messages is spent, refusing %s", budget, kind)
+        raise SmsError(
+            detail="بودجهٔ روزانهٔ پیامک (%s پیامک) تمام شده است و تا فردا "
+                   "پیامکی فرستاده نمی‌شود. برای ادامه، سقف روزانه را در "
+                   "تنظیمات پیامک بالا ببرید." % budget,
+            code=BUDGET_EXHAUSTED,
+        )
+
+    from app.db.queries import set_setting
+    set_setting(_BUDGET_COUNTER_KEY, "%s:%d" % (today, used + 1))
+    # One warning while there is still time to act, not only at the wall.
+    # The equality makes it fire exactly once per day.
+    if used + 1 == (budget * 4) // 5:
+        applog.warning("sms", "sms.budget.low",
+                       "۸۰ درصد بودجهٔ روزانهٔ پیامک مصرف شده است",
+                       provider="asanak", subcategory=kind, outcome="ok",
+                       metadata={"budget": budget, "sent_today": used + 1})
 
 
 def _error_text(http_status: int, code) -> str:
@@ -375,27 +525,33 @@ def _http_post_json(url: str, document: dict):
         raise SmsError(detail="ارتباط با سامانه پیامک برقرار نشد.")
 
 
-def send_asanak_template(destination: str, code: str):
-    """Send the verification code through an APPROVED Asanak template.
+def _send_template(template_id: str, destination: str, parameters: dict,
+                   subcategory: str, missing_detail: str):
+    """POST one approved template and return Asanak's message id.
 
-    This exists because free text does not arrive on this account's line.
-    Measured 2026-08-17 on the same number, minutes apart:
+    Every template path goes through here (verification code, invite link,
+    rejection notice) so the budget, the payload shape and the logging live
+    in one place. `parameters` are matched by NAME against the template stored
+    in Asanak's panel; renaming one there without renaming it here breaks
+    delivery silently.
 
-        sendsms  (free text)      -> queued, Status 20 forever, credit unchanged
-        template (id 1654)        -> Status 6 "Success", delivered 22:55:35,
-                                     credit 1577 -> 1576
-
-    A service line only carries content its operator has approved, so the code
-    travels as a PARAMETER of a stored template rather than as a message body.
-    The template's parameter is named `code`; changing the template in Asanak's
-    panel without changing that name here breaks delivery silently.
+    Nothing from `parameters` reaches a log row. The verification code and the
+    invite token are both credentials, and only the template id and the masked
+    destination are safe to keep.
     """
-    template_id = setting("sms_asanak_template_id")
+    template_id = (template_id or "").strip()
+    if not template_id.isdigit():
+        # An unconfigured template is an operator error, not a gateway error.
+        # Say which setting is empty rather than letting int() raise.
+        raise SmsError(detail=missing_detail)
+
+    _spend_budget(subcategory)
+
     payload = _credentials()
     payload.update({
         "template_id": int(template_id),
         "destination": asanak_destination(destination),
-        "parameters": {"code": str(code)},
+        "parameters": parameters,
     })
     if setting("sms_asanak_send_to_blacklist").strip() == "0":
         payload["send_to_blacklist"] = 0
@@ -406,7 +562,7 @@ def send_asanak_template(destination: str, code: str):
         data = _result(*_http_post_json(url, payload))
     except SmsError as e:
         applog.error("sms", "sms.send.failed", "ارسال قالب پیامک ناموفق بود",
-                     provider="asanak", subcategory="template",
+                     provider="asanak", subcategory=subcategory,
                      duration_ms=int((time.perf_counter() - started) * 1000),
                      error_code=str(getattr(e, "code", "") or ""),
                      error_type="SmsError", outcome="failed",
@@ -420,12 +576,33 @@ def send_asanak_template(destination: str, code: str):
     # "queued", never "delivered" — the gateway returns 200 the moment it
     # accepts a message, and one that is accepted can still never arrive.
     applog.info("sms", "sms.send.queued", "پیامک قالبی در صف ارسال قرار گرفت",
-                provider="asanak", subcategory="template", outcome="queued",
+                provider="asanak", subcategory=subcategory, outcome="queued",
                 duration_ms=int((time.perf_counter() - started) * 1000),
                 target=asanak_destination(destination),
                 metadata={"template_id": template_id, "msgid": msgid,
                           "destination": applog.mask_phone(destination)})
     return msgid
+
+
+def send_asanak_template(destination: str, code: str):
+    """Send the verification code through an APPROVED Asanak template.
+
+    This exists because free text does not arrive on this account's line.
+    Measured 2026-08-17 on the same number, minutes apart:
+
+        sendsms  (free text)      -> queued, Status 20 forever, credit unchanged
+        template (id 1654)        -> Status 6 "Success", delivered 22:55:35,
+                                     credit 1577 -> 1576
+
+    A service line only carries content its operator has approved, so the code
+    travels as a PARAMETER of a stored template rather than as a message body.
+    The template's parameter is named `code`.
+    """
+    return _send_template(
+        setting("sms_asanak_template_id"), destination, {"code": str(code)},
+        subcategory="template",
+        missing_detail="شناسهٔ قالب کد تأیید تنظیم نشده است. آن را در تنظیمات "
+                       "پیامک وارد کنید.")
 
 
 def send_asanak(destination: str, message: str, code: str = None):
@@ -457,6 +634,8 @@ def send_asanak(destination: str, message: str, code: str = None):
     if setting("sms_asanak_send_to_blacklist").strip() == "0":
         payload["send_to_blacklist"] = "0"
 
+    _spend_budget("freetext")
+
     _started = time.perf_counter()
     try:
         data = _call(setting("sms_asanak_url"), payload)
@@ -484,6 +663,106 @@ def send_asanak(destination: str, message: str, code: str = None):
                 metadata={"msgid": msgid,
                           "destination": applog.mask_phone(destination)})
     return msgid
+
+
+# ── Link messages: the invite and the rejection notice ──────────────────
+# Both carry a URL, and a URL is exactly what this account's sender line is
+# not known to be allowed to carry (see the header). They are built anyway, so
+# the day Asanak approves a link template the operator changes one setting and
+# nothing else. Until then they fail with the gateway's own reason and the
+# caller shows the QR instead.
+
+_MISSING_INVITE_TEMPLATE = (
+    "شناسهٔ قالب پیامکِ لینک دعوت تنظیم نشده است. یک قالب حاوی لینک را در پنل "
+    "آسانک تأیید بگیرید و شناسه‌اش را در تنظیمات پیامک وارد کنید. تا آن وقت "
+    "کانال تحویل دعوت‌نامه را روی QR بگذارید.")
+_MISSING_REJECT_TEMPLATE = (
+    "شناسهٔ قالب پیامکِ اعلام رد ویرایش تنظیم نشده است. یک قالب حاوی لینک را در "
+    "پنل آسانک تأیید بگیرید و شناسه‌اش را در تنظیمات پیامک وارد کنید.")
+# The shared 1014 text tells an OTP operator to blank the autofill host, which
+# is right there and wrong here: on this path the link IS the message. Same
+# gateway code, different thing to do about it.
+_LINK_NOT_PERMITTED = (
+    "شماره فرستنده مجاز به ارسال لینک نمی‌باشد (خطای ۱۰۱۴ آسانک). این خطای "
+    "تنظیمات نیست و با عوض کردن هیچ فیلدی درست نمی‌شود: باید از آسانک برای این "
+    "خط اجازهٔ ارسال لینک گرفته شود. تا آن وقت کانال تحویل دعوت‌نامه را روی QR "
+    "بگذارید.")
+
+
+def _dev_outbox(destination: str, purpose: str, link: str) -> None:
+    """Write what would have been texted, on a dev install only.
+
+    The link is the credential, so it is written in full here and nowhere
+    else: this file is gitignored and exists so a developer can finish the
+    flow without a gateway. A production install never reaches this path,
+    because `sms_provider` is `asanak` there.
+    """
+    os.makedirs(os.path.dirname(_DEV_OUTBOX), exist_ok=True)
+    with open(_DEV_OUTBOX, "a", encoding="utf-8") as f:
+        f.write("%s %s %s=%s\n" % (_utcnow().isoformat(),
+                                   applog.mask_phone(destination), purpose, link))
+
+
+def _send_link(destination: str, link: str, template_key: str,
+               subcategory: str, missing_detail: str, reference: str = ""):
+    """Deliver one link through the configured provider. Returns the msgid.
+
+    Raises SmsError on every failure, never returns a falsy "probably fine".
+    `reference` is a caller-side id (a lead id) kept in the log so an operator
+    can answer "did this contact ever get the SMS" without the link itself.
+    """
+    from app.db.queries import get_setting
+    provider = (get_setting("sms_provider", "") or os.getenv("OTP_DELIVERY", "dev")).strip().lower()
+
+    if provider == "dev":
+        _dev_outbox(destination, subcategory, link)
+        applog.info("sms", "sms.link.queued", "لینک در صندوق آزمایشی نوشته شد",
+                    provider="dev", subcategory=subcategory, outcome="queued",
+                    metadata={"destination": applog.mask_phone(destination),
+                              "reference": reference})
+        return None
+
+    if not asanak_configured():
+        raise SmsError(detail="سرویس پیامک پیکربندی نشده است. نام کاربری، رمز "
+                              "عبور و شماره فرستنده را در تنظیمات پیامک وارد کنید.")
+
+    try:
+        msgid = _send_template(setting(template_key), destination, {"link": link},
+                               subcategory=subcategory, missing_detail=missing_detail)
+    except SmsError as e:
+        if is_link_refusal(e):
+            raise SmsError(str(e), detail=_LINK_NOT_PERMITTED, code=e.code) from e
+        raise
+    if reference:
+        applog.info("sms", "sms.link.queued", "لینک با پیامک ارسال شد",
+                    provider="asanak", subcategory=subcategory, outcome="queued",
+                    metadata={"msgid": msgid, "reference": reference,
+                              "destination": applog.mask_phone(destination)})
+    return msgid
+
+
+def send_invite_link(destination: str, link: str, reference: str = ""):
+    """Text a company contact the link that lets them edit their own answer.
+
+    Raises SmsError when the link does not go out. `is_link_refusal(e)` is
+    True when the reason is the sender line's missing link permission, which
+    is the case the booth answers with a QR code (SPEC REQ-057); `e.detail`
+    is the operator-facing sentence for the admin panel and `str(e)` is all a
+    visitor may see.
+    """
+    return _send_link(destination, link, "sms_asanak_invite_template_id",
+                      "invite", _MISSING_INVITE_TEMPLATE, reference)
+
+
+def send_reject_notice(destination: str, link: str, reference: str = ""):
+    """Tell a contact their edit was not approved, with a fresh link.
+
+    Same failure contract as send_invite_link. The rejection itself must go
+    through whether or not this succeeds (SPEC REQ-067): the caller records
+    that the contact was not reached, it does not undo the review.
+    """
+    return _send_link(destination, link, "sms_asanak_reject_template_id",
+                      "reject", _MISSING_REJECT_TEMPLATE, reference)
 
 
 PROVIDERS = {

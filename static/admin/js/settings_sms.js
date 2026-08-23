@@ -63,6 +63,12 @@ async function loadSettings() {
         el('sms-username').value = d.username || '';
         el('sms-source').value = d.source || '';
         el('sms-template-id').value = d.template_id || '';
+        el('sms-invite-template-id').value = d.invite_template_id || '';
+        el('sms-reject-template-id').value = d.reject_template_id || '';
+        el('sms-daily-budget').value = d.daily_budget || '0';
+        // Today's count next to the cap, so the operator can see how close the
+        // day is to going silent instead of finding out when it does.
+        el('sms-budget-used').textContent = `امروز ${d.sent_today || 0} پیامک فرستاده شده است.`;
         el('sms-url').value = d.url || '';
         el('sms-url').placeholder = d.url_default || '';
         el('sms-status-url').value = d.status_url || '';
@@ -116,6 +122,9 @@ export function initSms() {
             api_key: el('sms-api-key').value.trim(),
             source: el('sms-source').value.trim(),
             template_id: el('sms-template-id').value.trim(),
+            invite_template_id: el('sms-invite-template-id').value.trim(),
+            reject_template_id: el('sms-reject-template-id').value.trim(),
+            daily_budget: el('sms-daily-budget').value.trim(),
             url: el('sms-url').value.trim(),
             status_url: el('sms-status-url').value.trim(),
             credit_url: el('sms-credit-url').value.trim(),

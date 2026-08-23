@@ -106,31 +106,22 @@
                                     <input type="text" id="sms-source" class="form-control" dir="ltr"
                                         placeholder="مثلا: 98200049">
                                     <small class="text-muted">همان شماره‌ای که در پنل آسانک به شما داده شده
-                                        است. فقط شمارهٔ فرستنده — نه شمارهٔ گیرنده.</small>
+                                        است. فقط شمارهٔ فرستنده، نه شمارهٔ گیرنده.</small>
                                 </div>
 
                                 <div class="col-md-6">
-                                    <label class="form-label" for="sms-template-id">شناسه قالب تأییدشده</label>
-                                    <input type="text" id="sms-template-id" class="form-control" dir="ltr"
-                                        inputmode="numeric" placeholder="مثلا: 1654">
-                                    <small class="text-muted">اگر خط شما <b>خدماتی</b> است، فقط متن قالبِ
-                                        تأییدشده به گوشی می‌رسد. با پر کردن این فیلد، کد تأیید به‌جای متن آزاد
-                                        از طریق قالب فرستاده می‌شود. خالی بگذارید تا متن آزاد ارسال شود.</small>
-                                </div>
-
-                                <div class="col-md-4">
                                     <label class="form-label" for="sms-username">نام کاربری</label>
                                     <input type="text" id="sms-username" class="form-control" dir="ltr"
                                         autocomplete="off" placeholder="نام کاربری حساب پیامکی">
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-6">
                                     <label class="form-label" for="sms-password">رمز عبور</label>
                                     <input type="password" id="sms-password" class="form-control" dir="ltr"
                                         autocomplete="new-password"
                                         placeholder="برای نگه‌داشتن رمز فعلی خالی بگذارید">
                                     <small class="text-muted" id="sms-password-state"></small>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-6">
                                     <label class="form-label" for="sms-api-key">کلید API <span
                                             class="text-muted">(اختیاری)</span></label>
                                     <input type="password" id="sms-api-key" class="form-control" dir="ltr"
@@ -140,6 +131,70 @@
                                         عبور انجام می‌شود؛ این کلید لازم نیست. اگر آسانک برای سرویس دیگری به شما
                                         کلید داده، اینجا نگه داشته می‌شود.</small>
                                     <small class="text-muted" id="sms-api-key-state"></small>
+                                </div>
+                            </div>
+
+                            <!-- Three template ids in one panel. They are only telling
+                                 apart by their LABEL, so each label names the message the
+                                 contact receives, not the Asanak jargon for it. -->
+                            <hr class="my-4">
+                            <h6 class="mb-2">متن‌های تأییدشده در پنل آسانک</h6>
+                            <p class="text-muted small mb-3">
+                                هر متن پیامک جداگانه در پنل آسانک تأیید می‌شود و شمارهٔ مخصوص خودش
+                                را دارد. سه متن زیر سه کار متفاوت می‌کنند. شماره‌ها را جابه‌جا وارد
+                                نکنید، وگرنه برای مخاطب پیام اشتباه فرستاده می‌شود.
+                            </p>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-template-id">۱. پیامک «کد تأیید»</label>
+                                    <input type="text" id="sms-template-id" class="form-control" dir="ltr"
+                                        inputmode="numeric" placeholder="مثلا: 1654">
+                                    <small class="text-muted">پیامکی که کد ورود بازدیدکننده را می‌فرستد.
+                                        اگر خط شما <b>خدماتی</b> است، فقط متن تأییدشده به گوشی می‌رسد. خالی
+                                        بگذارید تا کد به‌صورت متن آزاد فرستاده شود.</small>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-invite-template-id">۲. پیامک «لینک
+                                        ویرایش»</label>
+                                    <input type="text" id="sms-invite-template-id" class="form-control" dir="ltr"
+                                        inputmode="numeric" placeholder="مثلا: 1655">
+                                    <small class="text-muted">پیامکی که برای شرکت فرستاده می‌شود تا متن خودش را
+                                        ویرایش کند. متن این پیامک یک لینک دارد. تا وقتی خالی باشد، این پیامک
+                                        فرستاده نمی‌شود و لینک فقط با کد QR به شرکت داده می‌شود.</small>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-reject-template-id">۳. پیامک «تأیید
+                                        نشد»</label>
+                                    <input type="text" id="sms-reject-template-id" class="form-control" dir="ltr"
+                                        inputmode="numeric" placeholder="مثلا: 1656">
+                                    <small class="text-muted">پیامکی که به شرکت می‌گوید متنش تأیید نشده و لینک
+                                        تازه‌ای برای اصلاح می‌دهد. متن این هم یک لینک دارد، ولی شمارهٔ آن با
+                                        پیامک لینک ویرایش یکی نیست.</small>
+                                </div>
+                            </div>
+
+                            <!-- The cap's consequence is written next to the field, not
+                                 in a tooltip: an operator who has to hover to find out
+                                 that sending stops will find out from the visitors. -->
+                            <hr class="my-4">
+                            <h6 class="mb-2">سقف روزانه</h6>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label" for="sms-daily-budget">بیشترین تعداد پیامک در
+                                        روز</label>
+                                    <input type="text" id="sms-daily-budget" class="form-control" dir="ltr"
+                                        inputmode="numeric" placeholder="0">
+                                    <small class="text-muted d-block" id="sms-budget-used"></small>
+                                </div>
+                                <div class="col-md-8">
+                                    <p class="text-muted small mb-0 mt-md-4">
+                                        وقتی تعداد پیامک‌های امروز به این عدد برسد، تا روز بعد هیچ پیامکی فرستاده
+                                        نمی‌شود؛ کد تأیید هم فرستاده نمی‌شود و کسی نمی‌تواند ثبت‌نام کند.
+                                        این عدد همهٔ پیامک‌ها را با هم می‌شمارد. عدد <b>۰</b> یعنی سقفی وجود
+                                        ندارد.
+                                    </p>
                                 </div>
                             </div>
                         </div>

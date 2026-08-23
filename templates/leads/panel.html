@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>ثبت شرکت — <!-- APP_NAME --></title>
+<link rel="stylesheet" href="/static/vendor/vazirmatn/Vazirmatn-font-face.css">
+<link rel="stylesheet" href="/static/leads/leads.css">
+<!-- BRAND_CSS -->
+</head>
+<body>
+<header class="bar">
+  <div class="inner">
+    <h1>ثبت شرکت</h1>
+    <p><!-- VISITOR_NAME --> عزیز، خوش آمدید</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="steps" id="steps">
+    <span class="done"></span><span></span><span></span><span></span>
+  </div>
+
+  <!-- Step 1 — pick the company. -->
+  <section class="card" id="step-company">
+    <h2>۱. شرکت را پیدا کنید</h2>
+    <p class="hint">نام شرکت را بنویسید و از فهرست انتخاب کنید.</p>
+    <input type="search" id="q" placeholder="مثلاً: پارس" autocomplete="off" inputmode="search">
+    <ul class="results" id="results"></ul>
+    <div id="chosen" hidden class="chosen">
+      <span id="chosen-name"></span>
+      <button type="button" id="change">تغییر</button>
+    </div>
+  </section>
+
+  <!-- Step 2 — the contact. -->
+  <section class="card" id="step-contact" hidden>
+    <h2>۲. مشخصات مسئول شرکت</h2>
+    <p class="hint">همان کسی که موبایلش دم دست است — کد تأیید برای او می‌رود.</p>
+    <label for="first">نام</label>
+    <input type="text" id="first" autocomplete="off">
+    <label for="last">نام خانوادگی</label>
+    <input type="text" id="last" autocomplete="off">
+    <label for="position">سمت</label>
+    <input type="text" id="position" placeholder="مثلاً: مدیر فروش" autocomplete="off">
+    <label for="phone">شماره موبایل</label>
+    <input type="tel" id="phone" placeholder="09123456789" inputmode="numeric" autocomplete="off">
+    <div class="note err" id="reg-error"></div>
+
+    <!-- The number already belongs to another company. One person really can
+         run two companies, so this asks rather than refuses. -->
+    <div class="ask" id="dup" hidden>
+      <h3>این شماره قبلاً ثبت شده است</h3>
+      <p id="dup-text">این شماره موبایل قبلاً برای یک شرکت دیگر ثبت شده است. اگر همین شخص مسئول این شرکت هم هست، ادامه بدهید. اگر نه، شماره را اصلاح کنید.</p>
+      <p class="fine">این تصمیم شما با نام خودتان ثبت می‌شود.</p>
+      <button type="button" id="dup-yes">بله، همین شماره درست است. کد را بفرست</button>
+      <button type="button" class="ghost" id="dup-no">نه، شماره را اصلاح می‌کنم</button>
+    </div>
+
+    <div id="send-row" style="margin-top:16px"><button type="button" id="send">ارسال کد تأیید</button></div>
+  </section>
+
+  <!-- Step 3 — the code the contact reads out. -->
+  <section class="card" id="step-code" hidden>
+    <h2>۳. کد را از ایشان بپرسید</h2>
+    <p class="hint">کدی که به <span id="masked"></span> پیامک شد را وارد کنید.</p>
+    <input type="text" id="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="------">
+    <div class="note err" id="code-error"></div>
+    <div style="margin-top:16px"><button type="button" id="confirm">تأیید</button></div>
+  </section>
+
+  <!-- Step 4 — hand the invite over, by QR or by SMS. The link itself is never
+       shown on this screen; the visitor holds the phone, not the address. -->
+  <section class="card" id="step-qr" hidden>
+    <h2 id="deliver-title">۴. این کد را اسکن کنند</h2>
+    <p class="hint" id="deliver-hint">گوشی را جلوی ایشان بگیرید. با اسکن، صفحه اطلاعات شرکت باز می‌شود.</p>
+    <div class="note warn" id="sms-failed" hidden>پیامک فرستاده نشد. به‌جایش همین کد را جلوی ایشان بگیرید.</div>
+    <div id="by-qr" hidden>
+      <div class="qr" id="qr"></div>
+      <div class="note warn">این کد تا فردا همین ساعت کار می‌کند. وقتی ایشان اطلاعات را تأیید کردند، بسته می‌شود.</div>
+    </div>
+    <div id="by-sms" hidden>
+      <div class="note ok">پیامک برای <span id="sms-to"></span> فرستاده شد. یک لینک برایشان می‌آید که با باز کردنش اطلاعات شرکت را می‌بینند و تأیید می‌کنند.</div>
+      <div class="note warn">این لینک تا فردا همین ساعت کار می‌کند. وقتی ایشان اطلاعات را تأیید کردند، بسته می‌شود.</div>
+    </div>
+    <div style="margin-top:16px"><button type="button" id="again">ثبت شرکت بعدی</button></div>
+  </section>
+
+  <section class="card">
+    <h2>ثبت‌های امروز شما</h2>
+    <ul class="leads" id="mine"></ul>
+  </section>
+</div>
+
+<script src="/static/leads/panel.js"></script>
+</body>
+</html>

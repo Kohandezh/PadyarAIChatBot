@@ -22,6 +22,7 @@ from app.config import (
 from app.auth.security import (
     verify_admin, login_attempts,
     hash_password, verify_password, is_legacy_hash,
+    client_ip as resolve_client_ip,
 )
 from app.db.connection import get_db_connection
 from app.db.queries import get_setting, set_setting
@@ -62,7 +63,7 @@ def _retire_bootstrap_credentials(username: str, client_ip: str) -> None:
 
 @router.post("/admin/login")
 async def admin_login(creds: LoginRequest, request: Request):
-    client_ip = request.client.host
+    client_ip = resolve_client_ip(request)
 
     # 1. Rate Limiting Check
     if client_ip in login_attempts:
@@ -183,7 +184,7 @@ async def admin_logout(request: Request, response: Response):
     response.delete_cookie(ADMIN_COOKIE_NAME)
     applog.audit("auth.logout", "خروج مدیر", target="admin-panel", outcome="ok",
                  actor_type="admin",
-                 ip=request.client.host if request.client else "")
+                 ip=resolve_client_ip(request))
     return {"status": "logged_out"}
 
 
@@ -275,6 +276,12 @@ async def get_sms_settings():
         "username": get_setting("sms_asanak_username", ""),
         "source": get_setting("sms_asanak_source", ""),
         "template_id": get_setting("sms_asanak_template_id", ""),
+        "invite_template_id": get_setting("sms_asanak_invite_template_id", ""),
+        "reject_template_id": get_setting("sms_asanak_reject_template_id", ""),
+        "daily_budget": get_setting("sms_daily_budget", "0"),
+        # Today's spend, so the cap is a number the operator can see filling up
+        # instead of a wall they hit during an event.
+        "sent_today": sms_service.sent_today(),
         "url": get_setting("sms_asanak_url", ""),
         "url_default": sms_service.ASANAK_DEFAULT_URL,
         "status_url": get_setting("sms_asanak_status_url", ""),
@@ -303,6 +310,17 @@ async def save_sms_settings(req: SmsSettingsRequest):
     sender number without re-entering the password.
     """
     from app.services import sms as sms_service
+    # A budget that cannot be read is treated as 0 (no cap) by the sender, so a
+    # typo here would silently remove the cap. Refuse it while the operator is
+    # still looking at the form. int() also accepts Persian digits and returns
+    # them as a plain number, so ۱۰۰ typed on a Persian keyboard is stored 100.
+    try:
+        budget = str(max(0, int((req.daily_budget or "0").strip() or "0")))
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="سقف روزانه پیامک باید یک عدد باشد. برای برداشتن سقف، ۰ بگذارید.")
+
     set_setting("registration_enabled", "true" if req.enabled else "false")
     env_written = sms_service.save_settings({
         "sms_provider": req.provider.strip() or "dev",
@@ -311,6 +329,9 @@ async def save_sms_settings(req: SmsSettingsRequest):
         "sms_asanak_api_key": req.api_key,
         "sms_asanak_source": req.source,
         "sms_asanak_template_id": req.template_id,
+        "sms_asanak_invite_template_id": req.invite_template_id,
+        "sms_asanak_reject_template_id": req.reject_template_id,
+        "sms_daily_budget": budget,
         "sms_asanak_url": req.url,
         "sms_asanak_status_url": req.status_url,
         "sms_asanak_credit_url": req.credit_url,
