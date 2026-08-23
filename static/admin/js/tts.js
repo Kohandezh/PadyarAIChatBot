@@ -73,6 +73,9 @@ export async function initTTS() {
     el('btn-cache-cleanup').onclick = cleanupCache;
     el('btn-cache-clear').onclick = clearCache;
 
+    el('btn-lexicon-add').onclick = () => addLexiconRow('', '', true);
+    el('btn-lexicon-save').onclick = saveLexicon;
+
     updateCharCount();
     await loadStatus();
     // Saved defaults BEFORE the voice list, so loadVoices() can preselect the
@@ -80,6 +83,7 @@ export async function initTTS() {
     await loadSavedParams();
     await loadVoices();
     await loadCacheStats();
+    await loadLexicon();
 }
 
 
@@ -614,6 +618,83 @@ async function saveVoice() {
     } catch {
         msg.className = 'text-danger small';
         msg.innerText = '❌ ارتباط با سرور برقرار نشد';
+        btn.disabled = false;
+    }
+}
+
+
+// ── How words are read ──────────────────────────────────────────────────
+//
+// A table of "this word / read it like this", saved as a block. Deliberately
+// not phonetics: the operator writes «دوور» and presses بشنو, which is a thing
+// they can check, where /duːr/ is a thing they would have to be taught.
+
+function addLexiconRow(written, spoken, focus) {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><input class="form-control" dir="rtl" data-lex="written" maxlength="80"
+                 placeholder="دور"></td>
+      <td><input class="form-control" dir="rtl" data-lex="spoken" maxlength="80"
+                 placeholder="دوور"></td>
+      <td class="text-end">
+        <button class="btn btn-ghost-danger btn-icon" title="حذف این ردیف">
+          <i class="fas fa-trash"></i>
+        </button>
+      </td>`;
+    // Values are SET, never interpolated into the HTML above: a word an
+    // operator typed is data, and a quote in it must not become markup.
+    row.querySelector('[data-lex="written"]').value = written;
+    row.querySelector('[data-lex="spoken"]').value = spoken;
+    row.querySelector('button').onclick = () => row.remove();
+    el('tts-lexicon-rows').appendChild(row);
+    if (focus) row.querySelector('[data-lex="written"]').focus();
+}
+
+
+async function loadLexicon() {
+    const host = el('tts-lexicon-rows');
+    host.innerHTML = '';
+    let entries = [];
+    try {
+        const res = await fetchAuth('/admin/api/tts/lexicon');
+        entries = (await res.json()).entries || [];
+    } catch { /* an empty table is the right thing to show */ }
+    entries.forEach(e => addLexiconRow(e.written, e.spoken, false));
+    // One blank row when there is nothing, so the feature is visibly usable
+    // rather than an empty table with a button next to it.
+    if (!entries.length) addLexiconRow('', '', false);
+}
+
+
+async function saveLexicon() {
+    const msg = el('tts-lexicon-msg');
+    const btn = el('btn-lexicon-save');
+    const entries = [...el('tts-lexicon-rows').querySelectorAll('tr')].map(tr => ({
+        written: tr.querySelector('[data-lex="written"]').value.trim(),
+        spoken: tr.querySelector('[data-lex="spoken"]').value.trim(),
+    }));
+
+    btn.disabled = true;
+    msg.className = 'text-muted small';
+    msg.innerText = '⏳ در حال ذخیره…';
+    try {
+        const res = await fetchAuth('/admin/api/tts/lexicon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entries }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            msg.className = 'text-danger small';
+            msg.innerText = '❌ ' + (body.detail || 'ذخیره ممکن نشد');
+            return;
+        }
+        msg.className = 'text-success small';
+        msg.innerText = `✅ تلفظ ${body.entries.length} کلمه ذخیره شد.`;
+    } catch {
+        msg.className = 'text-danger small';
+        msg.innerText = '❌ ارتباط با سرور برقرار نشد';
+    } finally {
         btn.disabled = false;
     }
 }

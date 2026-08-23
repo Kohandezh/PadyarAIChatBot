@@ -483,6 +483,118 @@ def test_cache_stats_still_counts_answers_when_the_engine_is_down(client, engine
     assert body["message_fa"]
 
 
+# ── How words are read ──────────────────────────────────────────────────
+#
+# Persian writes no short vowels, so «دور» is both `duur` (far) and `dowr` (a
+# turn) and the model has to guess. On the exhibition dataset it guessed wrong
+# every time. These tests hold the one rule that makes the fix safe: a rule
+# fires on a whole word and never inside one.
+
+def test_a_rule_rewrites_the_word_and_not_the_word_it_sits_inside(client):
+    from app.services import tts_lexicon
+    client.post("/admin/api/tts/lexicon",
+                json={"entries": [{"written": "دور", "spoken": "دوور"}]})
+
+    # The INOTEX narration contains both, in one sentence.
+    assert tts_lexicon.apply("اشیاء دور و نزدیک") == "اشیاء دوور و نزدیک"
+    assert tts_lexicon.apply("دوربینِ شناخته‌شده") == "دوربینِ شناخته‌شده"
+
+
+def test_a_diacritic_does_not_hide_the_end_of_a_word(client):
+    """«دورِ» is «دور» with the operator's own ezafe on it, and still the word."""
+    from app.services import tts_lexicon
+    client.post("/admin/api/tts/lexicon",
+                json={"entries": [{"written": "دور", "spoken": "دوور"}]})
+    assert tts_lexicon.apply("دورِ زمین") == "دوورِ زمین"
+
+
+def test_the_longer_rule_wins(client):
+    from app.services import tts_lexicon
+    client.post("/admin/api/tts/lexicon", json={"entries": [
+        {"written": "عدسی", "spoken": "adasi"},
+        {"written": "عدسی چشم", "spoken": "adasiye cheshm"},
+    ]})
+    assert tts_lexicon.apply("عدسی چشم") == "adasiye cheshm"
+
+
+def test_a_rule_never_rewrites_what_another_rule_just_produced(client):
+    """One pass. Otherwise the output depends on the order rows were typed in."""
+    from app.services import tts_lexicon
+    client.post("/admin/api/tts/lexicon", json={"entries": [
+        {"written": "دور", "spoken": "دوور"},
+        {"written": "دوور", "spoken": "چیز دیگری"},
+    ]})
+    assert tts_lexicon.apply("دور") == "دوور"
+
+
+def test_the_saved_list_comes_back_as_it_was_typed(client):
+    entries = [{"written": "دور", "spoken": "دوور"},
+               {"written": "شبکیه", "spoken": "شَبَکیه"}]
+    save = client.post("/admin/api/tts/lexicon", json={"entries": entries})
+    assert save.status_code == 200
+    assert client.get("/admin/api/tts/lexicon").json()["entries"] == entries
+
+
+def test_an_empty_row_is_dropped_rather_than_refused(client):
+    """The page adds a blank row when you click «کلمهٔ تازه»; saving without
+    filling it in is not an error, it is a change of mind."""
+    res = client.post("/admin/api/tts/lexicon", json={"entries": [
+        {"written": "دور", "spoken": "دوور"},
+        {"written": "", "spoken": ""},
+    ]})
+    assert res.status_code == 200
+    assert res.json()["entries"] == [{"written": "دور", "spoken": "دوور"}]
+
+
+@pytest.mark.parametrize("entries, because", [
+    ([{"written": "دور", "spoken": ""}], "half a rule does nothing"),
+    ([{"written": "", "spoken": "دوور"}], "half a rule does nothing"),
+    ([{"written": "دور", "spoken": "الف"},
+      {"written": "دور", "spoken": "ب"}], "two readings of one word"),
+])
+def test_a_rule_that_cannot_be_obeyed_is_refused_in_persian(client, entries, because):
+    res = client.post("/admin/api/tts/lexicon", json={"entries": entries})
+    assert res.status_code == 400, because
+    assert res.json()["detail"]
+
+
+def test_a_preview_is_generated_from_the_spoken_form(client, engine):
+    client.post("/admin/api/tts/lexicon",
+                json={"entries": [{"written": "دور", "spoken": "دوور"}]})
+    engine.responses[("POST", "/tts")] = FakeResponse(content=b"audio")
+
+    client.post("/admin/api/tts/preview", json={"text": "اشیاء دور و نزدیک"})
+
+    assert engine.calls[-1]["json"]["text"] == "اشیاء دوور و نزدیک"
+
+
+def test_warming_and_cleanup_agree_on_the_text_they_keyed_the_audio_by(client, engine):
+    """The bug this prevents: warm renders the spoken form, cleanup asks about
+    the stored form, the keys do not match, and cleanup deletes every clip it
+    just made."""
+    _seed_answers("اشیاء دور و نزدیک")
+    client.post("/admin/api/tts/lexicon",
+                json={"entries": [{"written": "دور", "spoken": "دوور"}]})
+    engine.responses[("POST", "/prerender")] = FakeResponse(
+        json_body={"total": 1, "rendered": 1, "skipped": 0, "failed": 0, "errors": []})
+    engine.responses[("POST", "/cache/prune")] = FakeResponse(
+        json_body={"deleted": 0, "kept": 1, "bytes": 0})
+
+    client.post("/admin/api/tts/cache/warm")
+    client.post("/admin/api/tts/cache/cleanup")
+
+    warmed = [c for c in engine.calls if c["path"] == "/prerender"][-1]["json"]["texts"]
+    kept = [c for c in engine.calls if c["path"] == "/cache/prune"][-1]["json"]["keep_texts"]
+    assert warmed == ["اشیاء دوور و نزدیک"]
+    assert kept == warmed
+
+
+def test_the_lexicon_endpoints_refuse_an_anonymous_caller(anon):
+    assert anon.get("/admin/api/tts/lexicon").status_code in (401, 403)
+    assert anon.post("/admin/api/tts/lexicon",
+                     json={"entries": []}).status_code in (401, 403)
+
+
 def test_warming_sends_every_answer_with_the_saved_settings(client, engine):
     _seed_answers("پاسخ یکم", "پاسخ دوم")
     client.post("/admin/api/tts/settings",

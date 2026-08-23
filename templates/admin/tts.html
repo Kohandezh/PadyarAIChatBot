@@ -232,6 +232,49 @@
   </div>
 </div>
 
+{# Persian does not write its short vowels, so «دور» is both far and a turn and
+   the model has to guess. This is where the person who knows the text settles
+   it. Phrased as reading, never as phonetics: the operator checks it by
+   pressing play, and cannot be asked to learn IPA. #}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title">تلفظ کلمه‌ها</h3>
+  </div>
+  <div class="card-body">
+    <p class="text-muted">
+      اگر کلمه‌ای اشتباه خوانده می‌شود، اینجا بنویسید چطور خوانده شود.
+      مثلاً «دور» را «دوور» بنویسید تا مثل فاصله خوانده شود، نه مثل دُر.
+      فقط همان کلمهٔ کامل عوض می‌شود؛ «دوربین» دست‌نخورده می‌ماند.
+    </p>
+
+    <div class="table-responsive">
+      <table class="table table-vcenter">
+        <thead>
+          <tr>
+            <th style="width:45%">این کلمه</th>
+            <th style="width:45%">اینجوری خوانده شود</th>
+            <th style="width:10%"></th>
+          </tr>
+        </thead>
+        <tbody id="tts-lexicon-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <button class="btn btn-outline-primary" id="btn-lexicon-add">
+        <i class="fas fa-plus ms-2"></i>کلمهٔ تازه
+      </button>
+      <button class="btn btn-primary" id="btn-lexicon-save">
+        <i class="fas fa-save ms-2"></i>ذخیرهٔ تلفظ‌ها
+      </button>
+    </div>
+    <div id="tts-lexicon-msg" class="mt-2"></div>
+    <div class="text-muted small mt-2">
+      بعد از ذخیره، صدای پاسخ‌هایی که این کلمه‌ها را دارند باید دوباره ساخته شود.
+    </div>
+  </div>
+</div>
+
 {# The cache, described as what it does for a visitor rather than as a cache.
    An operator does not care that files are keyed by sha256; they care that a
    question already has an answer ready. #}

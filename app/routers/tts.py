@@ -22,7 +22,7 @@ from app.config import (TTS_URL, TTS_TIMEOUT, TTS_STATUS_TIMEOUT,
                         TTS_PRERENDER_TIMEOUT, logger)
 from app.db.queries import get_setting, set_setting
 from app.models import TTSPreviewRequest
-from app.services import applog
+from app.services import applog, tts_lexicon
 
 router = APIRouter()
 
@@ -100,6 +100,10 @@ async def tts_preview(req: TTSPreviewRequest):
     own cache already keeps the ones that matter.
     """
     payload = req.model_dump()
+    # How this installation wants its words read, applied on the way out. The
+    # engine is told the spoken form and nothing else: it has no idea a lexicon
+    # exists, and the operator never sees one in the box they typed into.
+    payload["text"] = tts_lexicon.apply(payload["text"])
     try:
         async with httpx.AsyncClient(timeout=TTS_TIMEOUT) as client:
             response = await client.post(_upstream("/tts"), json=payload)
@@ -150,7 +154,12 @@ def _dataset_texts() -> list:
             " ORDER BY id").fetchall()
     finally:
         conn.close()
-    return [str(r[0]).strip() for r in rows if str(r[0]).strip()]
+    # The SPOKEN form, not the stored one. Warming and cleanup both call this,
+    # and they must agree to the byte: a key is derived from the text that was
+    # synthesised, so if cleanup asked about the stored wording it would decide
+    # every warmed clip belonged to no answer and delete the lot.
+    return [tts_lexicon.apply(str(r[0]).strip())
+            for r in rows if str(r[0]).strip()]
 
 
 def _generation_settings() -> dict:
@@ -419,6 +428,37 @@ async def tts_settings_save(payload: dict):
 
     logger.info("TTS defaults saved: %s", saved)
     return {"status": "ok", "saved": saved}
+
+
+# ── How words are read ──────────────────────────────────────────────────
+
+@router.get("/admin/api/tts/lexicon", dependencies=[Depends(verify_admin)])
+async def tts_lexicon_get():
+    return {"entries": tts_lexicon.load()}
+
+
+@router.post("/admin/api/tts/lexicon")
+async def tts_lexicon_save(payload: dict, username: str = Depends(verify_admin)):
+    """Replace the whole list.
+
+    Whole list, not one row at a time: the page shows every rule at once and
+    the operator edits them as a block, so anything else would need the browser
+    to track which row was which and would break the moment two tabs are open.
+    """
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="فهرست کلمه‌ها نامعتبر است")
+    try:
+        saved = tts_lexicon.save(entries)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Audited because it changes what every visitor hears, and because a wrong
+    # rule is invisible in the dataset: the answer's text never changed.
+    applog.audit("admin.tts.lexicon.saved",
+                 f"تلفظ {len(saved)} کلمه ذخیره شد",
+                 actor=username, metadata={"count": len(saved)})
+    return {"status": "ok", "entries": saved}
 
 
 @router.get("/secure-panel-inotex/ai/tts", response_class=HTMLResponse)
