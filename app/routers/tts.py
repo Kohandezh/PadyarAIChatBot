@@ -132,6 +132,37 @@ async def tts_preview(req: TTSPreviewRequest):
                     headers=headers)
 
 
+@router.post("/admin/api/tts/status", dependencies=[Depends(verify_admin)])
+async def tts_preview_status(req: TTSPreviewRequest):
+    """Is the audio for this exact text finished yet?
+
+    The page asks this every 30 seconds while it waits. A generation that takes
+    minutes outlives the request that started it — Cloudflare cuts the
+    connection at 100 seconds — but not the work, which is shielded from the
+    caller and still lands in the cache. Without this the operator sees a
+    failure for something that is going fine, gives up, and reports the feature
+    as broken.
+
+    The lexicon is applied here too. The key is derived from the text that gets
+    SYNTHESISED, so asking about the text as typed would answer "not started"
+    forever for any answer containing a word this install respells.
+    """
+    payload = req.model_dump()
+    payload["text"] = tts_lexicon.apply(payload["text"])
+    try:
+        async with httpx.AsyncClient(timeout=TTS_STATUS_TIMEOUT) as client:
+            response = await client.post(_upstream("/tts/status"), json=payload)
+            response.raise_for_status()
+            return response.json()
+    except Exception as exc:  # noqa: BLE001
+        # Same convention as /health: an engine we cannot reach is data the
+        # page renders, not an error that sends it down its failure path. The
+        # poll is a background check — failing one is not news.
+        logger.warning("TTS status check failed: %s: %s", type(exc).__name__, exc)
+        return {"state": "unknown", "key": "", "bytes": 0,
+                "reachable": False, "message_fa": UNREACHABLE_FA}
+
+
 # ── Cache ───────────────────────────────────────────────────────────────
 #
 # Generating an answer costs seconds of GPU. Every answer in the dataset is

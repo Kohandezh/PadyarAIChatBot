@@ -875,6 +875,42 @@ async def tts(req: SpeakRequest):
                     headers={"X-TTS-Cache": "miss", "X-TTS-Key": key})
 
 
+@app.post("/tts/status")
+async def tts_status(req: SpeakRequest):
+    """Is the audio for this exact request finished, being made, or neither?
+
+    EXISTS BECAUSE A LONG GENERATION OUTLIVES ITS OWN REQUEST. A real answer
+    takes minutes on a P40, and the connection carrying it does not survive
+    that: Cloudflare gives up at 100 seconds, the app's client at 180. The
+    generation itself is unharmed — it is shielded from the caller's
+    cancellation and still writes its result to the cache — but the browser
+    has no way to learn that, so it shows a failure for work that is going
+    perfectly well, and the operator concludes the feature is broken.
+
+    This endpoint is how the page keeps watching after its own request died.
+    It is deliberately CHEAP: one stat and one dict lookup, no model, so it
+    answers instantly while every card is busy.
+
+    It takes the whole SpeakRequest rather than a key, and derives the key with
+    the same normalize() and cache_key() the real request uses. A caller that
+    computed the key itself would be a second implementation of the one thing
+    that must never disagree.
+    """
+    text = normalize(req.text)
+    if not text:
+        raise HTTPException(status_code=400, detail="text is empty after normalization")
+    key = cache_key(text, req.voice, req.exaggeration, req.cfg_weight, req.language,
+                    req.temperature)
+    path = cache_path(key)
+    if os.path.exists(path):
+        return {"key": key, "state": "ready", "bytes": os.path.getsize(path)}
+    # In flight means a generation for this exact key is running right now,
+    # whether or not the caller who started it is still connected.
+    if key in _inflight:
+        return {"key": key, "state": "working", "bytes": 0}
+    return {"key": key, "state": "none", "bytes": 0}
+
+
 @app.post("/prerender")
 async def prerender(req: PrerenderRequest):
     """Warm the cache for a batch of dataset answers.

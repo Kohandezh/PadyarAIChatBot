@@ -182,6 +182,80 @@ def test_the_same_sentence_typed_two_ways_lands_on_one_cache_entry():
             == server.cache_key(persian, "", 0.5, 0.5, "fa", 0.8))
 
 
+# ── Is it done yet ──────────────────────────────────────────────────────
+#
+# The one endpoint that must answer while every card is busy: it is what the
+# admin page asks after its own request has been cut, and an answer that
+# queued behind the generations would defeat the whole point.
+
+@needs_ffmpeg
+def test_status_says_ready_once_the_audio_is_on_disk(client, model):
+    body = {"text": "متن آزمایشی برای وضعیت", "voice": "", "exaggeration": 0.5,
+            "cfg_weight": 0.5, "temperature": 0.8}
+
+    assert client.post("/tts/status", json=body).json()["state"] == "none"
+    assert client.post("/tts", json=body).status_code == 200
+
+    after = client.post("/tts/status", json=body).json()
+    assert after["state"] == "ready"
+    assert after["bytes"] > 0
+
+
+@needs_ffmpeg
+def test_status_names_the_same_key_the_audio_was_stored_under(client, model):
+    body = {"text": "کلید یکسان", "voice": "", "exaggeration": 0.5,
+            "cfg_weight": 0.5, "temperature": 0.8}
+    made = client.post("/tts", json=body)
+    assert client.post("/tts/status", json=body).json()["key"] == made.headers["x-tts-key"]
+
+
+def test_status_normalises_before_it_answers(client):
+    """A word typed with Arabic letters is the same request as the Persian one,
+    so it must not report a different key."""
+    base = {"voice": "", "exaggeration": 0.5, "cfg_weight": 0.5, "temperature": 0.8}
+    arabic = client.post("/tts/status", json={"text": "عدسي است", **base}).json()
+    persian = client.post("/tts/status", json={"text": "عدسی است", **base}).json()
+    assert arabic["key"] == persian["key"]
+
+
+def test_status_refuses_empty_text(client):
+    assert client.post("/tts/status", json={"text": "   "}).status_code in (400, 422)
+
+
+@pytest.mark.anyio
+async def test_status_answers_while_a_generation_is_running(monkeypatch):
+    """The page polls every 30 seconds while both cards are busy. If this
+    waited its turn it would only ever answer after the thing it is asking
+    about had already finished."""
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def slow(*_a, **_k):
+        started.set()
+        await release.wait()
+        return b"audio"
+
+    monkeypatch.setattr(server, "synthesize", slow)
+    monkeypatch.setattr(server, "write_cache", lambda *a: "")
+
+    body = {"text": "متنی که مدتی طول می‌کشد", "voice": "", "exaggeration": 0.5,
+            "cfg_weight": 0.5, "temperature": 0.8}
+    key = server.cache_key(server.normalize(body["text"]), "", 0.5, 0.5,
+                           server.LANGUAGE, 0.8)
+
+    generating = asyncio.create_task(
+        server.generate_once(key, server.normalize(body["text"]),
+                             server.SpeakRequest(**body)))
+    await started.wait()
+
+    # Asked mid-generation, and answered without waiting for it.
+    answer = await asyncio.wait_for(server.tts_status(server.SpeakRequest(**body)),
+                                    timeout=1)
+    assert answer["state"] == "working"
+
+    release.set()
+    await generating
+
+
 # ── Cache key ───────────────────────────────────────────────────────────
 
 def test_cache_key_is_stable_for_identical_input():

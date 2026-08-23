@@ -483,6 +483,68 @@ def test_cache_stats_still_counts_answers_when_the_engine_is_down(client, engine
     assert body["message_fa"]
 
 
+# ── Waiting out a connection that died ──────────────────────────────────
+#
+# A real answer takes minutes on a P40 and no connection in the path survives
+# that: Cloudflare cuts at 100 seconds, the app's client at 180. The work is
+# shielded and still reaches the cache, so the page keeps asking whether it
+# arrived instead of reporting a failure that did not happen.
+
+@pytest.mark.parametrize("engine_state", ["ready", "working", "none"])
+def test_status_passes_the_engine_verdict_straight_through(client, engine, engine_state):
+    engine.responses[("POST", "/tts/status")] = FakeResponse(
+        json_body={"key": "abc", "state": engine_state, "bytes": 7})
+
+    res = client.post("/admin/api/tts/status", json={"text": "سلام"})
+
+    assert res.status_code == 200
+    assert res.json()["state"] == engine_state
+
+
+def test_status_asks_about_the_text_that_was_actually_synthesised(client, engine):
+    """Otherwise a word this install respells would poll forever: the key is
+    derived from the spoken form, and the page would be asking about a key
+    nothing will ever write."""
+    client.post("/admin/api/tts/lexicon",
+                json={"entries": [{"written": "دور", "spoken": "دوور"}]})
+    engine.responses[("POST", "/tts/status")] = FakeResponse(
+        json_body={"key": "abc", "state": "working", "bytes": 0})
+
+    client.post("/admin/api/tts/status", json={"text": "اشیاء دور و نزدیک"})
+
+    sent = [c for c in engine.calls if c["path"] == "/tts/status"][-1]["json"]
+    assert sent["text"] == "اشیاء دوور و نزدیک"
+
+
+def test_status_uses_the_short_timeout_not_the_generation_one(client, engine):
+    """It is asked every 30 seconds while every card is busy. A poll that can
+    hang for three minutes is not a poll."""
+    from app.config import TTS_STATUS_TIMEOUT
+    engine.responses[("POST", "/tts/status")] = FakeResponse(
+        json_body={"key": "abc", "state": "working", "bytes": 0})
+
+    client.post("/admin/api/tts/status", json={"text": "سلام"})
+
+    assert engine.calls[-1]["timeout"] == TTS_STATUS_TIMEOUT
+
+
+def test_a_stopped_engine_makes_the_poll_data_not_an_error(client, engine):
+    """Same convention as /health. A failed poll is a state the page renders,
+    not a trip down its 'something went wrong' path."""
+    engine.responses[("POST", "/tts/status")] = httpx.ConnectError("refused")
+
+    res = client.post("/admin/api/tts/status", json={"text": "سلام"})
+
+    assert res.status_code == 200
+    assert res.json()["reachable"] is False
+    assert res.json()["state"] == "unknown"
+
+
+def test_status_refuses_an_anonymous_caller(anon):
+    assert anon.post("/admin/api/tts/status",
+                     json={"text": "سلام"}).status_code in (401, 403)
+
+
 # ── How words are read ──────────────────────────────────────────────────
 #
 # Persian writes no short vowels, so «دور» is both `duur` (far) and `dowr` (a

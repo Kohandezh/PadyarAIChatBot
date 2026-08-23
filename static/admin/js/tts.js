@@ -31,6 +31,10 @@ let savedVoice = '';
 // hard-coded estimate would be wrong for one of them.
 let engineDevice = 'cuda';
 let speakTimer = null;
+// The connection that carried the generation died, but the engine did not.
+// Read by the progress loop, which owns the label.
+let speakStalled = false;
+const STILL_WORKING_FA = 'ساخت صدا ادامه دارد — همین‌جا بمانید، آماده که شد پخش می‌شود…';
 let mediaRecorder = null;
 let recTimer = null;
 let recStart = 0;
@@ -377,12 +381,18 @@ function estimateSeconds(text) {
 
 
 function startSpeakProgress(estimate) {
+    // Clear first. A wait can now outlive the request that started it, so a
+    // second press while the first is still watching used to leave TWO
+    // intervals writing the same label, and stopSpeakProgress only ever knew
+    // about the last one.
+    if (speakTimer) { clearInterval(speakTimer); speakTimer = null; }
     const box = el('tts-progress-box');
     const bar = el('tts-progress-bar');
     const label = el('tts-progress-label');
     box.classList.remove('d-none');
     bar.style.width = '0%';
 
+    speakStalled = false;
     const started = Date.now();
     speakTimer = setInterval(() => {
         const elapsed = Math.round((Date.now() - started) / 1000);
@@ -390,9 +400,13 @@ function startSpeakProgress(estimate) {
         // waiting is worse than one that visibly has a little left to go.
         const pct = Math.min(95, Math.round((elapsed / estimate) * 95));
         bar.style.width = pct + '%';
-        label.innerText = elapsed <= estimate
-            ? `حدود ${estimate - elapsed} ثانیه دیگر…`
-            : 'کمی بیشتر از حد انتظار طول کشید — هنوز در حال کار است…';
+        // The label is rewritten four times a second, so "still working" has
+        // to be a STATE the loop reads and not a string somebody assigns once
+        // — an earlier version set the text directly and it survived 250ms.
+        label.innerText = speakStalled ? STILL_WORKING_FA
+            : elapsed <= estimate
+                ? `حدود ${estimate - elapsed} ثانیه دیگر…`
+                : 'کمی بیشتر از حد انتظار طول کشید — هنوز در حال کار است…';
     }, 250);
     label.innerText = `حدود ${estimate} ثانیه دیگر…`;
 }
@@ -405,53 +419,195 @@ function stopSpeakProgress() {
 }
 
 
+// A generation outlives the request that carries it. On a P40 a real answer
+// takes minutes, and nothing in between survives that: Cloudflare cuts the
+// connection at 100 seconds, the app's own client at 180. The WORK is fine —
+// it is shielded from the caller's cancellation and still writes its result to
+// the cache — but the browser learns nothing, shows a failure, and the
+// operator (often someone who has never seen a timeout) concludes it broke and
+// stops trying.
+//
+// So the page does not depend on that one connection. A second, tiny request
+// asks every 30 seconds whether the audio exists yet, and it keeps asking
+// after the first connection dies. Whichever arrives first — the response or
+// the poll — is what the operator sees.
+const POLL_EVERY_MS = 30000;
+// Long enough for the longest text the box accepts on the slowest device, and
+// short enough that a page left open overnight stops asking.
+const GIVE_UP_AFTER_MS = 45 * 60 * 1000;
+
+// The press currently being waited on. A new press abandons the old watch, so
+// two presses can never both write into the player.
+let speakRun = null;
+
+
+function settle(run, outcome) {
+    // First answer wins. The request and the poll are racing on purpose, and
+    // the loser must not overwrite what the winner already showed.
+    if (run.cancelled) return;
+    run.cancelled = true;
+    run.resolve(outcome);
+}
+
+
+// Did we get an ANSWER, or did something in the middle drop the connection?
+//
+// Our own proxy always answers with a JSON `detail` — that is its contract.
+// A gateway that gave up (Cloudflare's 524, an nginx 502) answers with an HTML
+// error page. So a body we can read as JSON is a real verdict to show the
+// operator; anything else is the connection dying, which is not news and must
+// not look like a failure.
+async function verdictOf(res) {
+    try {
+        const body = await res.json();
+        if (body && body.detail) return String(body.detail);
+    } catch { /* not our proxy talking */ }
+    return null;
+}
+
+
+async function sendGeneration(payload, run) {
+    let res;
+    try {
+        res = await fetchAuth('/admin/api/tts/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    } catch {
+        // No response at all. The engine is still working; the poll has it.
+        markStillWorking();
+        return;
+    }
+
+    if (res.ok) {
+        settle(run, { kind: 'audio', blob: await res.blob(),
+                      cache: res.headers.get('X-TTS-Cache') });
+        return;
+    }
+
+    const detail = await verdictOf(res);
+    if (detail) { settle(run, { kind: 'error', detail }); return; }
+    markStillWorking();
+}
+
+
+async function pollForAudio(payload, run) {
+    const deadline = Date.now() + GIVE_UP_AFTER_MS;
+    let unreachable = 0;
+
+    while (!run.cancelled && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, POLL_EVERY_MS));
+        if (run.cancelled) return;
+
+        let state;
+        try {
+            const res = await fetchAuth('/admin/api/tts/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            state = await res.json();
+        } catch {
+            continue;               // one failed poll is not an answer
+        }
+        if (run.cancelled) return;
+
+        if (state.state === 'ready') {
+            // On disk now, so this request is a cache hit and returns at once.
+            try {
+                const res = await fetchAuth('/admin/api/tts/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (res.ok) {
+                    settle(run, { kind: 'audio', blob: await res.blob(),
+                                  cache: res.headers.get('X-TTS-Cache') });
+                    return;
+                }
+            } catch { /* it exists; the next poll will collect it */ }
+            continue;
+        }
+
+        if (state.state === 'none') {
+            // Not on disk and nothing is making it: the generation really did
+            // fail. This is the one case where the operator should hear so.
+            settle(run, { kind: 'error',
+                          detail: 'ساخت صدا ناتمام ماند. دوباره تلاش کنید.' });
+            return;
+        }
+
+        if (state.reachable === false) {
+            // Two in a row, so a restart of the engine mid-generation does not
+            // read as a dead feature.
+            if (++unreachable >= 2) {
+                settle(run, { kind: 'error', detail: state.message_fa || 'موتور صدا در دسترس نیست' });
+                return;
+            }
+            continue;
+        }
+        unreachable = 0;            // 'working'
+    }
+
+    settle(run, { kind: 'error',
+                  detail: 'ساخت این متن بیش از حد طول کشید. متن کوتاه‌تری را امتحان کنید.' });
+}
+
+
+function markStillWorking() {
+    // NOT an error, and deliberately not phrased as one. The connection that
+    // carried the request is gone; the audio is not.
+    speakStalled = true;
+}
+
+
+function showGeneratedAudio(outcome, started) {
+    const url = swapUrl('preview', outcome.blob);
+    el('tts-audio').src = url;
+    el('tts-download').href = url;
+    el('tts-download').download = 'padyar-voice.mp3';
+    const took = Math.max(1, Math.round((Date.now() - started) / 1000));
+    const badge = el('tts-cache-badge');
+    // 'hit' means the engine had this exact text+settings on disk already.
+    badge.className = outcome.cache === 'hit' ? 'badge bg-azure-lt' : 'badge bg-secondary-lt';
+    badge.innerText = outcome.cache === 'hit'
+        ? 'از حافظه — بدون پردازش دوباره'
+        : `تازه ساخته شد — ${took} ثانیه`;
+    el('tts-player-box').classList.remove('d-none');
+    el('tts-audio').play().catch(() => { /* autoplay blocked: the controls are right there */ });
+}
+
+
 async function speak() {
     const text = el('tts-text').value.trim();
     if (!text) { showMsg('tts-msg', 'ابتدا متنی بنویسید', 'danger'); return; }
 
+    const payload = { text, voice: el('tts-voice').value, ...params() };
     const btn = el('btn-speak');
-    const original = btn.innerHTML;
-    // Disabled to stop a second submit, but NOT given a spinner: the progress
-    // bar below already says what is happening, and with an estimate the
-    // spinner cannot give. Two indicators for one wait is one too many.
     btn.disabled = true;
     const started = Date.now();
     startSpeakProgress(estimateSeconds(text));
 
-    try {
-        const res = await fetchAuth('/admin/api/tts/preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, voice: el('tts-voice').value, ...params() }),
-        });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            showMsg('tts-msg', body.detail || 'ساخت صدا ممکن نشد', 'danger');
-            return;
-        }
-        const cached = res.headers.get('X-TTS-Cache');
-        const blob = await res.blob();
-        const url = swapUrl('preview', blob);
-        el('tts-audio').src = url;
-        el('tts-download').href = url;
-        el('tts-download').download = 'padyar-voice.mp3';
-        const took = Math.max(1, Math.round((Date.now() - started) / 1000));
-        const badge = el('tts-cache-badge');
-        // 'hit' means the engine had this exact text+settings on disk already.
-        badge.className = cached === 'hit' ? 'badge bg-azure-lt' : 'badge bg-secondary-lt';
-        badge.innerText = cached === 'hit'
-            ? 'از حافظه — بدون پردازش دوباره'
-            : `تازه ساخته شد — ${took} ثانیه`;
-        el('tts-player-box').classList.remove('d-none');
-        el('tts-audio').play().catch(() => { /* autoplay blocked: the controls are right there */ });
-    } catch {
-        showMsg('tts-msg', 'ارتباط با سرور برقرار نشد', 'danger');
-    } finally {
-        stopSpeakProgress();
-        btn.disabled = false;
-        btn.innerHTML = original;
-    }
+    if (speakRun) speakRun.cancelled = true;
+    const run = { cancelled: false, resolve: null };
+    run.promise = new Promise(r => { run.resolve = r; });
+    speakRun = run;
+
+    // Both start now. The request usually wins; when it is cut, the poll does.
+    sendGeneration(payload, run);
+    pollForAudio(payload, run);
+
+    const outcome = await run.promise;
+    if (speakRun !== run) return;       // a newer press owns the player now
+
+    if (outcome.kind === 'audio') showGeneratedAudio(outcome, started);
+    else showMsg('tts-msg', outcome.detail || 'ساخت صدا ممکن نشد', 'danger');
+
+    stopSpeakProgress();
+    btn.disabled = false;
 }
+
 
 // ── Voice library ───────────────────────────────────────────────────────
 

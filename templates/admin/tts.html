@@ -211,8 +211,12 @@
     {# Progress: the wait is long enough that a bare spinner reads as a #}
     {# hang. The estimate comes from character count and the engine device. #}
     <div id="tts-progress-box" class="mt-3 d-none">
+      {# One bar that fills, and nothing else. It used to also carry Tabler's
+         `progress-bar-indeterminate` shimmer, so the same bar was animating
+         AND filling at once — two answers to "is it working?" where the fill
+         already answers it. #}
       <div class="progress mb-1" style="height:6px">
-        <div class="progress-bar progress-bar-indeterminate" id="tts-progress-bar"
+        <div class="progress-bar" id="tts-progress-bar"
              style="width:0%; transition:width .25s linear"></div>
       </div>
       <div class="text-muted small" id="tts-progress-label"></div>
