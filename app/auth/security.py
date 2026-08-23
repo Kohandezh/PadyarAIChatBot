@@ -9,6 +9,7 @@ import os
 import bcrypt
 from fastapi import HTTPException, Request, Depends
 
+from app import config
 from app.config import (
     ALLOWED_ORIGINS, SECRET_KEY,
     CHAT_TOKEN_TTL, CHAT_RATE_LIMIT, CHAT_RATE_WINDOW,
@@ -54,12 +55,59 @@ def is_legacy_hash(stored_hash: str) -> bool:
     return bool(stored_hash) and not stored_hash.startswith("$2")
 
 
+# --- Client IP ---
+
+def client_ip(request: Request) -> str:
+    """The one place this app decides who a request came from.
+
+    Every rate limit bucket and every audit row's ip field goes through here,
+    so there is a single answer to "which address do we believe".
+
+    The rule is that a forwarding header counts only when a proxy we operate is
+    known to write it. Reading X-Forwarded-For left to right, as this code used
+    to, reads the one entry the CLIENT controls: a caller who varies the header
+    per request gets an unlimited rate-limit bucket, which is no limit at all.
+    Rightmost entries are appended by our own infrastructure, so we count from
+    that end instead.
+
+    With nothing configured the headers are ignored outright. An install that
+    is not behind a proxy must never be talked out of the socket address.
+    """
+    direct = request.client.host if request.client else ""
+
+    # Cloudflare rewrites this on every request that reaches the tunnel, so it
+    # cannot be forged from outside. Only believed when the operator says the
+    # install actually sits behind Cloudflare.
+    if config.TRUST_CLOUDFLARE:
+        cf = (request.headers.get("cf-connecting-ip") or "").strip()
+        if cf:
+            return cf
+
+    hops = config.TRUSTED_PROXY_HOPS
+    if hops > 0:
+        chain = [p.strip() for p in
+                 (request.headers.get("x-forwarded-for") or "").split(",") if p.strip()]
+        # Too few entries means the header did not pass through the proxies we
+        # expect. Prepended junk only pushes entries further left, so it never
+        # moves the one we pick.
+        if len(chain) >= hops:
+            return chain[-hops]
+
+    return direct
+
+
 # --- Chat Rate Limiting State ---
 _chat_rate_limits: Dict[str, List[float]] = {}
 
 
-def check_rate_limit(http_request: Request):
-    ip = http_request.headers.get("x-forwarded-for", http_request.client.host).split(",")[0].strip()
+def check_rate_limit(http_request: Request, key: str = ""):
+    """Rate limit a request. Keyed on the client IP unless a caller passes its
+    own key, which lets a route limit per authenticated identity instead of per
+    address. Thresholds are shared; only the bucket changes."""
+    # "unknown" rather than "": an empty key would put every clientless request
+    # (there is no socket in some ASGI test transports) into a bucket that also
+    # collects anything else that fails to resolve, silently and unlabelled.
+    ip = key or client_ip(http_request) or "unknown"
     now = time.time()
     # Purge stale IPs to prevent unbounded memory growth
     stale = [k for k, v in _chat_rate_limits.items() if not v or now - v[-1] > CHAT_RATE_WINDOW]

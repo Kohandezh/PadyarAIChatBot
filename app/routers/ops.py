@@ -11,17 +11,13 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.auth.security import verify_admin
+from app.auth.security import client_ip, verify_admin
 from app.config import ADMIN_COOKIE_NAME
 from app.db.connection import get_db_connection
 from app.models import ServiceActionRequest, SessionRevokeRequest
 from app.services import applog, health, service_control
 
 router = APIRouter()
-
-
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else ""
 
 
 # ── Dashboard ───────────────────────────────────────────────────────────
@@ -174,7 +170,7 @@ async def service_detail(name: str):
 async def run_service_action(req: ServiceActionRequest, request: Request,
                              username: str = Depends(verify_admin)):
     try:
-        return service_control.run(req.action, actor=username, ip=_client_ip(request))
+        return service_control.run(req.action, actor=username, ip=client_ip(request))
     except service_control.ActionRefused as e:
         raise HTTPException(400, detail=e.message_fa)
 
@@ -256,7 +252,7 @@ async def revoke_session(req: SessionRevokeRequest, request: Request,
         conn.close()
         applog.audit("admin.session.revoked_all", f"{removed} نشست دیگر باطل شد",
                      actor=username, target="admin_sessions", outcome="ok",
-                     level="warning", ip=_client_ip(request),
+                     level="warning", ip=client_ip(request),
                      metadata={"revoked": removed})
         return {"revoked": removed}
 
@@ -277,7 +273,7 @@ async def revoke_session(req: SessionRevokeRequest, request: Request,
     conn.close()
     applog.audit("admin.session.revoked", "یک نشست مدیر باطل شد",
                  actor=username, target=fingerprint, outcome="ok",
-                 level="warning", ip=_client_ip(request))
+                 level="warning", ip=client_ip(request))
     return {"revoked": 1}
 
 

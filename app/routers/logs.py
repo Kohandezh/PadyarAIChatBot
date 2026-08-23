@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.auth.security import verify_admin
+from app.auth.security import client_ip, verify_admin
 from app.db.queries import get_setting, set_setting
 from app.models import LogSettingsRequest, LogTruncateRequest
 from app.services import applog
@@ -139,7 +139,7 @@ async def save_log_settings(req: LogSettingsRequest, request: Request,
     applog.audit("settings.logging.updated",
                  message="تنظیمات لاگ تغییر کرد",
                  actor=username, target="logging", outcome="ok", level=level,
-                 ip=request.client.host if request.client else "",
+                 ip=client_ip(request),
                  metadata={"before": before, "after": after})
     return {"status": "updated", **after}
 
@@ -188,7 +188,7 @@ async def truncate_logs(req: LogTruncateRequest, request: Request,
                  message=f"{deleted} رکورد لاگ حذف شد",
                  actor=username, target=req.table or req.category or "all",
                  outcome="ok", level="warning",
-                 ip=request.client.host if request.client else "",
+                 ip=client_ip(request),
                  metadata={"category": req.category, "level": req.level,
                            "table": req.table, "older_than_days": req.older_than_days,
                            "matched": requested, "deleted": deleted})
@@ -208,7 +208,7 @@ async def export_logs(request: Request, username: str = Depends(verify_admin)):
                  message=f"خروجی {fmt.upper()} لاگ گرفته شد",
                  actor=username, target=params.get("category") or "all",
                  outcome="ok",
-                 ip=request.client.host if request.client else "",
+                 ip=client_ip(request),
                  metadata={"format": fmt, "filters": params})
 
     generator = applog.export_csv(**params) if fmt == "csv" else applog.export_json(**params)

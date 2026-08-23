@@ -182,9 +182,10 @@ async def request_correlation(request, call_next):
     path = request.url.path
     request_id = _clean_id(request.headers.get("X-Request-ID")) or applog.new_id()
     correlation_id = _clean_id(request.headers.get("X-Correlation-ID")) or request_id
-    client_ip = request.client.host if request.client else ""
+    from app.auth.security import client_ip
+    ip = client_ip(request)
     applog.set_request_context(request_id=request_id,
-                              correlation_id=correlation_id, ip=client_ip)
+                              correlation_id=correlation_id, ip=ip)
 
     started = _time.perf_counter()
     try:

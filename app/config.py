@@ -85,6 +85,29 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "inotex@admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 ADMIN_SECURITY_ANSWER = os.getenv("ADMIN_SECURITY_ANSWER", "")
 
+# --- Client IP / trusted proxy ---
+# Which client address the app believes, for rate limiting and for the ip field
+# on every audit and security log row.
+#
+# Both default to OFF, and that default is the security property: forwarding
+# headers are attacker-controlled unless a proxy you own rewrites them. An
+# install that sets nothing ignores the headers entirely and uses the socket
+# address, so a direct-to-uvicorn deployment cannot be spoofed.
+#
+# TRUST_CLOUDFLARE: this deployment sits behind a Cloudflare Tunnel, and
+# Cloudflare replaces CF-Connecting-IP on every request. Turn it on there.
+TRUST_CLOUDFLARE = os.getenv("TRUST_CLOUDFLARE", "false").lower() == "true"
+
+# TRUSTED_PROXY_HOPS: how many proxies you control sit in front of the app.
+# The resolver counts that many entries from the RIGHT of X-Forwarded-For,
+# because the rightmost entries are the ones your own infrastructure appended.
+# The leftmost entry is whatever the client typed and must never be believed.
+# 0 disables the header.
+try:
+    TRUSTED_PROXY_HOPS = max(0, int(os.getenv("TRUSTED_PROXY_HOPS", "0")))
+except ValueError:
+    TRUSTED_PROXY_HOPS = 0
+
 # --- Chat Security ---
 CHAT_TOKEN_TTL = 3600  # 1 hour
 # Rate limiting is per client IP, and at an exhibition a whole hall of

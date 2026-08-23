@@ -37,6 +37,7 @@ import hashlib
 from fastapi import HTTPException, Request
 
 from app.config import ADMIN_COOKIE_NAME
+from app.auth.security import client_ip
 
 HEADER = "X-CSRF-Token"
 FORM_FIELD = "csrf_token"
@@ -94,7 +95,7 @@ async def enforce(request: Request) -> None:
         from app.services import applog
         applog.security("security.csrf.rejected",
                         "درخواست بدون توکن CSRF معتبر رد شد",
-                        ip=request.client.host if request.client else "",
+                        ip=client_ip(request),
                         target=request.url.path, outcome="denied",
                         http_method=request.method,
                         user_agent=request.headers.get("user-agent", ""))
