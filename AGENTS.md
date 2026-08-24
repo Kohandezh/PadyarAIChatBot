@@ -345,10 +345,11 @@ The product instance is now **INOTEX** (پانزدهمین نمایشگاه بی
   source manifest is `content/sources.json`; conflicts pending human review
   live in `content/review-queue.md`. Freshness checking:
   `python3 scripts/refresh-inotex-context.py`.
-- **Mascot policy:** the current UI renders **no Pet/mascot**. The former pet
-  iframe, its `/assets` mount and `static/pet/` are removed. Decorative
-  lower-left region uses modular brick visuals from the coordinated asset set
-  (`../image/`, manifest at `../image/asset-manifest.json`).
+- **Mascot policy:** the Pet-INOTEX companion is **back on** (owner request,
+  2026-08-24) via `themes/inotex/partials/footer.html` +
+  `static/companion/companion{,-ui}.js` — desktop/tablet only, hidden below a
+  640px viewport by the theme CSS. The old pet iframe, its `/assets` mount and
+  `static/pet/` remain removed.
 - **Design:** the INOTEX theme uses the official palette
   (#FCB715, #FEBE27, #2D5CA7, #1E2D52, #04A584, #00644F, #000000, #FFFFFF)
   as design tokens. The frontend skeleton (routes, partial hierarchy,

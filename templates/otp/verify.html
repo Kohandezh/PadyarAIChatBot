@@ -14,22 +14,15 @@
 <body>
     <main class="otp-stage" id="otp-stage" data-step="destination" data-state="initial">
 
-        <!-- ══ COMPANION CHARACTER — DISABLED ═════════════════════════
-             The "pet" is switched off at the owner's request, COMMENTED OUT
-             rather than deleted so it can come back unchanged. To restore,
-             delete the two marker lines below.
-
-             The page never depended on it: verification state is announced
-             through the #otp-live region, and static/otp/otp.js reads the
-             companion as `window.PetCompanion || { set: noop }`, so every
-             pet.set(...) call is a safe no-op while the canvas is absent.
-             ══════════════════════════════════════════════════════════════ -->
-        <!-- COMPANION-OFF (start)
+        <!-- Pet-INOTEX companion, decorative on this page. RE-ENABLED
+             2026-08-24 (owner request), desktop/tablet only: otp.css hides
+             it below a 640px viewport. Verification state itself is always
+             announced through the #otp-live region — the character never
+             carries information on its own. -->
         <div class="pet-slot" id="pet-slot" aria-hidden="true">
             <canvas id="pet-canvas" width="512" height="512"
                 data-atlas="/static/otp/pet/inotex-pose-atlas-hd.webp" data-cell="512"></canvas>
         </div>
-        COMPANION-OFF (end) -->
 
         <section class="otp-card" aria-labelledby="otp-title">
             <span class="card-studs" aria-hidden="true"><i></i><i></i></span>
