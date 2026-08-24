@@ -116,6 +116,19 @@ def _create_sqlite_schema(cursor):
     )
     ''')
 
+    # Mirrors app.login_attempts in migrations/0001_initial.sql. It was added
+    # there and never here, so on this backend the brute-force lockout had no
+    # table to write to at all. TIMESTAMP for TIMESTAMPTZ is the same mapping
+    # admin_sessions.expiry already uses.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS login_attempts (
+        ip TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        block_until TIMESTAMP,
+        last_attempt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     # Migration: add username column to existing admin_sessions
     try:
         cursor.execute('SELECT username FROM admin_sessions LIMIT 1')

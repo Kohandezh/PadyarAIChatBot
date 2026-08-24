@@ -20,7 +20,7 @@ from app.config import (
     SESSION_TIMEOUT_HOURS, ADMIN_COOKIE_NAME, COOKIE_SECURE,
 )
 from app.auth.security import (
-    verify_admin, login_attempts,
+    verify_admin, login_block_active, record_failed_login, clear_login_attempts,
     hash_password, verify_password, is_legacy_hash,
     client_ip as resolve_client_ip,
 )
@@ -65,19 +65,15 @@ def _retire_bootstrap_credentials(username: str, client_ip: str) -> None:
 async def admin_login(creds: LoginRequest, request: Request):
     client_ip = resolve_client_ip(request)
 
-    # 1. Rate Limiting Check
-    if client_ip in login_attempts:
-        tracker = login_attempts[client_ip]
-        if tracker['block_until'] and datetime.datetime.now() < tracker['block_until']:
-            applog.security("auth.login.while_blocked",
-                            f"تلاش ورود از {client_ip} در دورهٔ مسدودی",
-                            level="warning", actor=creds.username, actor_type="admin",
-                            ip=client_ip, target="admin-login", outcome="denied",
-                            user_agent=request.headers.get("user-agent", ""))
-            raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
-        if tracker['block_until'] and datetime.datetime.now() >= tracker['block_until']:
-            tracker['attempts'] = 0
-            tracker['block_until'] = None
+    # 1. Brute-force check. The counter is a database row, so it survives a
+    #    restart and is shared by every worker (app/auth/security.py).
+    if login_block_active(client_ip):
+        applog.security("auth.login.while_blocked",
+                        f"تلاش ورود از {client_ip} در دورهٔ مسدودی",
+                        level="warning", actor=creds.username, actor_type="admin",
+                        ip=client_ip, target="admin-login", outcome="denied",
+                        user_agent=request.headers.get("user-agent", ""))
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
 
     conn = get_db_connection()
     user = conn.execute('SELECT * FROM admins WHERE username = ?', (creds.username,)).fetchone()
@@ -114,35 +110,31 @@ async def admin_login(creds: LoginRequest, request: Request):
             reason = "bad_password"
         else:
             reason = "bad_security_answer"
+        # Count the failure first: the recorded total is what the audit row
+        # should carry, and it is the number the block decision is made on.
+        attempts = record_failed_login(client_ip)
         applog.security("auth.login.failed",
                         f"ورود ناموفق مدیر ({reason})",
                         level="warning", actor=creds.username, actor_type="admin",
                         ip=client_ip, target="admin-login", outcome="failed",
                         error_code=reason,
                         user_agent=request.headers.get("user-agent", ""),
-                        metadata={"reason": reason,
-                                  "attempts_so_far": login_attempts.get(client_ip, {}).get("attempts", 0) + 1})
-        if client_ip not in login_attempts:
-            login_attempts[client_ip] = {'attempts': 0, 'block_until': None}
+                        metadata={"reason": reason, "attempts_so_far": attempts})
 
-        login_attempts[client_ip]['attempts'] += 1
-
-        if login_attempts[client_ip]['attempts'] >= MAX_LOGIN_ATTEMPTS:
-            login_attempts[client_ip]['block_until'] = datetime.datetime.now() + datetime.timedelta(minutes=BLOCK_TIME_MINUTES)
+        if attempts >= MAX_LOGIN_ATTEMPTS:
             applog.security("auth.bruteforce.blocked",
                             f"ورود از {client_ip} به دلیل تلاش‌های مکرر مسدود شد",
                             level="critical", actor=creds.username, actor_type="admin",
                             ip=client_ip, target="admin-login", outcome="blocked",
                             user_agent=request.headers.get("user-agent", ""),
-                            metadata={"attempts": login_attempts[client_ip]['attempts'],
+                            metadata={"attempts": attempts,
                                       "block_minutes": BLOCK_TIME_MINUTES})
             raise HTTPException(status_code=429, detail="Too many failed attempts. You are blocked.")
 
         raise HTTPException(status_code=401, detail="Bad credentials")
 
     # Success - Reset attempts
-    if client_ip in login_attempts:
-        del login_attempts[client_ip]
+    clear_login_attempts(client_ip)
 
     # Generate Token
     token = secrets.token_hex(32)

@@ -49,7 +49,7 @@ Login is `POST /admin/login` with JSON `{username, password, sec_answer}`.
 
 - **Passwords:** bcrypt via `hash_password` / `verify_password`. `verify_password` also accepts a **legacy salted SHA-256** hash so old installs keep working; on a successful login with `is_legacy_hash(stored) == True`, re-hash with bcrypt and update the `admins` row (upgrade-on-login).
 - **Security answer:** stored as `hashlib.sha256(answer.encode()).hexdigest()`.
-- **Brute force:** the in-memory `login_attempts` dict tracks failures per IP. After `MAX_LOGIN_ATTEMPTS` (5) the IP is blocked for `BLOCK_TIME_MINUTES` (5). This state is **in-memory only** — it clears on restart and is per-process. Don't rely on it as a hard guarantee across workers.
+- **Brute force:** the `login_attempts` TABLE tracks failures per IP, through `login_block_active()` / `record_failed_login()` / `clear_login_attempts()` in `app/auth/security.py`. After `MAX_LOGIN_ATTEMPTS` (5) the IP is blocked for `BLOCK_TIME_MINUTES` (5). The state is persistent and shared by every worker, so a restart no longer clears it. It fails OPEN if the table is unreachable (a broken store must not lock the real admin out); the increment is a single atomic upsert, never read-then-write.
 
 ```python
 from app.auth.security import hash_password, verify_password, is_legacy_hash

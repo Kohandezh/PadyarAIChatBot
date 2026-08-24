@@ -468,16 +468,17 @@ Core `app` tables:
 | `synonyms`        | `app/db/connection.py`           | Persian synonym mappings                                    |
 | `admins`          | `app/db/connection.py`           | Admin credentials (hashed)                                  |
 | `admin_sessions`  | `app/db/connection.py`           | Active admin sessions with sliding expiry                   |
+| `login_attempts`  | `app/db/connection.py`           | Brute-force counters per IP: attempts, block_until, last_attempt |
 | `otp_challenges`  | `app/services/otp.py` (`ensure_table()`) | OTP challenges: HMAC of the code, expiry, attempt/resend counters, and the profile fields (name, job, position, interests) |
 
-`init_db()` in `app/db/connection.py` creates the first seven at startup. `otp_challenges` is created on demand by the registration module's `ensure_table()`, so an install without `registration` never grows the table.
+`init_db()` in `app/db/connection.py` creates the first eight at startup. `otp_challenges` is created on demand by the registration module's `ensure_table()`, so an install without `registration` never grows the table.
 
 ### Security
 
 - **Chat tokens:** HMAC-signed tokens injected into HTML, validated on every `/chat` request
 - **Origin validation:** Checks `Origin`/`Referer` against allowlist
 - **Rate limiting:** `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (default 20 per 60s — a whole exhibition hall can share one NAT'd address)
-- **Admin auth:** SHA-256 + salt password hashing, session cookies, brute-force protection (5 attempts → 5 min block)
+- **Admin auth:** SHA-256 + salt password hashing, session cookies, brute-force protection (5 attempts → 5 min block, counted in the `login_attempts` table so a restart or a second worker does not reset it)
 - **Sliding sessions:** 1-hour admin sessions, extended on activity
 
 ### Theme System
