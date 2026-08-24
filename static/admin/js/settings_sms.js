@@ -40,6 +40,35 @@ function wireProviderTabs() {
     });
 }
 
+/* The two link-message bodies. The token marks where the one-time link goes;
+   the server refuses to save a non-empty body without it, so this page never
+   has to. An empty box means the built-in default, which the server sends
+   down and is shown under the box — never in it, or "empty" would read as
+   "will send nothing". */
+function showTextDefault(id, text) {
+    const box = el(id);
+    box.textContent = text ? 'متن پیش‌فرض: ' + text : '';
+}
+
+/* Was the last free-text message actually delivered? A 200 from the gateway
+   only means QUEUED, so this is where a message that was accepted and then
+   dropped stops reading as a success. 'held' is the loud one. */
+function showDelivery(info) {
+    const box = el('sms-delivery');
+    if (!box) return;
+    const state = info && info.state;
+    if (!info || !info.message || state === 'none' || state === 'unknown') {
+        box.textContent = '';
+        box.className = 'small mt-3';
+        return;
+    }
+    const tone = state === 'delivered' ? 'text-success'
+        : (state === 'waiting' ? 'text-muted' : 'text-danger');
+    const mark = state === 'delivered' ? '✅' : (state === 'waiting' ? '⏳' : '❌');
+    box.className = 'small mt-3 ' + tone;
+    box.textContent = mark + ' ' + info.message;
+}
+
 function setSecretState(spanId, saved) {
     const span = el(spanId);
     span.textContent = saved ? '✅ ذخیره شده است' : 'هنوز ذخیره نشده است';
@@ -63,8 +92,11 @@ async function loadSettings() {
         el('sms-username').value = d.username || '';
         el('sms-source').value = d.source || '';
         el('sms-template-id').value = d.template_id || '';
-        el('sms-invite-template-id').value = d.invite_template_id || '';
-        el('sms-reject-template-id').value = d.reject_template_id || '';
+        el('sms-invite-text').value = d.invite_text || '';
+        el('sms-reject-text').value = d.reject_text || '';
+        showTextDefault('sms-invite-text-default', d.invite_text_default);
+        showTextDefault('sms-reject-text-default', d.reject_text_default);
+        showDelivery(d.last_freetext);
         el('sms-daily-budget').value = d.daily_budget || '0';
         // Today's count next to the cap, so the operator can see how close the
         // day is to going silent instead of finding out when it does.
@@ -122,8 +154,8 @@ export function initSms() {
             api_key: el('sms-api-key').value.trim(),
             source: el('sms-source').value.trim(),
             template_id: el('sms-template-id').value.trim(),
-            invite_template_id: el('sms-invite-template-id').value.trim(),
-            reject_template_id: el('sms-reject-template-id').value.trim(),
+            invite_text: el('sms-invite-text').value.trim(),
+            reject_text: el('sms-reject-text').value.trim(),
             daily_budget: el('sms-daily-budget').value.trim(),
             url: el('sms-url').value.trim(),
             status_url: el('sms-status-url').value.trim(),

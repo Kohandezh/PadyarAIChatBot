@@ -300,6 +300,19 @@ async def toggle_tts(req: ToggleRequest):
 
 # --- AI provider connection (per-install: the owner's own endpoint + key) ---
 
+def _last_freetext_delivery() -> dict:
+    """The delivery verdict for the last free-text SMS, or a quiet "unknown".
+
+    Wrapped because it may talk to the gateway. A diagnostic that 500s the
+    settings page would hide every other setting on it.
+    """
+    from app.services import sms as sms_service
+    try:
+        return sms_service.last_freetext_delivery()
+    except Exception:  # noqa: BLE001 (a diagnostic must not break the page)
+        return {"state": "unknown", "msgid": "", "message": ""}
+
+
 @router.get("/admin/api/sms", dependencies=[Depends(verify_admin)])
 async def get_sms_settings():
     """Never returns the password or API key — only whether each is stored."""
@@ -311,9 +324,19 @@ async def get_sms_settings():
         "username": get_setting("sms_asanak_username", ""),
         "source": get_setting("sms_asanak_source", ""),
         "template_id": get_setting("sms_asanak_template_id", ""),
-        "invite_template_id": get_setting("sms_asanak_invite_template_id", ""),
-        "reject_template_id": get_setting("sms_asanak_reject_template_id", ""),
+        # The operator's own words for the two link messages. Empty means the
+        # built-in default is in use; the panel shows that default beside the
+        # box so "empty" never reads as "will send nothing".
+        "invite_text": get_setting("sms_invite_text", ""),
+        "reject_text": get_setting("sms_reject_text", ""),
+        "invite_text_default": sms_service.default_message_text("invite"),
+        "reject_text_default": sms_service.default_message_text("reject"),
         "daily_budget": get_setting("sms_daily_budget", "0"),
+        # Did the last free-text message actually arrive? This is the only
+        # place that asks, so a message the gateway accepted and dropped stops
+        # looking like a delivered one. It can call the gateway, so a failure
+        # here must not take the settings page down with it.
+        "last_freetext": _last_freetext_delivery(),
         # Today's spend, so the cap is a number the operator can see filling up
         # instead of a wall they hit during an event.
         "sent_today": sms_service.sent_today(),
@@ -356,6 +379,19 @@ async def save_sms_settings(req: SmsSettingsRequest):
             status_code=400,
             detail="سقف روزانه پیامک باید یک عدد باشد. برای برداشتن سقف، ۰ بگذارید.")
 
+    # A message body without {{magic_link}} sends a contact an SMS they cannot
+    # act on. Refuse it here, while the operator is still looking at the form;
+    # the sender appends the link as a belt under this brace, but the panel is
+    # where the mistake is easiest to fix. Empty means "use the default".
+    for label, text in (("پیامک دعوت", req.invite_text),
+                        ("پیامک «تأیید نشد»", req.reject_text)):
+        if text and sms_service.MAGIC_LINK_TOKEN not in text:
+            raise HTTPException(
+                status_code=400,
+                detail="متن %s باید شامل عبارت %s باشد تا جای لینک مشخص شود. "
+                       "برای استفاده از متن پیش‌فرض، کادر را خالی بگذارید."
+                       % (label, sms_service.MAGIC_LINK_TOKEN))
+
     set_setting("registration_enabled", "true" if req.enabled else "false")
     env_written = sms_service.save_settings({
         "sms_provider": req.provider.strip() or "dev",
@@ -364,8 +400,6 @@ async def save_sms_settings(req: SmsSettingsRequest):
         "sms_asanak_api_key": req.api_key,
         "sms_asanak_source": req.source,
         "sms_asanak_template_id": req.template_id,
-        "sms_asanak_invite_template_id": req.invite_template_id,
-        "sms_asanak_reject_template_id": req.reject_template_id,
         "sms_daily_budget": budget,
         "sms_asanak_url": req.url,
         "sms_asanak_status_url": req.status_url,
@@ -375,6 +409,10 @@ async def save_sms_settings(req: SmsSettingsRequest):
         "sms_asanak_send_to_blacklist": "1" if req.send_to_blacklist else "0",
         "otp_sms_host": req.sms_host,
     })
+    # The two message bodies are prose, not gateway fields: settings table
+    # only, never .env (see ASANAK_FIELDS in app/services/sms.py).
+    set_setting("sms_invite_text", (req.invite_text or "").strip())
+    set_setting("sms_reject_text", (req.reject_text or "").strip())
     return {"status": "updated", "env_file": env_written}
 
 

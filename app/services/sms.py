@@ -69,34 +69,88 @@ Measured against the live account, 2026-08-17
     valid/active" for arbitrary ids. If Asanak says the line is service-only,
     OTP has to go through an approved template rather than `sendsms`.
 
-Invite links, the rejection notice and the daily budget (added 2026-08-23)
+Free text is the message path; templates are for the code (settled 2026-08-24)
 -----------------------------------------------------------------------------
-Same discipline as above: what was measured, what is documented, what is a
-guess, kept apart.
+Two facts, in the order they were learned:
 
-  * MEASURED (2026-08-17, recorded above): free text never reached a handset
-    on this account, an approved template did. Every link path below is built
-    on a template for that reason, never on `sendsms`.
-  * DOCUMENTED: `1014` is "the sender line is not permitted to send links".
-    Asanak publishes it. This account has never returned it, because nothing
-    here has ever sent a link.
-  * NOT VERIFIED: whether a link carried as a template PARAMETER is accepted
-    where free text with a link is refused. This account has no approved
-    link template, so it could not be tried, and no real SMS was sent to find
-    out. Sending a link is an external permission this project does not hold
-    yet. So `send_invite_link` and `send_reject_notice` are written to fail
-    loudly and light up the day Asanak approves a template, not to be assumed
-    working. A caller separates that refusal from every other failure with
-    `is_link_refusal(e)` and falls back to the QR channel (SPEC REQ-057).
-  * The invite link is a one-time credential. It travels in the SMS and, on a
-    dev install, into the gitignored outbox. It NEVER goes into an applog row
-    or a stdout line. Only the template id and the masked destination do.
-  * `sms_daily_budget` is a SPEND cap, not a rate limit. `OTP_DEST_HOURLY_LIMIT`
-    is per destination and therefore bounds nothing about the bill: walking the
-    09xx range, or a loop that retries, bills the account without limit. The
-    budget counts every message this module sends because they all come off
-    the same Asanak credit. Default 0 = no cap, so an install upgrading into
-    this code does not start refusing messages against a number nobody chose.
+  * MEASURED 2026-08-17 on this account: free text was accepted by `sendsms`
+    and sat at Status 20 forever, credit untouched, while template id 1654
+    delivered (Status 6) and was charged. On that evidence this module grew a
+    "service line" model where only approved templates could carry anything
+    and links were refused outright.
+  * SETTLED 2026-08-24 by the product owner, after talking to Asanak support:
+    `sendsms` free text is a normal send path and DOES carry links; a template
+    is needed only for the verification code. The August hold was an
+    account-side matter, not a law of the line.
+
+So the service/promotional switch is gone. What each message does now:
+
+  verification code   approved template, parameter `code`, when a template id
+                      is configured. MEASURED WORKING (id 1654, Status 6,
+                      credit 1577 -> 1576). Still the only path that uses a
+                      template. Without a template id the code goes as free
+                      text, unchanged.
+  invite link         free text. The body comes from the `sms_invite_text`
+                      setting (admin-editable) with `{{magic_link}}` marking
+                      where the link goes.
+  rejection notice    free text. The body comes from `sms_reject_text`, same
+                      placeholder. The reviewer's REASON does not travel by
+                      SMS: it belongs on the contact's own page, which has
+                      room for it and which the contact is signing in to
+                      anyway. `send_reject_notice` takes no `reason` argument
+                      on purpose.
+
+Asanak error 1014 ("the sender line may not send links") can still come back
+from the gateway on a line without link permission. `is_link_refusal` still
+recognises it, so the caller's QR fallback (SPEC REQ-057) still fires for it.
+
+Making a lost message visible (the reason `last_freetext_delivery` exists)
+-----------------------------------------------------------------------------
+A 200 from `sendsms` means QUEUED and nothing more. A message that sits at
+Status 20 forever looks exactly like a delivered one to the caller, and that
+is how eleven messages were lost in August without anyone noticing until the
+credit was checked by hand. The August hold is exactly why this check stays
+even though free text is now the normal path: a gateway can accept a message
+and drop it, whatever the support line says.
+
+So every free-text send records its msgid, and `last_freetext_delivery()` asks
+`msgstatus` about it ONCE, after a grace period, and writes the verdict down.
+The admin SMS settings page calls it and shows what it says. That is the whole
+mechanism: no poller, no queue, no background task, one extra gateway call per
+free-text message and only when an operator is looking.
+
+It is deliberately NOT called from any send path. An OTP visitor must never
+wait on a diagnostic, and the booth must never wait on one either. The cost is
+that a message lost mid-event is seen when the operator next opens that page
+rather than at the moment it is lost. That is the trade this file makes: a
+delay before an operator sees it, never a silent success.
+
+Only status 6 (delivered) and status 20 (the internal hold) are interpreted,
+because those two are the only ones measured on this account. Any other code
+is reported to the operator as a raw number with the honest statement that
+this app does not know what it means. Asanak's published table is
+-1,1,2,4,5,6,7,8,9,10,11,12,13; 20 is not in it.
+
+NOT VERIFIED, and stated rather than assumed
+-----------------------------------------------------------------------------
+  * Whether a Persian SMS is billed per 70-character part — the free-text
+    bodies here are several parts each. That cost is deliberate: a contact
+    reading this weeks after a booth conversation has to be told what it is
+    about.
+  * An invite link is a one-time credential. It travels in the SMS body and,
+    on a dev install, into the gitignored outbox. It NEVER reaches an applog
+    row or a stdout line. Only the masked destination and the caller's
+    reference do.
+
+The daily budget
+-----------------------------------------------------------------------------
+`sms_daily_budget` is a SPEND cap, not a rate limit. `OTP_DEST_HOURLY_LIMIT`
+is per destination and therefore bounds nothing about the bill: walking the
+09xx range, or a loop that retries, bills the account without limit. The
+budget counts every message this module sends, on whichever path, because they
+all come off the same Asanak credit. Default 0 = no cap, so an install
+upgrading into this code does not start refusing messages against a number
+nobody chose.
 
 Adding a gateway means adding one function and one entry in PROVIDERS.
 """
@@ -152,14 +206,15 @@ ASANAK_FIELDS = (
     Field("sms_asanak_password", "ASANAK_PASSWORD", secret=True),
     Field("sms_asanak_api_key", "ASANAK_API_KEY", secret=True),
     Field("sms_asanak_source", "ASANAK_SOURCE"),
+    # The verification code's approved template. Parameter: `code`. This is the
+    # ONLY template this module sends: a template is what the account needs for
+    # the code, and everything else travels as free text (settled with Asanak
+    # support 2026-08-24 — see the header).
     Field("sms_asanak_template_id", "ASANAK_TEMPLATE_ID"),
-    # The OTP template above carries a `code`. These two carry a `link`, and
-    # they are separate ids because Asanak approves a template per TEXT: "here
-    # is your edit link" and "your text was not approved, here is a fresh
-    # link" are two different approvals. Neither falls back to the other.
-    # A contact must never be told the wrong thing because one id was blank.
-    Field("sms_asanak_invite_template_id", "ASANAK_INVITE_TEMPLATE_ID"),
-    Field("sms_asanak_reject_template_id", "ASANAK_REJECT_TEMPLATE_ID"),
+    # The invite and rejection NOTICE bodies are admin-editable settings
+    # (`sms_invite_text`, `sms_reject_text`) but deliberately NOT gateway
+    # fields: they are message prose, not credentials, so they live in the
+    # settings table only and never in .env. See `_message_body`.
     # Global daily spend cap, counted across every message this module sends.
     # 0 = no cap; see the header for why that is the default.
     Field("sms_daily_budget", "SMS_DAILY_BUDGET", default="0"),
@@ -201,12 +256,28 @@ _AUTH_MESSAGE = "نام کاربری یا رمز عبور وب‌سرویس در
 # with an Asanak code, so a caller can compare without guessing.
 BUDGET_EXHAUSTED = "budget_exhausted"
 
-# "The sender line may not send links". The one refusal a caller must be able
-# to act on differently: the invite still has to reach the contact, so the
-# booth falls back to the QR channel instead of failing the registration
-# (SPEC REQ-057). 1001 is deliberately NOT in here. An unapproved template is
-# a template problem an operator fixes in the panel, not a missing permission.
+# "The sender line may not send links" (Asanak 1014). The one refusal a caller
+# must be able to act on differently: the invite still has to reach the
+# contact, so the booth falls back to the QR channel instead of failing the
+# registration (SPEC REQ-057). 1001 is deliberately NOT in here: an unapproved
+# template is a template problem an operator fixes in the panel, not a missing
+# permission.
 LINK_REFUSAL_CODES = (1014,)
+
+# ── Was the last free-text message actually delivered? ──────────────────
+# One settings row holds the last free-text send and, once asked, the verdict:
+#   "<msgid>|<iso sent_at>|<subcategory>|<verdict>"
+# An empty verdict means "not asked yet". Writing the verdict back into the
+# same row is what makes this a one-shot check instead of a poller.
+_LAST_FREETEXT_KEY = "sms_last_freetext"
+# How long a queued message is allowed to look pending before its status is
+# worth asking about. Below this, a Status 20 says nothing: a message queued
+# thirty seconds ago is supposed to be pending.
+_DELIVERY_GRACE_SECONDS = 180
+# The only two msgstatus codes measured on this account (2026-08-17). Every
+# other code is reported as a raw number, not guessed at.
+_STATUS_DELIVERED = 6
+_STATUS_HELD = 20
 
 
 class SmsError(Exception):
@@ -466,6 +537,147 @@ def asanak_status(msgid: str):
     return _call(setting("sms_asanak_status_url"), payload)
 
 
+def _status_code(data):
+    """The numeric status inside a msgstatus answer, or None.
+
+    The exact shape of `data` was NOT re-verified while writing this. What is
+    recorded from 2026-08-17 is that the answer carried `Status: 20` alongside
+    `DeliverTime: 0000-00-00`. So this accepts a dict, a one-element list of
+    dicts, or a bare number, and looks for a `status` key case-insensitively.
+    Anything it cannot read returns None, which the caller reports as unknown
+    rather than as delivered.
+    """
+    if isinstance(data, list):
+        data = data[0] if data else None
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if str(key).strip().lower() == "status":
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+        return None
+    try:
+        return int(data)
+    except (TypeError, ValueError):
+        return None
+
+
+def _remember_freetext(msgid, subcategory: str) -> None:
+    """Note the free-text message whose delivery is still unproven.
+
+    Never raises. A settings write that fails must not turn a message the
+    gateway accepted into an error the caller sees.
+    """
+    if not msgid:
+        return
+    try:
+        from app.db.queries import set_setting
+        set_setting(_LAST_FREETEXT_KEY,
+                    "%s|%s|%s|" % (msgid, _utcnow().isoformat(), subcategory))
+    except Exception:  # noqa: BLE001 (diagnostics must never break a send)
+        logger.error("[sms] could not record the last free-text message id")
+
+
+def _verdict_text(verdict: str, msgid: str) -> str:
+    """The operator-facing sentence for a stored verdict."""
+    if verdict == "delivered":
+        return "آخرین پیامک متن‌آزاد به گوشی رسید."
+    if verdict == "held":
+        return ("آخرین پیامک متن‌آزاد (شناسه %s) را آسانک پذیرفت ولی به گوشی "
+                "نرساند و در وضعیت ۲۰ مانده است. این یعنی خط شما متن آزاد "
+                "نمی‌فرستد. «نوع خط» را روی «خدماتی» بگذارید تا پیام‌ها از "
+                "قالب تأییدشده فرستاده شوند، و برای بقیه با پشتیبانی آسانک "
+                "تماس بگیرید." % msgid)
+    if verdict == "unreadable":
+        return ("وضعیت آخرین پیامک متن‌آزاد (شناسه %s) از آسانک خوانده نشد. "
+                "رسیدن پیام را خودتان بررسی کنید." % msgid)
+    if verdict.startswith("code:"):
+        return ("وضعیت آخرین پیامک متن‌آزاد (شناسه %s) از آسانک عدد %s برگشت. "
+                "این برنامه معنی این عدد را نمی‌داند؛ همین عدد را از پشتیبانی "
+                "آسانک بپرسید." % (msgid, verdict[5:]))
+    return ""
+
+
+def last_freetext_delivery() -> dict:
+    """Did the last free-text message actually arrive? Asked once, then kept.
+
+    This is the whole answer to "a 200 means queued, nothing more". Every
+    free-text send leaves its msgid behind; this asks `msgstatus` about it one
+    time, after `_DELIVERY_GRACE_SECONDS`, records the verdict in the same
+    settings row and never asks again until the next free-text send.
+
+    Called from the admin SMS settings page and from nowhere else. No visitor
+    and no booth ever waits on a gateway roundtrip for a diagnostic.
+
+    Returns {"state", "msgid", "message"}. `state` is one of none, waiting,
+    delivered, held, unreadable, code, unknown.
+    """
+    from app.db.queries import get_setting, set_setting
+    raw = (get_setting(_LAST_FREETEXT_KEY, "") or "").strip()
+    if not raw:
+        return {"state": "none", "msgid": "", "message": ""}
+
+    parts = (raw.split("|") + ["", "", "", ""])[:4]
+    msgid, sent_at, subcategory, verdict = parts
+    if verdict:
+        state = "code" if verdict.startswith("code:") else verdict
+        return {"state": state, "msgid": msgid, "message": _verdict_text(verdict, msgid)}
+
+    try:
+        age = (_utcnow() - datetime.fromisoformat(sent_at)).total_seconds()
+    except ValueError:
+        age = _DELIVERY_GRACE_SECONDS  # unreadable timestamp: ask now
+    if age < _DELIVERY_GRACE_SECONDS:
+        return {"state": "waiting", "msgid": msgid,
+                "message": "آخرین پیامک متن‌آزاد تازه فرستاده شده است. چند دقیقه "
+                           "بعد این صفحه را دوباره باز کنید تا معلوم شود به گوشی "
+                           "رسیده یا نه."}
+
+    try:
+        code = _status_code(asanak_status(msgid))
+    except SmsError as e:
+        # The gateway could not be asked. Leave the verdict empty so the next
+        # page load asks again. An unanswered question is not an answer.
+        return {"state": "unknown", "msgid": msgid, "message": e.detail}
+
+    if code == _STATUS_DELIVERED:
+        verdict = "delivered"
+    elif code == _STATUS_HELD:
+        verdict = "held"
+    elif code is None:
+        verdict = "unreadable"
+    else:
+        verdict = "code:%d" % code
+
+    message = _verdict_text(verdict, msgid)
+    try:
+        set_setting(_LAST_FREETEXT_KEY, "%s|%s|%s|%s" % (msgid, sent_at, subcategory, verdict))
+    except Exception:  # noqa: BLE001 (a verdict we cannot store is still worth reporting)
+        logger.error("[sms] could not store the delivery verdict for msgid=%s", msgid)
+
+    if verdict == "delivered":
+        applog.info("sms", "sms.delivery.confirmed", "پیامک متن‌آزاد به گوشی رسید",
+                    provider="asanak", subcategory=subcategory, outcome="ok",
+                    metadata={"msgid": msgid, "status": code})
+    elif verdict == "held":
+        # Loud. This is the failure that looks like a success, and an operator
+        # reading the log later must find it without knowing to look.
+        applog.critical("sms", "sms.delivery.lost",
+                        "پیامک متن‌آزاد پذیرفته شد ولی به گوشی نرسید",
+                        provider="asanak", subcategory=subcategory, outcome="failed",
+                        metadata={"msgid": msgid, "status": code})
+        logger.error("[sms] msgid=%s was accepted and never delivered (status 20)", msgid)
+    else:
+        applog.warning("sms", "sms.delivery.unknown",
+                       "وضعیت تحویل پیامک متن‌آزاد مشخص نشد",
+                       provider="asanak", subcategory=subcategory, outcome="failed",
+                       metadata={"msgid": msgid, "status": code})
+
+    return {"state": "code" if verdict.startswith("code:") else verdict,
+            "msgid": msgid, "message": message}
+
+
 def asanak_credit() -> int:
     """Remaining credit, in messages.
 
@@ -529,15 +741,16 @@ def _send_template(template_id: str, destination: str, parameters: dict,
                    subcategory: str, missing_detail: str):
     """POST one approved template and return Asanak's message id.
 
-    Every template path goes through here (verification code, invite link,
-    rejection notice) so the budget, the payload shape and the logging live
-    in one place. `parameters` are matched by NAME against the template stored
-    in Asanak's panel; renaming one there without renaming it here breaks
-    delivery silently.
+    Both template paths go through here (the verification code and the
+    rejection notice) so the budget, the payload shape and the logging live in
+    one place. `parameters` are matched by NAME against the template stored in
+    Asanak's panel; renaming one there without renaming it here breaks delivery
+    silently. An empty dict is a valid argument: the rejection template has no
+    slots at all, which is what keeps prose out of an approved text.
 
-    Nothing from `parameters` reaches a log row. The verification code and the
-    invite token are both credentials, and only the template id and the masked
-    destination are safe to keep.
+    Nothing from `parameters` reaches a log row. The verification code is a
+    credential, and only the template id and the masked destination are safe
+    to keep.
     """
     template_id = (template_id or "").strip()
     if not template_id.isdigit():
@@ -587,16 +800,15 @@ def _send_template(template_id: str, destination: str, parameters: dict,
 def send_asanak_template(destination: str, code: str):
     """Send the verification code through an APPROVED Asanak template.
 
-    This exists because free text does not arrive on this account's line.
-    Measured 2026-08-17 on the same number, minutes apart:
+    Measured 2026-08-17 on this account, minutes apart:
 
         sendsms  (free text)      -> queued, Status 20 forever, credit unchanged
         template (id 1654)        -> Status 6 "Success", delivered 22:55:35,
                                      credit 1577 -> 1576
 
-    A service line only carries content its operator has approved, so the code
-    travels as a PARAMETER of a stored template rather than as a message body.
-    The template's parameter is named `code`.
+    and settled with Asanak support 2026-08-24: the code is the one message
+    that needs an approved template; everything else goes as free text. The
+    template's parameter is named `code`.
     """
     return _send_template(
         setting("sms_asanak_template_id"), destination, {"code": str(code)},
@@ -605,13 +817,17 @@ def send_asanak_template(destination: str, code: str):
                        "پیامک وارد کنید.")
 
 
-def send_asanak(destination: str, message: str, code: str = None):
+def send_asanak(destination: str, message: str, code: str = None,
+                subcategory: str = "freetext"):
     """Send one SMS through the Asanak gateway. Returns Asanak's message id.
 
     When a template id is configured AND a code was supplied, the approved
-    template is used — on a service line that is the only path that reaches a
-    handset. Free text stays the fallback so an install on a promotional line,
-    or one with no template yet, keeps working unchanged.
+    template is used — the code is the one message the account needs a
+    template for (settled with Asanak support 2026-08-24). Everything else,
+    and any install without a template yet, sends free text.
+
+    `subcategory` only labels the log rows, so an operator can tell an invite
+    apart from a verification code in the same list.
     """
     if setting("sms_asanak_template_id").strip() and code:
         return send_asanak_template(destination, code)
@@ -634,14 +850,14 @@ def send_asanak(destination: str, message: str, code: str = None):
     if setting("sms_asanak_send_to_blacklist").strip() == "0":
         payload["send_to_blacklist"] = "0"
 
-    _spend_budget("freetext")
+    _spend_budget(subcategory)
 
     _started = time.perf_counter()
     try:
         data = _call(setting("sms_asanak_url"), payload)
     except SmsError as e:
         applog.error("sms", "sms.send.failed", "ارسال پیامک متن آزاد ناموفق بود",
-                     provider="asanak", subcategory="freetext",
+                     provider="asanak", subcategory=subcategory,
                      duration_ms=int((time.perf_counter() - _started) * 1000),
                      error_code=str(getattr(e, "code", "") or ""),
                      error_type="SmsError", outcome="failed",
@@ -652,33 +868,28 @@ def send_asanak(destination: str, message: str, code: str = None):
     # Keep the id. "Accepted" only means Asanak queued it — a message can sit
     # undelivered for hours with a perfectly successful send response, and
     # without the id there is no way to ask `msgstatus` what became of it.
-    # This log line is the only thread back to a message that never arrived.
     msgid = None
     if isinstance(data, list) and data:
         msgid = data[0]
     logger.info("[sms] asanak queued the message, msgid=%s", msgid)
     applog.info("sms", "sms.send.queued", "پیامک در صف ارسال قرار گرفت",
-                provider="asanak", subcategory="freetext", outcome="queued",
+                provider="asanak", subcategory=subcategory, outcome="queued",
                 duration_ms=int((time.perf_counter() - _started) * 1000),
                 metadata={"msgid": msgid,
                           "destination": applog.mask_phone(destination)})
+    # The id is the thread back to a message that never arrived. Stored, not
+    # only logged, because `last_freetext_delivery()` has to be able to find it
+    # without anyone reading a log file. See the header.
+    _remember_freetext(msgid, subcategory)
     return msgid
 
 
-# ── Link messages: the invite and the rejection notice ──────────────────
-# Both carry a URL, and a URL is exactly what this account's sender line is
-# not known to be allowed to carry (see the header). They are built anyway, so
-# the day Asanak approves a link template the operator changes one setting and
-# nothing else. Until then they fail with the gateway's own reason and the
-# caller shows the QR instead.
+# ── The invite and the rejection notice ─────────────────────────────────
+# Both travel as free text; the only template this module sends is the
+# verification code (see the header). The bodies are the operator's own words,
+# stored in `sms_invite_text` / `sms_reject_text`, with `{{magic_link}}`
+# marking where the one-time link goes. Empty setting = the built-in default.
 
-_MISSING_INVITE_TEMPLATE = (
-    "شناسهٔ قالب پیامکِ لینک دعوت تنظیم نشده است. یک قالب حاوی لینک را در پنل "
-    "آسانک تأیید بگیرید و شناسه‌اش را در تنظیمات پیامک وارد کنید. تا آن وقت "
-    "کانال تحویل دعوت‌نامه را روی QR بگذارید.")
-_MISSING_REJECT_TEMPLATE = (
-    "شناسهٔ قالب پیامکِ اعلام رد ویرایش تنظیم نشده است. یک قالب حاوی لینک را در "
-    "پنل آسانک تأیید بگیرید و شناسه‌اش را در تنظیمات پیامک وارد کنید.")
 # The shared 1014 text tells an OTP operator to blank the autofill host, which
 # is right there and wrong here: on this path the link IS the message. Same
 # gateway code, different thing to do about it.
@@ -687,6 +898,88 @@ _LINK_NOT_PERMITTED = (
     "تنظیمات نیست و با عوض کردن هیچ فیلدی درست نمی‌شود: باید از آسانک برای این "
     "خط اجازهٔ ارسال لینک گرفته شود. تا آن وقت کانال تحویل دعوت‌نامه را روی QR "
     "بگذارید.")
+_NOT_CONFIGURED = (
+    "سرویس پیامک پیکربندی نشده است. نام کاربری، رمز عبور و شماره فرستنده را در "
+    "تنظیمات پیامک وارد کنید.")
+# Where the link goes inside an operator-written body. One token, deliberately
+# not {format} syntax: an operator's text may contain a brace of its own, and
+# str.format would then raise on a message the operator did not think was code.
+MAGIC_LINK_TOKEN = "{{magic_link}}"
+
+
+def _brand() -> str:
+    """The name the contact will recognise. Same setting the OTP body uses."""
+    from app.db.queries import get_setting
+    return (get_setting("otp_brand_name", "") or "INOTEX").strip()
+
+
+def _default_invite_text() -> str:
+    """The invite, written for someone who last thought about this weeks ago.
+
+    It says who is writing, why they have this number, what the link does and
+    how long it lasts.
+    """
+    return (
+        "سلام. این پیام از چت‌بات %s است.\n"
+        "جهت تأیید اطلاعات خود در چت‌بات نمایشگاه به لینک زیر مراجع کنید:\n"
+        "%s\n"
+        "لینک تا ۲۴ ساعت باز است و فقط یک بار کار می‌کند. آن را برای کسی نفرستید."
+        % (_brand(), MAGIC_LINK_TOKEN))
+
+
+def _default_reject_text() -> str:
+    """The rejection notice. The reviewer's reason is NOT in here.
+
+    It lives on the contact's own page, which is where the link goes and where
+    there is room to read it.
+    """
+    return (
+        "سلام. این پیام از چت‌بات %s است.\n"
+        "متنی که برای معرفی شرکت خودتان فرستادید تأیید نشد.\n"
+        "برای دیدن دلیل و فرستادن متن اصلاح‌شده به لینک زیر مراجع کنید:\n"
+        "%s\n"
+        "لینک تا ۲۴ ساعت باز است. آن را برای کسی نفرستید."
+        % (_brand(), MAGIC_LINK_TOKEN))
+
+
+def default_message_text(kind: str) -> str:
+    """The built-in body for one kind, with the token still in place.
+
+    The admin panel shows this beside the empty box, so an operator deciding
+    whether to type their own words starts from what the default actually
+    says rather than from a guess.
+    """
+    return _default_reject_text() if kind == "reject" else _default_invite_text()
+
+
+def message_body(kind: str, link: str) -> str:
+    """Compose one link message from the operator's stored words.
+
+    `kind` is "invite" or "reject". The stored setting wins; empty means the
+    built-in default. `{{magic_link}}` is replaced with `link`.
+
+    A body WITHOUT the token is not an error: a link dropped from an
+    operator-written SMS is a contact who cannot ever reach their page, so the
+    link is appended on its own line rather than lost. The admin panel refuses
+    to save such a body in the first place; this is the belt under that brace,
+    because a setting can also be written by hand.
+    Read through `setting()` — the settings-table read comes first there, so
+    a value an operator saved is found even though this key has no Field
+    entry, and the test suite's setting stub covers it too.
+    """
+    if kind == "reject":
+        text = setting("sms_reject_text")
+        if not text:
+            text = _default_reject_text()
+    else:
+        text = setting("sms_invite_text")
+        if not text:
+            text = _default_invite_text()
+    if MAGIC_LINK_TOKEN not in text:
+        logger.warning("[sms] %s text has no %s; appending the link",
+                       kind, MAGIC_LINK_TOKEN)
+        text = text + "\n" + link
+    return text.replace(MAGIC_LINK_TOKEN, link)
 
 
 def _dev_outbox(destination: str, purpose: str, link: str) -> None:
@@ -703,66 +996,89 @@ def _dev_outbox(destination: str, purpose: str, link: str) -> None:
                                    applog.mask_phone(destination), purpose, link))
 
 
-def _send_link(destination: str, link: str, template_key: str,
-               subcategory: str, missing_detail: str, reference: str = ""):
-    """Deliver one link through the configured provider. Returns the msgid.
-
-    Raises SmsError on every failure, never returns a falsy "probably fine".
-    `reference` is a caller-side id (a lead id) kept in the log so an operator
-    can answer "did this contact ever get the SMS" without the link itself.
-    """
+def _active_provider() -> str:
     from app.db.queries import get_setting
-    provider = (get_setting("sms_provider", "") or os.getenv("OTP_DELIVERY", "dev")).strip().lower()
+    return (get_setting("sms_provider", "")
+            or os.getenv("OTP_DELIVERY", "dev")).strip().lower()
 
-    if provider == "dev":
-        _dev_outbox(destination, subcategory, link)
-        applog.info("sms", "sms.link.queued", "لینک در صندوق آزمایشی نوشته شد",
-                    provider="dev", subcategory=subcategory, outcome="queued",
-                    metadata={"destination": applog.mask_phone(destination),
-                              "reference": reference})
-        return None
 
-    if not asanak_configured():
-        raise SmsError(detail="سرویس پیامک پیکربندی نشده است. نام کاربری، رمز "
-                              "عبور و شماره فرستنده را در تنظیمات پیامک وارد کنید.")
+def _dev_link(destination: str, link: str, subcategory: str, reference: str):
+    _dev_outbox(destination, subcategory, link)
+    applog.info("sms", "sms.link.queued", "لینک در صندوق آزمایشی نوشته شد",
+                provider="dev", subcategory=subcategory, outcome="queued",
+                metadata={"destination": applog.mask_phone(destination),
+                          "reference": reference})
+    return None
 
-    try:
-        msgid = _send_template(setting(template_key), destination, {"link": link},
-                               subcategory=subcategory, missing_detail=missing_detail)
-    except SmsError as e:
-        if is_link_refusal(e):
-            raise SmsError(str(e), detail=_LINK_NOT_PERMITTED, code=e.code) from e
-        raise
+
+def _link_queued(msgid, destination: str, subcategory: str, reference: str) -> None:
+    """One log row per link that left, keyed by the caller's own id.
+
+    Without it "did this contact ever get the SMS" is unanswerable a week
+    later. The link itself is never in the row.
+    """
     if reference:
-        applog.info("sms", "sms.link.queued", "لینک با پیامک ارسال شد",
+        applog.info("sms", "sms.link.queued", "پیامک برای مخاطب فرستاده شد",
                     provider="asanak", subcategory=subcategory, outcome="queued",
                     metadata={"msgid": msgid, "reference": reference,
                               "destination": applog.mask_phone(destination)})
-    return msgid
 
 
 def send_invite_link(destination: str, link: str, reference: str = ""):
     """Text a company contact the link that lets them edit their own answer.
 
-    Raises SmsError when the link does not go out. `is_link_refusal(e)` is
-    True when the reason is the sender line's missing link permission, which
-    is the case the booth answers with a QR code (SPEC REQ-057); `e.detail`
-    is the operator-facing sentence for the admin panel and `str(e)` is all a
-    visitor may see.
+    Free text, body from `sms_invite_text` with `{{magic_link}}` replaced by
+    `link`. A 1014 from the gateway (a line without link permission) is
+    re-raised with the operator-facing sentence, and `is_link_refusal(e)` is
+    True for it — the case the booth answers with a QR code (SPEC REQ-057).
+
+    `e.detail` is the operator-facing sentence for the admin panel; `str(e)` is
+    all a visitor may see.
     """
-    return _send_link(destination, link, "sms_asanak_invite_template_id",
-                      "invite", _MISSING_INVITE_TEMPLATE, reference)
+    if _active_provider() == "dev":
+        return _dev_link(destination, link, "invite", reference)
+    if not asanak_configured():
+        raise SmsError(detail=_NOT_CONFIGURED)
+
+    try:
+        msgid = send_asanak(destination, message_body("invite", link),
+                            subcategory="invite")
+    except SmsError as e:
+        if is_link_refusal(e):
+            raise SmsError(str(e), detail=_LINK_NOT_PERMITTED, code=e.code) from e
+        raise
+    _link_queued(msgid, destination, "invite", reference)
+    return msgid
 
 
 def send_reject_notice(destination: str, link: str, reference: str = ""):
-    """Tell a contact their edit was not approved, with a fresh link.
+    """Tell a contact their proposed text was not approved.
 
-    Same failure contract as send_invite_link. The rejection itself must go
-    through whether or not this succeeds (SPEC REQ-067): the caller records
-    that the contact was not reached, it does not undo the review.
+    Free text, body from `sms_reject_text` with `{{magic_link}}` replaced by
+    `link`.
+
+    There is no `reason` argument and there will not be one. The reviewer's
+    reason belongs on `/my`, which has room for it and which the contact is
+    signing in to anyway.
+
+    The rejection itself stands whether or not this succeeds (SPEC REQ-067):
+    the caller records that the contact was not reached, it does not undo the
+    review.
     """
-    return _send_link(destination, link, "sms_asanak_reject_template_id",
-                      "reject", _MISSING_REJECT_TEMPLATE, reference)
+    if _active_provider() == "dev":
+        return _dev_link(destination, link, "reject", reference)
+    if not asanak_configured():
+        raise SmsError(detail=_NOT_CONFIGURED)
+
+    try:
+        msgid = send_asanak(destination, message_body("reject", link),
+                            subcategory="reject")
+    except SmsError as e:
+        if is_link_refusal(e):
+            raise SmsError(str(e), detail=_LINK_NOT_PERMITTED, code=e.code) from e
+        raise
+    _link_queued(msgid, destination, "reject", reference)
+    return msgid
 
 
 PROVIDERS = {

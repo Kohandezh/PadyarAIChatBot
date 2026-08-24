@@ -134,46 +134,58 @@
                                 </div>
                             </div>
 
-                            <!-- Three template ids in one panel. They are only telling
-                                 apart by their LABEL, so each label names the message the
-                                 contact receives, not the Asanak jargon for it. -->
+                            <!-- The verification code is the one message that
+                                 needs an approved template (Asanak support,
+                                 2026-08-24). Everything else is free text and
+                                 its wording lives in the two boxes below. -->
                             <hr class="my-4">
                             <h6 class="mb-2">متن‌های تأییدشده در پنل آسانک</h6>
-                            <p class="text-muted small mb-3">
-                                هر متن پیامک جداگانه در پنل آسانک تأیید می‌شود و شمارهٔ مخصوص خودش
-                                را دارد. سه متن زیر سه کار متفاوت می‌کنند. شماره‌ها را جابه‌جا وارد
-                                نکنید، وگرنه برای مخاطب پیام اشتباه فرستاده می‌شود.
-                            </p>
                             <div class="row g-3">
-                                <div class="col-md-4">
-                                    <label class="form-label" for="sms-template-id">۱. پیامک «کد تأیید»</label>
+                                <div class="col-md-6">
+                                    <label class="form-label" for="sms-template-id">پیامک «کد تأیید»</label>
                                     <input type="text" id="sms-template-id" class="form-control" dir="ltr"
                                         inputmode="numeric" placeholder="مثلا: 1654">
-                                    <small class="text-muted">پیامکی که کد ورود بازدیدکننده را می‌فرستد.
-                                        اگر خط شما <b>خدماتی</b> است، فقط متن تأییدشده به گوشی می‌رسد. خالی
+                                    <small class="text-muted">پیامکی که کد ورود بازدیدکننده را می‌فرستد. کد
+                                        تأیید تنها پیامکی است که به قالب تأییدشده در پنل آسانک نیاز دارد. خالی
                                         بگذارید تا کد به‌صورت متن آزاد فرستاده شود.</small>
                                 </div>
+                            </div>
 
-                                <div class="col-md-4">
-                                    <label class="form-label" for="sms-invite-template-id">۲. پیامک «لینک
-                                        ویرایش»</label>
-                                    <input type="text" id="sms-invite-template-id" class="form-control" dir="ltr"
-                                        inputmode="numeric" placeholder="مثلا: 1655">
-                                    <small class="text-muted">پیامکی که برای شرکت فرستاده می‌شود تا متن خودش را
-                                        ویرایش کند. متن این پیامک یک لینک دارد. تا وقتی خالی باشد، این پیامک
-                                        فرستاده نمی‌شود و لینک فقط با کد QR به شرکت داده می‌شود.</small>
+                            <!-- The operator's own words for the two messages
+                                 that carry a link. One token, {{magic_link}},
+                                 marks where the link goes — it is the only
+                                 thing the box must contain, so the instruction
+                                 sits between the two boxes where both read it. -->
+                            <hr class="my-4">
+                            <h6 class="mb-2">متن پیامک‌های لینک‌دار</h6>
+                            <p class="text-muted small mb-3">
+                                این دو متن با پیامک آزاد فرستاده می‌شوند و می‌توانید خودتان بنویسید. هر
+                                متنی که می‌نویسید باید یک بار عبارت <code dir="ltr">{{"{{magic_link}}"}}</code>
+                                را داشته باشد تا جای لینک مشخص شود؛ این عبارت هنگام ارسال با لینک
+                                واقعی جایگزین می‌شود. خالی بگذارید تا متن پیش‌فرض استفاده شود.
+                            </p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label" for="sms-invite-text">۱. پیامک «دعوت به تأیید»</label>
+                                    <textarea id="sms-invite-text" class="form-control" dir="rtl" rows="5"></textarea>
+                                    <small class="text-muted">برای مخاطب شرکت فرستاده می‌شود تا اطلاعاتش را
+                                        تأیید یا اصلاح کند.</small>
+                                    <small class="text-muted d-block mt-1" id="sms-invite-text-default"></small>
                                 </div>
 
-                                <div class="col-md-4">
-                                    <label class="form-label" for="sms-reject-template-id">۳. پیامک «تأیید
-                                        نشد»</label>
-                                    <input type="text" id="sms-reject-template-id" class="form-control" dir="ltr"
-                                        inputmode="numeric" placeholder="مثلا: 1656">
-                                    <small class="text-muted">پیامکی که به شرکت می‌گوید متنش تأیید نشده و لینک
-                                        تازه‌ای برای اصلاح می‌دهد. متن این هم یک لینک دارد، ولی شمارهٔ آن با
-                                        پیامک لینک ویرایش یکی نیست.</small>
+                                <div class="col-md-6">
+                                    <label class="form-label" for="sms-reject-text">۲. پیامک «تأیید نشد»</label>
+                                    <textarea id="sms-reject-text" class="form-control" dir="rtl" rows="5"></textarea>
+                                    <small class="text-muted">وقتی ادمین متن پیشنهادی یک شرکت را رد می‌کند،
+                                        این پیامک می‌گوید بیاید دلیلش را بخوانید و متن اصلاح‌شده بفرستید.</small>
+                                    <small class="text-muted d-block mt-1" id="sms-reject-text-default"></small>
                                 </div>
                             </div>
+
+                            <!-- A 200 from the gateway means QUEUED. This line is where
+                                 a message that was accepted and never delivered stops
+                                 looking like a delivered one. -->
+                            <div id="sms-delivery" class="small mt-3"></div>
 
                             <!-- The cap's consequence is written next to the field, not
                                  in a tooltip: an operator who has to hover to find out

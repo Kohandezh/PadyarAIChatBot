@@ -95,9 +95,23 @@ def test_page_renders_for_admin(client):
     assert '/static/admin/js/settings_sms.js' in html
     # Every gateway field an operator has to set must have an input. A setting
     # that exists only in .env cannot be set by the staff who run the event.
-    for field in ("sms-template-id", "sms-invite-template-id",
-                  "sms-reject-template-id", "sms-daily-budget"):
+    for field in ("sms-template-id", "sms-invite-text", "sms-reject-text",
+                  "sms-daily-budget"):
         assert 'id="%s"' % field in html, f"missing input #{field}"
+    # The instruction names the token the operator must type, in place.
+    assert "{{magic_link}}" in html
+
+
+def test_the_line_type_switch_is_gone(client):
+    """Settled with Asanak support 2026-08-24: free text is a normal send path
+    and carries links, so there is no line kind for the operator to declare. A
+    radio for it would ask a question nobody needs to answer again."""
+    _login(client)
+    html = client.get("/secure-panel-inotex/settings/sms").text
+    assert "sms-line-service" not in html
+    assert "sms-line-promotional" not in html
+    assert "نوع خط" not in html
+    assert "line_type" not in client.get("/admin/api/sms").text
 
 
 def test_daily_budget_consequence_is_on_the_page(client):
@@ -170,36 +184,73 @@ def test_no_secrets_stored_reports_false(client):
     assert body["has_api_key"] is False
 
 
-# ── Template ids and the daily budget ───────────────────────────────────
+# ── Template id, message texts and the daily budget ─────────────────────
 
-def test_template_ids_and_budget_round_trip(client):
+def test_template_id_text_and_budget_round_trip(client):
     """Save, read back, and get exactly what was typed into each box."""
     _login(client)
+    invite = "برای تأیید اطلاعات به لینک زیر بروید:\n{{magic_link}}"
+    reject = "متن شما تأیید نشد. دلیلش اینجاست:\n{{magic_link}}"
     assert client.post("/admin/api/sms", json=_payload(
-        template_id="1654", invite_template_id="1655",
-        reject_template_id="1656", daily_budget="250")).status_code == 200
+        template_id="1654", invite_text=invite, reject_text=reject,
+        daily_budget="250")).status_code == 200
 
     body = client.get("/admin/api/sms").json()
     assert body["template_id"] == "1654"
-    assert body["invite_template_id"] == "1655"
-    assert body["reject_template_id"] == "1656"
+    assert body["invite_text"] == invite
+    assert body["reject_text"] == reject
     assert body["daily_budget"] == "250"
 
     # The sender reads the same values, so what the panel shows is what the
     # gateway will actually use.
     from app.services import sms as sms_service
-    assert sms_service.setting("sms_asanak_invite_template_id") == "1655"
-    assert sms_service.setting("sms_asanak_reject_template_id") == "1656"
     assert sms_service.daily_budget() == 250
+    sent = sms_service.message_body("invite", "https://example.invalid/e/1")
+    assert sent.startswith("برای تأیید اطلاعات")
+    assert "https://example.invalid/e/1" in sent
+    assert "{{magic_link}}" not in sent
 
 
-def test_the_three_new_fields_are_not_masked(client):
-    """They are template ids and a number, not secrets. Readable on purpose."""
+def test_empty_texts_mean_the_builtin_defaults(client):
+    """An empty box is a choice, not a mistake: the built-in wording is used,
+    and the panel shows that wording so the operator can read it before
+    deciding to type their own."""
+    _login(client)
+    client.post("/admin/api/sms", json=_payload())
+    body = client.get("/admin/api/sms").json()
+    assert body["invite_text"] == "" and body["reject_text"] == ""
+    # The defaults come down WITH the token still in place, so the operator
+    # sees where the link will go.
+    assert "{{magic_link}}" in body["invite_text_default"]
+    assert "{{magic_link}}" in body["reject_text_default"]
+
+
+def test_a_text_without_the_link_token_is_refused(client):
+    """A body the operator typed without {{magic_link}} would send a contact
+    an SMS they cannot act on. Refused at save time, while the box is still
+    on screen — not discovered at the booth."""
+    _login(client)
+    r = client.post("/admin/api/sms", json=_payload(
+        invite_text="سلام، منتظر شما هستیم"))
+    assert r.status_code == 400
+    assert "{{magic_link}}" in r.json()["detail"]
+
+    r = client.post("/admin/api/sms", json=_payload(
+        reject_text="متن شما رد شد"))
+    assert r.status_code == 400
+    # Nothing was stored by a refused save.
+    from app.db.queries import get_setting
+    assert get_setting("sms_invite_text", "") == ""
+    assert get_setting("sms_reject_text", "") == ""
+
+
+def test_the_texts_are_not_masked(client):
+    """They are prose, not secrets. Readable on purpose."""
     _login(client)
     client.post("/admin/api/sms", json=_payload(
-        invite_template_id="1655", reject_template_id="1656", daily_budget="7"))
+        invite_text="بیا اینجا:\n{{magic_link}}", daily_budget="7"))
     text = client.get("/admin/api/sms").text
-    assert "1655" in text and "1656" in text and '"7"' in text
+    assert "بیا اینجا" in text and '"7"' in text
 
 
 def test_budget_defaults_to_no_cap(client):

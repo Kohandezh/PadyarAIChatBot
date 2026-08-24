@@ -186,3 +186,135 @@ def test_otp_hands_the_bare_code_to_the_gateway(monkeypatch):
                             destination=destination, message=message, code=code))
     sms_service.send("asanak", "09122723024", "کد تأیید شما: 45231", code="45231")
     assert captured["code"] == "45231"
+
+
+# ── The invite and the rejection notice: free text, operator's words ─────
+# Settled with Asanak support 2026-08-24: `sendsms` free text is a normal
+# path and carries links; the verification code is the only message that
+# needs an approved template. Both link messages are composed from the
+# admin-editable `sms_invite_text` / `sms_reject_text` with {{magic_link}}
+# marking where the one-time link goes.
+
+def _asanak(monkeypatch, sms_service, **overrides):
+    _stub_settings(monkeypatch, sms_service, **overrides)
+    monkeypatch.setattr(sms_service, "_active_provider", lambda: "asanak")
+
+
+def test_invite_goes_as_free_text_with_the_link_in_the_body(monkeypatch):
+    from app.services import sms as sms_service
+    _asanak(monkeypatch, sms_service)
+    captured = {}
+
+    def fake_post(url, payload):
+        captured.update(payload)
+        return 200, '{"meta":{"status":200,"message":"success"},"data":[901]}'
+
+    monkeypatch.setattr(sms_service, "_http_post", fake_post)
+    monkeypatch.setattr(sms_service, "_http_post_json", lambda *a: pytest.fail(
+        "free text needs no template"))
+
+    link = "https://example.invalid/e/abc"
+    assert sms_service.send_invite_link("+989122723024", link, "lead-1") == 901
+    assert captured["destination"] == "09122723024"
+    # A real message, not a parameter slot: the token became the actual link.
+    assert link in captured["message"]
+    assert "{{magic_link}}" not in captured["message"]
+    # The default says what the link does and how long it lasts.
+    assert "۲۴ ساعت" in captured["message"]
+
+
+def test_a_custom_invite_text_is_used_and_the_token_replaces(monkeypatch):
+    from app.services import sms as sms_service
+    _asanak(monkeypatch, sms_service, sms_invite_text="بیا اینجا:\n{{magic_link}}")
+    captured = {}
+
+    def fake_post(url, payload):
+        captured.update(payload)
+        return 200, '{"meta":{"status":200,"message":"success"},"data":[905]}'
+
+    monkeypatch.setattr(sms_service, "_http_post", fake_post)
+
+    link = "https://example.invalid/e/own-words"
+    sms_service.send_invite_link("09122723024", link)
+    assert captured["message"] == "بیا اینجا:\n" + link
+
+
+def test_a_custom_text_without_the_token_still_carries_the_link(monkeypatch):
+    """The panel refuses to save such a body, but a setting can also be
+    written by hand. The link is appended rather than lost — a contact who
+    cannot reach their page is the one failure this must never produce."""
+    from app.services import sms as sms_service
+    _asanak(monkeypatch, sms_service, sms_invite_text="سلام، منتظر شما هستیم")
+    captured = {}
+
+    def fake_post(url, payload):
+        captured.update(payload)
+        return 200, '{"meta":{"status":200,"message":"success"},"data":[906]}'
+
+    monkeypatch.setattr(sms_service, "_http_post", fake_post)
+
+    link = "https://example.invalid/e/rescued"
+    sms_service.send_invite_link("09122723024", link)
+    assert captured["message"].endswith(link)
+    assert "{{magic_link}}" not in captured["message"]
+
+
+def test_rejection_goes_as_free_text_with_the_link_in_the_body(monkeypatch):
+    """The reviewer's reason lives on the contact's own page, which is where
+    the link goes and where there is room to read it."""
+    from app.services import sms as sms_service
+    _asanak(monkeypatch, sms_service)
+    captured = {}
+
+    def fake_post(url, payload):
+        captured.update(payload)
+        return 200, '{"meta":{"status":200,"message":"success"},"data":[903]}'
+
+    monkeypatch.setattr(sms_service, "_http_post", fake_post)
+    monkeypatch.setattr(sms_service, "_http_post_json", lambda *a: pytest.fail(
+        "free text needs no template"))
+
+    link = "https://example.invalid/e/xyz"
+    assert sms_service.send_reject_notice("09122723024", link, "lead-2") == 903
+    assert link in captured["message"]
+    assert "تأیید نشد" in captured["message"]
+
+
+def test_a_link_refusal_from_the_gateway_is_recognised(monkeypatch):
+    """1014 — the line may not send links — is the one failure the caller
+    answers with a QR instead of an error (SPEC REQ-057). It can still come
+    back from a line without link permission, so it must stay recognisable."""
+    from app.services import sms as sms_service
+    _asanak(monkeypatch, sms_service)
+    monkeypatch.setattr(sms_service, "_http_post", lambda url, payload: (
+        200, '{"meta":{"status":1014,"message":"link not permitted"}}'))
+
+    with pytest.raises(sms_service.SmsError) as caught:
+        sms_service.send_invite_link("09122723024", "https://example.invalid/e/x")
+    assert sms_service.is_link_refusal(caught.value) is True
+    # The operator-facing sentence names the fix: get the permission from
+    # Asanak, and until then hand the contact a QR.
+    assert "۱۰۱۴" in caught.value.detail
+    assert "QR" in caught.value.detail
+
+
+def test_send_reject_notice_takes_no_reason(monkeypatch):
+    """The reviewer's sentence cannot travel in the SMS — the contact reads
+    it on their own page. This pins the contract the review path relies on."""
+    import inspect
+    from app.services import sms as sms_service
+    names = list(inspect.signature(sms_service.send_reject_notice).parameters)
+    assert names == ["destination", "link", "reference"]
+
+
+def test_a_link_message_is_counted_against_the_daily_budget(monkeypatch):
+    """Every path comes off the same Asanak credit, so every path is counted."""
+    from app.services import sms as sms_service
+    _asanak(monkeypatch, sms_service)
+    monkeypatch.setattr(sms_service, "_http_post", lambda url, payload: (
+        200, '{"meta":{"status":200,"message":"success"},"data":[904]}'))
+    spent = []
+    monkeypatch.setattr(sms_service, "_spend_budget", lambda kind: spent.append(kind))
+
+    sms_service.send_invite_link("09122723024", "https://example.invalid/e/abc")
+    assert spent == ["invite"]

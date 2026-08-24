@@ -127,16 +127,16 @@ class SmsSettingsRequest(BaseModel):
     # for another Asanak product.
     api_key: str = ""
     source: str = ""
-    # An approved template's id. A SERVICE line carries only approved content:
-    # with this set, the code is sent as a template parameter instead of free
-    # text — see send_asanak_template. Empty = plain sendsms.
+    # An approved template's id for the VERIFICATION CODE — the one message
+    # that needs a template (settled with Asanak support 2026-08-24). With this
+    # set, the code is sent as a template parameter instead of free text — see
+    # send_asanak_template. Empty = plain sendsms.
     template_id: str = ""
-    # Two more approved templates, both carrying a LINK instead of a code.
-    # They are separate ids because Asanak approves one template per text, and
-    # neither may stand in for the other: a contact told "your text was not
-    # approved" when they were only being invited is worse than no SMS at all.
-    invite_template_id: str = ""
-    reject_template_id: str = ""
+    # The invite / rejection-notice bodies, editable by the operator. Each
+    # must contain {{magic_link}} where the one-time link goes; the router
+    # refuses to save one without it. Empty = the built-in default text.
+    invite_text: str = ""
+    reject_text: str = ""
     # Messages allowed per day across every kind of SMS. "0" means no cap.
     # A string, like every other field here, so the whole form is one shape.
     # The router turns it into a number and refuses anything else.
