@@ -16,6 +16,12 @@ This is the #1 product principle. It overrides everything else.
 
 **When in doubt: simplify. Remove. Hide. Auto-detect. Default.**
 
+## Communication
+
+Malik-e product (Sina) Finglish minevisi — farsi ba horuf-e latin. Jawab-ha
+HAMESH Finglish ast. Hich vaght parsi script, hich vaght makhs. Faghat baraye
+chat — code, commit, doc tu zaban-e khod.
+
 ---
 
 ## Project Overview
