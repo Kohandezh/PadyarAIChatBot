@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>ورود | <!-- APP_NAME --></title>
+<link rel="stylesheet" href="/static/vendor/vazirmatn/Vazirmatn-font-face.css">
+<link rel="stylesheet" href="/static/leads/leads.css">
+<!-- BRAND_CSS -->
+</head>
+<body>
+<header class="bar">
+  <div class="inner">
+    <h1>اطلاعات شرکت شما</h1>
+    <p>ورود با شمارهٔ موبایل</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- Step 1. The person opening this may have followed an SMS weeks after a
+       colleague explained it at a booth, so the page says what it is before it
+       asks for anything. -->
+  <section class="card" id="step-phone">
+    <div class="lede">
+      <p>چت‌بات نمایشگاه دربارهٔ شرکت شما یک متن معرفی به بازدیدکننده‌ها می‌گوید.</p>
+      <p>همکار ما در غرفه شمارهٔ شما را ثبت کرد تا خودتان آن متن را ببینید و اگر لازم بود درستش کنید.</p>
+    </div>
+
+    <label for="phone">شمارهٔ موبایل</label>
+    <input type="tel" id="phone" inputmode="tel" autocomplete="tel" dir="ltr"
+           placeholder="09121234567">
+    <p class="hint">یک کد پیامک می‌شود و با همان وارد می‌شوید. رمزی در کار نیست که ساخته یا فراموش شود.</p>
+    <div class="note err" id="phone-error"></div>
+    <div style="margin-top:16px"><button type="button" id="send">ارسال کد</button></div>
+  </section>
+
+  <!-- Step 2. One real input under the whole code, so a pasted message and an
+       SMS autofill both land in one place. -->
+  <section class="card" id="step-code" hidden>
+    <h2>کد را وارد کنید</h2>
+    <p class="hint">کد به شمارهٔ <span class="masked" id="masked" dir="ltr"></span> پیامک شد.</p>
+    <label class="sr-only" for="code">کد پیامک‌شده</label>
+    <input type="text" id="code" class="code-input" inputmode="numeric"
+           autocomplete="one-time-code" maxlength="6" placeholder="------">
+    <p class="hint" id="timer"></p>
+    <div class="note err" id="code-error"></div>
+    <div style="margin-top:16px">
+      <button type="button" id="confirm">ورود</button>
+      <button type="button" class="ghost" id="resend">ارسال دوبارهٔ کد</button>
+      <button type="button" class="ghost" id="back">شماره را اشتباه زدم</button>
+    </div>
+  </section>
+</div>
+
+<script src="/static/leads/login.js"></script>
+</body>
+</html>

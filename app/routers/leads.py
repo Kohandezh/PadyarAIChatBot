@@ -1,9 +1,11 @@
 """Exhibition lead capture: the visitor panel, the edit page, the admin queue.
 
-Three audiences, three doors, and no shared credential between them:
+Four audiences, four doors, and no shared credential between them:
 
   /v/{code}      a field visitor, identified by their own personal link
   /edit/{token}  a company contact, holding a one-time invite from the booth
+  /login, /my    the same contact later, on an account and a session of their
+                 own, because the invite was one-time and the company is not
   /secure-panel-inotex/leads  an administrator, on the existing admin session
 
 Nothing here trusts anything the browser says about who it is. The visitor
@@ -31,6 +33,7 @@ from app.auth.security import check_rate_limit, client_ip, verify_admin
 # One audit helper for every route in the app that hands a batch of data out,
 # so there is a single event name to grep for. See app/routers/admin.py.
 from app.routers.admin import audit_export
+from app.services import identity as identity_service
 from app.services import leads as leads_service
 from app.services.leads import LeadError
 
@@ -324,6 +327,189 @@ async def save_edit(token: str, request: Request, payload: dict = Body(default={
         raise _fail(e)
 
 
+# ── The contact, signed in ───────────────────────────────────────────────
+#
+# A fourth door, and the only one that outlives its invite:
+#
+#   /login  a company contact, proving a phone number they already gave once
+#   /my     the companies that phone number is allowed to speak for
+#
+# Two rules run through every route below. The credential is a session cookie
+# whose expiry the server re-reads on each request, never a challenge id and
+# never anything the browser asserts. And the company being edited is derived
+# from the ownership record every single time, so nothing in a request body or
+# a query string can point this at a company the caller does not own
+# (SEC-004, SEC-005).
+
+def _user_token(request: Request) -> str:
+    return request.cookies.get(identity_service.USER_COOKIE, "")
+
+
+def current_user(request: Request) -> dict:
+    """403, not 401. Both are a login to the page, and SEC-001 says 403."""
+    user = identity_service.user_by_session(_user_token(request))
+    if user is None:
+        raise HTTPException(status_code=403, detail="وارد نشده‌اید.")
+    return user
+
+
+class LoginRequestBody(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+
+
+@router.post("/api/auth/login/request")
+async def login_request(body: LoginRequestBody, request: Request):
+    """Send a code. No password exists to be created, forgotten or reset.
+
+    The answer is the same whether or not this number has an account: a page
+    that says "no account with that number" is a page that lists which of the
+    exhibition's contacts we hold. The account is created on the way back, when
+    the code has actually been read.
+    """
+    check_rate_limit(request, limit=leads_service.RATE_LIMIT_PER_IP)
+    from app.services import otp as otp_service
+    if otp_service.normalize_destination(body.phone) is None:
+        return JSONResponse(status_code=400,
+                            content={"detail": "شماره واردشده معتبر نیست.",
+                                     "code": "bad_phone"})
+    try:
+        # Straight through the OTP service, so this path is under the same
+        # per-number hourly ceiling, cooldown and attempt limit as every other
+        # code this install sends (REQ-036).
+        return otp_service.request_challenge(body.phone)
+    except otp_service.OtpError as e:
+        code = {429: "hourly", 503: "sms_down"}.get(e.status, "error")
+        return JSONResponse(status_code=e.status,
+                            content={"detail": e.public, "code": code})
+
+
+class LoginVerifyBody(BaseModel):
+    challenge_id: str = Field(min_length=1, max_length=120)
+    code: str = Field(min_length=1, max_length=12)
+
+
+@router.post("/api/auth/login/verify")
+async def login_verify(body: LoginVerifyBody, request: Request):
+    """Check the code, find or create the account, hand out a session."""
+    check_rate_limit(request, limit=leads_service.RATE_LIMIT_PER_IP)
+    from app.services import otp as otp_service
+    ok, message = otp_service.verify(body.challenge_id, body.code)
+    if not ok:
+        return JSONResponse(status_code=400,
+                            content={"detail": message, "code": "bad_code"})
+    destination = identity_service.verified_destination(body.challenge_id)
+    if not destination:
+        return JSONResponse(status_code=400,
+                            content={"detail": "کد منقضی شده است. دوباره درخواست دهید.",
+                                     "code": "expired"})
+
+    user = identity_service.find_or_create_user(destination, source="login")
+    if user["status"] != "active":
+        # A blocked account cannot sign back in. Blocking deletes the sessions;
+        # this is what stops a new one being minted a second later.
+        return JSONResponse(status_code=403,
+                            content={"detail": "این حساب غیرفعال است.",
+                                     "code": "blocked"})
+    session = identity_service.start_session(user["id"])
+    response = JSONResponse({"ok": True, "redirect": "/my"})
+    response.set_cookie(
+        key=identity_service.USER_COOKIE, value=session["token"], httponly=True,
+        secure=COOKIE_SECURE, samesite="lax", max_age=session["max_age"],
+    )
+    return response
+
+
+@router.post("/api/auth/logout")
+async def logout(request: Request):
+    """One button, and the cookie stops working on the server too."""
+    identity_service.end_session(_user_token(request))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(key=identity_service.USER_COOKIE)
+    return response
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if identity_service.user_by_session(_user_token(request)):
+        return RedirectResponse(url="/my", status_code=303)
+    return HTMLResponse(_brand(_page("login.html")))
+
+
+@router.get("/my", response_class=HTMLResponse)
+async def my_page(request: Request):
+    """No session is not an error to explain, it is a login."""
+    if identity_service.user_by_session(_user_token(request)) is None:
+        return RedirectResponse(url="/login", status_code=303)
+    return HTMLResponse(_brand(_page("my.html")))
+
+
+@router.get("/api/my/companies")
+async def my_companies(user: dict = Depends(current_user)):
+    """Only this account's live ownerships, and there may be several.
+
+    `pending_grants` are the companies a booth attached to an account that
+    already existed. They open nothing until this person accepts one from this
+    session, which is the whole of SEC-013.
+    """
+    return {"companies": leads_service.owner_companies(user["id"]),
+            "pending_grants": [{"id": g["id"], "title": g["title"]}
+                               for g in identity_service.pending_grants(user["id"])],
+            "user": {"first_name": user["first_name"], "last_name": user["last_name"]}}
+
+
+@router.post("/api/my/companies/{ownership_id}/accept")
+async def my_accept(ownership_id: str, user: dict = Depends(current_user)):
+    if not identity_service.accept_grant(user["id"], ownership_id):
+        raise HTTPException(status_code=403, detail=leads_service.NO_ACCESS_MESSAGE)
+    return {"ok": True}
+
+
+# Two shapes for one route. The bare path is what the spec named and is enough
+# for the ordinary case of one company; the path parameter names WHICH
+# ownership when a person runs several. Neither carries a company id: an
+# ownership id belongs to exactly one account, and the company is read off the
+# record it names.
+@router.get("/api/my/edit")
+@router.get("/api/my/edit/{ownership_id}")
+async def my_edit_state(ownership_id: str = "", user: dict = Depends(current_user)):
+    try:
+        return leads_service.owner_edit_view(user["id"], ownership_id)
+    except LeadError as e:
+        raise _fail(e)
+
+
+def _owner_payload(payload: dict) -> str:
+    """`text`, and nothing else. A `dataset_id` in the body is a 400.
+
+    Ignoring an unexpected field is not the same as refusing it: silence is how
+    somebody later assumes the endpoint was already reading it.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="درخواست معتبر نیست.")
+    extra = sorted(k for k in payload if k != "text")
+    if extra:
+        raise HTTPException(status_code=400,
+                            detail="فقط متن پاسخ قابل ارسال است: " + "، ".join(extra))
+    value = payload.get("text")
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail="متن پاسخ را وارد کنید.")
+    return value
+
+
+@router.post("/api/my/edit")
+@router.post("/api/my/edit/{ownership_id}")
+async def my_edit_save(request: Request, ownership_id: str = "",
+                       payload: dict = Body(default={}),
+                       user: dict = Depends(current_user)):
+    check_rate_limit(request, key=f"user:{user['id']}",
+                     limit=leads_service.RATE_LIMIT_PER_VISITOR)
+    text = _owner_payload(payload)
+    try:
+        return leads_service.submit_owner_edit(user["id"], ownership_id, text)
+    except LeadError as e:
+        raise _fail(e)
+
+
 # ── Admin ────────────────────────────────────────────────────────────────
 
 @router.get("/admin/api/leads/funnel")
@@ -493,6 +679,60 @@ async def admin_revert_edit(edit_id: str, admin: str = Depends(verify_admin)):
         return leads_service.revert_edit(edit_id, actor=admin)
     except LeadError as e:
         raise _fail(e)
+
+
+# ── Admin: accounts and ownership ────────────────────────────────────────
+
+@router.get("/admin/api/leads/users")
+async def admin_users(request: Request, admin: str = Depends(verify_admin)):
+    rows = identity_service.list_users()
+    audit_export(request, admin, "lead_users", rows=len(rows))
+    return {"users": rows}
+
+
+class BlockBody(BaseModel):
+    blocked: bool
+
+
+@router.post("/admin/api/leads/users/{user_id}/block",
+             dependencies=[Depends(verify_admin)])
+async def admin_block_user(user_id: str, body: BlockBody):
+    """Blocking deletes this account's sessions, so it takes effect on the next
+    request rather than at the next expiry. Its history stays."""
+    if not identity_service.block_user(user_id, body.blocked):
+        raise HTTPException(status_code=404, detail="این کاربر پیدا نشد.")
+    return {"ok": True}
+
+
+class OwnerBody(BaseModel):
+    dataset_id: str = Field(min_length=1, max_length=120)
+    user_id: str = Field(min_length=1, max_length=120)
+
+
+@router.post("/admin/api/leads/owners")
+async def admin_grant_owner(body: OwnerBody, admin: str = Depends(verify_admin)):
+    """The one place a company id is taken from a request body, and it is the
+    admin's own. SEC-004 is about the contact's edit path, where the id would
+    be a way to reach a company the caller does not own; here the caller is the
+    person who decides ownership in the first place.
+
+    Granted `active`: an admin doing this IS the confirmation SEC-012 asks for.
+    """
+    grant = identity_service.grant_ownership(body.dataset_id, body.user_id,
+                                             granted_by=admin, status="active")
+    if not grant["ok"]:
+        detail = ("این شرکت مالک دارد. اول مالکیت فعلی را لغو کنید."
+                  if grant["reason"] == "taken"
+                  else "این کاربر از قبل روی این شرکت مالکیت دارد.")
+        raise HTTPException(status_code=409, detail=detail)
+    return {"ok": True, "id": grant["id"]}
+
+
+@router.post("/admin/api/leads/owners/{ownership_id}/revoke")
+async def admin_revoke_owner(ownership_id: str, admin: str = Depends(verify_admin)):
+    if not identity_service.revoke_grant(ownership_id, actor=admin):
+        raise HTTPException(status_code=404, detail="این مالکیت پیدا نشد.")
+    return {"ok": True}
 
 
 @router.get("/secure-panel-inotex/leads", response_class=HTMLResponse)

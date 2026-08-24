@@ -1,8 +1,9 @@
-/* Exhibition lead capture — the visitor panel and the company edit page.
-   One stylesheet for both: they are the same product seen from two sides, and
-   a second file would drift. Everything is sized for a phone held in one hand
-   at a noisy exhibition, so no text is smaller than 16px and every tap target
-   clears 48px. */
+/* Exhibition lead capture: the visitor panel, the company edit page, signing
+   in, and «شرکت من».
+   One stylesheet for all of them. They are the same product seen from four
+   sides, and a second file would drift. Everything is sized for a phone held
+   in one hand at a noisy exhibition, so no text is smaller than 16px and every
+   tap target clears 48px. */
 :root {
   --brand-primary: #2D5CA7;
   --brand-accent: #FCB715;
@@ -39,6 +40,18 @@ header.bar {
 header.bar .inner { max-width: 560px; margin: 0 auto; }
 header.bar h1 { margin: 0; font-size: 21px; font-weight: 700; }
 header.bar p { margin: 4px 0 0; font-size: 16px; opacity: .9; }
+
+/* The bar carries one action at most, and only on the pages that have one:
+   signing out. Opt-in, so the pages without it keep their stacked title. */
+header.bar.with-action .inner {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+header.bar.with-action .titles { min-width: 0; }
+header.bar .barbtn {
+  flex: none; width: auto; min-height: 48px; padding: 10px 18px; font-size: 16px;
+  background: rgba(255, 255, 255, .16); color: #fff;
+  border: 1px solid rgba(255, 255, 255, .55); border-radius: 12px;
+}
 
 .card {
   background: var(--card);
@@ -190,3 +203,40 @@ button + button { margin-top: 10px; }
 .center { text-align: center; padding: 48px 20px; max-width: 480px; margin: 0 auto; }
 .center h1 { font-size: 22px; }
 .center p { color: var(--muted); font-size: 17px; }
+
+/* --- Sign-in and «شرکت من» ------------------------------------------ */
+
+/* Why this page exists, above the field that asks for a number. Someone who
+   followed an SMS weeks after a booth conversation reads this first. */
+.lede { margin: 0 0 18px; }
+.lede p { margin: 0 0 10px; font-size: 17px; }
+.lede p:last-child { margin: 0; }
+
+.masked { font-weight: 700; }
+
+/* Visible to a screen reader, not on screen. The code box is labelled by the
+   sentence above it for everyone else. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Heading weight for a field label that is not the card's own heading. */
+.field-label { margin: 0 0 6px; font-size: 19px; font-weight: 700; }
+
+/* What happened to the last text they sent. A person who sent something and
+   heard nothing assumes it was lost, so this sits above the box, not below. */
+.state { border-radius: 12px; padding: 14px; margin: 0 0 16px; border: 1px solid transparent; }
+.state h3 { margin: 0 0 4px; font-size: 17px; }
+.state p { margin: 0; font-size: 16px; }
+.state p + p { margin-top: 8px; font-weight: 700; }
+.state.wait { background: #fff6e5; color: #8a5b00; border-color: #f0dcae; }
+.state.ok   { background: #e6f7f3; color: #076b58; border-color: #bfe7dd; }
+.state.bad  { background: #fdecec; color: var(--bad); border-color: #f3c9c7; }
+
+.badge.err { background: #fdecec; color: var(--bad); }
+
+/* The picker only appears for someone who runs more than one company. */
+.pick-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+.backlink { width: auto; min-height: 48px; padding: 8px 16px; font-size: 16px; margin: 0 0 14px; }

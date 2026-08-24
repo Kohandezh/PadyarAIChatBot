@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>اطلاعات شرکت شما | <!-- APP_NAME --></title>
+<link rel="stylesheet" href="/static/vendor/vazirmatn/Vazirmatn-font-face.css">
+<link rel="stylesheet" href="/static/leads/leads.css">
+<!-- BRAND_CSS -->
+</head>
+<body>
+<header class="bar with-action">
+  <div class="inner">
+    <div class="titles">
+      <h1>اطلاعات شرکت شما</h1>
+      <p>متن معرفی شرکتتان در چت‌بات نمایشگاه</p>
+    </div>
+    <button type="button" class="barbtn" id="signout">خروج</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="card" id="loading"><p class="hint" style="margin:0">در حال باز کردن…</p></section>
+
+  <!-- Nothing is attached to this number. Says so, and says who fixes it. -->
+  <section class="card" id="empty" hidden>
+    <h2>هنوز شرکتی به شمارهٔ شما وصل نیست</h2>
+    <p class="hint" style="margin:0">اگر پای غرفه شمارهٔ شما را ثبت کرده‌اند، کمی بعد دوباره سر بزنید. اگر باز هم نبود، به همکار ما در غرفه بگویید.</p>
+  </section>
+
+  <!-- Only when this person runs more than one company. With a single company
+       this list never renders and the text box is the first thing on screen. -->
+  <section class="card" id="pick" hidden>
+    <h2>شرکت‌های شما</h2>
+    <p class="hint">کدام یک را می‌خواهید ببینید؟</p>
+    <ul class="results" id="companies"></ul>
+  </section>
+
+  <section class="card" id="editor" hidden>
+    <button type="button" class="ghost backlink" id="back" hidden>شرکت دیگر</button>
+
+    <!-- Read-only. The contact needs to know whose information this is, and
+         there is nothing here to change it with. -->
+    <h2 id="company"></h2>
+
+    <!-- The honest answer to «چه بر سر متنی که فرستادم آمد؟». -->
+    <div class="state" id="state" hidden>
+      <h3 id="state-title"></h3>
+      <p id="state-text"></p>
+      <p id="state-reason" hidden></p>
+    </div>
+
+    <h3 class="field-label">متن پاسخ</h3>
+    <p class="hint">این همان متنی است که چت‌بات نمایشگاه در پاسخ به بازدیدکننده‌ها دربارهٔ شرکت شما می‌گوید. هر جای آن را لازم دیدید اصلاح کنید.</p>
+    <textarea id="text" maxlength="4000" placeholder="متن معرفی شرکت…"></textarea>
+    <div class="counter" id="counter" hidden></div>
+    <div class="note err" id="error"></div>
+    <div class="note ok" id="saved"></div>
+    <div style="margin-top:16px"><button type="button" id="save">ثبت متن</button></div>
+    <p class="hint" style="margin:10px 0 0">بعد از ثبت، متن بررسی می‌شود و بعد روی چت‌بات می‌نشیند.</p>
+  </section>
+</div>
+
+<script src="/static/leads/my.js"></script>
+</body>
+</html>

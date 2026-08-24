@@ -1139,9 +1139,28 @@ def verify_contact(lead_id: str, code: str, base_url: str,
                            issued_by_session=visitor_session)
     _audit("contact_verified", lead["company_name"], lead_id=lead_id)
 
+    # The account and the grant, so the contact can come back after the invite
+    # is gone. It is attempted AFTER the claim and it never raises: the code
+    # was read out loud, the company is claimed and the invite exists, so an
+    # identity layer that is having a bad minute must not cost the visitor the
+    # registration standing in front of them. A pending grant is the normal
+    # outcome for a number that already has an account (SEC-013).
+    owner = {"status": "", "new_account": False}
+    try:
+        from app.services import identity
+        owner = identity.capture_owner(
+            lead["dataset_id"], lead["phone"], lead["first_name"],
+            lead["last_name"], lead["position"])
+    except Exception as e:  # noqa: BLE001
+        _audit("owner_grant_failed", str(e), lead_id=lead_id)
+
     channel = invite_channel()
     result = {"lead_id": lead_id, "company": lead["company_name"],
               "channel": channel, "expires_at": invite["expires_at"],
+              # True when this number already had an account, which means the
+              # company is attached but switched off until its owner accepts it
+              # from their own login. The booth should not promise otherwise.
+              "owner_pending": owner.get("status") == "pending",
               "destination_masked": otp_service.mask_destination(lead["phone"] or "")}
     if channel == "sms":
         sent, reason = _send_link(lead["phone"], invite["invite_url"], "invite", lead_id)
@@ -1339,6 +1358,137 @@ def submit_edit(token: str, new_text: str, visitor_session: str = "",
     return {"ok": True, "company": view["company"]}
 
 
+# ── The edit from a signed-in owner ──────────────────────────────────────
+#
+# The second of the two ways an edit is ever accepted, and the two never touch.
+# The invite path above proves itself with the token in the URL and reads the
+# company from `edit_invites`. This path proves itself with a session cookie
+# and reads the company from `dataset_owners`. Neither reads a company id from
+# the request (SEC-004): what the caller names here is an OWNERSHIP, and an
+# ownership belonging to somebody else matches nothing, because the lookup has
+# the user id in its WHERE clause.
+#
+# Both conditions are required and neither is sufficient (SEC-003). No session
+# never reaches these functions; no live grant is refused here. A grant that
+# was revoked, that expired, or that never existed produce the SAME refusal, so
+# nothing about another company's ownership can be read off the difference.
+
+# One sentence for all four. See DEAD_INVITE_MESSAGE for the same reasoning on
+# the invite path.
+NO_ACCESS_MESSAGE = "دسترسی به این شرکت ندارید."
+
+
+def _owned(user_id: str, ownership_id: str = "") -> dict:
+    from app.services import identity
+    grant = identity.grant_for(user_id, ownership_id)
+    if grant is None:
+        _audit("owner_edit_refused", "", user_id=user_id, ownership_id=ownership_id)
+        raise LeadError(NO_ACCESS_MESSAGE, status=403, code="no_access")
+    return grant
+
+
+def _last_edit(dataset_id: str) -> Optional[dict]:
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, status, new_text, created_at, reviewed_at FROM dataset_edits"
+            " WHERE dataset_id = ? ORDER BY created_at DESC LIMIT 1", (dataset_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def owner_edit_view(user_id: str, ownership_id: str = "") -> dict:
+    """The company's answer as its owner sees it.
+
+    The box holds their own unreviewed text when there is one, and the live
+    answer otherwise, exactly as the invite page does: coming back must not
+    silently throw away a rewrite that was already sent.
+    """
+    ensure_tables()
+    grant = _owned(user_id, ownership_id)
+    last = _last_edit(grant["dataset_id"])
+    pending = bool(last and last["status"] == "pending")
+    return {
+        "ownership_id": grant["id"],
+        "company": grant["title"],
+        "text": last["new_text"] if pending else grant["text"],
+        "live_text": grant["text"],
+        "pending": pending,
+        # What happened to the last thing they sent, in the vocabulary of
+        # `dataset_edits.status`. `none` is a first visit and says nothing.
+        "submission": {"status": last["status"] if last else "none"},
+        "expires_at": grant["expires_at"],
+        "consent_script": consent_script()["text"],
+    }
+
+
+def owner_companies(user_id: str) -> list:
+    """Every company a signed-in owner may speak for, ready to render.
+
+    The text rides along with the list because the ordinary case is one
+    company: sending it here saves the phone a second request before the box
+    it came to type in appears.
+    """
+    ensure_tables()
+    from app.services import identity
+    out = []
+    for grant in identity.live_grants(user_id):
+        last = _last_edit(grant["dataset_id"])
+        pending = bool(last and last["status"] == "pending")
+        out.append({
+            "id": grant["id"],
+            "title": grant["title"],
+            "text": last["new_text"] if pending else grant["text"],
+            "submission": {"status": last["status"] if last else "none"},
+            "expires_at": grant["expires_at"],
+        })
+    return out
+
+
+def submit_owner_edit(user_id: str, ownership_id: str, new_text: str) -> dict:
+    """Queue an owner's rewrite for review. The live answer is untouched.
+
+    Same rules as the invite path (REQ-020 to REQ-022) and the same single
+    pending draft per company. There is no token to burn: a session may be used
+    again, so what limits this is the review queue, not a one-time credential.
+    """
+    ensure_tables()
+    grant = _owned(user_id, ownership_id)
+    text = (new_text or "").strip()
+    if not text:
+        raise LeadError("متن پاسخ نمی‌تواند خالی باشد.", code="empty_text")
+    if len(text) > MAX_EDIT_CHARS:
+        raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
+                        code="text_too_long")
+    assert_plain_text(text)
+
+    now = _now()
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE dataset_edits SET status = 'superseded', reviewed_at = ?"
+            " WHERE dataset_id = ? AND status = 'pending'",
+            (now.isoformat(), grant["dataset_id"]),
+        )
+        conn.execute(
+            "INSERT INTO dataset_edits (id, dataset_id, lead_id, old_text, new_text,"
+            " status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+            # No `lead_id`: this text did not come through anyone's invite, and
+            # naming a lead here would put a contact's name on a card they did
+            # not write. The review queue reads the company from `dataset`.
+            (secrets.token_urlsafe(12), grant["dataset_id"], "",
+             grant["text"], text, now.isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _audit("owner_edit_submitted", grant["title"], user_id=user_id,
+           ownership_id=grant["id"])
+    return {"ok": True, "company": grant["title"]}
+
+
 def _is_new_company(dataset_id) -> bool:
     return str(dataset_id or "").startswith(NEW_COMPANY_ID_PREFIX)
 
@@ -1444,9 +1594,10 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     try:
         rows = conn.execute(
             "SELECT e.id, e.dataset_id, e.lead_id, e.old_text, e.new_text, e.status,"
-            " e.created_at, e.reviewed_at, e.reviewed_by, l.company_name,"
+            " e.created_at, e.reviewed_at, e.reviewed_by, l.company_name, d.title,"
             " l.first_name, l.last_name, l.position, l.phone, l.verified_at"
             " FROM dataset_edits e LEFT JOIN company_leads l ON l.id = e.lead_id"
+            " LEFT JOIN dataset d ON d.id = e.dataset_id"
             " WHERE e.status = ? ORDER BY e.created_at DESC LIMIT ?", (status, limit)
         ).fetchall()
     finally:
@@ -1455,6 +1606,11 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     domains = allowed_link_domains()          # read once, not once per row
     for r in rows:
         d = dict(r)
+        # An edit from a signed-in owner has no lead behind it, so the name
+        # comes from the company row instead. A review card with no company on
+        # it is a review card nobody can act on.
+        d["company_name"] = d.get("company_name") or d.pop("title", "") or ""
+        d.pop("title", None)
         d["phone"] = otp_service.mask_destination(d.get("phone") or "")
         d["risky"] = find_risky(d.get("new_text") or "", domains)
         d["new_company"] = _is_new_company(d.get("dataset_id"))
@@ -1773,11 +1929,17 @@ def release_lead(lead_id: str, actor: str = "", ip: str = "") -> dict:
         if released:
             conn.execute("DELETE FROM edit_invites WHERE lead_id = ? AND used_at IS NULL",
                          (lead_id,))
+            dataset_id = _lead(conn, lead_id)["dataset_id"]
         conn.commit()
     finally:
         conn.close()
     if not released:
         raise LeadError("این ثبت قابل آزادسازی نیست.", status=404, code="not_releasable")
+    # The company is back in every visitor's search list, so the account that
+    # got it at the booth stops owning it at the same moment. Leaving the grant
+    # behind means two people can write one company's answer.
+    from app.services import identity
+    identity.revoke_dataset_grants(dataset_id, actor=actor)
     from app.services import applog
     applog.audit("leads.released", "ثبت آزاد شد و شرکت به فهرست برگشت",
                  actor=actor, target=lead_id, ip=ip)
