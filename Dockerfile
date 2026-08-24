@@ -7,8 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Runtime state (SQLite DB, uploaded media) lives on mounted volumes — see
-# docker-compose.yml — so an image upgrade never touches customer data.
+# Runtime state (uploaded media, offline model cache) lives on mounted
+# volumes — see docker-compose.yml — so an image upgrade never touches
+# customer data. The database itself is the PostgreSQL `db` service.
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

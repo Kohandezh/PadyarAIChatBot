@@ -305,11 +305,16 @@ def process_info():
     """Non-sensitive runtime facts. No secrets, no full paths."""
     import platform
     import sys
-    from app.config import ENABLED_MODULES
+    from app.config import DB_BACKEND, ENABLED_MODULES
     uptime = int(time.time() - _PROCESS_STARTED)
+    # The engine label must match reality: on PostgreSQL the linked SQLite
+    # version is a library detail, not "the database", and showing it as such
+    # invites wrong conclusions from the ops dashboard.
+    db_engine = "postgres" if DB_BACKEND == "postgres" else "sqlite"
     return {
         "pid": os.getpid(),
         "python": sys.version.split()[0],
+        "db_engine": db_engine,
         "sqlite": sqlite3.sqlite_version,
         "platform": platform.system(),
         "started_at": datetime.fromtimestamp(_PROCESS_STARTED, timezone.utc)

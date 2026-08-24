@@ -294,9 +294,10 @@ Self-contained themes in `/themes/{name}/` — each has `theme.json`, `index.htm
 
 ### Database Changes
 
-1. Modify schema in `app/db/connection.py` (`init_db()`)
-2. Add queries in `app/db/queries.py`
-3. DB auto-creates on first boot — no migration system
+1. Add a new versioned file `migrations/NNNN_name.sql` (PostgreSQL owns the schema)
+2. Apply with `python scripts/apply_migrations.py` (idempotent, checksum-guarded)
+3. Mirror test-suite needs in the SQLite DDL (`app/db/connection.py` and the `ensure_*` helpers)
+4. Add queries in `app/db/queries.py` — `?` placeholders and `INSERT OR IGNORE` are translated by `app/db/pg.py`
 
 ## Configuration Reference
 

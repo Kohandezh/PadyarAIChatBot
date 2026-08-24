@@ -68,7 +68,8 @@ async function load() {
   tile('t-log-total', fa(d.logs.total_events), '/secure-panel-inotex/logs');
   el('t-log-storage').textContent = bytes(d.logs.storage_bytes);
   el('t-uptime').textContent = d.process.uptime_fa;
-  el('t-runtime').textContent = `Python ${d.process.python} · SQLite ${d.process.sqlite}`;
+  const engine = d.process.db_engine === 'postgres' ? 'PostgreSQL' : 'SQLite';
+  el('t-runtime').textContent = `Python ${d.process.python} · ${engine}`;
 }
 
 export function initOpsDashboard() {

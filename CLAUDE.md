@@ -53,7 +53,7 @@ The chatbot uses a **two-tier intelligence** approach:
 - If `ENABLED_MODULES` is empty, all optional modules load (full-featured install)
 - Customer manages their own content via the admin panel
 - **White-label:** Customer customizes app name, logo, colors, welcome text, footer
-- Settings stored in SQLite `settings` table (key-value) with `whitelabel_` prefix
+- Settings stored in the `settings` table (key-value) with `whitelabel_` prefix
 - Branding injected into all templates via Jinja2 context processors
 
 ---
@@ -176,7 +176,7 @@ PadyarAIChatbot/
       backup.py                  # DB backup scheduler + operations
 
     db/                          # Database layer
-      connection.py              # SQLite connection, init_db(), seeding
+      connection.py              # get_db_connection() routing, init_db(), seeding
       queries.py                 # log_chat, get/set settings, save data
 
     auth/                        # Security
@@ -260,7 +260,6 @@ PadyarAIChatbot/
     reset-content-to-defaults.py # Restore the bundled knowledge base
     debug_similarity.py          # Debug similarity matching
     run_eval.py                  # Retrieval evaluation harness (data/eval/golden-inotex.json)
-    fix_intent_routing.py        # Intent-routing repair utility
     refresh-inotex-context.py    # Refresh content/ snapshots from sources.json
     migrate_json_to_db.py        # One-off JSON → SQLite content migration
     export-otp-module.py         # Package the registration module for another install
@@ -508,7 +507,7 @@ Themes use a WordPress-style partial template system with Jinja2. The `themes/ba
 | `input.html` | Textarea, mic button, send button |
 | `footer.html` | Loads core.js, theme-specific JS overrides, calls `initChat()` |
 
-Active theme is stored in SQLite `settings` table (key `active_theme`) and switchable via admin panel. Selectable themes: `inotex` (default), `liquid-glass`, `minimal`, `haj`; `base` is marked `"selectable": false` and exists only to supply the default partials. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
+Active theme is stored in the `settings` table (key `active_theme`) and switchable via admin panel. Selectable themes: `inotex` (default), `liquid-glass`, `minimal`, `haj`; `base` is marked `"selectable": false` and exists only to supply the default partials. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
 
 ---
 
@@ -595,7 +594,7 @@ restoring a backup (`app/services/pg_backup.py`).
 
 ### Adding a New Dataset Entry
 
-Via the admin panel — that is now the only supported path. The knowledge base lives in the SQLite `dataset`/`questions` tables; the bundled defaults are Python literals in `app/default_content.py`, seeded into a brand-new DB only (never over existing content). The old `data/dataset.json` / `data/questions.json` files are gone. To restore the bundled defaults on an existing install, run `python scripts/reset-content-to-defaults.py` (it backs up the DB first and preserves admins, chat logs and settings).
+Via the admin panel — that is now the only supported path. The knowledge base lives in the `dataset`/`questions` tables; the bundled defaults are Python literals in `app/default_content.py`, seeded into a brand-new DB only (never over existing content). The old `data/dataset.json` / `data/questions.json` files are gone. To restore the bundled defaults on an existing install, run `python scripts/reset-content-to-defaults.py` (it backs up the DB first and preserves admins, chat logs and settings).
 
 ---
 

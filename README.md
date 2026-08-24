@@ -52,7 +52,7 @@ flowchart TB
 
     subgraph Store["Storage"]
       DBLayer["Data Layer"]
-      SQLite["SQLite<br/>(chat_history.db)"]
+      SQLite["PostgreSQL 16<br/>(schemas: app, observability)"]
     end
   end
 
@@ -156,7 +156,16 @@ python main.py
 
 The server starts at `http://127.0.0.1:8000`.
 
-On first run the database (`chat_history.db`) is created automatically and a default admin account is seeded. If you don't supply admin credentials via env vars, a random password is generated and written to `ADMIN_CREDENTIALS.txt` — log in, change it in the panel, then delete that file.
+On first run, apply the database migrations and start the app:
+
+```bash
+python scripts/apply_migrations.py   # idempotent — creates/updates all tables
+python main.py
+```
+
+A default admin account is seeded automatically. If you don't supply admin credentials via env vars, a random password is generated and written to `ADMIN_CREDENTIALS.txt` — log in, change it in the panel, then delete that file.
+
+> **Docker:** `docker compose up` runs PostgreSQL 16 and the app together, applies migrations on boot, and needs no local database install.
 
 ## 🔧 Configuration
 
@@ -169,6 +178,8 @@ All configuration lives in `app/config.py`, with secrets and overrides supplied 
 | `ENABLED_MODULES` | No       | *(all enabled)*        | Comma-separated optional modules to enable               |
 | `ADMIN_USERNAME`  | No       | `inotex@admin`   | Seeded admin username (first run only)                   |
 | `ADMIN_PASSWORD`  | No       | *(random)*             | Seeded admin password (first run only)                   |
+| `DB_BACKEND`      | No       | `postgres`             | `postgres` (production) or `sqlite` (tests/rollback)     |
+| `DATABASE_URL`    | No       | *(local dev DSN)*      | PostgreSQL connection string                              |
 
 Branding, the active theme, AI toggles and backup schedule are **not** env vars — they live in the database and are edited from the admin panel.
 
@@ -244,17 +255,17 @@ PadyarAIChatbot/
 ├── data/Videos/                # Source video files
 ├── media/                      # Runtime media storage (videos/, uploads/) — gitignored
 ├── backups/                    # Generated DB backups — gitignored
+├── migrations/                 # Versioned PostgreSQL schema (apply_migrations.py)
 ├── docs/                       # Project knowledge base
 ├── scripts/                    # change-admin, debug_similarity, net_diag, *_test
-├── tests/                      # pytest suite (unit + integration + e2e)
-└── chat_history.db             # SQLite database (auto-generated)
+└── tests/                      # pytest suite (unit + integration + e2e)
 ```
 
 > **Content lives in the database, not in files.** The dataset and questions are stored in PostgreSQL only — the DB is the single source of truth. `media/videos/` holds video files; there are no `dataset.json` / `questions.json` data files to keep in sync. Use the admin panel (or its JSON/CSV import) to manage content.
 
 ## 🗄 Database
 
-SQLite (`chat_history.db`) in WAL mode. Tables created by `init_db()`:
+PostgreSQL 16 (schemas `app` + `observability`). The schema is owned by the versioned files in `migrations/` and applied by `scripts/apply_migrations.py` (idempotent, checksum-guarded). SQLite remains only as the test-suite backend and the rollback path (`DB_BACKEND=sqlite`).
 
 | Table            | Purpose                                                    |
 | ---------------- | --------------------------------------------------------- |
@@ -265,8 +276,6 @@ SQLite (`chat_history.db`) in WAL mode. Tables created by `init_db()`:
 | `synonyms`       | Persian synonym mappings                                   |
 | `admins`         | Admin credentials (bcrypt hash + salt, security question) |
 | `admin_sessions` | Active admin sessions with sliding expiry                 |
-
-No migration framework — the schema is created/extended idempotently on boot.
 
 ## 🎨 White-Label & Themes
 

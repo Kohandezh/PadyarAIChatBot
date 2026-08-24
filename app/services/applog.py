@@ -767,6 +767,17 @@ def summary(days: int = 1):
 
 def _db_size() -> int:
     try:
+        from app.config import DB_BACKEND
+        if DB_BACKEND == "postgres":
+            # LOGS_DB_PATH is a rollback artifact on this backend; the honest
+            # number is what the server reports for the database in use.
+            from app.db import pg
+            conn = pg.connect()
+            try:
+                return int(conn.execute(
+                    "SELECT pg_database_size(current_database())").fetchone()[0])
+            finally:
+                conn.close()
         import os
         from app.config import LOGS_DB_PATH
         total = 0
