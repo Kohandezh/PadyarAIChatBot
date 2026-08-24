@@ -649,4 +649,6 @@ COMPANION-OFF (end) -->
 </script>
 <!-- Loaded after initChat so the panel can reuse sendPreset/getDisplayQuestions. -->
 <script src="/static/companion/companion-ui.js?v={{ asset_version | default('0', true) }}"></script>
-<script src="/static/companion/registration.js?v={{ asset_version | default('0', true) }}"></script>
+<!-- registration.js is NOT loaded here. Sign-up is shared chat infrastructure,
+     so render_theme_index() injects it into every theme. -->
+

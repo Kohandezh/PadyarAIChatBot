@@ -73,6 +73,11 @@ def _asset_version(theme_name: str) -> str:
         os.path.join(BASE_DIR, "static", "chat", "base.css"),
         os.path.join(BASE_DIR, "themes", theme_name, "static", "style.css"),
         os.path.join(BASE_DIR, "static", "chat", "core.js"),
+        # Shared registration UI. render_theme_index() injects these into every
+        # theme, so a change to either must break the cache the same way a
+        # theme stylesheet change does.
+        os.path.join(BASE_DIR, "static", "companion", "registration.css"),
+        os.path.join(BASE_DIR, "static", "companion", "registration.js"),
     ]
     newest = 0
     for path in paths:

@@ -97,7 +97,7 @@ def render_theme_index(theme_name: str, context: dict) -> str:
             token = context.get("chat_token", "")
             html = html.replace("<!-- CHAT_TOKEN -->",
                                 f'<meta name="chat-token" content="{token}">')
-            return html
+            return inject_shared_assets(html, context)
         raise FileNotFoundError(f"No partials/ or index.html for theme '{theme_name}'")
 
     # Determine parent theme
@@ -123,7 +123,56 @@ def render_theme_index(theme_name: str, context: dict) -> str:
     loader = jinja2.FileSystemLoader(search_path)
     env = jinja2.Environment(loader=loader, autoescape=False)
     template = env.get_template("index.html")
-    return template.render(**context)
+    return inject_shared_assets(template.render(**context), context)
+
+
+HEAD_OPEN_RE = re.compile(r"<head[^>]*>", re.IGNORECASE)
+BODY_CLOSE_RE = re.compile(r"</body\s*>", re.IGNORECASE)
+
+
+def inject_shared_assets(html: str, context: dict) -> str:
+    """Add the assets that belong to the CHAT, not to a theme.
+
+    Sign-up is one of them. It used to be a <script> tag in one theme's
+    footer.html, so a customer who switched theme lost the ability to
+    register — and a new theme had to know the tag existed to keep it. The
+    tags are injected here instead, after the render, the same
+    string-replacement trick the legacy branch above already uses for the chat
+    token. Every theme gets it, including ones written later by someone who
+    never heard of the module.
+
+    Only for installs that ordered the module: without it
+    /api/auth/registration-status 404s and the script would boot into nothing.
+
+    The stylesheet goes right after <head> so a theme's own style.css, which
+    loads later, can override it. The script goes right before </body> so
+    core.js has already run initChat(). Both carry the asset_version stamp so a
+    deploy is not served from a stale browser cache.
+    """
+    from app.config import is_module_enabled
+
+    if not is_module_enabled("registration"):
+        return html
+
+    version = context.get("asset_version") or "0"
+    link = (f'<link href="/static/companion/registration.css?v={version}" '
+            f'rel="stylesheet" type="text/css" />')
+    script = f'<script src="/static/companion/registration.js?v={version}"></script>'
+
+    head = HEAD_OPEN_RE.search(html)
+    if head:
+        html = html[:head.end()] + "\n" + link + html[head.end():]
+    else:
+        logger.warning("Theme markup has no <head>; registration CSS not injected")
+
+    body = BODY_CLOSE_RE.search(html)
+    if body:
+        html = html[:body.start()] + script + "\n" + html[body.start():]
+    else:
+        logger.warning("Theme markup has no </body>; registration JS appended")
+        html += script
+
+    return html
 
 
 # ── Internal helpers ───────────────────────────────────────────────────

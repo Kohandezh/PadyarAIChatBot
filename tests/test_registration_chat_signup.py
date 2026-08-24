@@ -12,6 +12,8 @@ Two halves:
   would otherwise ship silently — the same trade-off tests/test_otp_input_
   autofill.py already makes.
 """
+import json
+import os
 import re
 from pathlib import Path
 
@@ -26,7 +28,9 @@ from app.services import taxonomy
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRATION_JS = (ROOT / "static" / "companion" / "registration.js").read_text(encoding="utf-8")
 CORE_JS = (ROOT / "static" / "chat" / "core.js").read_text(encoding="utf-8")
-THEME_CSS = (ROOT / "themes" / "inotex" / "static" / "style.css").read_text(encoding="utf-8")
+# The registration UI is shared chat infrastructure, so its rules live next to
+# its script, not inside a theme.
+REGISTRATION_CSS = (ROOT / "static" / "companion" / "registration.css").read_text(encoding="utf-8")
 
 DEST = "+989120000088"
 
@@ -255,9 +259,76 @@ def test_the_signup_card_still_asks_the_existing_otp_endpoints():
 
 def test_the_option_buttons_are_thumb_sized_and_wrap():
     # The rule that defines the button, not the high-contrast override of it.
-    block = THEME_CSS[THEME_CSS.index("\n.reg-ask-option {"):]
+    block = REGISTRATION_CSS[REGISTRATION_CSS.index("\n.reg-ask-option {"):]
     block = block[:block.index("}")]
     assert "min-height: 44px" in block
-    options = THEME_CSS[THEME_CSS.index(".reg-ask-options {"):]
+    options = REGISTRATION_CSS[REGISTRATION_CSS.index(".reg-ask-options {"):]
     options = options[:options.index("}")]
     assert "flex-wrap: wrap" in options, "18 interests must wrap, never scroll sideways"
+
+
+# ── One home for the sign-up UI, every theme ─────────────────────────────
+# It used to be a <script> tag in themes/inotex/partials/footer.html, so a
+# customer who switched theme silently lost the ability to register, and a new
+# theme had to know the tag existed. Both assets are injected by
+# render_theme_index() now. These pin that, for every theme in themes/.
+
+
+def _themes_on_disk():
+    from app.services.themes import THEMES_DIR
+    for name in sorted(os.listdir(THEMES_DIR)):
+        meta = Path(THEMES_DIR) / name / "theme.json"
+        if not meta.is_file():
+            continue
+        if json.loads(meta.read_text(encoding="utf-8")).get("selectable") is False:
+            continue
+        yield name
+
+
+def _render(name):
+    from app.services.themes import render_theme_index
+    return render_theme_index(name, {
+        "theme_name": name,
+        "chat_token": "test-token",
+        "app_title": "test",
+        "asset_version": "424242",
+    })
+
+
+@pytest.mark.parametrize("theme", list(_themes_on_disk()))
+def test_every_theme_gets_the_signup_script_and_stylesheet(theme):
+    html = _render(theme)
+    assert "/static/companion/registration.js?v=424242" in html, theme
+    assert "/static/companion/registration.css?v=424242" in html, theme
+
+
+@pytest.mark.parametrize("theme", list(_themes_on_disk()))
+def test_the_script_runs_after_the_chat_is_started(theme):
+    """It installs ChatConfig.sendGateFn, which core.js must already have made."""
+    html = _render(theme)
+    assert html.index("registration.js") > html.index("chat/core.js"), theme
+
+
+@pytest.mark.parametrize("theme", list(_themes_on_disk()))
+def test_an_install_without_the_module_gets_neither_asset(theme, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "ENABLED_MODULES",
+                        [m for m in config.ENABLED_MODULES if m != "registration"])
+    assert "companion/registration" not in _render(theme), theme
+
+
+def test_no_theme_carries_the_tag_itself():
+    """A duplicate would boot the script twice and build two overlays."""
+    from app.services.themes import THEMES_DIR
+    for path in Path(THEMES_DIR).rglob("*.html"):
+        assert "companion/registration.js" not in path.read_text(encoding="utf-8"), path
+
+
+def test_the_shared_stylesheet_keeps_no_theme_palette():
+    """Its colours come from --reg-* tokens, so a foreign theme stays legible.
+
+    A raw INOTEX variable here would paint the card in one customer's brand on
+    every other customer's site.
+    """
+    assert "--inotex-" not in REGISTRATION_CSS
+    assert "--color-" not in REGISTRATION_CSS

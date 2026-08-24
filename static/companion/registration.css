@@ -1,0 +1,577 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Registration UI — shared across every theme.
+
+   Signing up is chat infrastructure, not decoration, so it cannot live in one
+   theme's stylesheet. This file ships with static/companion/registration.js
+   and is injected into every theme by render_theme_index() whenever the
+   `registration` module is enabled (app/services/themes.py).
+
+   Colours come from --reg-* custom properties with a neutral, legible default
+   at every use site. A theme that defines nothing gets a plain light card over
+   a dimmed page. A theme that wants its own look sets the tokens in its own
+   static/style.css — see themes/inotex/static/style.css for a full mapping.
+   Defaults live in the fallback slot, never in a :root block, so a theme's
+   tokens win no matter which stylesheet the browser parses first.
+   ══════════════════════════════════════════════════════════════════════ */
+
+
+/* ══ Registration modal (Smart Visit) ══════════════════════════════════
+   Centred over the whole page, because signing up is a full-attention task
+   — not something to squeeze into the corner panel. */
+.reg-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: var(--reg-overlay-bg, rgba(8, 12, 22, .72));
+    backdrop-filter: blur(6px);
+}
+
+.reg-card {
+    position: relative;
+    width: min(400px, 100%);
+    max-height: min(88vh, 640px);
+    overflow-y: auto;
+    padding: 26px 24px 22px;
+    background: var(--reg-card-bg, #FFFFFF);
+    border: 1.5px solid var(--reg-card-border, #C3CCDD);
+    border-radius: var(--reg-radius, 16px);
+    box-shadow: var(--reg-card-shadow, 0 12px 40px rgba(10, 20, 40, .3));
+    color: var(--reg-text, #14203A);
+    text-align: start;
+}
+
+.reg-close {
+    position: absolute;
+    top: 12px;
+    inset-inline-start: 14px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1.5px solid var(--reg-border, #C3CCDD);
+    background: var(--reg-surface, #F4F6FA);
+    color: var(--reg-text-muted, #5A6780);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.reg-close:hover {
+    background: var(--reg-surface-hover, #E6EBF4);
+    color: var(--reg-text, #14203A);
+}
+
+.reg-title {
+    margin: 0 0 6px;
+    /* Symmetric room for the close button so a centred title of any length
+       stays clear of it instead of running underneath. */
+    padding: 0 36px;
+    font-size: 19px;
+    font-weight: 800;
+    color: var(--reg-text, #14203A);
+}
+
+.reg-step-title {
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--reg-text, #14203A);
+}
+
+.reg-sub {
+    margin: 0 0 18px;
+    font-size: 13px;
+    line-height: 1.9;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+.reg-masked {
+    color: var(--reg-text, #14203A);
+    font-weight: 700;
+}
+
+.reg-form { display: flex; flex-direction: column; gap: 12px; }
+
+.reg-field { display: flex; flex-direction: column; gap: 5px; }
+
+.reg-field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+.reg-field input {
+    padding: 11px 13px;
+    border-radius: 12px;
+    border: 1.5px solid var(--reg-input-border, #C3CCDD);
+    background: var(--reg-input-bg, #FFFFFF);
+    color: var(--reg-text, #14203A);
+    font-family: inherit;
+    font-size: 14px;
+}
+
+.reg-field input:focus-visible {
+    outline: none;
+    border-color: var(--reg-accent, #2D5CA7);
+    box-shadow: 0 0 0 3px var(--reg-accent-soft, rgba(45, 92, 167, .25));
+}
+
+.reg-submit {
+    margin-top: 6px;
+    width: 100%;
+    padding: 13px 18px;
+    border: none;
+    border-radius: 14px;
+    background: var(--reg-accent, #2D5CA7);
+    color: var(--reg-accent-text, #FFFFFF);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: var(--reg-submit-shadow, none);
+    transition: background var(--motion-fast, 160ms) ease, transform var(--motion-instant, 80ms) ease;
+}
+
+.reg-submit:hover:not(:disabled) { background: var(--reg-accent-hover, #244A88); }
+.reg-submit:active:not(:disabled) { transform: translateY(1px); }
+
+.reg-submit:disabled {
+    background: var(--reg-accent-disabled-bg, #A8B2C4);
+    color: var(--reg-accent-disabled-text, rgba(255, 255, 255, .75));
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+/* Code entry — LTR digits inside the RTL card, as on the verify page.
+   The boxes are DECORATION. One transparent input sits over the whole row and
+   holds the real value, because a row of maxlength="1" inputs makes the
+   browser truncate an autofilled SMS code to its first digit. */
+.reg-digits {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 6px 0 12px;
+}
+
+.reg-code-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    border: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    text-align: center;
+    /* 16px is the floor that stops iOS Safari zooming the page on focus. */
+    font-family: inherit;
+    font-size: 16px;
+    letter-spacing: 2em;
+}
+
+.reg-code-input:focus { outline: none; }
+
+/* Never hide it with display:none / visibility / opacity:0 — a field the
+   browser considers invisible is skipped by autofill, which is the entire
+   point of this markup. Transparent text over visible cells keeps it real. */
+.reg-digit {
+    width: 46px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    border: 1.5px solid var(--reg-digit-border, #C3CCDD);
+    background: var(--reg-digit-bg, #F4F6FA);
+    color: var(--reg-text, #14203A);
+    font-family: inherit;
+    font-size: 22px;
+    font-weight: 800;
+    text-align: center;
+    transition: border-color var(--motion-fast, 160ms) ease, box-shadow var(--motion-fast, 160ms) ease;
+}
+
+.reg-digit.is-active {
+    border-color: var(--reg-accent, #2D5CA7);
+    box-shadow: 0 0 0 3px var(--reg-accent-glow, rgba(45, 92, 167, .33));
+}
+
+.reg-timer {
+    margin: 0 0 12px;
+    font-size: 12.5px;
+    color: var(--reg-text-muted, #5A6780);
+    text-align: center;
+}
+
+.reg-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 12px;
+}
+
+.reg-link {
+    background: none;
+    border: none;
+    color: var(--reg-link, #0F766E);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 6px 2px;
+}
+
+.reg-link:disabled { color: var(--reg-link-disabled, #A8B2C4); cursor: not-allowed; }
+.reg-link:hover:not(:disabled) { text-decoration: underline; }
+
+.reg-status {
+    margin: 14px 0 0;
+    min-height: 18px;
+    font-size: 12.5px;
+    text-align: center;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+.reg-status[data-kind="error"] { color: var(--reg-error, #D92D20); }
+.reg-status[data-kind="ok"] { color: var(--reg-link, #0F766E); }
+
+/* Job dropdown — same shell as the text inputs so the form reads as one row
+   of controls, not a mix of widgets. */
+.reg-select {
+    padding: 11px 13px;
+    border-radius: 12px;
+    border: 1.5px solid var(--reg-input-border, #C3CCDD);
+    background: var(--reg-input-bg, #FFFFFF);
+    color: var(--reg-text, #14203A);
+    font-family: inherit;
+    font-size: 14px;
+    /* The native arrow sits on the wrong side in RTL on some engines; the
+       field is wide enough that letting the UA place it is still the most
+       predictable option across browsers. */
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 49%, var(--reg-text-muted, #5A6780) 50%),
+                      linear-gradient(-45deg, transparent 49%, var(--reg-text-muted, #5A6780) 50%);
+    background-size: 6px 6px, 6px 6px;
+    background-position: left 16px top 22px, left 11px top 22px;
+    background-repeat: no-repeat;
+}
+
+.reg-select:focus-visible {
+    outline: none;
+    border-color: var(--reg-accent, #2D5CA7);
+    box-shadow: 0 0 0 3px var(--reg-accent-soft, rgba(45, 92, 167, .25));
+}
+
+/* Locked identity fields while editing: visible, obviously not editable. */
+.reg-field input[data-locked="true"] {
+    color: var(--reg-text-muted, #5A6780);
+    background: transparent;
+    border-style: dashed;
+    cursor: default;
+}
+
+/* Searchable multi-select */
+.reg-multi { display: flex; flex-direction: column; gap: 8px; }
+
+.reg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.reg-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--reg-accent, #2D5CA7);
+    color: var(--reg-accent-text, #FFFFFF);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.reg-chip-x {
+    border: none;
+    background: none;
+    color: inherit;
+    font-size: 15px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    opacity: .7;
+}
+
+.reg-chip-x:hover { opacity: 1; }
+
+.reg-search {
+    padding: 10px 13px;
+    border-radius: 12px;
+    border: 1.5px solid var(--reg-input-border, #C3CCDD);
+    background: var(--reg-input-bg, #FFFFFF);
+    color: var(--reg-text, #14203A);
+    font-family: inherit;
+    font-size: 13.5px;
+}
+
+.reg-search:focus-visible {
+    outline: none;
+    border-color: var(--reg-accent, #2D5CA7);
+    box-shadow: 0 0 0 3px var(--reg-accent-soft, rgba(45, 92, 167, .25));
+}
+
+.reg-add {
+    align-self: flex-start;
+    padding: 7px 12px;
+    border-radius: 10px;
+    border: 1.5px dashed var(--reg-link, #0F766E);
+    background: none;
+    color: var(--reg-link, #0F766E);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.reg-add:hover { background: var(--reg-link-soft, rgba(15, 118, 110, .1)); }
+.reg-add[hidden] { display: none; }
+
+/* The option list scrolls rather than pushing the submit button off-screen. */
+.reg-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 148px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.reg-option {
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1.5px solid var(--reg-border, #C3CCDD);
+    background: var(--reg-surface, #F4F6FA);
+    color: var(--reg-text-muted, #5A6780);
+    font-family: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: border-color var(--motion-fast, 160ms) ease, color var(--motion-fast, 160ms) ease;
+}
+
+.reg-option:hover {
+    border-color: var(--reg-accent, #2D5CA7);
+    color: var(--reg-text, #14203A);
+}
+
+.reg-option[data-on="true"] {
+    border-color: var(--reg-accent, #2D5CA7);
+    color: var(--reg-text, #14203A);
+    font-weight: 700;
+}
+
+.reg-empty {
+    margin: 4px 2px;
+    font-size: 12px;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+/* Checkbox rows (e.g. "interested in learning AI") */
+.reg-flags { display: flex; flex-direction: column; gap: 8px; }
+
+.reg-check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--reg-text, #14203A);
+    cursor: pointer;
+}
+
+.reg-check input {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--reg-accent, #2D5CA7);
+    flex: none;
+    cursor: pointer;
+}
+
+/* Secondary explanation under a form or a plan — never competes with the
+   content it annotates. */
+.reg-note {
+    margin: 2px 0 0;
+    font-size: 11.5px;
+    line-height: 1.85;
+    color: var(--reg-text-muted, #5A6780);
+    text-align: start;
+}
+
+.reg-note a, .reg-note { word-break: break-word; }
+
+/* Targeted-visit plan — one brick-like row per recommended section. */
+.reg-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+}
+
+.reg-plan-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 11px 13px;
+    border: 1.5px solid var(--reg-border, #C3CCDD);
+    /* The stud strip on the leading edge ties the row to the brick language
+       without another image to load. */
+    border-inline-start: 4px solid var(--reg-accent, #2D5CA7);
+    border-radius: 12px;
+    background: var(--reg-surface, #F4F6FA);
+}
+
+/* General suggestions read one step quieter than the matched ones — the
+   stud strip goes neutral so the accent marks a real match only. */
+.reg-plan-item[data-general="true"] {
+    border-inline-start-color: var(--reg-border, #C3CCDD);
+}
+
+.reg-plan-head {
+    margin: 6px 0 -2px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+.reg-plan-title {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: var(--reg-text, #14203A);
+}
+
+.reg-plan-why {
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+.reg-plan-note { margin-top: 10px; }
+
+/* ══ In-chat questions (شغل / سمت / علاقه‌مندی‌ها) ══════════════════════
+   Buttons, never a dropdown. On a phone a <select> is a spinning wheel and
+   eighteen options are a scroll inside a scroll; a chip is one tap. Tapping
+   writes the label into the message box, so the visitor edits it if they want
+   and presses the same send button they already know. */
+.reg-ask {
+    /* A block in the transcript rather than a message bubble: it takes the
+       full column so the options WRAP instead of scrolling sideways. */
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    /* Pulled up under the question it answers — the two are one unit. */
+    margin-top: -16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.reg-ask-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.reg-ask-option {
+    /* 44px: a comfortable thumb target, which is what this is used with. */
+    min-height: 44px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    border: 1.5px solid var(--reg-border, #C3CCDD);
+    background: var(--reg-surface, #F4F6FA);
+    color: var(--reg-text, #14203A);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: border-color var(--motion-fast, 160ms) ease, background var(--motion-fast, 160ms) ease;
+}
+
+.reg-ask-option:hover { border-color: var(--reg-accent, #2D5CA7); }
+
+.reg-ask-option:focus-visible {
+    outline: 2px solid var(--reg-focus-outline, #2D5CA7);
+    outline-offset: 2px;
+}
+
+/* Chosen reads as the brand accent — the same "this one is on" language the
+   registration card already uses for its chips. */
+.reg-ask-option[data-on="true"] {
+    background: var(--reg-accent, #2D5CA7);
+    border-color: var(--reg-accent, #2D5CA7);
+    color: var(--reg-accent-text, #FFFFFF);
+    font-weight: 700;
+}
+
+.reg-ask-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--reg-text-muted, #5A6780);
+}
+
+.reg-ask-skip {
+    align-self: flex-start;
+    min-height: 40px;
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    color: var(--reg-text-muted, #5A6780);
+    font-family: inherit;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.reg-ask-skip:hover { color: var(--reg-text, #14203A); }
+
+@media (max-width: 430px) {
+    /* Eighteen interests on a small screen: the list scrolls VERTICALLY in its
+       own box so it never pushes the message field off screen — and never asks
+       for a sideways swipe or a pinch. */
+    .reg-ask-options { max-height: 42vh; overflow-y: auto; }
+    .reg-ask-option { font-size: 13.5px; padding: 10px 14px; }
+
+    .reg-digit { width: 42px; height: 52px; font-size: 20px; }
+    .reg-digits { gap: 6px; }
+}
+
+/* Signed-in control in the header */
+.visitor-logout {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 14px;
+    border: 1.5px solid var(--reg-border, #C3CCDD);
+    border-radius: 999px;
+    background: var(--reg-surface, #F4F6FA);
+    color: var(--reg-text-muted, #5A6780);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background var(--motion-fast, 160ms) ease, color var(--motion-fast, 160ms) ease;
+}
+
+.visitor-logout:hover {
+    background: var(--reg-surface-hover, #E6EBF4);
+    color: var(--reg-text, #14203A);
+}
+
+.visitor-logout:focus-visible {
+    outline: 2px solid var(--reg-focus-outline, #2D5CA7);
+    outline-offset: 2px;
+}

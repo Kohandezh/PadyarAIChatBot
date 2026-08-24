@@ -199,7 +199,9 @@ PadyarAIChatbot/
     admin/js/                    # Admin JS modules (auth, dashboard, dataset, etc.)
     otp/                         # Verify-page assets (otp.css, otp.js, pet/ sprites)
     companion/                   # On-page companion UI (companion.js, companion-ui.js,
-                                 #   registration.js, button/ art)
+                                 #   registration.js + registration.css, button/ art)
+                                 #   registration.* is theme-independent: render_theme_index()
+                                 #   injects it into every theme when the module is on
     vendor/                      # Third-party: Tabler, Bootstrap, Chart.js, FontAwesome,
                                  #   Vazirmatn, marked.js, DOMPurify 3.4.14, liquid-glass
                                  #   background/switcher. Version lives in each file's
@@ -353,6 +355,8 @@ The registry is the authoritative list — `MODULES` in `app/modules/registry.py
 | `registration` | No   | `app.routers.otp`     | Visitor registration + SMS verification, and the targeted visit plan |
 
 **The `registration` module** bundles the visitor-facing signup flow: the `/verify` page, the OTP endpoints (`/api/auth/otp/request|verify|resend|status`), the profile step (`/api/auth/profile`), the taxonomy-driven form options (`/api/registration/options`), and the targeted visit planner (`/api/visit-plan`). It owns the `otp_challenges` table, reads its form/planner vocabulary from `data/visit-taxonomy.json` via `app/services/taxonomy.py`, and delivers codes through `app/services/sms.py`. Gateway credentials come from the `settings` table first (entered in the admin panel), then env — see `.env.example`.
+
+Its in-chat UI (`static/companion/registration.js` + `registration.css`) belongs to no theme. `render_theme_index()` in `app/services/themes.py` injects both into every rendered theme when the module is enabled, so switching theme never costs a customer their sign-up, and a new theme inherits it without knowing it exists. The CSS reads `--reg-*` custom properties with neutral fallbacks; a theme skins the card by setting those tokens in its own `static/style.css` (see `themes/inotex/static/style.css`). Declare them on `body`, not `:root` — a `var()` inside a custom property resolves on the element that declares it, so a `:root` mapping freezes whichever palette `:root` has and a light-mode toggle on `body` never reaches it.
 
 **How it works:**
 

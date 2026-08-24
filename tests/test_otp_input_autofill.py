@@ -20,7 +20,7 @@ SURFACES = {
     "/verify page": ROOT / "static" / "otp" / "otp.js",
 }
 STYLES = {
-    "in-chat companion": ROOT / "themes" / "inotex" / "static" / "style.css",
+    "in-chat companion": ROOT / "static" / "companion" / "registration.css",
     "/verify page": ROOT / "static" / "otp" / "otp.css",
 }
 INPUT_CLASS = {"in-chat companion": "reg-code-input", "/verify page": "otp-code-input"}
