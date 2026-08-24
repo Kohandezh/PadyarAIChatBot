@@ -21,7 +21,8 @@ def _legacy_db(path: Path):
         """
         CREATE TABLE dataset (id TEXT PRIMARY KEY, title TEXT, text TEXT, video_url TEXT DEFAULT '');
         CREATE TABLE questions (id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT, dataset_id TEXT, video_url TEXT DEFAULT '');
-        CREATE TABLE synonyms (source TEXT PRIMARY KEY, target TEXT);
+        CREATE TABLE synonyms (source TEXT NOT NULL, target TEXT NOT NULL,
+                               PRIMARY KEY (source, target));
         CREATE TABLE chat_logs (id INTEGER PRIMARY KEY, query TEXT);
         CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE admins (username TEXT PRIMARY KEY);
