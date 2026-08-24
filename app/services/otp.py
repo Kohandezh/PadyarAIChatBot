@@ -395,8 +395,13 @@ def update_profile(challenge_id: str, job: str, position: str, interests: str) -
     conn = get_db_connection()
     try:
         cur = conn.execute(
+            # `TRUE`, not `1`, for the same reason as the UPDATE in
+            # `verify()`. PostgreSQL has no boolean = integer operator, so
+            # `used = 1` raised UndefinedFunction and turned every profile
+            # save into a 500. SQLite has accepted TRUE since 3.23, so this
+            # is portable.
             "UPDATE otp_challenges SET job = ?, position = ?, interests = ?"
-            " WHERE id = ? AND used = 1",
+            " WHERE id = ? AND used = TRUE",
             (job.strip(), position.strip(), interests.strip(), challenge_id),
         )
         conn.commit()
