@@ -42,6 +42,15 @@ holding an invite could otherwise write anything into it, so an edit lands in
 is not blocked and not silently flagged either: the visitor is warned, and
 going ahead anyway is an explicit act that gets written down.
 
+A COMPANY THAT IS NOT IN THE LIST
+---------------------------------
+`register_new_company` is the one path that accepts a typed company name, and
+it does everything the normal path does: OTP, invite, confirmation, review. The
+name is refused if the knowledge base already holds it under any spelling, so
+it stays a way to reach a booth that is missing and not a way around picking
+from the list. The answer text a visitor types there lands in `dataset_edits`,
+never in `dataset.text`.
+
 NUMBERS AT REST
 ---------------
 The raw phone is stored, because the whole point of the exercise is to be able
@@ -392,6 +401,14 @@ def create_visitor(name: str) -> dict:
 
 
 def list_visitors() -> list:
+    """The roster, with the pair of numbers settlement is actually decided on.
+
+    `verified` is what the reward is paid for and `completed` is how many of
+    those companies then answered for themselves. A visitor with forty verified
+    and three completed has identified themselves without any algorithm: real
+    contacts open the link. The two numbers are returned side by side because
+    either one alone tells the person signing the payment nothing.
+    """
     ensure_tables()
     conn = get_db_connection()
     try:
@@ -399,7 +416,9 @@ def list_visitors() -> list:
             "SELECT v.id, v.name, v.code, v.active, v.created_at,"
             " (SELECT COUNT(*) FROM company_leads l WHERE l.visitor_id = v.id) AS total,"
             " (SELECT COUNT(*) FROM company_leads l WHERE l.visitor_id = v.id"
-            "    AND l.status IN ('verified', 'completed')) AS verified"
+            "    AND l.status IN ('verified', 'completed')) AS verified,"
+            " (SELECT COUNT(*) FROM company_leads l WHERE l.visitor_id = v.id"
+            "    AND l.status = 'completed') AS completed"
             " FROM lead_visitors v ORDER BY v.created_at DESC"
         ).fetchall()
     finally:
@@ -610,6 +629,171 @@ def register_contact(visitor_id: str, dataset_id: str, first_name: str,
         "expires_in": challenge.get("expires_in", 0),
         "consent_version": consent["version"],
     }
+
+
+# ── A company that is not in the list ────────────────────────────────────
+#
+# The booth is there, the company is not in the knowledge base, and typing a
+# company name into the normal path is forbidden for a good reason: a typed
+# name invents a company nobody can later find. So this path types the name
+# ONCE, and everything else stays identical to the normal one. The OTP goes to
+# the contact, the contact reads it back, the invite is minted, the contact
+# confirms or corrects, an admin approves.
+#
+# WHAT DOES NOT GO STRAIGHT OUT
+# The Persian answer text the visitor types does NOT become `dataset.text`. The
+# row is created empty and the typed text waits in `dataset_edits` as the
+# first `pending` edit, so the same human who reviews a company's own words
+# reviews ours. A field visitor at a loud booth is not a review.
+
+# A company created this way carries this prefix in its `dataset.id`. Generated
+# here, so it cannot collide with the hand-written slugs of the knowledge base,
+# and it keeps saying "this row was born at a booth" long after the
+# registration that made it has scrolled off the admin's screen. That is the
+# whole reason there is no column for it.
+NEW_COMPANY_ID_PREFIX = "booth-"
+
+MAX_TITLE_CHARS = 120
+
+
+def _title_taken(normalized: str) -> Optional[str]:
+    """The same company under another spelling, or None.
+
+    Compared on the normalised form, so a half-space or an Arabic ک does not
+    let one company in twice. EVERY row is compared, including the ones search
+    hides because a colleague already registered them: that company is exactly
+    the one a visitor who cannot find it is tempted to re-create.
+    """
+    from app.utils.normalizer import normalize_persian
+    if not normalized:
+        return None
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT title FROM dataset").fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        if normalize_persian(r["title"] or "", expand_synonyms=False) == normalized:
+            return r["title"]
+    return None
+
+
+def _create_company_row(dataset_id: str, title: str, title_en: str, text_en: str) -> None:
+    """Create the knowledge base row with NO Persian answer text.
+
+    `dataset.text` is the sentence the chatbot says to the public, so it stays
+    empty until a human has approved something to put there. The titles are
+    written straight in: search needs one, the contact's page needs a heading,
+    and a company name on its own claims nothing. `text_en` is written straight
+    in too. That is inconsistent and it is deliberate: the review queue carries
+    Persian only, the contact never sees the English column (SPEC group S), and
+    a second queue for it would be more machinery than the gap is worth.
+
+    Nothing reindexes here. The retrieval index picks this row up when the
+    approval reindexes it, which is the point at which a human has read it.
+    """
+    conn = get_db_connection()
+    try:
+        # End of the display order, same rule as the admin dataset editor.
+        position = conn.execute(
+            "SELECT COALESCE(MAX(position), 0) + 10 AS n FROM dataset").fetchone()["n"]
+        conn.execute(
+            "INSERT INTO dataset (id, title, text, video_url, title_en, text_en, position)"
+            " VALUES (?, ?, '', '', ?, ?, ?)",
+            (dataset_id, title, (title_en or "").strip()[:MAX_TITLE_CHARS],
+             (text_en or "").strip()[:MAX_EDIT_CHARS], position),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _queue_first_edit(dataset_id: str, lead_id: str, text: str) -> None:
+    """Put the visitor's text where a company's own text goes: the queue.
+
+    Same table, same `pending` status, same approve button. `old_text` is empty
+    because the row it belongs to is empty, so the reviewer reads it as what it
+    is: a first answer, not a rewrite.
+    """
+    now = _now()
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT INTO dataset_edits (id, dataset_id, lead_id, old_text, new_text,"
+            " status, created_at) VALUES (?, ?, ?, '', ?, 'pending', ?)",
+            (secrets.token_urlsafe(12), dataset_id, lead_id, text, now.isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def register_new_company(visitor_id: str, title: str, first_name: str, last_name: str,
+                         position: str, phone: str, text: str = "", title_en: str = "",
+                         text_en: str = "", override_duplicate: bool = False,
+                         ip: str = "", user_agent: str = "") -> dict:
+    """Create a company that is not in the list, and register its contact.
+
+    One call, because a company row with no registration on it is litter: the
+    next visitor finds it in their search and the operator has no way to tell
+    it from a real one. Only the name is required. The answer text, the English
+    title and the English text may all be left blank, and usually should be:
+    the contact is about to receive a link and write the answer themselves,
+    which is a better text than anything typed over a queue at a booth.
+    """
+    ensure_tables()
+    from app.utils.normalizer import normalize_persian
+
+    name = (title or "").strip()
+    normalized = normalize_persian(name, expand_synonyms=False) if name else ""
+    if not normalized:
+        raise LeadError("نام شرکت را بنویسید.", code="missing_title")
+    if len(name) > MAX_TITLE_CHARS:
+        raise LeadError(f"نام شرکت نباید از {MAX_TITLE_CHARS} نویسه بیشتر باشد.",
+                        code="title_too_long")
+    answer = (text or "").strip()
+    if len(answer) > MAX_EDIT_CHARS:
+        raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
+                        code="text_too_long")
+
+    taken = _title_taken(normalized)
+    if taken is not None:
+        # Named on purpose: a free-typed name is only safe while it cannot
+        # become a second copy of a company that is already there.
+        raise LeadError(
+            "این شرکت از قبل در فهرست است. اسمش را در کادر جستجو بنویسید و انتخابش کنید. "
+            "اگر در جستجو پیدا نشد، یعنی همکار دیگری همین حالا ثبتش کرده.",
+            status=409, code="company_exists",
+        )
+
+    dataset_id = NEW_COMPANY_ID_PREFIX + secrets.token_urlsafe(8)
+    _create_company_row(dataset_id, name, title_en, text_en)
+    try:
+        lead = register_contact(visitor_id, dataset_id, first_name, last_name,
+                                position, phone, override_duplicate=override_duplicate,
+                                ip=ip, user_agent=user_agent)
+    except Exception:
+        # The row exists for one reason: to hang a registration on. A refusal
+        # (a bad number, the duplicate warning, a gateway that would not send)
+        # must not leave a company behind that the next visitor then finds in
+        # their search and registers against.
+        _delete_company_row(dataset_id)
+        raise
+
+    if answer:
+        _queue_first_edit(dataset_id, lead["lead_id"], answer)
+    _audit("new_company_registered", name, lead_id=lead["lead_id"],
+           visitor_id=visitor_id, dataset_id=dataset_id)
+    return {**lead, "dataset_id": dataset_id}
+
+
+def _delete_company_row(dataset_id: str) -> None:
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM dataset WHERE id = ?", (dataset_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _lead(conn, lead_id: str):
@@ -864,6 +1048,32 @@ def submit_edit(token: str, new_text: str, visitor_session: str = "",
     return {"ok": True, "company": view["company"]}
 
 
+def _is_new_company(dataset_id) -> bool:
+    return str(dataset_id or "").startswith(NEW_COMPANY_ID_PREFIX)
+
+
+def _typed_by_visitor(edit: dict) -> bool:
+    """Did our own field staff type this text, or did the company send it?
+
+    Nothing records the author and nothing needs to. A contact can only write
+    through an invite, and an invite is minted at the moment the number is
+    verified. So a text that predates `verified_at`, or belongs to a
+    registration that never verified at all, cannot have come from the company.
+    The reviewer has to know which of the two they are reading, because only
+    one of them is the company confirming its own words.
+    """
+    created = edit.get("created_at")
+    if not created:
+        return False
+    verified = edit.get("verified_at")
+    if not verified:
+        return True
+    try:
+        return to_naive_utc(created) < to_naive_utc(verified)
+    except Exception:  # noqa: BLE001 (an unreadable timestamp proves nothing)
+        return False
+
+
 def list_edits(status: str = "pending", limit: int = 200) -> list:
     """The review queue, or the approved list the revert action works from.
 
@@ -877,7 +1087,7 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
         rows = conn.execute(
             "SELECT e.id, e.dataset_id, e.lead_id, e.old_text, e.new_text, e.status,"
             " e.created_at, e.reviewed_at, e.reviewed_by, l.company_name,"
-            " l.first_name, l.last_name, l.position, l.phone"
+            " l.first_name, l.last_name, l.position, l.phone, l.verified_at"
             " FROM dataset_edits e LEFT JOIN company_leads l ON l.id = e.lead_id"
             " WHERE e.status = ? ORDER BY e.created_at DESC LIMIT ?", (status, limit)
         ).fetchall()
@@ -887,6 +1097,10 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     for r in rows:
         d = dict(r)
         d["phone"] = otp_service.mask_destination(d.get("phone") or "")
+        d["new_company"] = _is_new_company(d.get("dataset_id"))
+        d["typed_by_visitor"] = d["new_company"] and _typed_by_visitor(d)
+        # Read for that comparison, not for the screen.
+        d.pop("verified_at", None)
         out.append(d)
     return out
 
@@ -1036,27 +1250,117 @@ def _lead_rows(rows) -> list:
     for r in rows:
         d = dict(r)
         d["phone"] = otp_service.mask_destination(d.get("phone") or "")
+        # Where the company itself came from. A registration against a company
+        # our own field staff created reads differently from one against a
+        # company that was already in the knowledge base, so the list says so.
+        d["new_company"] = _is_new_company(d.get("dataset_id"))
         out.append(d)
     return out
 
 
-def list_leads(visitor_id: str = "", limit: int = 200) -> list:
+# ── Fraud signals on the lead list ───────────────────────────────────────
+#
+# The reward is paid on `verified` (SPEC section 15, question 8), and a visitor
+# reaches `verified` on their own with a spare SIM: they type a name, they send
+# a code to a phone in their pocket, they read it back. With the "new company"
+# button they can create the company too. Nothing in this system detects that,
+# so the person signing the payment is the control, and these two signals are
+# what they cannot get by scrolling.
+#
+# `ip` and `user_agent` are the VISITOR's phone, not the contact's, because the
+# panel runs on the visitor's phone. So "two registrations share an address" is
+# the normal case and says nothing. What says something is a device shared by
+# two DIFFERENT visitors: one person carrying two badges works from one phone.
+# A bare IP match is not compared at all: a whole exhibition hall sits behind
+# one NAT, which is why the chat rate limit is keyed the way it is.
+
+# Two captures by one visitor closer together than this did not both happen at
+# a booth. SC-001 budgets 120 seconds for one capture, from opening /v to
+# handing the invite over, and the consent script alone is twenty seconds read
+# out loud, before the walk to the next stand.
+MIN_SECONDS_BETWEEN_CAPTURES = 60
+
+# The extra columns the admin list needs and the visitor's own list must not
+# get. `prev_capture_at` is computed in SQL against the whole table, not across
+# the page, so a capture whose predecessor fell off the end of the list is
+# still measured.
+_SIGNAL_COLUMNS = (
+    ", l.ip, l.user_agent,"
+    " (SELECT MAX(p.created_at) FROM company_leads p"
+    "   WHERE p.visitor_id = l.visitor_id AND p.created_at < l.created_at)"
+    " AS prev_capture_at"
+)
+
+
+def _device_counts() -> dict:
+    """How many distinct visitors registered from each (address, device) pair."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT ip, user_agent, COUNT(DISTINCT visitor_id) AS visitors"
+            " FROM company_leads WHERE ip <> '' OR user_agent <> ''"
+            " GROUP BY ip, user_agent"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {(r["ip"] or "", r["user_agent"] or ""): r["visitors"] for r in rows}
+
+
+def _seconds_between(earlier, later):
+    if not earlier or not later:
+        return None
+    try:
+        return (to_naive_utc(later) - to_naive_utc(earlier)).total_seconds()
+    except Exception:  # noqa: BLE001 (an unreadable timestamp proves nothing)
+        return None
+
+
+def _add_signals(rows: list) -> list:
+    """Flag the two patterns a human cannot see by reading forty rows.
+
+    Nothing is blocked and nothing is scored. Both flags have innocent
+    explanations (two colleagues with the same phone model on the same hall
+    wifi, one contact who was standing right there), so they are put in front
+    of a person rather than acted on.
+    """
+    devices = _device_counts()
+    for d in rows:
+        key = (d.get("ip") or "", d.get("user_agent") or "")
+        visitors = devices.get(key, 1) if any(key) else 1
+        d["shared_device_visitors"] = visitors
+        d["shared_device"] = visitors > 1
+        gap = _seconds_between(d.pop("prev_capture_at", None), d.get("created_at"))
+        d["seconds_since_previous"] = None if gap is None else int(gap)
+        d["too_fast"] = gap is not None and gap < MIN_SECONDS_BETWEEN_CAPTURES
+    return rows
+
+
+def list_leads(visitor_id: str = "", limit: int = 200,
+               with_signals: bool = False) -> list:
+    """The capture log. `with_signals` is the admin's view and only theirs.
+
+    The visitor's own list (`/api/leads/mine`) never carries `ip`,
+    `user_agent`, or the flags built from them: it is a tally of their day, not
+    a mirror showing them which of their own patterns are being watched.
+    """
     ensure_tables()
+    columns = _LEAD_COLUMNS + (_SIGNAL_COLUMNS if with_signals else "")
     conn = get_db_connection()
     try:
         if visitor_id:
             rows = conn.execute(
-                f"SELECT {_LEAD_COLUMNS}{_LEAD_JOINS} WHERE l.visitor_id = ?"
+                f"SELECT {columns}{_LEAD_JOINS} WHERE l.visitor_id = ?"
                 " ORDER BY l.created_at DESC LIMIT ?", (visitor_id, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT {_LEAD_COLUMNS}{_LEAD_JOINS}"
+                f"SELECT {columns}{_LEAD_JOINS}"
                 " ORDER BY l.created_at DESC LIMIT ?", (limit,)
             ).fetchall()
     finally:
         conn.close()
-    return _lead_rows(rows)
+    out = _lead_rows(rows)
+    return _add_signals(out) if with_signals else out
 
 
 def stuck_leads() -> list:

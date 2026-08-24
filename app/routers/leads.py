@@ -167,6 +167,53 @@ async def register(body: RegisterBody, request: Request,
         raise HTTPException(status_code=getattr(e, "status", 400), detail=str(e))
 
 
+class NewCompanyBody(BaseModel):
+    """The normal registration, plus the four fields of the dataset editor.
+
+    Only `title` and `phone` are required. The three content fields may be
+    blank, because the contact is about to be handed a link and write the
+    answer themselves.
+    """
+    title: str = Field(min_length=1, max_length=120)
+    title_en: str = Field(default="", max_length=120)
+    text: str = Field(default="", max_length=4000)
+    text_en: str = Field(default="", max_length=4000)
+    first_name: str = Field(default="", max_length=60)
+    last_name: str = Field(default="", max_length=60)
+    position: str = Field(default="", max_length=80)
+    phone: str = Field(min_length=8, max_length=20)
+    override_duplicate: bool = False
+
+
+@router.post("/api/leads/new-company")
+async def new_company(body: NewCompanyBody, request: Request,
+                      visitor: dict = Depends(current_visitor)):
+    """Create the company AND register its contact, or create nothing.
+
+    The only route on the feature that takes a company name as text. What keeps
+    it from being a way around choosing from the list is the refusal inside:
+    a name the knowledge base already holds is sent back to the search box.
+    """
+    check_rate_limit(request, key=f"visitor:{visitor['id']}")
+    try:
+        return leads_service.register_new_company(
+            visitor["id"], body.title, body.first_name, body.last_name,
+            body.position, body.phone, text=body.text, title_en=body.title_en,
+            text_en=body.text_en, override_duplicate=body.override_duplicate,
+            ip=client_ip(request), user_agent=request.headers.get("user-agent", ""),
+        )
+    except LeadError as e:
+        # `code` rides along so the panel can act instead of only complaining:
+        # a duplicate number is answered by sending the form again, a name that
+        # is already taken by going back to the search box. `duplicate` keeps
+        # the shape /api/leads/register already returns.
+        return JSONResponse(status_code=e.status,
+                            content={"detail": str(e), "code": e.code,
+                                     "duplicate": e.code == "duplicate_phone"})
+    except Exception as e:  # OTP delivery refusals reach the visitor verbatim
+        raise HTTPException(status_code=getattr(e, "status", 400), detail=str(e))
+
+
 class VerifyBody(BaseModel):
     lead_id: str = Field(min_length=1, max_length=120)
     code: str = Field(min_length=1, max_length=12)
@@ -268,7 +315,11 @@ async def admin_funnel():
 
 @router.get("/admin/api/leads", dependencies=[Depends(verify_admin)])
 async def admin_leads(visitor_id: str = ""):
-    return {"leads": leads_service.list_leads(visitor_id)}
+    # `with_signals` carries `ip`, `user_agent` and the two cluster flags. Only
+    # this route asks for them: the visitor's own list must not tell a visitor
+    # which of their patterns an operator is looking at.
+    return {"leads": leads_service.list_leads(visitor_id, with_signals=True),
+            "fast_capture_seconds": leads_service.MIN_SECONDS_BETWEEN_CAPTURES}
 
 
 @router.get("/admin/api/leads/stuck", dependencies=[Depends(verify_admin)])

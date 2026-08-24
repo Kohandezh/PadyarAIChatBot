@@ -59,6 +59,49 @@ function waitedFor(row) {
     return rest ? `${fa(days)} روز و ${fa(rest)} ساعت` : `${fa(days)} روز`;
 }
 
+// ── The two fraud signals ───────────────────────────────────────────────
+//
+// The reward is paid on `verified`, which a visitor can reach alone with a
+// spare SIM. The server flags two patterns (a device used by more than one
+// visitor, and two captures less than a minute apart) and this renders them.
+// Neither is proof and neither blocks anything: both have innocent readings,
+// so they are shown to a person, next to the row, with the threshold written
+// out in the card above rather than hidden in this file.
+
+// The visitor's own phone, so it repeats down their rows. Only the pair being
+// shared by two different visitors means anything, and that comes from the
+// server as `shared_device`.
+function deviceCell(l) {
+    const ip = l.ip || '';
+    const ua = l.user_agent || '';
+    if (!ip && !ua) return '<span class="text-muted">—</span>';
+    // The user agent is a string the caller chose. It goes through esc() here
+    // and again in the title attribute, and it is never inserted raw.
+    const short = ua.length > 42 ? `${ua.slice(0, 42)}…` : ua;
+    const badge = l.shared_device
+        ? `<div><span class="badge bg-danger mt-1">یک دستگاه، ${fa(l.shared_device_visitors)} همکار</span></div>`
+        : '';
+    return `
+      <div dir="ltr" class="small" style="max-width:22ch">
+        <code>${esc(ip) || '—'}</code>
+        ${ua ? `<div class="text-muted text-truncate" title="${esc(ua)}">${esc(short)}</div>` : ''}
+      </div>${badge}`;
+}
+
+function gapCell(l) {
+    const s = l.seconds_since_previous;
+    if (s === null || s === undefined) return '<span class="text-muted">اولین ثبت</span>';
+    let text;
+    if (s < 60) text = `${fa(Math.round(s))} ثانیه`;
+    else if (s < 3600) text = `${fa(Math.round(s / 60))} دقیقه`;
+    else if (s < 86400) text = `${fa(Math.round(s / 3600))} ساعت`;
+    else text = `${fa(Math.round(s / 86400))} روز`;
+    return l.too_fast
+        ? `<span class="badge bg-warning text-dark">خیلی سریع</span>
+           <div class="small text-muted">${text}</div>`
+        : `<span class="small">${text}</span>`;
+}
+
 function alertBox(text) {
     const el = document.getElementById('leads-alert');
     if (!text) { el.classList.add('d-none'); el.textContent = ''; return; }
@@ -181,6 +224,28 @@ function senderLine(r) {
     return bits.map(b => esc(b)).join(' · ');
 }
 
+// Where a proposed text came from. A company our own field staff created at a
+// booth, and a text our own field staff typed, are not the same evidence as a
+// company confirming its own words, and the reviewer is the only person who
+// can tell the difference before it becomes the public answer.
+function originHtml(e) {
+    const lines = [];
+    if (e.typed_by_visitor) {
+        lines.push('این متن را همکار غرفهٔ خودمان نوشته، نه خود شرکت.'
+            + ' مخاطب شرکت هنوز چیزی تأیید نکرده است.');
+    }
+    if (e.new_company) {
+        lines.push('این شرکت در فهرست نبود و همکار غرفه آن را ساخته است.'
+            + ' نام شرکت را هم ببینید، نه فقط متن را.');
+    }
+    if (!lines.length) return '';
+    return `
+      <div class="alert alert-info py-2 px-3 mb-3 small">
+        <i class="fas fa-user-pen me-1"></i>
+        ${lines.map(l => esc(l)).join('<br>')}
+      </div>`;
+}
+
 // Old beside new, because approving is writing the chatbot's answer: the
 // reviewer has to see the CHANGE, not just the replacement.
 function diffHtml(oldText, newText) {
@@ -243,6 +308,7 @@ async function loadEdits() {
             <strong>${esc(e.company_name || e.dataset_id)}</strong>
             <span class="text-muted small">${senderLine(e)}</span>
           </div>
+          ${originHtml(e)}
           ${riskyHtml(e)}
           ${diffHtml(e.old_text, e.new_text)}
           <button class="btn btn-success btn-sm" data-approve="1">
@@ -301,13 +367,29 @@ async function loadStuck() {
         </tr>`).join('');
 }
 
+// A visitor who reaches `verified` forty times and `completed` three times is
+// telling the person signing the payment something no algorithm has to. Ten is
+// the floor because two out of two proves nothing, and a quarter is the line
+// because it is written in the card the operator is reading.
+const SETTLEMENT_MIN_VERIFIED = 10;
+const SETTLEMENT_MIN_RATIO = 0.25;
+
+function settlementFlag(v) {
+    const verified = Number(v.verified || 0);
+    const completed = Number(v.completed || 0);
+    if (verified < SETTLEMENT_MIN_VERIFIED) return '';
+    if (completed >= verified * SETTLEMENT_MIN_RATIO) return '';
+    return `<div><span class="badge bg-danger mt-1">قبل از تسویه نگاه کنید</span></div>`;
+}
+
 async function loadVisitors() {
     const { visitors } = await get('/admin/api/leads/visitors');
     document.getElementById('visitors').innerHTML = visitors.map(v => `
         <tr class="${v.active ? '' : 'opacity-50'}" data-visitor="${esc(v.id)}">
-          <td class="ps-4">${esc(v.name) || '<span class="text-muted">بی‌نام</span>'}</td>
+          <td class="ps-4">${esc(v.name) || '<span class="text-muted">بی‌نام</span>'}${settlementFlag(v)}</td>
           <td>${fa(v.total)}</td>
           <td>${fa(v.verified)}</td>
+          <td>${fa(v.completed)}</td>
           <td class="text-end">
             <button class="btn btn-sm btn-outline-secondary" data-rotate="1">ساخت لینک تازه</button>
             <button class="btn btn-sm ${v.active ? 'btn-outline-danger' : 'btn-outline-success'}"
@@ -319,7 +401,14 @@ async function loadVisitors() {
 }
 
 async function loadLeads() {
-    const { leads } = await get('/admin/api/leads');
+    const data = await get('/admin/api/leads');
+    const leads = data.leads || [];
+    let flaggedRows = 0;
+    // The threshold lives on the server and is printed in the card, so the
+    // sentence an operator reads can never drift from the rule that ran.
+    if (data.fast_capture_seconds !== undefined) {
+        document.getElementById('fast-seconds').textContent = fa(data.fast_capture_seconds);
+    }
     // The number a visitor waved through is only a control if it stays visible
     // afterwards, so the override rides on the registration itself.
     const nameOf = {};
@@ -339,13 +428,30 @@ async function loadLeads() {
             </div>` : '';
         const released = l.released_at
             ? `<span class="badge bg-light text-dark ms-1">آزاد شده</span>` : '';
-        return `<tr data-lead="${esc(l.id)}">
-            <td class="ps-4">${esc(l.company_name)}${override}</td>
+        // This company did not exist until a field visitor typed its name.
+        const born = l.new_company ? `
+            <div class="small text-info mt-1">
+              <i class="fas fa-plus me-1"></i>
+              این شرکت در فهرست نبود و همکار غرفه آن را ساخت.
+            </div>` : '';
+        // A flagged row is tinted, so a page of forty does not need reading
+        // twice to find the three worth looking at.
+        const flagged = l.shared_device || l.too_fast;
+        if (flagged) flaggedRows += 1;
+        return `<tr data-lead="${esc(l.id)}" class="${flagged ? 'table-warning' : ''}">
+            <td class="ps-4">${esc(l.company_name)}${born}${override}</td>
             <td>${esc(fullName(l))}</td>
             <td dir="ltr">${esc(l.phone)}</td>
+            <td>${esc(l.visitor_name) || '<span class="text-muted">—</span>'}</td>
             <td><span class="badge bg-${tone}">${esc(label)}</span>${released}</td>
+            <td>${deviceCell(l)}</td>
+            <td>${gapCell(l)}</td>
           </tr>`;
     }).join('');
+
+    const counter = document.getElementById('flagged-count');
+    counter.textContent = `${fa(flaggedRows)} ثبت برای نگاه کردن`;
+    counter.classList.toggle('d-none', flaggedRows === 0);
 }
 
 async function loadSettings() {

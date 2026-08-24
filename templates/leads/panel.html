@@ -32,6 +32,44 @@
       <span id="chosen-name"></span>
       <button type="button" id="change">تغییر</button>
     </div>
+    <div class="note err" id="find-error"></div>
+
+    <!-- Only after a search that found nothing. Beside a list of matches this
+         button is an invitation to create a second copy of a company that is
+         already there. -->
+    <div class="ask" id="not-listed" hidden>
+      <h3>پیدا نشد؟</h3>
+      <p>اگر نام شرکت را درست نوشته‌اید و چیزی پیدا نشد، همین‌جا خودتان ثبتش کنید.</p>
+      <button type="button" id="new-company">ثبت شرکت جدید</button>
+    </div>
+  </section>
+
+  <!-- Step 1b. The company that is not in the list. Same flow from here on:
+       کد تأیید، لینک، تأیید خود شرکت. -->
+  <section class="card" id="step-new" hidden>
+    <h2>ثبت شرکت جدید</h2>
+    <label for="new-title">نام شرکت</label>
+    <input type="text" id="new-title" autocomplete="off">
+    <p class="hint">فقط همین را لازم داریم. بقیه را می‌توانید خالی بگذارید، چون خود
+      شرکت با لینکی که برایش می‌فرستیم متنش را می‌نویسد.</p>
+
+    <details style="margin-bottom:8px">
+      <summary style="padding:10px 0;font-weight:700">متن معرفی و نام انگلیسی (اختیاری)</summary>
+      <label for="new-text">متن پاسخ</label>
+      <textarea id="new-text" style="min-height:160px"
+                placeholder="یک معرفی کوتاه از شرکت و محصولاتش"></textarea>
+      <p class="hint">این متن تا وقتی مدیر بررسی نکند روی چت‌بات نمی‌نشیند.</p>
+      <label for="new-title-en">عنوان انگلیسی</label>
+      <input type="text" id="new-title-en" dir="ltr" autocomplete="off">
+      <label for="new-text-en">متن پاسخ انگلیسی</label>
+      <textarea id="new-text-en" style="min-height:120px" dir="ltr"></textarea>
+    </details>
+
+    <div class="note err" id="new-error"></div>
+    <div style="margin-top:16px">
+      <button type="button" id="new-next">ادامه</button>
+      <button type="button" class="ghost" id="new-cancel">انصراف</button>
+    </div>
   </section>
 
   <!-- Step 2 — the contact. -->

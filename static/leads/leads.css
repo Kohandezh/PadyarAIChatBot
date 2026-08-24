@@ -108,6 +108,10 @@ button + button { margin-top: 10px; }
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: #eef2fa; border-radius: 12px; padding: 10px 14px; font-weight: 700;
 }
+/* `display` beats the browser's own rule for [hidden], so without this the
+   chip is on screen before a company is picked, and stays on screen with the
+   previous name in it after the visitor goes back to the search box. */
+.chosen[hidden] { display: none; }
 .chosen button { width: auto; min-height: 48px; padding: 6px 14px; font-size: 16px;
   background: transparent; color: var(--brand-primary); margin: 0; }
 

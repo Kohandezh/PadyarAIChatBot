@@ -95,6 +95,15 @@
         <div class="content-card h-100">
             <div class="card-header"><span><i class="fas fa-id-badge me-2"></i>همکاران غرفه</span></div>
             <div class="card-body">
+                <!-- «تأییدشده» چیزی است که پولش پرداخت می‌شود و «متن رسیده» چیزی
+                     است که واقعاً به دست آمده. فاصلهٔ زیاد این دو، ارزان‌ترین
+                     نگاه صادقانه قبل از تسویه است. -->
+                <p class="text-muted small mb-3">
+                    «تأییدشده» یعنی شمارهٔ مخاطب تأیید شده و پاداشش پرداخت می‌شود.
+                    «متن رسیده» یعنی خود شرکت هم لینک را باز کرد و متنش را فرستاد.
+                    اگر همکاری ده ثبت تأییدشده یا بیشتر دارد و کمتر از یک‌چهارمشان
+                    متن رسیده، ردیفش علامت می‌خورد. مخاطب واقعی لینک را باز می‌کند.
+                </p>
                 <div class="input-group mb-3">
                     <input type="text" class="form-control" id="visitor-name" placeholder="نام همکار">
                     <button class="btn btn-primary" id="add-visitor" type="button">
@@ -119,7 +128,8 @@
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>
-                            <th class="ps-4">نام</th><th>ثبت‌ها</th><th>تأییدشده</th><th></th>
+                            <th class="ps-4">نام</th><th>ثبت‌ها</th><th>تأییدشده</th>
+                            <th>متن رسیده</th><th></th>
                         </tr></thead>
                         <tbody id="visitors"></tbody>
                     </table>
@@ -156,15 +166,38 @@
         </div>
     </div>
 
-    <!-- The raw capture log. -->
+    <!-- The raw capture log, and the only place visitor fraud becomes visible.
+         Pay-on-verified means a visitor reaches the paid state alone with a
+         spare SIM, so the two columns on the right are the control. -->
     <div class="col-12">
         <div class="content-card">
-            <div class="card-header"><span><i class="fas fa-list me-2"></i>آخرین ثبت‌ها</span></div>
+            <div class="card-header">
+                <span><i class="fas fa-list me-2"></i>آخرین ثبت‌ها</span>
+                <span class="badge bg-danger d-none" id="flagged-count">۰</span>
+            </div>
             <div class="card-body">
+                <p class="text-muted small mb-3">
+                    پاداش روی «شمارهٔ تأیید شده» پرداخت می‌شود، و یک همکار می‌تواند
+                    با یک سیم‌کارت اضافی خودش به این وضعیت برسد. دو ستون آخر برای
+                    همین است. نشانی و دستگاه مال گوشی همکار غرفه است، نه مخاطب، پس
+                    یکی بودنشان در ثبت‌های یک همکار عادی است. آنچه علامت می‌خورد این
+                    دو است، و هیچ‌کدام مدرک نیست، فقط جای نگاه کردن:
+                </p>
+                <ul class="text-muted small mb-3">
+                    <li><span class="badge bg-danger">یک دستگاه، چند همکار</span>
+                        نشانی و دستگاه یکسان زیر نام دو همکار غرفهٔ متفاوت. یعنی
+                        احتمالاً یک نفر با دو کارت کار می‌کند.</li>
+                    <li><span class="badge bg-warning text-dark">خیلی سریع</span>
+                        کمتر از <span id="fast-seconds">۶۰</span> ثانیه بعد از ثبت
+                        قبلیِ همان همکار. خواندن متن رضایت به‌تنهایی حدود ۲۰ ثانیه
+                        است و رفتن تا غرفهٔ بعدی هم زمان می‌برد.</li>
+                </ul>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>
-                            <th class="ps-4">شرکت</th><th>مخاطب</th><th>شماره</th><th>وضعیت</th>
+                            <th class="ps-4">شرکت</th><th>مخاطب</th><th>شماره</th>
+                            <th>همکار غرفه</th><th>وضعیت</th>
+                            <th>نشانی و دستگاه</th><th>فاصله از ثبت قبلی</th>
                         </tr></thead>
                         <tbody id="leads"></tbody>
                     </table>

@@ -7,7 +7,10 @@
   'use strict';
 
   var el = function (id) { return document.getElementById(id); };
-  var state = { datasetId: '', leadId: '', masked: '' };
+  /* Exactly one of `datasetId` and `newCompany` is ever set: the company was
+     picked from the list, or it is being created. Everything after step 1 is
+     the same either way. */
+  var state = { datasetId: '', newCompany: null, leadId: '', masked: '' };
 
   /* Persian and Arabic-Indic digits to ASCII, mirroring
      app/services/otp.py normalize_digits(). A contact reading their number off
@@ -56,35 +59,90 @@
       api('/api/leads/companies?q=' + encodeURIComponent(q)).then(function (data) {
         var ul = el('results');
         ul.innerHTML = '';
-        (data.companies || []).forEach(function (c) {
+        var companies = data.companies || [];
+        companies.forEach(function (c) {
           var li = document.createElement('li');
           li.textContent = c.title;
           li.addEventListener('click', function () { choose(c); });
           ul.appendChild(li);
         });
+        /* Offered only when a search found nothing. Next to a list of matches
+           it would be a shortcut into a duplicate company. */
+        el('not-listed').hidden = !(q && !companies.length);
       }).catch(function () { /* a failed search leaves the last list up */ });
     }, 200);
   }
 
-  function choose(company) {
-    state.datasetId = company.id;
-    el('chosen-name').textContent = company.title;
+  function toContact(name) {
+    el('chosen-name').textContent = name;
     el('chosen').hidden = false;
     el('results').innerHTML = '';
+    el('not-listed').hidden = true;
     el('q').value = '';
     el('q').hidden = true;
+    el('step-new').hidden = true;
     el('step-contact').hidden = false;
     el('first').focus();
     show('step-contact');
   }
 
-  el('q').addEventListener('input', search);
-  el('change').addEventListener('click', function () {
+  function choose(company) {
+    state.datasetId = company.id;
+    state.newCompany = null;
+    toContact(company.title);
+  }
+
+  /* Back to the search box, with a sentence saying why. Used by «تغییر» and by
+     the server's refusal when the typed name is already in the list. */
+  function backToSearch(message, term) {
     state.datasetId = '';
+    state.newCompany = null;
     el('chosen').hidden = true;
+    el('step-new').hidden = true;
+    el('step-contact').hidden = true;
+    el('find-error').textContent = message || '';
     el('q').hidden = false;
+    el('q').value = term || '';
     el('q').focus();
     show('step-company');
+    search();
+  }
+
+  el('q').addEventListener('input', function () {
+    el('find-error').textContent = '';
+    search();
+  });
+  el('change').addEventListener('click', function () { backToSearch('', ''); });
+
+  /* --- Step 1b: the company that is not in the list ------------------- */
+
+  el('new-company').addEventListener('click', function () {
+    el('new-title').value = el('q').value.trim();
+    el('new-error').textContent = '';
+    el('results').innerHTML = '';
+    el('not-listed').hidden = true;
+    el('q').hidden = true;
+    el('step-new').hidden = false;
+    el('new-title').focus();
+  });
+
+  el('new-cancel').addEventListener('click', function () { backToSearch('', ''); });
+
+  el('new-next').addEventListener('click', function () {
+    var title = el('new-title').value.trim();
+    if (!title) {
+      el('new-error').textContent = 'نام شرکت را بنویسید.';
+      el('new-title').focus();
+      return;
+    }
+    state.datasetId = '';
+    state.newCompany = {
+      title: title,
+      text: el('new-text').value.trim(),
+      title_en: el('new-title-en').value.trim(),
+      text_en: el('new-text-en').value.trim()
+    };
+    toContact(title);
   });
 
   /* --- Step 2: the contact ------------------------------------------- */
@@ -106,18 +164,33 @@
 
   function register(button, overrideDuplicate) {
     el('reg-error').textContent = '';
-    if (!state.datasetId) { el('reg-error').textContent = 'اول شرکت را انتخاب کنید.'; return; }
-    var label = button.textContent;
-    button.disabled = true;
-    button.textContent = 'در حال ارسال…';
-    api('/api/leads/register', {
-      dataset_id: state.datasetId,
+    if (!state.datasetId && !state.newCompany) {
+      el('reg-error').textContent = 'اول شرکت را انتخاب کنید.';
+      return;
+    }
+    var body = {
       first_name: el('first').value.trim(),
       last_name: el('last').value.trim(),
       position: el('position').value.trim(),
       phone: ascii(el('phone').value.trim()),
       override_duplicate: !!overrideDuplicate
-    }).then(function (data) {
+    };
+    /* One endpoint creates the company on the way through, the other does not.
+       Everything after this call is identical. */
+    var url = '/api/leads/register';
+    if (state.newCompany) {
+      url = '/api/leads/new-company';
+      body.title = state.newCompany.title;
+      body.text = state.newCompany.text;
+      body.title_en = state.newCompany.title_en;
+      body.text_en = state.newCompany.text_en;
+    } else {
+      body.dataset_id = state.datasetId;
+    }
+    var label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'در حال ارسال…';
+    api(url, body).then(function (data) {
       hideDuplicateAsk();
       state.leadId = data.lead_id;
       state.masked = data.destination_masked || '';
@@ -128,6 +201,11 @@
     }).catch(function (e) {
       if (e.status === 409 && e.data && e.data.duplicate) {
         askDuplicate(e.data.detail);
+      } else if (e.data && e.data.code === 'company_exists') {
+        /* The name is already in the knowledge base. The fix is the search
+           box, so the visitor is put back on it with the name still typed. */
+        hideDuplicateAsk();
+        backToSearch(e.message, state.newCompany ? state.newCompany.title : '');
       } else {
         hideDuplicateAsk();
         el('reg-error').textContent = e.message;
@@ -188,14 +266,18 @@
 
   /* --- Step 4: next company ----------------------------------------- */
   el('again').addEventListener('click', function () {
-    state = { datasetId: '', leadId: '', masked: '' };
-    ['first', 'last', 'position', 'phone', 'code'].forEach(function (id) { el(id).value = ''; });
+    state = { datasetId: '', newCompany: null, leadId: '', masked: '' };
+    ['first', 'last', 'position', 'phone', 'code',
+     'new-title', 'new-text', 'new-title-en', 'new-text-en'].forEach(
+      function (id) { el(id).value = ''; });
     hideDuplicateAsk();
     el('chosen').hidden = true;
+    el('step-new').hidden = true;
     el('q').hidden = false;
     el('q').value = '';
     el('qr').innerHTML = '';
-    ['reg-error', 'code-error'].forEach(function (id) { el(id).textContent = ''; });
+    ['reg-error', 'code-error', 'find-error', 'new-error'].forEach(
+      function (id) { el(id).textContent = ''; });
     show('step-company');
     el('q').focus();
     search();
