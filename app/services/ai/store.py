@@ -28,6 +28,15 @@ from .adapters import bootstrap as bootstrap_mod
 from .adapters.base import ProviderRuntime
 
 # ── SQLite DDL for tests (mirror of migrations/0003_ai_control_plane.sql) ──
+#
+# Flags are declared BOOLEAN so this mirror and the migration say the same
+# thing. SQLite does not enforce it: BOOLEAN carries NUMERIC affinity, the
+# engine does no type checking, and Python `True` and `1` are both stored as
+# `integer`. The declaration buys agreement with the migration and a reader
+# who is not told the column is an integer when production says otherwise. An
+# int bound to one of these is caught only against a real server, in
+# tests/postgres/. Timestamps stay TEXT and JSONB stays TEXT because SQLite
+# has neither type.
 
 _TABLES = {
     "ai_provider_instances": """
@@ -35,12 +44,12 @@ _TABLES = {
             id TEXT PRIMARY KEY,
             provider_type TEXT NOT NULL,
             display_name TEXT NOT NULL,
-            enabled INTEGER NOT NULL DEFAULT 0,
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
             trust_class TEXT NOT NULL DEFAULT 'public'
                 CHECK (trust_class IN ('public','internal')),
             config TEXT NOT NULL DEFAULT '{}',
             secret_enc TEXT NOT NULL DEFAULT '',
-            has_secret INTEGER NOT NULL DEFAULT 0,
+            has_secret BOOLEAN NOT NULL DEFAULT FALSE,
             notes TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -58,12 +67,12 @@ _TABLES = {
             status TEXT NOT NULL DEFAULT 'available'
                 CHECK (status IN ('available','preview','deprecated','legacy',
                                   'unavailable','unknown','manual')),
-            supports_chat INTEGER NOT NULL DEFAULT 1,
-            supports_reasoning INTEGER NOT NULL DEFAULT 0,
-            supports_streaming INTEGER NOT NULL DEFAULT 1,
-            supports_tools INTEGER NOT NULL DEFAULT 0,
-            supports_structured INTEGER NOT NULL DEFAULT 0,
-            supports_vision INTEGER NOT NULL DEFAULT 0,
+            supports_chat BOOLEAN NOT NULL DEFAULT TRUE,
+            supports_reasoning BOOLEAN NOT NULL DEFAULT FALSE,
+            supports_streaming BOOLEAN NOT NULL DEFAULT TRUE,
+            supports_tools BOOLEAN NOT NULL DEFAULT FALSE,
+            supports_structured BOOLEAN NOT NULL DEFAULT FALSE,
+            supports_vision BOOLEAN NOT NULL DEFAULT FALSE,
             context_window INTEGER,
             max_output_tokens INTEGER,
             metadata TEXT,
@@ -76,7 +85,7 @@ _TABLES = {
         CREATE TABLE IF NOT EXISTS ai_routes (
             task TEXT PRIMARY KEY,
             description TEXT NOT NULL DEFAULT '',
-            enabled INTEGER NOT NULL DEFAULT 1,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )""",
     "ai_route_targets": """
@@ -86,7 +95,7 @@ _TABLES = {
             provider_instance_id TEXT NOT NULL REFERENCES ai_provider_instances(id),
             model_id TEXT NOT NULL,
             priority INTEGER NOT NULL CHECK (priority > 0),
-            enabled INTEGER NOT NULL DEFAULT 1,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
             max_attempts INTEGER CHECK (max_attempts >= 1),
             timeout_s REAL,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),

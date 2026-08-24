@@ -190,6 +190,13 @@ def _deliver(destination: str, code: str) -> None:
 
 
 def ensure_table() -> None:
+    # `used` is declared BOOLEAN so this DDL and the `otp_challenges` block in
+    # migrations/0001_initial.sql say the same thing. SQLite does not enforce
+    # it: BOOLEAN carries NUMERIC affinity, the engine does no type checking,
+    # and Python `True` and `1` are both stored as `integer`. The declaration
+    # buys agreement with the migration and a reader who is not misinformed.
+    # An int bound to it is caught only against a real server, in
+    # tests/postgres/.
     conn = get_db_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS otp_challenges (
@@ -199,7 +206,7 @@ def ensure_table() -> None:
             expires_at TEXT NOT NULL,
             attempts INTEGER DEFAULT 0,
             resends INTEGER DEFAULT 0,
-            used INTEGER DEFAULT 0,
+            used BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TEXT NOT NULL,
             last_sent_at TEXT NOT NULL,
             first_name TEXT DEFAULT '',
@@ -396,10 +403,11 @@ def update_profile(challenge_id: str, job: str, position: str, interests: str) -
     try:
         cur = conn.execute(
             # `TRUE`, not `1`, for the same reason as the UPDATE in
-            # `verify()`. PostgreSQL has no boolean = integer operator, so
+            # `verify()`. PostgreSQL has no `boolean = integer` operator, so
             # `used = 1` raised UndefinedFunction and turned every profile
-            # save into a 500. SQLite has accepted TRUE since 3.23, so this
-            # is portable.
+            # save into a 500. SQLite compares them happily, so no test in
+            # the default suite could see it. SQLite has accepted TRUE since
+            # 3.23, so this is portable.
             "UPDATE otp_challenges SET job = ?, position = ?, interests = ?"
             " WHERE id = ? AND used = TRUE",
             (job.strip(), position.strip(), interests.strip(), challenge_id),

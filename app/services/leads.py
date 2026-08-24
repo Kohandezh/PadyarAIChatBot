@@ -71,6 +71,7 @@ duplicate checks never need the plaintext and never have to normalise twice.
 import hmac
 import hashlib
 import io
+import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -122,6 +123,53 @@ STATUSES = ("unverified", "verified", "completed")
 DEAD_INVITE_MESSAGE = "اینجا چیزی برای نمایش نیست."
 
 MAX_EDIT_CHARS = 4000
+
+# ── The plain-text rule (SEC-024) ────────────────────────────────────────
+#
+# An approved edit becomes `dataset.text`, and `dataset.text` is read by the
+# chat renderer, by the admin panel, by the CSV export and by whatever reads it
+# next. The renderer is being sanitised separately, but a column that only one
+# of its readers has been audited is a column that has to be clean at the door.
+# A company introduction needs no markup, so markup is refused here rather than
+# cleaned up downstream.
+#
+# The rule is a TAG-SHAPED TOKEN, not "no angle brackets". Banning `<` outright
+# refuses "دمای کاری < ۵۰ درجه" and "قیمت<۱۰۰ هزار", which a real company
+# writes and which no browser has ever parsed as anything.
+#
+# So the rule is exactly what a parser treats as the start of a tag: `<`
+# immediately followed by a letter (`<b`), `</` immediately followed by a
+# letter (`</p`), or `<!` / `<?` (a comment, a doctype, a processing
+# instruction). The word IMMEDIATELY is the whole rule. Both HTML and
+# CommonMark require the letter to touch the bracket, so `x < y` is text to
+# every reader of this column, and refusing it would only teach a company
+# manager that the form hates their product description.
+#
+# Entity-encoded markup (`&lt;script&gt;`) is deliberately not matched: it
+# displays as the characters a person typed, which is what a person who typed
+# them meant.
+_TAG_SHAPED = re.compile(r"<[!?]|</?[A-Za-z]")
+
+# What the contact reads is a company manager standing in a loud hall, so it
+# names the likely cause (a paste from a website or a Word file) and the one
+# action that fixes it. It quotes nothing back: the offending fragment is the
+# markup itself, and handing it to a page to print is the defect again.
+MARKUP_MESSAGE = (
+    "متن معرفی باید ساده باشد و نباید کد صفحهٔ وب داشته باشد. اگر متن را از یک "
+    "سایت یا فایل کپی کرده‌اید، لطفاً همان جمله‌ها را خودتان در کادر بنویسید و "
+    "دوباره بفرستید."
+)
+
+
+def assert_plain_text(text: str) -> None:
+    """Refuse an answer text that carries markup. Both doors call this.
+
+    The invite path (`submit_edit`) and the new-company path
+    (`register_new_company`) write into the same column, so one of them
+    checking is the same as neither.
+    """
+    if _TAG_SHAPED.search(text or ""):
+        raise LeadError(MARKUP_MESSAGE, code="markup_not_allowed")
 
 # How the invite reaches the contact. `qr` needs no gateway, no permission and
 # no delivery: the visitor shows their own screen. `sms` waits on Asanak
@@ -189,8 +237,16 @@ def _live_owner(alias: str = "l") -> str:
 # Same shape as the OTP module's ensure_table(): the module owns its tables, so
 # an install without `leads` never grows them. The SQL is the dialect the db
 # adapter translates for PostgreSQL (`?` placeholders, TEXT timestamps); the
-# PostgreSQL-native version with real types lives in migrations/0005_leads.sql
-# and migrations/0006_lead_status.sql.
+# PostgreSQL-native version with real types lives in migrations/0005_leads.sql,
+# migrations/0006_lead_status.sql and migrations/0007_visitor_sessions.sql.
+#
+# `active` is declared BOOLEAN so this file and the migration say the same
+# thing. SQLite does not enforce that: BOOLEAN carries NUMERIC affinity, the
+# engine does no type checking, and Python `True` and `1` are both stored as
+# `integer`, so a test here can never fail on the difference. What the
+# declaration buys is agreement with the migration and a reader who is not
+# told the column is an integer when production says otherwise. An int bound
+# to it is caught only against a real server, in tests/postgres/.
 
 _TABLES = (
     """
@@ -199,7 +255,7 @@ _TABLES = (
         name        TEXT NOT NULL DEFAULT '',
         code_hash   TEXT NOT NULL DEFAULT '',
         expires_at  TEXT,
-        active      INTEGER DEFAULT 1,
+        active      BOOLEAN NOT NULL DEFAULT TRUE,
         created_at  TEXT NOT NULL
     )
     """,
@@ -307,7 +363,7 @@ _SQLITE_UPGRADE_0007 = (
         name        TEXT NOT NULL DEFAULT '',
         code_hash   TEXT NOT NULL DEFAULT '',
         expires_at  TEXT,
-        active      INTEGER DEFAULT 1,
+        active      BOOLEAN NOT NULL DEFAULT TRUE,
         created_at  TEXT NOT NULL
     )
     """,
@@ -427,6 +483,29 @@ def sms_capability() -> dict:
     return {"available": True, "reason": ""}
 
 
+def allowed_link_domains() -> tuple:
+    """Domains a proposed answer may link to without the reviewer being nudged.
+
+    A setting and not a constant because the only person who knows which
+    domains belong to this exhibition is the operator running it, and finding
+    that out in week one must not cost a deploy. Comma or newline separated,
+    stored as typed, compared lowercased.
+    """
+    from app.db.queries import get_setting
+    raw = get_setting("leads_allowed_link_domains", "") or ""
+    parts = [p.strip().lower().removeprefix("www.")
+             for p in raw.replace("\n", ",").split(",")]
+    return tuple(p for p in parts if p)
+
+
+def set_allowed_link_domains(value: str) -> tuple:
+    from app.db.queries import set_setting
+    set_setting("leads_allowed_link_domains", (value or "").strip())
+    domains = allowed_link_domains()
+    _audit("allowed_link_domains_changed", ", ".join(domains))
+    return domains
+
+
 def consent_script() -> dict:
     from app.db.queries import get_setting
     return {
@@ -492,8 +571,14 @@ def create_visitor(name: str) -> dict:
     conn = get_db_connection()
     try:
         conn.execute(
+            # `TRUE`, not `1`. `active` is a real BOOLEAN in PostgreSQL, and
+            # PostgreSQL has no integer-to-boolean cast on assignment, so an
+            # integer literal here fails the whole INSERT with DatatypeMismatch
+            # and no operator can add a visitor. SQLite takes either, so no
+            # test in the default suite can see it. Same fix as
+            # set_visitor_active() below.
             "INSERT INTO lead_visitors (id, name, code_hash, expires_at, active,"
-            " created_at) VALUES (?, ?, ?, ?, 1, ?)",
+            " created_at) VALUES (?, ?, ?, ?, TRUE, ?)",
             (visitor_id, (name or "").strip()[:80], code_hash,
              expires.isoformat(), now.isoformat()),
         )
@@ -551,8 +636,13 @@ def set_visitor_active(visitor_id: str, active: bool) -> bool:
     ensure_tables()
     conn = get_db_connection()
     try:
+        # `bool`, not `1`/`0`. `lead_visitors.active` is a real BOOLEAN in
+        # PostgreSQL (migrations/0005_leads.sql), psycopg adapts a Python int
+        # to `integer`, and the server refuses the assignment. SQLite takes
+        # either, which is why the admin's revoke button worked in every test
+        # and 500'd in production.
         cur = conn.execute("UPDATE lead_visitors SET active = ? WHERE id = ?",
-                           (1 if active else 0, visitor_id))
+                           (bool(active), visitor_id))
         if not active:
             conn.execute("DELETE FROM lead_visitor_sessions WHERE visitor_id = ?",
                          (visitor_id,))
@@ -951,6 +1041,10 @@ def register_new_company(visitor_id: str, title: str, first_name: str, last_name
     if len(answer) > MAX_EDIT_CHARS:
         raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
                         code="text_too_long")
+    # Typed by our own visitor at the booth rather than by the contact, but it
+    # lands in the same `dataset_edits.new_text` and from there in the same
+    # column, so it meets the same rule.
+    assert_plain_text(answer)
 
     taken = _title_taken(normalized)
     if taken is not None:
@@ -1200,6 +1294,7 @@ def submit_edit(token: str, new_text: str, visitor_session: str = "",
     if len(text) > MAX_EDIT_CHARS:
         raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
                         code="text_too_long")
+    assert_plain_text(text)
     if visitor_session and visitor_session == view["issued_by_session"]:
         _audit("edit_refused_own_session", view["company"], lead_id=view["lead_id"], ip=ip)
         raise LeadError(DEAD_INVITE_MESSAGE, status=403, code="dead_invite")
@@ -1270,6 +1365,73 @@ def _typed_by_visitor(edit: dict) -> bool:
         return False
 
 
+# ── Risky content in a proposed answer (SEC-026 / F15) ───────────────────
+#
+# The damage that actually happens here needs no markup. An approved edit is
+# the sentence the chatbot says to every visitor for the rest of the show, so
+# a bank account, a competitor's address or somebody's Telegram handle sitting
+# in ordinary prose is worth more to an attacker than any script tag. It reads
+# as a normal paragraph, and a reviewer working through forty diffs in an
+# afternoon has no reason to stop on it.
+#
+# So this names them. It blocks nothing and it decides nothing: it puts the
+# tokens in front of the human who is already deciding. The admin panel does
+# the same extraction client-side as a fallback, and prefers this list, because
+# only the server can know which domains the operator has allowed.
+#
+# Order matters. The first pattern to claim a span keeps it, so the digits of
+# a card number are not reported a second time as a phone number inside it.
+_RISK_PATTERNS = (
+    (re.compile(r"\bIR[ -]?\d{2}(?:[ -]?\d){22}\b", re.I), "iban", "شماره شبا"),
+    (re.compile(r"\b(?:\d[ -]?){15}\d\b"), "card", "شمارهٔ کارت یا حساب"),
+    (re.compile(r"(?:https?://|www\.)[^\s<>\"'«»،؛]+", re.I), "url", "نشانی اینترنتی"),
+    (re.compile(r"\b[a-z0-9-]{2,}\.(?:ir|com|net|org|co|io|me|info|biz|app|dev)"
+                r"\b(?:/[^\s<>\"'«»،؛]*)?", re.I), "url", "نشانی اینترنتی"),
+    (re.compile(r"(?:\+?98|0)?9\d{2}[ -]?\d{3}[ -]?\d{4}\b"), "phone", "شمارهٔ تماس"),
+    (re.compile(r"\b0\d{2}[ -]?\d{8}\b"), "phone", "شمارهٔ تماس"),
+    (re.compile(r"@[A-Za-z0-9_]{4,}\b"), "handle", "آی‌دی شبکهٔ اجتماعی"),
+)
+
+# Persian and Arabic digits are one character each, so matching on the
+# converted copy gives offsets that still index the original. The value handed
+# back is sliced from the original, so the reviewer reads what was written.
+_LATIN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def _link_allowed(value: str, domains: tuple) -> bool:
+    """Is this URL pointing at a domain the operator has permitted?"""
+    host = re.sub(r"^https?://", "", value, flags=re.I).split("/")[0]
+    host = host.split("?")[0].split("#")[0].split(":")[0].lower().removeprefix("www.")
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def find_risky(text: str, allowed_domains: Optional[tuple] = None) -> list:
+    """Every URL, phone number, IBAN, card number and handle in a text.
+
+    Returns `{kind, label, value, allowed}`. `allowed` is only ever true for a
+    link, because there is no allowlist that makes someone else's bank account
+    fine to publish.
+    """
+    if not text:
+        return []
+    domains = allowed_link_domains() if allowed_domains is None else allowed_domains
+    probe = str(text).translate(_LATIN_DIGITS)
+    taken, seen, found = [], set(), []
+    for pattern, kind, label in _RISK_PATTERNS:
+        for m in pattern.finditer(probe):
+            start, end = m.span()
+            if start == end or any(start < e and end > s for s, e in taken):
+                continue
+            taken.append((start, end))
+            value = str(text)[start:end]
+            if value in seen:
+                continue
+            seen.add(value)
+            found.append({"kind": kind, "label": label, "value": value,
+                          "allowed": kind == "url" and _link_allowed(value, domains)})
+    return found
+
+
 def list_edits(status: str = "pending", limit: int = 200) -> list:
     """The review queue, or the approved list the revert action works from.
 
@@ -1290,9 +1452,11 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     finally:
         conn.close()
     out = []
+    domains = allowed_link_domains()          # read once, not once per row
     for r in rows:
         d = dict(r)
         d["phone"] = otp_service.mask_destination(d.get("phone") or "")
+        d["risky"] = find_risky(d.get("new_text") or "", domains)
         d["new_company"] = _is_new_company(d.get("dataset_id"))
         d["typed_by_visitor"] = d["new_company"] and _typed_by_visitor(d)
         # Read for that comparison, not for the screen.

@@ -28,6 +28,9 @@ from pydantic import BaseModel, Field
 
 from app.config import BASE_DIR, COOKIE_SECURE
 from app.auth.security import check_rate_limit, client_ip, verify_admin
+# One audit helper for every route in the app that hands a batch of data out,
+# so there is a single event name to grep for. See app/routers/admin.py.
+from app.routers.admin import audit_export
 from app.services import leads as leads_service
 from app.services.leads import LeadError
 
@@ -323,23 +326,35 @@ async def save_edit(token: str, request: Request, payload: dict = Body(default={
 
 # ── Admin ────────────────────────────────────────────────────────────────
 
-@router.get("/admin/api/leads/funnel", dependencies=[Depends(verify_admin)])
-async def admin_funnel():
+@router.get("/admin/api/leads/funnel")
+async def admin_funnel(request: Request, admin: str = Depends(verify_admin)):
+    """Counts, not rows. It still writes the export line, because the counts
+    are the map: they say how many companies are worth coming back for."""
+    audit_export(request, admin, "lead_funnel")
     return leads_service.funnel()
 
 
-@router.get("/admin/api/leads", dependencies=[Depends(verify_admin)])
-async def admin_leads(visitor_id: str = ""):
+@router.get("/admin/api/leads")
+async def admin_leads(request: Request, visitor_id: str = "",
+                      admin: str = Depends(verify_admin)):
     # `with_signals` carries `ip`, `user_agent` and the two cluster flags. Only
     # this route asks for them: the visitor's own list must not tell a visitor
     # which of their patterns an operator is looking at.
-    return {"leads": leads_service.list_leads(visitor_id, with_signals=True),
+    rows = leads_service.list_leads(visitor_id, with_signals=True)
+    # The contact list of the whole exhibition: every company captured, who
+    # captured it, and from which address and device. A browser tab is an
+    # export as surely as a CSV is, so it leaves the same row behind.
+    audit_export(request, admin, "company_leads", rows=len(rows),
+                 visitor_id=visitor_id or "all")
+    return {"leads": rows,
             "fast_capture_seconds": leads_service.MIN_SECONDS_BETWEEN_CAPTURES}
 
 
-@router.get("/admin/api/leads/stuck", dependencies=[Depends(verify_admin)])
-async def admin_stuck():
-    return {"stuck": leads_service.stuck_leads()}
+@router.get("/admin/api/leads/stuck")
+async def admin_stuck(request: Request, admin: str = Depends(verify_admin)):
+    rows = leads_service.stuck_leads()
+    audit_export(request, admin, "stuck_leads", rows=len(rows))
+    return {"stuck": rows}
 
 
 @router.post("/admin/api/leads/{lead_id}/release")
@@ -361,12 +376,19 @@ async def admin_settings():
     return {"invite_channel": leads_service.invite_channel(),
             "channels": list(leads_service.INVITE_CHANNELS),
             "consent_script": consent["text"], "consent_version": consent["version"],
-            "sms_available": sms["available"], "sms_reason": sms["reason"]}
+            "sms_available": sms["available"], "sms_reason": sms["reason"],
+            # The domains a proposed answer may link to without the review card
+            # nudging the reviewer. Editable here so permitting the
+            # exhibition's own site is a setting, not a deploy.
+            "allowed_link_domains": ", ".join(leads_service.allowed_link_domains())}
 
 
 class SettingsBody(BaseModel):
     invite_channel: str = Field(default="", max_length=10)
     consent_script: str = Field(default="", max_length=4000)
+    # `None` means "left alone". An empty string is a real value here: it is
+    # how an operator clears the list back to allowing nothing.
+    allowed_link_domains: str | None = Field(default=None, max_length=2000)
 
 
 @router.post("/admin/api/leads/settings", dependencies=[Depends(verify_admin)])
@@ -376,13 +398,15 @@ async def admin_save_settings(body: SettingsBody):
             leads_service.set_invite_channel(body.invite_channel)
         if body.consent_script.strip():
             leads_service.set_consent_script(body.consent_script)
+        if body.allowed_link_domains is not None:
+            leads_service.set_allowed_link_domains(body.allowed_link_domains)
     except LeadError as e:
         raise _fail(e)
     return await admin_settings()
 
 
-@router.get("/admin/api/leads/visitors", dependencies=[Depends(verify_admin)])
-async def admin_visitors():
+@router.get("/admin/api/leads/visitors")
+async def admin_visitors(request: Request, admin: str = Depends(verify_admin)):
     """The visitor roster. There is no code in it to leave out any more.
 
     A personal link is shown once, when it is created or rotated, and the
@@ -390,7 +414,9 @@ async def admin_visitors():
     instead: a code that has run out, or a row that never had one, is handed a
     new link rather than shown an old one.
     """
-    return {"visitors": leads_service.list_visitors()}
+    rows = leads_service.list_visitors()
+    audit_export(request, admin, "lead_visitors", rows=len(rows))
+    return {"visitors": rows}
 
 
 class VisitorBody(BaseModel):
@@ -432,9 +458,16 @@ async def admin_rotate_visitor(visitor_id: str, request: Request):
             "qr": leads_service.qr_svg(link)}
 
 
-@router.get("/admin/api/leads/edits", dependencies=[Depends(verify_admin)])
-async def admin_edits(status: str = "pending"):
-    return {"edits": leads_service.list_edits(status)}
+@router.get("/admin/api/leads/edits")
+async def admin_edits(request: Request, status: str = "pending",
+                      admin: str = Depends(verify_admin)):
+    rows = leads_service.list_edits(status)
+    # Every row carries the contact's name, role and masked number alongside
+    # the text they wrote. `risky` rides with it: the tokens a reviewer has to
+    # read before approving, extracted here because only the server knows the
+    # allowed-domain list.
+    audit_export(request, admin, "dataset_edits", rows=len(rows), status=status)
+    return {"edits": rows}
 
 
 class ReviewBody(BaseModel):
