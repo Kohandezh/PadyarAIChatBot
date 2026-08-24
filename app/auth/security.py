@@ -100,10 +100,17 @@ def client_ip(request: Request) -> str:
 _chat_rate_limits: Dict[str, List[float]] = {}
 
 
-def check_rate_limit(http_request: Request, key: str = ""):
+def check_rate_limit(http_request: Request, key: str = "",
+                     limit: int = CHAT_RATE_LIMIT):
     """Rate limit a request. Keyed on the client IP unless a caller passes its
     own key, which lets a route limit per authenticated identity instead of per
-    address. Thresholds are shared; only the bucket changes."""
+    address.
+
+    `limit` is this bucket's ceiling. A shared one meant a route could not be
+    given a limit that fits it without moving /chat's, so the lead routes were
+    stuck with the chat's number: generous for a stranger with a link, mean for
+    a visitor typing at a booth. The window stays shared, because a per-route
+    window is a second number to reason about for no gain."""
     # "unknown" rather than "": an empty key would put every clientless request
     # (there is no socket in some ASGI test transports) into a bucket that also
     # collects anything else that fails to resolve, silently and unlabelled.
@@ -115,7 +122,7 @@ def check_rate_limit(http_request: Request, key: str = ""):
         del _chat_rate_limits[k]
     timestamps = _chat_rate_limits.get(ip, [])
     timestamps = [t for t in timestamps if now - t < CHAT_RATE_WINDOW]
-    if len(timestamps) >= CHAT_RATE_LIMIT:
+    if len(timestamps) >= limit:
         raise HTTPException(
             status_code=429,
             detail="Too many requests. Please wait a moment."

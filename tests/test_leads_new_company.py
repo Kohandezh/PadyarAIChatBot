@@ -31,7 +31,7 @@ def _no_rate_limit(monkeypatch):
     """The suite fires a whole booth's worth of requests in a second."""
     import app.routers.leads as leads_router
     monkeypatch.setattr(leads_router, "check_rate_limit",
-                        lambda request, key=None: None)
+                        lambda request, key=None, limit=None: None)
 
 
 @pytest.fixture

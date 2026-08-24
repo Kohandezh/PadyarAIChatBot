@@ -6,7 +6,7 @@ A field visitor stands at a company's booth and asks for a contact. What the
 system has to guarantee is not "a form was filled in" but "the person whose
 number this is agreed to it, and only they can change the company's text":
 
-    visitor opens their own link      -> a visitor session (12 h)
+    visitor opens their own link      -> a session row, an opaque cookie
     visitor searches the company      -> a row of `dataset`, never free text,
                                          and never a company someone already owns
     visitor enters name/role/phone    -> a lead, status `unverified`, OTP sent
@@ -25,6 +25,16 @@ successful submit removes that table, that cookie and the contradiction behind
 them: the token in the URL is the credential for the whole interaction, and it
 dies at the moment the work is done. Until then it lives 24 hours, because a
 contact at a busy booth may not scan anything until the evening.
+
+WHY THE VISITOR SESSION IS A ROW
+--------------------------------
+The cookie carries a token that exists nowhere else, and `lead_visitor_sessions`
+holds the expiry the SERVER reads on every request. The cookie used to carry
+`lead_visitors.id`, which the admin panel prints, `/admin/api/leads` returns and
+applog metadata records, so one screenshot was a login and the 12 hours were
+enforced by the browser alone. The code in the personal link is stored as a
+keyed HMAC, for the reason `edit_invites` always was: a database read, or a
+downloaded backup, must not hand anyone a working link.
 
 THREE STATUSES, NOT SIX
 -----------------------
@@ -76,12 +86,31 @@ from app.services import otp as otp_service
 # queue behind them; the thing that actually limits exposure is that the link
 # is handed over face to face and stops working as soon as it is used.
 INVITE_TTL_SECONDS = 24 * 3600
-# A visitor works one exhibition day on one phone. Long enough that nobody is
-# re-scanning their own badge between booths, short enough that a lost phone
-# stops being an open door overnight.
+# A visitor works one exhibition day on one phone, so this window SLIDES on
+# every request, the way an admin session does. A fixed 12 hours signs out the
+# visitor who started at seven in the morning while they are standing at a
+# booth, and the cost of that is a registration that never happens. Twelve
+# hours of silence, on the other hand, means the day is over.
 VISITOR_SESSION_TTL_SECONDS = 12 * 3600
 
+# The ceiling the sliding window can never pass: the personal link's own life.
+# Without it a session that is used every day never ends, which is the defect
+# the session table was built to fix. A month covers the setup days and the
+# show, and leaves a code lifted from an old backup dead by the next one.
+# Rotating the link mints a fresh month.
+VISITOR_CODE_TTL_SECONDS = 30 * 24 * 3600
+
 VISITOR_COOKIE = "padyar_visitor"
+
+# Ceilings for the lead routes, kept apart from the chat's because the identity
+# is different. A visitor is a person: two registrations and a handful of
+# retries per minute is already more than SC-001's 120-second capture allows,
+# and the bucket is their session, so one visitor cannot spend another's.
+RATE_LIMIT_PER_VISITOR = 30
+# The contact's routes have no cookie to key on, so they key on the address.
+# It has to be far more generous: the hall is behind one NAT, and every phone
+# on the hall wifi that opens an invite arrives from the same address.
+RATE_LIMIT_PER_IP = 240
 
 # Where the contact got to. Nothing else is a status: `approved`/`rejected` are
 # a review outcome and live on `dataset_edits`.
@@ -168,8 +197,17 @@ _TABLES = (
     CREATE TABLE IF NOT EXISTS lead_visitors (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL DEFAULT '',
-        code        TEXT NOT NULL,
+        code_hash   TEXT NOT NULL DEFAULT '',
+        expires_at  TEXT,
         active      INTEGER DEFAULT 1,
+        created_at  TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS lead_visitor_sessions (
+        token       TEXT PRIMARY KEY,
+        visitor_id  TEXT NOT NULL,
+        expiry      TEXT NOT NULL,
         created_at  TEXT NOT NULL
     )
     """,
@@ -228,7 +266,11 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS ix_leads_dataset ON company_leads(dataset_id)",
     "CREATE INDEX IF NOT EXISTS ix_leads_status  ON company_leads(status)",
     "CREATE INDEX IF NOT EXISTS ix_edits_status  ON dataset_edits(status)",
-    "CREATE INDEX IF NOT EXISTS ix_visitor_code  ON lead_visitors(code)",
+    "CREATE INDEX IF NOT EXISTS ix_visitor_code_hash ON lead_visitors(code_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_visitor_sessions_visitor"
+    "  ON lead_visitor_sessions(visitor_id)",
+    "CREATE INDEX IF NOT EXISTS ix_visitor_sessions_expiry"
+    "  ON lead_visitor_sessions(expiry)",
 )
 
 # The SQLite half of migrations/0006_lead_status.sql. PostgreSQL never runs
@@ -251,6 +293,30 @@ _SQLITE_UPGRADE = (
     "DROP TABLE IF EXISTS edit_sessions",
 )
 
+# The SQLite half of migrations/0007_visitor_sessions.sql. The table is rebuilt
+# rather than altered: dropping `code` needs SQLite 3.35, and leaving the
+# plaintext column behind on an older interpreter is the one thing this
+# migration exists to remove. Every personal link handed out before this stops
+# working, exactly as the PostgreSQL file says, because a keyed HMAC cannot be
+# derived from a code the database is about to forget.
+_SQLITE_UPGRADE_0007 = (
+    "DROP INDEX IF EXISTS ix_visitor_code",
+    """
+    CREATE TABLE lead_visitors_new (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL DEFAULT '',
+        code_hash   TEXT NOT NULL DEFAULT '',
+        expires_at  TEXT,
+        active      INTEGER DEFAULT 1,
+        created_at  TEXT NOT NULL
+    )
+    """,
+    "INSERT INTO lead_visitors_new (id, name, code_hash, expires_at, active, created_at)"
+    " SELECT id, name, '', NULL, active, created_at FROM lead_visitors",
+    "DROP TABLE lead_visitors",
+    "ALTER TABLE lead_visitors_new RENAME TO lead_visitors",
+)
+
 
 def ensure_tables() -> None:
     from app.config import DB_BACKEND
@@ -258,34 +324,49 @@ def ensure_tables() -> None:
     try:
         for ddl in _TABLES:
             conn.execute(ddl)
+        conn.commit()
+        # Before the indexes, not after: an install still on the old schema has
+        # no `code_hash` to index, and a CREATE INDEX that raises there takes
+        # the module down instead of upgrading it.
+        if DB_BACKEND != "postgres":
+            _upgrade_sqlite(conn)
         for ddl in _INDEXES:
             conn.execute(ddl)
         conn.commit()
-        if DB_BACKEND != "postgres":
-            _upgrade_sqlite(conn)
     finally:
         conn.close()
 
 
 def _upgrade_sqlite(conn) -> None:
-    """Bring an install created before the three-state vocabulary up to date.
+    """Bring an install created before a migration up to date, one file each.
 
     Probed with a SELECT rather than run every time, the same way
     app/db/connection.py detects an older `admins` table: on a current database
-    this costs one query and writes nothing. Each statement is still guarded,
-    because DROP COLUMN needs SQLite 3.35 and an older interpreter simply keeps
-    an unused column, which harms nothing.
+    this costs one query per file and writes nothing.
+    """
+    _apply_upgrade(conn, "SELECT released_at FROM company_leads LIMIT 1",
+                   _SQLITE_UPGRADE)
+    _apply_upgrade(conn, "SELECT code_hash FROM lead_visitors LIMIT 1",
+                   _SQLITE_UPGRADE_0007)
+
+
+def _apply_upgrade(conn, probe: str, statements) -> None:
+    """Run `statements` unless `probe` proves they already ran.
+
+    Each statement is guarded on its own, because DROP COLUMN needs SQLite 3.35
+    and an older interpreter simply keeps an unused column, which harms nothing.
     """
     try:
-        conn.execute("SELECT released_at FROM company_leads LIMIT 1")
+        conn.execute(probe)
         return
     except Exception:  # noqa: BLE001 (any dialect's "no such column")
         pass
-    for statement in _SQLITE_UPGRADE:
+    for statement in statements:
         try:
             conn.execute(statement)
         except Exception as e:  # noqa: BLE001
-            logger.info("[leads] sqlite upgrade skipped: %s (%s)", statement[:60], e)
+            logger.info("[leads] sqlite upgrade skipped: %s (%s)",
+                        " ".join(statement.split())[:60], e)
     conn.commit()
 
 
@@ -381,23 +462,47 @@ def set_consent_script(text: str) -> dict:
 
 # ── Visitors ─────────────────────────────────────────────────────────────
 
+def _code_expired(expires_at) -> bool:
+    """Has the personal link run out?
+
+    A missing expiry counts as expired. Rows carried over by
+    migrations/0007_visitor_sessions.sql have no code left at all, and reading
+    a credential's clock is the wrong place to give anyone the benefit of the
+    doubt.
+    """
+    stamp = to_naive_utc(expires_at) if expires_at else None
+    return stamp is None or stamp < _now()
+
+
 def create_visitor(name: str) -> dict:
-    """Add a field visitor and mint the personal link they will scan."""
+    """Add a field visitor and mint the personal link they will scan.
+
+    The raw code is returned here and never again. The row keeps only its keyed
+    HMAC, so a look at this table, a log line or a downloaded backup hands over
+    nothing that opens a session.
+    """
     ensure_tables()
     visitor_id = secrets.token_urlsafe(8)
     code = secrets.token_urlsafe(24)
+    # Hashed before the connection opens, for the reason create_invite gives:
+    # _digest reads the HMAC key, and on a fresh install that WRITES it.
+    code_hash = _digest(code)
+    now = _now()
+    expires = now + timedelta(seconds=VISITOR_CODE_TTL_SECONDS)
     conn = get_db_connection()
     try:
         conn.execute(
-            "INSERT INTO lead_visitors (id, name, code, active, created_at)"
-            " VALUES (?, ?, ?, 1, ?)",
-            (visitor_id, (name or "").strip()[:80], code, _now().isoformat()),
+            "INSERT INTO lead_visitors (id, name, code_hash, expires_at, active,"
+            " created_at) VALUES (?, ?, ?, ?, 1, ?)",
+            (visitor_id, (name or "").strip()[:80], code_hash,
+             expires.isoformat(), now.isoformat()),
         )
         conn.commit()
     finally:
         conn.close()
     _audit("visitor_created", name, visitor_id=visitor_id)
-    return {"id": visitor_id, "name": name, "code": code}
+    return {"id": visitor_id, "name": name, "code": code,
+            "expires_at": expires.isoformat()}
 
 
 def list_visitors() -> list:
@@ -408,12 +513,16 @@ def list_visitors() -> list:
     and three completed has identified themselves without any algorithm: real
     contacts open the link. The two numbers are returned side by side because
     either one alone tells the person signing the payment nothing.
+
+    No code, hashed or otherwise. `needs_link` is the only thing this screen
+    has to know about the credential: whether the operator has to hand out a
+    new one.
     """
     ensure_tables()
     conn = get_db_connection()
     try:
         rows = conn.execute(
-            "SELECT v.id, v.name, v.code, v.active, v.created_at,"
+            "SELECT v.id, v.name, v.expires_at, v.active, v.created_at,"
             " (SELECT COUNT(*) FROM company_leads l WHERE l.visitor_id = v.id) AS total,"
             " (SELECT COUNT(*) FROM company_leads l WHERE l.visitor_id = v.id"
             "    AND l.status IN ('verified', 'completed')) AS verified,"
@@ -423,17 +532,30 @@ def list_visitors() -> list:
         ).fetchall()
     finally:
         conn.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["needs_link"] = _code_expired(d.get("expires_at"))
+        out.append(d)
+    return out
 
 
 def set_visitor_active(visitor_id: str, active: bool) -> bool:
-    """Revoke or restore a visitor's link. Revoking is instant: the session
-    cookie carries only the id, and every request re-reads `active`."""
+    """Revoke or restore a visitor's link.
+
+    Revoking is instant twice over. Their sessions are deleted here, and every
+    request re-reads `active` anyway, so a session that slips through the race
+    dies on its next use rather than at expiry. Restoring does not bring the
+    old sessions back: the visitor opens their link again, which is one scan.
+    """
     ensure_tables()
     conn = get_db_connection()
     try:
         cur = conn.execute("UPDATE lead_visitors SET active = ? WHERE id = ?",
                            (1 if active else 0, visitor_id))
+        if not active:
+            conn.execute("DELETE FROM lead_visitor_sessions WHERE visitor_id = ?",
+                         (visitor_id,))
         conn.commit()
         changed = (cur.rowcount or 0) > 0
     finally:
@@ -442,53 +564,127 @@ def set_visitor_active(visitor_id: str, active: bool) -> bool:
     return changed
 
 
-def rotate_visitor_code(visitor_id: str) -> Optional[str]:
+def rotate_visitor_code(visitor_id: str) -> Optional[dict]:
     """Mint a new personal link and kill the old one in the same statement.
 
-    The only way to see a visitor's link twice. A lost phone is answered here
-    rather than by re-displaying the code that is on the lost phone.
+    The only way to see a visitor's link twice, and the honest answer to a lost
+    phone: re-showing the old code would leave the lost phone working. The open
+    sessions go with it, so a phone in someone else's pocket stops mid-day
+    instead of at expiry.
     """
     ensure_tables()
     code = secrets.token_urlsafe(24)
+    code_hash = _digest(code)
+    now = _now()
+    expires = now + timedelta(seconds=VISITOR_CODE_TTL_SECONDS)
     conn = get_db_connection()
     try:
-        cur = conn.execute("UPDATE lead_visitors SET code = ? WHERE id = ?",
-                           (code, visitor_id))
-        conn.commit()
+        cur = conn.execute(
+            "UPDATE lead_visitors SET code_hash = ?, expires_at = ? WHERE id = ?",
+            (code_hash, expires.isoformat(), visitor_id),
+        )
         if (cur.rowcount or 0) == 0:
             return None
+        conn.execute("DELETE FROM lead_visitor_sessions WHERE visitor_id = ?",
+                     (visitor_id,))
+        conn.commit()
     finally:
         conn.close()
     _audit("visitor_code_rotated", visitor_id, visitor_id=visitor_id)
-    return code
+    return {"code": code, "expires_at": expires.isoformat()}
 
 
-def visitor_by_code(code: str) -> Optional[dict]:
+# ── The visitor's session ────────────────────────────────────────────────
+
+def _session_expiry(now: datetime, code_expires) -> datetime:
+    """Twelve hours from now, and never past the code's own expiry.
+
+    The sliding half is what keeps a visitor signed in through a whole
+    exhibition day: an idle timeout that signs them out between two booths
+    costs a registration that nobody comes back for. The ceiling is what stops
+    sliding from meaning forever, because a session used every day would
+    otherwise outlive the credential it came from.
+    """
+    ceiling = to_naive_utc(code_expires)
+    slid = now + timedelta(seconds=VISITOR_SESSION_TTL_SECONDS)
+    return min(slid, ceiling) if ceiling else slid
+
+
+def start_session(code: str) -> Optional[dict]:
+    """Exchange a personal link's code for a session token, or None.
+
+    The token is the whole cookie value and it names nothing else. The cookie
+    used to carry `lead_visitors.id`, which the admin panel prints, the lead
+    list returns and applog metadata records, so a screenshot was a login.
+    """
     ensure_tables()
+    code_hash = _digest(code or "")
+    token = secrets.token_urlsafe(32)
+    now = _now()
     conn = get_db_connection()
     try:
         row = conn.execute(
-            "SELECT id, name, active FROM lead_visitors WHERE code = ?", (code,)
+            "SELECT id, name, active, expires_at FROM lead_visitors WHERE code_hash = ?",
+            (code_hash,),
         ).fetchone()
+        if row is None or not row["active"] or _code_expired(row["expires_at"]):
+            return None
+        expiry = _session_expiry(now, row["expires_at"])
+        conn.execute(
+            "INSERT INTO lead_visitor_sessions (token, visitor_id, expiry, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (token, row["id"], expiry.isoformat(), now.isoformat()),
+        )
+        conn.commit()
     finally:
         conn.close()
-    if not row or not row["active"]:
+    _audit("visitor_session_started", row["name"], visitor_id=row["id"])
+    # `cookie_max_age` is how long the BROWSER keeps the pointer, and it is the
+    # code's life rather than the session's: the server slides the session, and
+    # a cookie that expired first would sign out a visitor the server was still
+    # happy to serve. Nothing is trusted about how long the browser kept it.
+    remaining = to_naive_utc(row["expires_at"]) - now
+    return {"id": row["id"], "name": row["name"], "token": token,
+            "expires_at": expiry.isoformat(),
+            "cookie_max_age": max(0, int(remaining.total_seconds()))}
+
+
+def visitor_by_session(token: str) -> Optional[dict]:
+    """The visitor behind a cookie, or None. Expiry is decided HERE.
+
+    Four things are re-read on every single request: the session exists, it has
+    not expired, the visitor is still active, and their code has not run out.
+    A cookie a client keeps forever buys nothing, because none of those four
+    answers comes from the cookie.
+    """
+    if not token:
         return None
-    return dict(row)
-
-
-def visitor_by_id(visitor_id: str) -> Optional[dict]:
     ensure_tables()
+    now = _now()
     conn = get_db_connection()
     try:
         row = conn.execute(
-            "SELECT id, name, active FROM lead_visitors WHERE id = ?", (visitor_id,)
+            "SELECT s.expiry, v.id, v.name, v.active, v.expires_at"
+            " FROM lead_visitor_sessions s JOIN lead_visitors v ON v.id = s.visitor_id"
+            " WHERE s.token = ?", (token,),
         ).fetchone()
+        if row is None:
+            return None
+        dead = (to_naive_utc(row["expiry"]) < now or not row["active"]
+                or _code_expired(row["expires_at"]))
+        if dead:
+            # Deleted, not left to rot: a phone that keeps sending a dead
+            # cookie should stop costing a join, and a session nobody can use
+            # is not evidence of anything.
+            conn.execute("DELETE FROM lead_visitor_sessions WHERE token = ?", (token,))
+            conn.commit()
+            return None
+        conn.execute("UPDATE lead_visitor_sessions SET expiry = ? WHERE token = ?",
+                     (_session_expiry(now, row["expires_at"]).isoformat(), token))
+        conn.commit()
     finally:
         conn.close()
-    if not row or not row["active"]:
-        return None
-    return dict(row)
+    return {"id": row["id"], "name": row["name"]}
 
 
 # ── Company search ───────────────────────────────────────────────────────
@@ -1148,7 +1344,13 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
     if approve or not row["lead_id"]:
         return result
     invite = create_invite(row["lead_id"], row["dataset_id"], base_url)
-    sent, reason = _send_link(row["phone"] or "", invite["invite_url"], "reject")
+    # The lead id is the `reference`. Without it app/services/sms.py logs
+    # nothing on SUCCESS (its success line is gated on a reference), so a
+    # rejection notice that WORKED left no trace and "did this contact ever
+    # hear we refused their text" was unanswerable a week later. The invite
+    # path already passes it; this one was the odd case out.
+    sent, reason = _send_link(row["phone"] or "", invite["invite_url"], "reject",
+                              row["lead_id"])
     if not sent:
         # The contact does not know their text was refused. That is the admin's
         # problem to see, not something to swallow.

@@ -33,7 +33,7 @@ def paths(tmp_path, monkeypatch):
 def _no_rate_limit(monkeypatch):
     import app.routers.leads as leads_router
     monkeypatch.setattr(leads_router, "check_rate_limit",
-                        lambda request, key=None: None)
+                        lambda request, key=None, limit=None: None)
 
 
 @pytest.fixture

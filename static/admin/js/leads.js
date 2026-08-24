@@ -382,11 +382,19 @@ function settlementFlag(v) {
     return `<div><span class="badge bg-danger mt-1">قبل از تسویه نگاه کنید</span></div>`;
 }
 
+// The link now expires, and a link handed out before the codes were hashed
+// does not work at all. Neither is visible from the outside, so the row says
+// it and points at the button that fixes it.
+function linkFlag(v) {
+    if (!v.needs_link) return '';
+    return `<div><span class="badge bg-warning text-dark mt-1">لینک ندارد. «ساخت لینک تازه» را بزنید</span></div>`;
+}
+
 async function loadVisitors() {
     const { visitors } = await get('/admin/api/leads/visitors');
     document.getElementById('visitors').innerHTML = visitors.map(v => `
         <tr class="${v.active ? '' : 'opacity-50'}" data-visitor="${esc(v.id)}">
-          <td class="ps-4">${esc(v.name) || '<span class="text-muted">بی‌نام</span>'}${settlementFlag(v)}</td>
+          <td class="ps-4">${esc(v.name) || '<span class="text-muted">بی‌نام</span>'}${settlementFlag(v)}${linkFlag(v)}</td>
           <td>${fa(v.total)}</td>
           <td>${fa(v.verified)}</td>
           <td>${fa(v.completed)}</td>
@@ -506,6 +514,11 @@ function showNewLink(title, data) {
     document.getElementById('new-visitor-title').textContent = title;
     document.getElementById('new-visitor-qr').innerHTML = data.qr;
     document.getElementById('new-visitor-link').textContent = data.link;
+    // The link stops working on its own now, so the date is part of handing it
+    // over. Without it the operator finds out at the booth.
+    const until = faDate(data.expires_at);
+    document.getElementById('new-visitor-expiry').textContent =
+        until ? `این لینک تا ${until} کار می‌کند.` : '';
     document.getElementById('new-visitor').classList.remove('d-none');
 }
 

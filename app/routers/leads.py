@@ -7,8 +7,9 @@ Three audiences, three doors, and no shared credential between them:
   /secure-panel-inotex/leads  an administrator, on the existing admin session
 
 Nothing here trusts anything the browser says about who it is. The visitor
-cookie carries only an id, and `active` is re-read on every request, so
-revoking a visitor takes effect on their next tap rather than at cookie expiry.
+cookie carries an opaque session token, and every request re-reads the session's
+expiry, the visitor's `active` flag and their code's expiry, so revoking a
+visitor takes effect on their next tap and a cookie kept forever buys nothing.
 The invite token in the URL is the contact's whole credential: the row it hashes
 to names the single company it may touch, so no company id is ever taken from a
 request body, and the token stops existing the moment an edit is accepted.
@@ -89,9 +90,12 @@ def _dead_page(message: str, status: int) -> HTMLResponse:
 
 # ── Visitor session ──────────────────────────────────────────────────────
 
+def _session_token(request: Request) -> str:
+    return request.cookies.get(leads_service.VISITOR_COOKIE, "")
+
+
 def current_visitor(request: Request) -> dict:
-    visitor_id = request.cookies.get(leads_service.VISITOR_COOKIE, "")
-    visitor = leads_service.visitor_by_id(visitor_id) if visitor_id else None
+    visitor = leads_service.visitor_by_session(_session_token(request))
     if visitor is None:
         raise HTTPException(status_code=401, detail="دسترسی ندارید.")
     return visitor
@@ -102,24 +106,29 @@ async def visitor_link(code: str, request: Request):
     """The visitor's personal link. Exchanges the code for a session cookie.
 
     The code leaves the URL immediately: a redirect means it is not sitting in
-    the phone's history, in a screenshot, or in a referrer header.
+    the phone's history, in a screenshot, or in a referrer header. What the
+    cookie then carries is a session token, never the visitor's id.
+
+    A dead code and an unknown code get the same page: which of the two it was
+    is not the holder's business.
     """
-    visitor = leads_service.visitor_by_code(code)
-    if visitor is None:
+    session = leads_service.start_session(code)
+    if session is None:
         return HTMLResponse(_brand(_page("denied.html")), status_code=403)
     response = RedirectResponse(url="/v", status_code=303)
     response.set_cookie(
-        key=leads_service.VISITOR_COOKIE, value=visitor["id"], httponly=True,
+        key=leads_service.VISITOR_COOKIE, value=session["token"], httponly=True,
         secure=COOKIE_SECURE, samesite="lax",
-        max_age=leads_service.VISITOR_SESSION_TTL_SECONDS,
+        # The browser holds the pointer for as long as the code lives. How long
+        # the SESSION lives is decided on the server, on every request.
+        max_age=session["cookie_max_age"],
     )
     return response
 
 
 @router.get("/v", response_class=HTMLResponse)
 async def visitor_panel(request: Request):
-    visitor_id = request.cookies.get(leads_service.VISITOR_COOKIE, "")
-    visitor = leads_service.visitor_by_id(visitor_id) if visitor_id else None
+    visitor = leads_service.visitor_by_session(_session_token(request))
     if visitor is None:
         return HTMLResponse(_brand(_page("denied.html")), status_code=403)
     page = _brand(_page("panel.html"))
@@ -147,8 +156,10 @@ class RegisterBody(BaseModel):
 async def register(body: RegisterBody, request: Request,
                    visitor: dict = Depends(current_visitor)):
     # Keyed on the visitor, not the address: a whole exhibition hall shares one
-    # NAT'd IP and two visitors must not be able to lock each other out.
-    check_rate_limit(request, key=f"visitor:{visitor['id']}")
+    # NAT'd IP and two visitors must not be able to lock each other out. The
+    # ceiling is the lead module's own, so raising it never touches /chat.
+    check_rate_limit(request, key=f"visitor:{visitor['id']}",
+                     limit=leads_service.RATE_LIMIT_PER_VISITOR)
     try:
         return leads_service.register_contact(
             visitor["id"], body.dataset_id, body.first_name, body.last_name,
@@ -194,7 +205,8 @@ async def new_company(body: NewCompanyBody, request: Request,
     it from being a way around choosing from the list is the refusal inside:
     a name the knowledge base already holds is sent back to the search box.
     """
-    check_rate_limit(request, key=f"visitor:{visitor['id']}")
+    check_rate_limit(request, key=f"visitor:{visitor['id']}",
+                     limit=leads_service.RATE_LIMIT_PER_VISITOR)
     try:
         return leads_service.register_new_company(
             visitor["id"], body.title, body.first_name, body.last_name,
@@ -222,14 +234,15 @@ class VerifyBody(BaseModel):
 @router.post("/api/leads/verify")
 async def verify(body: VerifyBody, request: Request,
                  visitor: dict = Depends(current_visitor)):
-    check_rate_limit(request, key=f"visitor:{visitor['id']}")
+    check_rate_limit(request, key=f"visitor:{visitor['id']}",
+                     limit=leads_service.RATE_LIMIT_PER_VISITOR)
     try:
         # The visitor's session goes in so the invite remembers who minted it.
         # What comes back is a QR image or a delivery report, never the token:
         # the person who captured the lead may not edit the company's answer.
         return leads_service.verify_contact(
             body.lead_id, body.code, _base_url(request),
-            visitor_session=request.cookies.get(leads_service.VISITOR_COOKIE, ""),
+            visitor_session=_session_token(request),
         )
     except LeadError as e:
         raise _fail(e)
@@ -248,9 +261,11 @@ async def edit_page(token: str, request: Request):
 
     Rate limited and audited with the caller's address: this is the one route
     on the whole feature that an unauthenticated stranger can hammer, and a
-    guessing run has to be visible in the log with an IP beside it.
+    guessing run has to be visible in the log with an IP beside it. The IP
+    ceiling is the generous one, because the contact has no cookie to key on
+    and half the phones in the hall leave from the same address.
     """
-    check_rate_limit(request)
+    check_rate_limit(request, limit=leads_service.RATE_LIMIT_PER_IP)
     try:
         leads_service.invite_view(token, ip=client_ip(request))
     except LeadError as e:
@@ -260,7 +275,7 @@ async def edit_page(token: str, request: Request):
 
 @router.get("/api/leads/edit/{token}")
 async def edit_state(token: str, request: Request):
-    check_rate_limit(request)
+    check_rate_limit(request, limit=leads_service.RATE_LIMIT_PER_IP)
     try:
         view = leads_service.invite_view(token, ip=client_ip(request))
     except LeadError as e:
@@ -294,12 +309,12 @@ def _only_text(payload: dict) -> str:
 
 @router.post("/api/leads/edit/{token}")
 async def save_edit(token: str, request: Request, payload: dict = Body(default={})):
-    check_rate_limit(request)
+    check_rate_limit(request, limit=leads_service.RATE_LIMIT_PER_IP)
     text = _only_text(payload)
     try:
         return leads_service.submit_edit(
             token, text,
-            visitor_session=request.cookies.get(leads_service.VISITOR_COOKIE, ""),
+            visitor_session=_session_token(request),
             ip=client_ip(request),
         )
     except LeadError as e:
@@ -368,16 +383,14 @@ async def admin_save_settings(body: SettingsBody):
 
 @router.get("/admin/api/leads/visitors", dependencies=[Depends(verify_admin)])
 async def admin_visitors():
-    """The visitor roster WITHOUT the codes.
+    """The visitor roster. There is no code in it to leave out any more.
 
-    A personal link is shown once, when it is created or rotated. A list that
-    re-displays every live code turns one look at this screen, or one backup,
-    into every visitor's identity.
+    A personal link is shown once, when it is created or rotated, and the
+    database keeps only its HMAC. `needs_link` is what this screen says
+    instead: a code that has run out, or a row that never had one, is handed a
+    new link rather than shown an old one.
     """
-    rows = leads_service.list_visitors()
-    for r in rows:
-        r.pop("code", None)
-    return {"visitors": rows}
+    return {"visitors": leads_service.list_visitors()}
 
 
 class VisitorBody(BaseModel):
@@ -386,10 +399,12 @@ class VisitorBody(BaseModel):
 
 @router.post("/admin/api/leads/visitors", dependencies=[Depends(verify_admin)])
 async def admin_create_visitor(body: VisitorBody, request: Request):
+    """The one response that carries a raw code, together with the rotate
+    action below. Nothing can show it again."""
     visitor = leads_service.create_visitor(body.name)
     link = f"{_base_url(request)}/v/{visitor['code']}"
     return {"id": visitor["id"], "name": visitor["name"], "link": link,
-            "qr": leads_service.qr_svg(link)}
+            "expires_at": visitor["expires_at"], "qr": leads_service.qr_svg(link)}
 
 
 class VisitorActiveBody(BaseModel):
@@ -407,12 +422,14 @@ async def admin_visitor_active(visitor_id: str, body: VisitorActiveBody):
 @router.post("/admin/api/leads/visitors/{visitor_id}/rotate",
              dependencies=[Depends(verify_admin)])
 async def admin_rotate_visitor(visitor_id: str, request: Request):
-    """A new link for a lost phone. The old one stops working immediately."""
-    code = leads_service.rotate_visitor_code(visitor_id)
-    if code is None:
+    """A new link for a lost phone. The old one and every session opened with
+    it stop working immediately."""
+    rotated = leads_service.rotate_visitor_code(visitor_id)
+    if rotated is None:
         raise HTTPException(status_code=404, detail="این همکار پیدا نشد.")
-    link = f"{_base_url(request)}/v/{code}"
-    return {"link": link, "qr": leads_service.qr_svg(link)}
+    link = f"{_base_url(request)}/v/{rotated['code']}"
+    return {"link": link, "expires_at": rotated["expires_at"],
+            "qr": leads_service.qr_svg(link)}
 
 
 @router.get("/admin/api/leads/edits", dependencies=[Depends(verify_admin)])
