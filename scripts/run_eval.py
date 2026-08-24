@@ -21,6 +21,9 @@ measures:
 The external AI fallback is deliberately NOT called: this measures the
 proprietary local layer, and CI must not depend on external providers.
 
+It always runs on SQLite, whatever backend the install uses at runtime, and
+pins DB_BACKEND itself so no caller has to remember (see below).
+
 USAGE (from the project root):
     .venv/bin/python scripts/run_eval.py
     .venv/bin/python scripts/run_eval.py --backend tfidf     # baseline compare
@@ -30,6 +33,7 @@ Exit code 1 when a hard gate fails (contamination > 0 or secret leak).
 """
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -38,6 +42,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+# This harness is SQLite-only. main() reads and restores the `search_backend`
+# setting through the stdlib sqlite3 module, so PostgreSQL cannot work here at
+# all. app/config.py resolves DB_BACKEND once, at import time, and defaults it
+# to "postgres" — so the pin has to happen before the first import that pulls
+# app.config in, directly or transitively. Every `app` import in this file is
+# inside a function, which is what makes this the right place. Without it, a
+# machine with no local PostgreSQL (CI included) dies in init_db() with a
+# connection-pool timeout that names nothing about the real problem.
+#
+# load_dotenv() does not override an existing process variable, so this wins
+# over a DB_BACKEND line in .env.
+_requested_backend = os.environ.get("DB_BACKEND", "").strip().lower()
+if _requested_backend and _requested_backend != "sqlite":
+    # Someone asked for a backend this script cannot use. Say so, rather than
+    # overriding them and reporting numbers from a database they did not pick.
+    # Only the process variable counts as asking: .env configures the app, not
+    # this command, and it is read later by app/config.py.
+    sys.exit(f"run_eval.py is a SQLite-only harness and cannot run with "
+             f"DB_BACKEND={_requested_backend!r}. Unset it for this command, "
+             f"or set it to 'sqlite'.")
+os.environ["DB_BACKEND"] = "sqlite"
 
 GOLDEN = ROOT / "data" / "eval" / "golden-inotex.json"
 DEFAULT_OUT = ROOT / "docs" / "knowledge-based-evidence" / "appendices" / "benchmark-results" / "retrieval-eval.json"

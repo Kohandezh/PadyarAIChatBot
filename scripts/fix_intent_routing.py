@@ -87,8 +87,10 @@ def main():
     # Add branch-name synonyms (skip existing for idempotency).
     syn_added = 0
     for source, target in SYNONYMS:
+        # Matched on the pair, not on the source. A word may already have other
+        # synonyms; matching on the source alone would skip this one forever.
         exists = cur.execute(
-            "SELECT 1 FROM synonyms WHERE source = ?", (source,)
+            "SELECT 1 FROM synonyms WHERE source = ? AND target = ?", (source, target)
         ).fetchone()
         if not exists:
             cur.execute(

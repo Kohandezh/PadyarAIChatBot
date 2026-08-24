@@ -37,7 +37,8 @@ def cursor():
         "CREATE TABLE questions (id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " question TEXT, dataset_id TEXT, video_url TEXT DEFAULT '')"
     )
-    cur.execute("CREATE TABLE synonyms (source TEXT PRIMARY KEY, target TEXT)")
+    cur.execute("CREATE TABLE synonyms (source TEXT NOT NULL, target TEXT NOT NULL,"
+                "               PRIMARY KEY (source, target))")
     yield cur
     conn.close()
 

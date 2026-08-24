@@ -380,8 +380,10 @@ def create_visitor(name: str) -> dict:
     conn = get_db_connection()
     try:
         conn.execute(
+            # TRUE, not 1: `active` is BOOLEAN and PostgreSQL will not take an
+            # integer there. SQLite treats the two as the same thing.
             "INSERT INTO lead_visitors (id, name, code, active, created_at)"
-            " VALUES (?, ?, ?, 1, ?)",
+            " VALUES (?, ?, ?, TRUE, ?)",
             (visitor_id, (name or "").strip()[:80], code, _now().isoformat()),
         )
         conn.commit()
@@ -413,8 +415,11 @@ def set_visitor_active(visitor_id: str, active: bool) -> bool:
     ensure_tables()
     conn = get_db_connection()
     try:
+        # `bool(...)`, not `1 if active else 0`. `active` is BOOLEAN, psycopg
+        # sends a Python int as `integer`, and PostgreSQL has no cast for that
+        # in an assignment. SQLite took it, which is how it got this far.
         cur = conn.execute("UPDATE lead_visitors SET active = ? WHERE id = ?",
-                           (1 if active else 0, visitor_id))
+                           (bool(active), visitor_id))
         conn.commit()
         changed = (cur.rowcount or 0) > 0
     finally:

@@ -63,6 +63,34 @@ def ensure_dataset_columns(cursor) -> None:
         pass
 
 
+def _rebuild_synonyms_pk(cursor) -> None:
+    """Move a database created before the split off `source TEXT PRIMARY KEY`.
+
+    SQLite cannot alter a primary key in place and CREATE TABLE IF NOT EXISTS
+    leaves an existing table alone, so without this an older file keeps the
+    single-column key and keeps the behaviour this change exists to remove: the
+    second synonym of a word silently replaces the first. That is exactly the
+    divergence, still present, on the one backend a developer runs locally and
+    the suite runs against. The table holds a few dozen rows and nothing
+    references it, so the copy is free.
+
+    SQLite-only helper: on PostgreSQL the migration already has the pair key.
+    """
+    columns = cursor.execute('PRAGMA table_info(synonyms)').fetchall()
+    if sum(1 for c in columns if c['pk']) != 1:
+        return  # already keyed on the pair
+    cursor.execute('ALTER TABLE synonyms RENAME TO synonyms_old')
+    cursor.execute('CREATE TABLE synonyms ('
+                   ' source TEXT NOT NULL,'
+                   ' target TEXT NOT NULL,'
+                   ' PRIMARY KEY (source, target))')
+    # The old table allowed a NULL target; the new one does not.
+    cursor.execute("INSERT OR IGNORE INTO synonyms (source, target)"
+                   " SELECT source, COALESCE(target, '') FROM synonyms_old")
+    cursor.execute('DROP TABLE synonyms_old')
+    logger.info("[db] synonyms rebuilt with PRIMARY KEY (source, target)")
+
+
 def _create_sqlite_schema(cursor):
     """Create and migrate the SQLite schema.
 
@@ -91,12 +119,21 @@ def _create_sqlite_schema(cursor):
     )
     ''')
 
+    # A word has SEVERAL synonyms, so the key is the pair. This used to be
+    # `source TEXT PRIMARY KEY` while migrations/0001_initial.sql (read off the
+    # live table) already keyed on (source, target). The same admin action then
+    # did two different things: `INSERT OR REPLACE` replaced the row here and
+    # added a second one on PostgreSQL, and a delete by source removed one
+    # mapping here and every mapping there.
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS synonyms (
-        source TEXT PRIMARY KEY,
-        target TEXT
+        source TEXT NOT NULL,
+        target TEXT NOT NULL,
+        PRIMARY KEY (source, target)
     )
     ''')
+    _rebuild_synonyms_pk(cursor)
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_synonyms_source ON synonyms(source)')
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS admins (
