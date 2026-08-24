@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from app.auth.security import verify_admin
 from app.config import logger
+from app.routers.admin import audit_export
 from app.routers.public import _render, _require_admin
 from app.services import applog, backup_center
 
@@ -101,10 +102,16 @@ def list_backups():
 
 
 @router.post("/admin/api/infra/backups", dependencies=[Depends(verify_admin)])
-def create_backup(username: str = Depends(verify_admin)):
+def create_backup(request: Request, username: str = Depends(verify_admin)):
     try:
         engine, is_pg = _engine()
-        return engine.create(actor=username)
+        result = engine.create(actor=username)
+        # The engines already write their own `admin.backup.create` row, but
+        # without the caller's address or client. This is the export record:
+        # the moment a full copy of the database exists as a file.
+        audit_export(request, username, str(result.get("backup_id") or ""),
+                     action="create", engine="postgresql" if is_pg else "sqlite")
+        return result
     except backup_center.BackupError as exc:
         raise _fail(500, exc.fa, "backup.api.create_failed", username, "", exc)
     except Exception as exc:  # noqa: BLE001
@@ -126,7 +133,7 @@ def verify_backup(backup_id: str, username: str = Depends(verify_admin)):
 
 @router.get("/admin/api/infra/backups/{backup_id}/download",
             dependencies=[Depends(verify_admin)])
-def download_backup(backup_id: str, file: str = "",
+def download_backup(request: Request, backup_id: str, file: str = "",
                     username: str = Depends(verify_admin)):
     """Serve ONE file from a set — only a name the set's manifest lists.
 
@@ -148,8 +155,10 @@ def download_backup(backup_id: str, file: str = "",
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=FA_FILE_GONE)
 
-    applog.audit("admin.backup.download", "دریافت فایل نسخهٔ پشتیبان",
-                 actor=username, target=f"{backup_id}/{wanted}", outcome="ok")
+    # `data.export`, not a backup-specific name: this row is one of the set an
+    # investigator counts to answer "who took the data". It also now carries
+    # the address and the client, which the old row did not.
+    audit_export(request, username, f"{backup_id}/{wanted}", action="download")
     return FileResponse(path, media_type="application/octet-stream",
                         filename=f"{backup_id}_{wanted}")
 

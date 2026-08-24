@@ -33,6 +33,41 @@ from app import services as svc
 router = APIRouter()
 
 
+def audit_export(request: Request, actor: str, target: str, **details) -> None:
+    """One `data.export` row for one batch of data leaving this installation.
+
+    A backup file holds every captured mobile number, every raw OTP
+    destination and every visitor access code. Handing that file over used to
+    leave no trace at all, so "who took the contact list, and when" had no
+    answer. This is that answer, and it is one call at each place data goes
+    out the door.
+
+    It lives in a router, not in applog, because it needs the Request: applog
+    is a service and knows nothing about HTTP. The other routers that serve
+    exports import it from here, so there is a single event name to grep for
+    and a single place that decides what an export row carries.
+
+    `target` and `details` say WHAT was taken, never the contents. A row that
+    quoted the exported data would be a second copy of the thing it exists to
+    police, in a table with a deliberately long retention.
+
+    Never raises. An audit write that took down a backup download would be a
+    worse bug than the missing record. applog.record() already swallows its
+    own errors; the try covers the argument evaluation around it.
+    """
+    try:
+        applog.audit(
+            "data.export", "خروجی داده از سامانه گرفته شد",
+            actor=actor, actor_type="admin", target=target, outcome="ok",
+            ip=resolve_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+            route=request.url.path, http_method=request.method,
+            metadata=details or None,
+        )
+    except Exception as exc:                      # noqa: BLE001, see above
+        logger.error("[audit] export row dropped: %s", type(exc).__name__)
+
+
 def _retire_bootstrap_credentials(username: str, client_ip: str) -> None:
     """Delete ADMIN_CREDENTIALS.txt once someone has actually logged in.
 
@@ -551,10 +586,13 @@ async def get_low_confidence():
 
 
 @router.get("/admin/api/export_csv", dependencies=[Depends(verify_admin)])
-async def export_csv():
+async def export_csv(request: Request, username: str = Depends(verify_admin)):
     conn = get_db_connection()
     logs = conn.execute('SELECT * FROM chat_logs ORDER BY created_at DESC').fetchall()
     conn.close()
+
+    # Every question a visitor ever typed, in one file. Row count, not rows.
+    audit_export(request, username, "chat_logs", rows=len(logs), format="csv")
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -656,7 +694,7 @@ async def list_backups_api():
 
 
 @router.post("/admin/api/backups/create", dependencies=[Depends(verify_admin)])
-async def create_backup_api():
+async def create_backup_api(request: Request, username: str = Depends(verify_admin)):
     import backup_db
     from app.services.backup import create_backup_now
     try:
@@ -664,15 +702,23 @@ async def create_backup_api():
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="پایگاه داده‌ای برای پشتیبان‌گیری وجود ندارد")
     import os
-    return {"status": "created", "name": os.path.basename(path), "backups": backup_db.list_backups()}
+    # Creating the file is the export. From here it is one download away, and
+    # it carries every raw phone number in the install.
+    name = os.path.basename(path)
+    audit_export(request, username, name, action="create")
+    return {"status": "created", "name": name, "backups": backup_db.list_backups()}
 
 
 @router.get("/admin/api/backups/download/{name}", dependencies=[Depends(verify_admin)])
-async def download_backup_api(name: str):
+async def download_backup_api(request: Request, name: str,
+                              username: str = Depends(verify_admin)):
     import backup_db
     path = backup_db.safe_backup_path(name)
     if not path:
         raise HTTPException(status_code=404, detail="فایل پشتیبان یافت نشد")
+    # After the path check, so a probe for a file that does not exist is not
+    # recorded as a completed export.
+    audit_export(request, username, name, action="download")
     return FileResponse(path, media_type="application/octet-stream", filename=name)
 
 

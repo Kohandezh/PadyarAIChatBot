@@ -10,13 +10,17 @@ from contextlib import closing
 from datetime import datetime
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Response
+from fastapi import (APIRouter, HTTPException, Request, UploadFile, File, Form,
+                     Depends, Response)
 
 from app.config import (
     logger, VIDEO_DIR, VIDEO_BASE_URL, ALLOWED_VIDEO_EXTENSIONS,
     is_module_enabled,
 )
 from app.auth.security import verify_admin
+# One audit helper for every export route in the app, so there is one event
+# name to grep for. See app/routers/admin.py.
+from app.routers.admin import audit_export
 from app.db import dberrors
 from app.db.connection import get_db_connection
 from app.db.queries import save_dataset, save_questions
@@ -335,22 +339,26 @@ def _export_response(content: str, kind: str, ext: str) -> Response:
 
 
 @router.get("/admin/api/dataset/export", dependencies=[Depends(verify_admin)])
-async def export_dataset(format: str = "json"):
+async def export_dataset(request: Request, format: str = "json",
+                         username: str = Depends(verify_admin)):
     cols = ["id", "title", "text", "video_url"]
     with closing(get_db_connection()) as conn:
         db_rows = conn.execute('SELECT id, title, text, video_url FROM dataset ORDER BY id').fetchall()
     rows = [{c: r[c] for c in cols} for r in db_rows]
+    audit_export(request, username, "dataset", rows=len(rows), format=format)
     if format == "csv":
         return _export_response(_to_csv(rows, cols), "dataset", "csv")
     return _export_response(json.dumps(rows, ensure_ascii=False, indent=2), "dataset", "json")
 
 
 @router.get("/admin/api/questions/export", dependencies=[Depends(verify_admin)])
-async def export_questions(format: str = "json"):
+async def export_questions(request: Request, format: str = "json",
+                           username: str = Depends(verify_admin)):
     cols = ["id", "question", "dataset_id", "video_url"]
     with closing(get_db_connection()) as conn:
         db_rows = conn.execute('SELECT id, question, dataset_id, video_url FROM questions ORDER BY id').fetchall()
     rows = [{c: r[c] for c in cols} for r in db_rows]
+    audit_export(request, username, "questions", rows=len(rows), format=format)
     if format == "csv":
         return _export_response(_to_csv(rows, cols), "questions", "csv")
     return _export_response(json.dumps(rows, ensure_ascii=False, indent=2), "questions", "json")
