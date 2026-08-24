@@ -133,3 +133,37 @@ jobs:
           rm -f _scan_canary.py
           git rm -q --cached _scan_canary.py 2>/dev/null || true
           echo "scanner correctly rejected a planted key — ok"
+
+  # ── Auto-deploy ────────────────────────────────────────────────────────
+  # The production server runs a self-hosted runner (deploy/50-install-
+  # github-runner.sh, label `padyar`) that dials OUT to GitHub, so nothing
+  # inbound opens on the server. This job runs ON that server.
+  #
+  # Gate 1: every CI job above must be green.
+  # Gate 2: the `production` environment holds a required-reviewer approval
+  #         (repo Settings → Environments → production). One click per
+  #         deploy; set it up once after installing the runner.
+  #
+  # The job does exactly one privileged thing: call the root-owned deploy
+  # script with the ephemeral job token in its environment. No credential is
+  # stored on the server; the token dies when the job ends.
+  deploy:
+    needs: [test, evaluation, dependency-audit, secret-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, padyar]
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false   # queue merges; never race two deploys
+    steps:
+      - name: Deploy inotex to production
+        run: |
+          set -euo pipefail
+          sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
+            /usr/local/bin/padyar-deploy inotex "${{ github.sha }}"
+
+      - name: Report
+        run: echo "Deployed ${{ github.sha }} to padyar-inotex (port 8001)."
