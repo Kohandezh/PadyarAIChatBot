@@ -15,20 +15,24 @@ function renderSynonymsTable(synonyms) {
         tbody.innerHTML = '<tr><td colspan="3" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
         return;
     }
+    // One row per mapping. A word with three synonyms is three rows, each with
+    // its own delete button, so the operator can remove exactly one of them.
     tbody.innerHTML = synonyms.map(s => `
         <tr>
             <td class="ps-4 fw-bold">${escapeHtml(s.source)}</td>
             <td class="text-muted">${escapeHtml(s.target)}</td>
             <td>
-                <button class="btn btn-sm btn-outline-danger" onclick="window.deleteSynonym('${escapeHtml(s.source)}')"><i class="fas fa-trash"></i></button>
+                <button class="btn btn-sm btn-outline-danger" data-source="${escapeHtml(s.source)}" data-target="${escapeHtml(s.target)}"><i class="fas fa-trash"></i></button>
             </td>
         </tr>
     `).join('');
 }
 
-async function deleteSynonym(source) {
-    if (!confirm(`آیا از حذف "${source}" مطمئن هستید؟`)) return;
-    const res = await fetchAuth('/api/synonyms/' + encodeURIComponent(source), { method: 'DELETE' });
+async function deleteSynonym(source, target) {
+    if (!confirm(`آیا از حذف مترادف «${target}» برای «${source}» مطمئن هستید؟`)) return;
+    const url = '/api/synonyms/' + encodeURIComponent(source)
+        + '?target=' + encodeURIComponent(target);
+    const res = await fetchAuth(url, { method: 'DELETE' });
     if (res.ok) {
         showMsg('synonym-msg', '✅ مترادف حذف شد', 'success');
         loadSynonyms();
@@ -39,6 +43,13 @@ async function deleteSynonym(source) {
 
 export function initSynonyms() {
     loadSynonyms();
+
+    // Delegated so the buttons carry both words as data attributes. An inline
+    // onclick would have to embed two pieces of Persian text in a JS string.
+    document.getElementById('synonyms-table').addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-source]');
+        if (btn) deleteSynonym(btn.dataset.source, btn.dataset.target);
+    });
 
     // Synonym form submit
     document.getElementById('synonym-form').addEventListener('submit', async (e) => {
@@ -69,5 +80,4 @@ export function initSynonyms() {
 
     // Expose for inline onclick in templates
     window.loadSynonyms = loadSynonyms;
-    window.deleteSynonym = deleteSynonym;
 }
