@@ -840,9 +840,9 @@
     "semantic_hash": "40cbf36210262a1a8c745aae7defdf92"
   },
   "setup.sh": {
-    "mtime": 1787582538.3253415,
-    "seen": 1787582558.618377,
-    "ast_hash": "9e364fcd5a7efe16dfcc3314a0b3b3fa",
+    "mtime": 1787583739.983818,
+    "seen": 1787583868.999351,
+    "ast_hash": "65df9cfc9394bd86260ebc28e684a02a",
     "semantic_hash": ""
   },
   "spikes/lipsync/benchmark.py": {

@@ -1,16 +1,16 @@
 # Graph Report - PadyarAIChatBot  (2026-08-24)
 
 ## Corpus Check
-- 412 files · ~815,802 words
+- 412 files · ~815,882 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 7948 nodes · 16761 edges · 416 communities (352 shown, 64 thin omitted)
+- 7948 nodes · 16761 edges · 420 communities (356 shown, 64 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 471 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8b89beea`
+- Built from commit: `4fe92ed8`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -21,7 +21,7 @@
 - routers/otp.py
 - ns
 - AIError
-- _login
+- test_identity.py
 - an
 - HTTPException
 - test_sms_secure_storage.py
@@ -29,8 +29,8 @@
 - execute_request
 - applog.py
 - services/otp.py
-- init_db
-- .isHorizontal
+- test_admin_bootstrap_credentials.py
+- va
 - get_setting
 - ops.py
 - registration.js
@@ -39,12 +39,12 @@
 - showMsg
 - remove
 - bootstrap.bundle.min.js
-- bn
+- b
 - test_visit_plan.py
 - run_lipsync.py
 - cs
 - test_dbadmin.py
-- s
+- o
 - test_registration_chat_signup.py
 - test_bug_classes.py
 - public.py
@@ -59,16 +59,16 @@
 - test_leads_content_rules.py
 - tts.js
 - test_applog.py
-- set_setting
+- test_p1_closure.py
 - services/dbadmin.py
 - rerank
 - fetchAuth
-- dataset.js
+- escapeHtml
 - test_leads_new_company.py
 - engine.py
-- test_taxonomy.py
+- document
 - core.js
-- security.py
+- backups.py
 - create_instance
 - client_ip
 - tests/test_ai_store.py
@@ -76,16 +76,16 @@
 - bt
 - test_leads_review.py
 - routers/leads.py
-- pg_admin.py
+- healthy
 - migrate_json_to_db.py
 - test_leads_invite.py
 - dataset.py
 - leads.js
 - zt
 - test_public_ui.py
-- build_index
+- i
 - test_storage.py
-- document
+- test_taxonomy_admin.py
 - test_ai_sakoo.py
 - settings.js
 - test_export_audit.py
@@ -99,14 +99,14 @@
 - tn
 - updateElements
 - marked.min.js
-- add_target
+- enforce
 - test_leads_visitor.py
 - Alibaba Qwen / DashScope
 - test_otp.py
 - test_tts_server.py
 - OpenAI
 - pg_backup.py
-- n
+- s
 - circuit.py
 - test_ai_circuit.py
 - _auth_fail
@@ -119,7 +119,7 @@
 - admin_ai.py
 - XAIAdapter
 - otp.js
-- resources.py
+- render_theme_index
 - xt
 - test_dataset_api.py
 - test_handover_packaging.py
@@ -153,8 +153,8 @@
 - Cursor
 - What You Must Do When Invoked
 - record_failure
-- qn
-- server.py
+- ai_providers.js
+- _load_workers
 - test_pg_an_abandoned_lease_expires_and_exactly_one_worker_reclaims_it
 - jn
 - test_dataset_ordering.py
@@ -164,7 +164,7 @@
 - SakooAdapter
 - pin
 - ModelWithVocoder
-- cpu
+- resources.py
 - fake_smi
 - test_security_headers.py
 - test_admin_pages.py
@@ -199,23 +199,23 @@
 - KimiAdapter
 - test_a_diacritic_does_not_hide_the_end_of_a_word
 - 45-prerender.sh
-- synthesize
+- server.py
 - infra_database.js
 - my.js
 - sn
 - purify.min.js
 - ensure_tables
-- config.py
+- chat.py
 - graphify reference: query, path, explain
 - rs
 - FakeClient
-- test_identity.py
+- test_admin_credentials_file.py
 - snapshot
 - logs_overview.js
 - SPEC: {Feature Name}
 - ExplodingModel
 - memory
-- is_unique_violation
+- fa
 - tts_load_varied.py
 - Mistral AI
 - client
@@ -229,7 +229,7 @@
 - refresh-inotex-context.py
 - tts_blocking_test.py
 - client
-- write_cache
+- VisitorProfile
 - Lipsync spike
 - make_client
 - resolved_ips
@@ -239,7 +239,7 @@
 - tts_load_report.py
 - Bt
 - inlineTokens
-- engine
+- logs_settings.js
 - set_dir
 - anyio
 - ۷. نیازمندی‌های کارکردی
@@ -379,7 +379,7 @@
 - Dependency vulnerability audit
 - ۱۲. راهبرد تست
 - محدودیت‌ها و نقشهٔ راه (صادقانه)
-- FakeAdapter
+- _semantic_scores
 - parametrize
 - graphify reference: add a URL and watch a folder
 - graphify reference: commit hook and native CLAUDE.md integration
@@ -410,6 +410,10 @@
 - app.dataset_edits
 - app.edit_invites
 - test_a_cancelled_caller_does_not_abandon_the_others
+- ai_usage.js
+- admin_tts_page
+- bootstrap.py
+- Y
 
 ## God Nodes (most connected - your core abstractions)
 1. `get_db_connection()` - 287 edges
@@ -424,33 +428,33 @@
 10. `an()` - 61 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `test_every_seeded_row_has_an_explicit_position()` --calls--> `get_db_connection()`  [EXTRACTED]
-  tests/test_dataset_ordering.py → app/db/connection.py
-- `test_get_ai_connection_never_returns_the_key()` --calls--> `set_setting()`  [EXTRACTED]
-  tests/postgres/test_admin_pages.py → app/db/queries.py
-- `test_a_garbage_retention_setting_falls_back_to_the_default()` --calls--> `set_setting()`  [EXTRACTED]
-  tests/test_applog.py → app/db/queries.py
-- `test_the_thresholds_are_configurable_from_the_settings_table()` --calls--> `set_setting()`  [EXTRACTED]
-  tests/test_storage.py → app/db/queries.py
-- `test_as_datetime_survives_a_malformed_value()` --calls--> `as_datetime()`  [EXTRACTED]
-  tests/test_pg_operations.py → app/db/timeutil.py
+- `test_the_pending_slot_became_a_real_compatible_provider()` --uses--> `OpenAICompatibleAdapter`  [INFERRED]
+  tests/test_ai_sakoo.py → app/services/ai/adapters/openai_compatible.py
+- `test_discovery_refresh_populates_and_does_not_duplicate()` --uses--> `SakooAdapter`  [INFERRED]
+  tests/test_ai_sakoo.py → app/services/ai/adapters/sakoo.py
+- `test_refresh_preserves_a_manually_added_model()` --uses--> `SakooAdapter`  [INFERRED]
+  tests/test_ai_sakoo.py → app/services/ai/adapters/sakoo.py
+- `OkCompatAdapter` --uses--> `AIResponse`  [INFERRED]
+  tests/test_ai_legacy_import.py → app/services/ai/request.py
+- `FakeAdapter` --uses--> `AIResponse`  [INFERRED]
+  tests/test_ai_engine.py → app/services/ai/request.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (416 total, 64 thin omitted)
+## Communities (420 total, 64 thin omitted)
 
 ### Community 0 - "chart.umd.min.js"
 Cohesion: 0.03
-Nodes (51): Ae(), average(), be(), beforeDatasetDraw(), beforeDatasetsDraw(), beforeLayout(), buildTicks(), ct() (+43 more)
+Nodes (49): ai(), ao(), average(), beforeDatasetDraw(), beforeDatasetsDraw(), beforeDraw(), d(), da() (+41 more)
 
 ### Community 1 - "services/leads.py"
 Cohesion: 0.04
-Nodes (110): Timestamp coercion across the two storage engines. SQLite returned every…, Aware -> naive UTC. For code that still compares against utcnow()., to_naive_utc(), _add_signals(), allowed_link_domains(), _apply_upgrade(), assert_plain_text(), _audit() (+102 more)
+Nodes (112): Timestamp coercion across the two storage engines. SQLite returned every…, Aware -> naive UTC. For code that still compares against utcnow()., to_naive_utc(), _add_signals(), allowed_link_domains(), _apply_upgrade(), assert_plain_text(), _audit() (+104 more)
 
 ### Community 2 - "sms.py"
 Cohesion: 0.03
-Nodes (134): get_sms_settings(), _last_freetext_delivery(), The delivery verdict for the last free-text SMS, or a quiet "unknown". Wrapped…, Never returns the password or API key — only whether each is stored., critical(), error(), info(), mask_phone() (+126 more)
+Nodes (144): get_sms_settings(), _last_freetext_delivery(), The delivery verdict for the last free-text SMS, or a quiet "unknown". Wrapped…, Never returns the password or API key — only whether each is stored., critical(), error(), info(), mask_phone() (+136 more)
 
 ### Community 3 - "routers/otp.py"
 Cohesion: 0.15
@@ -458,59 +462,59 @@ Nodes (18): branding(), get_taxonomy(), otp_page(), otp_status(), get, OTP verif
 
 ### Community 4 - "ns"
 Cohesion: 0.05
-Nodes (13): As(), Bi(), Ci(), Fi(), go(), ii(), labelColor(), labelPointStyle() (+5 more)
+Nodes (23): As(), beforeUpdate(), buildTicks(), determineDataLimits(), Fn(), getMaxOverflow(), go(), ii() (+15 more)
 
 ### Community 5 - "AIError"
 Cohesion: 0.06
 Nodes (35): Anthropic / Claude — native Messages API adapter. Research:…, ConfigField, ProviderMetadata, Adapter contract + shared transport for AI providers. ONE ADAPTER PER PROVIDER…, One field of a provider's Admin configuration form. `secret=True` values are…, DeepSeek — compatible adapter with DeepSeek-specific metadata. Research:…, Google Gemini — native Interactions API adapter. Research: docs/engineering/ai-…, The AI provider registry — ONE place that knows adapter by provider type.… (+27 more)
 
-### Community 6 - "_login"
-Cohesion: 0.10
-Nodes (41): Revoked, not deleted. The row is the answer to "who could edit this". A revoked…, revoke_grant(), _company(), _iso(), _login(), _own(), The whole login: a number, a code, a session cookie., Grant ownership without going through a booth. (+33 more)
+### Community 6 - "test_identity.py"
+Cohesion: 0.07
+Nodes (70): Revoked, not deleted. The row is the answer to "who could edit this". A revoked…, revoke_grant(), _admin(), _company(), _iso(), _login(), _own(), The identity layer: an account, a session, and a grant of ownership. Every… (+62 more)
 
 ### Community 7 - "an"
 Cohesion: 0.06
-Nodes (16): addBox(), afterDatasetsUpdate(), an(), beforeUpdate(), configure(), generateLabels(), initialize(), ke() (+8 more)
+Nodes (15): addBox(), afterDatasetsUpdate(), an(), configure(), generateLabels(), ke(), kn(), oa() (+7 more)
 
 ### Community 8 - "HTTPException"
-Cohesion: 0.05
-Nodes (84): hash_password(), is_legacy_hash(), Hash a password with bcrypt (salt is embedded in the result)., Verify a password against either a bcrypt hash or a legacy salted SHA-256 hash.…, True if the stored hash is the old SHA-256 scheme (needs upgrading)., verify_password(), AIConnectionRequest, AssistantContentRequest (+76 more)
+Cohesion: 0.04
+Nodes (98): hash_password(), is_legacy_hash(), Request, Hash a password with bcrypt (salt is embedded in the result)., Verify a password against either a bcrypt hash or a legacy salted SHA-256 hash.…, True if the stored hash is the old SHA-256 scheme (needs upgrading)., validate_chat_token(), validate_request_origin() (+90 more)
 
 ### Community 9 - "test_sms_secure_storage.py"
-Cohesion: 0.09
-Nodes (55): Deliver one message. `code` is the verification code on its own, which a…, send(), The seam that makes template delivery possible: otp passes the code on its own,…, test_otp_hands_the_bare_code_to_the_gateway(), _capture_sends(), client(), env_file(), _login() (+47 more)
+Cohesion: 0.10
+Nodes (53): Deliver one message. `code` is the verification code on its own, which a…, send(), _capture_sends(), client(), env_file(), _login(), _payload(), fixture (+45 more)
 
 ### Community 10 - "postgres/conftest.py"
 Cohesion: 0.05
 Nodes (74): ConnectionPool, applied_versions(), checksum(), discover(), dsn(), main(), missing_schemas(), version -> checksum, expanding the legacy combined row. (+66 more)
 
 ### Community 11 - "execute_request"
-Cohesion: 0.10
-Nodes (66): execute_request(), _target_eligible(), current_correlation_id(), err(), install_fake(), Routing engine tests: priority, eligibility, retry, failover, loop protection,…, The two routes are separate ordered lists, not one shared order., Out of credit: asking the same account again is pointless, asking a different… (+58 more)
+Cohesion: 0.08
+Nodes (73): execute_request(), _target_eligible(), current_correlation_id(), err(), FakeAdapter, fast_backoff(), install_fake(), fixture (+65 more)
 
 ### Community 12 - "applog.py"
-Cohesion: 0.05
-Nodes (78): connect(), PostgreSQL access layer with a SQLite-shaped surface. WHY AN ADAPTER AND NOT A…, export_logs(), _filters(), get_log_settings(), list_logs(), log_detail(), logs_summary() (+70 more)
+Cohesion: 0.06
+Nodes (68): export_logs(), _filters(), get_log_settings(), list_logs(), log_detail(), logs_summary(), _older_than(), get (+60 more)
 
 ### Community 13 - "services/otp.py"
-Cohesion: 0.05
-Nodes (66): _audit(), _code_hmac(), _deliver(), ensure_table(), _generate_code(), get_status(), _hmac_key(), _load() (+58 more)
+Cohesion: 0.04
+Nodes (82): otp_request(), otp_resend(), otp_verify(), OtpRequestBody, OtpResendBody, OtpVerifyBody, ProfileUpdateBody, BaseModel (+74 more)
 
-### Community 14 - "init_db"
-Cohesion: 0.05
-Nodes (54): _create_sqlite_schema(), init_db(), Seed what a brand-new install needs, on either backend. Safe to run on every…, Prepare the database a fresh install needs, on the CONFIGURED backend. WHY THIS…, Create the first admin account on a brand-new install. No hardcoded password:…, Write the generated login beside the database it belongs to. Deliberately NOT…, Create and migrate the SQLite schema. PostgreSQL never runs this. There,…, _seed_admin() (+46 more)
+### Community 14 - "test_admin_bootstrap_credentials.py"
+Cohesion: 0.24
+Nodes (12): Write the generated login beside the database it belongs to. Deliberately NOT…, _write_admin_credentials(), Delete ADMIN_CREDENTIALS.txt once someone has actually logged in. The file…, _retire_bootstrap_credentials(), creds_file(), fixture, The generated admin login must not outlive its purpose. Two regressions this…, test_contains_what_the_operator_needs() (+4 more)
 
-### Community 15 - ".isHorizontal"
-Cohesion: 0.08
-Nodes (14): afterDraw(), afterEvent(), afterUpdate(), Ee(), gs(), ki(), Le(), oa() (+6 more)
+### Community 15 - "va"
+Cohesion: 0.07
+Nodes (27): O(), one(), S(), x(), afterDraw(), afterEvent(), afterUpdate(), Ee() (+19 more)
 
 ### Community 16 - "get_setting"
 Cohesion: 0.03
-Nodes (105): get_setting(), Read a setting, decrypting it if it was stored encrypted. Secrets (the SMS…, post, UploadFile, Voice input module — audio transcription via Whisper API., Transcribe uploaded audio to text using the configured STT model., transcribe_audio(), _kill_switch_on() (+97 more)
+Nodes (132): generate_chat_token(), _JsonFormatter, _create_sqlite_schema(), init_db(), Seed what a brand-new install needs, on either backend. Safe to run on every…, Prepare the database a fresh install needs, on the CONFIGURED backend. WHY THIS…, Create the first admin account on a brand-new install. No hardcoded password:…, Create and migrate the SQLite schema. PostgreSQL never runs this. There,… (+124 more)
 
 ### Community 17 - "ops.py"
-Cohesion: 0.05
-Nodes (62): _active_session_count(), dashboard(), _failed_logins(), list_admins(), list_sessions(), maintenance_state(), get, post (+54 more)
+Cohesion: 0.03
+Nodes (89): as_datetime(), A datetime from either a TEXT timestamp or a real datetime. None passes., _active_session_count(), dashboard(), _failed_logins(), list_admins(), list_sessions(), maintenance_state() (+81 more)
 
 ### Community 18 - "registration.js"
 Cohesion: 0.10
@@ -525,52 +529,56 @@ Cohesion: 0.09
 Nodes (56): adapter_for(), The (cached) adapter instance for a provider type., capture_body(), capture_with(), captured_body(), patch_http(), parametrize, Contract tests for every provider adapter. No network, no credentials:… (+48 more)
 
 ### Community 21 - "showMsg"
-Cohesion: 0.09
-Nodes (48): esc(), initAIModels(), instances, loadModels(), openAdd(), refreshCatalog(), saveModel(), SOURCE_FA (+40 more)
+Cohesion: 0.13
+Nodes (31): esc(), initAIModels(), instances, loadModels(), openAdd(), refreshCatalog(), saveModel(), SOURCE_FA (+23 more)
 
 ### Community 22 - "remove"
-Cohesion: 0.07
-Nodes (6): ao, d(), on(), Q, remove(), vn()
+Cohesion: 0.06
+Nodes (7): ao, d(), on(), Q, qn, remove(), Mn()
 
 ### Community 24 - "bootstrap.bundle.min.js"
-Cohesion: 0.11
-Nodes (41): Ae(), be(), Ce(), D(), De(), di(), $e(), Ee() (+33 more)
+Cohesion: 0.10
+Nodes (42): Ae(), be(), Ce(), D(), De(), di(), $e(), Ee() (+34 more)
 
-### Community 25 - "bn"
-Cohesion: 0.08
-Nodes (12): bn, ce(), de, dt(), ei(), he(), je(), pn() (+4 more)
+### Community 25 - "b"
+Cohesion: 0.12
+Nodes (7): Ae(), b(), ce(), de, dt(), he(), qs()
 
 ### Community 26 - "test_visit_plan.py"
-Cohesion: 0.06
-Nodes (56): What the visitor said about their work — never who they are. Registration…, VisitorProfile, fallback_ids(), _norm(), _profile_text(), Embedding similarity per section, or None when unavailable. Used only to rescue…, Rank sections for this visitor. Returns the plan plus an explicit note about…, Character-level normalisation only. The DB synonym table is tuned for the Q&A… (+48 more)
+Cohesion: 0.09
+Nodes (37): Rank sections for this visitor. Returns the plan plus an explicit note about…, recommend(), ids(), matched_ids(), Targeted-visit planner: matching, honesty, and the two entry points. The…, «استارتاپی» must find «استارتاپ»., One match is a correct answer but a poor plan — top it up honestly., The planner may only return sections verified from the official site. (+29 more)
 
 ### Community 27 - "run_lipsync.py"
 Cohesion: 0.06
 Nodes (44): Popen, bench_batch(), bench_frame_io(), main(), Measure what Wav2Lip actually costs on THIS machine. Every published Wav2Lip…, Seconds per generated frame at this batch size., Seconds per frame for the CPU work that surrounds the network. Measured…, detect_face_box() (+36 more)
 
+### Community 28 - "cs"
+Cohesion: 0.09
+Nodes (6): cs, us, es(), is(), ts(), h()
+
 ### Community 29 - "test_dbadmin.py"
 Cohesion: 0.06
 Nodes (34): _audit_rows(), _login(), parametrize, Infrastructure → Database: the properties that must never regress. The four…, A basename is enough to identify the file; the directory is not the panel's to…, The lock is non-blocking on purpose: the second operator is told the system is…, I could not check" is not a reason to start rewriting a database., Every path the app serves, flattened. `app.routes` does not list them directly:… (+26 more)
 
-### Community 30 - "s"
-Cohesion: 0.05
-Nodes (67): O(), one(), S(), x(), a(), aa(), ai(), ao() (+59 more)
+### Community 30 - "o"
+Cohesion: 0.06
+Nodes (30): a(), aa(), bn, cn(), dn(), e(), ei(), gi() (+22 more)
 
 ### Community 31 - "test_registration_chat_signup.py"
 Cohesion: 0.06
-Nodes (40): form_options(), What the registration form needs, in the visitor's language., _cleanup(), client(), _function_source(), _no_ip_throttle(), outbox(), fixture (+32 more)
+Nodes (37): _cleanup(), client(), _function_source(), _no_ip_throttle(), outbox(), fixture, Sign-up in front of the first answer, then three questions in the chat. Two…, The checkbox and the interests share ONE stored field. Answering the interests… (+29 more)
 
 ### Community 32 - "test_bug_classes.py"
-Cohesion: 0.08
-Nodes (22): compare_now(), `now` with the same awareness as `reference`, so comparison is legal., parametrize, One test per class of bug that reached production because the suite ran on…, The exact call that 500'd every admin request after cutover. Pinned so the…, This is the one that turns a handled 4xx into a cascade of 500s. On SQLite an…, The application's actual pattern: `with closing(get_db_connection())`. A…, `app/db/pg.py` emulates sqlite3's `lastrowid` with `SELECT lastval()`, which… (+14 more)
+Cohesion: 0.05
+Nodes (46): DuplicateKey, is_not_null_violation(), is_unique_violation(), BaseException, Exception, Backend-neutral recognition of database constraint failures. WHY THIS EXISTS…, A row already exists with that key. Backend-neutral., True when `exc` is a UNIQUE / PRIMARY KEY constraint failure. Recognises both… (+38 more)
 
 ### Community 33 - "public.py"
-Cohesion: 0.09
-Nodes (59): admin_page(), Same session check and login redirect as every other admin page (see…, admin_taxonomy_page(), The admin screen. Same session check and login redirect as the other admin…, admin_ai_debug(), admin_ai_models(), admin_ai_providers(), admin_ai_routing() (+51 more)
+Cohesion: 0.18
+Nodes (38): admin_page(), Same session check and login redirect as every other admin page (see…, admin_taxonomy_page(), The admin screen. Same session check and login redirect as the other admin…, admin_ai_debug(), admin_ai_models(), admin_ai_providers(), admin_ai_routing() (+30 more)
 
 ### Community 34 - "get_db_connection"
 Cohesion: 0.06
-Nodes (64): _get_hmac_key(), get_db_connection(), The application connection. Routes to PostgreSQL when DB_BACKEND=postgres…, create_dataset_item(), create_question(), delete_dataset_item(), delete_question(), export_dataset() (+56 more)
+Nodes (62): _get_hmac_key(), get_db_connection(), The application connection. Routes to PostgreSQL when DB_BACKEND=postgres…, create_dataset_item(), create_question(), delete_dataset_item(), delete_question(), export_dataset() (+54 more)
 
 ### Community 35 - "What You Must Do When Invoked"
 Cohesion: 0.08
@@ -581,8 +589,8 @@ Cohesion: 0.07
 Nodes (45): _actual(), _model(), The static guard's model of the schema, checked against a real database.…, Boolean columns as `{table: {column, ...}}`, per the static guard., Boolean columns as the migrated database reports them., The specific drift that was there: 0006 DROPs `is_duplicate`, and the old guard…, A model that parsed nothing would match an empty query result and pass., test_a_column_dropped_by_a_migration_is_really_gone() (+37 more)
 
 ### Community 37 - "audit"
-Cohesion: 0.08
-Nodes (48): _dataset_texts(), _detail_of(), _fail(), _generation_settings(), delete, Exception, get, post (+40 more)
+Cohesion: 0.07
+Nodes (54): _dataset_texts(), _detail_of(), _fail(), _generation_settings(), delete, Exception, get, post (+46 more)
 
 ### Community 38 - "create_visitor"
 Cohesion: 0.11
@@ -594,7 +602,7 @@ Nodes (41): client(), _login(), _payload(), fixture, Admin panel — registratio
 
 ### Community 40 - "no"
 Cohesion: 0.06
-Nodes (14): buildLookupTable(), ea(), En, Fo(), _generate(), getDecimalForValue(), _getTimestampsForTable(), init() (+6 more)
+Nodes (14): beforeLayout(), buildLookupTable(), En, Fo(), _generate(), getDecimalForValue(), _getTimestampsForTable(), ia() (+6 more)
 
 ### Community 41 - "test_leads_reject_reason.py"
 Cohesion: 0.10
@@ -612,65 +620,65 @@ Nodes (43): addLexiconRow(), cacheAction(), cleanupCache(), clearCache(), DEFAUL
 Cohesion: 0.06
 Nodes (37): _all(), _backdate(), L(), fixture, parametrize, Central logging service — the guarantees that must never regress. The three…, A secret pasted into a message, not passed as a keyed field., full" means full CONTENT. It never means full SECRETS. (+29 more)
 
-### Community 45 - "set_setting"
-Cohesion: 0.05
-Nodes (72): set_setting(), delete_instance(), _invalidate_runtime(), AI control-plane data access: instances, routes, catalog, pricing, usage. Runs…, Delete with route integrity: refuses while route targets reference it.…, set_enabled(), update_instance(), _base_url_of() (+64 more)
+### Community 45 - "test_p1_closure.py"
+Cohesion: 0.04
+Nodes (67): delete_instance(), _invalidate_runtime(), Delete with route integrity: refuses while route targets reference it.…, update_instance(), _base_url_of(), Exception, Return `(base_url, api_key, model, source)` for transcription. `source` is one…, No usable transcription credentials. Carries a Persian operator message. (+59 more)
 
 ### Community 46 - "services/dbadmin.py"
-Cohesion: 0.06
-Nodes (56): infra_database(), infra_database_maintenance(), infra_database_tables(), infra_storage(), MaintenanceRequest, pg_maintenance(), pg_overview(), pg_tables() (+48 more)
+Cohesion: 0.04
+Nodes (75): connect(), PostgreSQL access layer with a SQLite-shaped surface. WHY AN ADAPTER AND NOT A…, infra_database(), infra_database_maintenance(), infra_database_tables(), infra_storage(), MaintenanceRequest, pg_maintenance() (+67 more)
 
 ### Community 47 - "rerank"
 Cohesion: 0.07
 Nodes (38): content_tokens(), _coverage(), Share of the query's content tokens present in the candidate., Rescore the candidate union. ``dense``/``lexical`` are (index, score) lists…, rerank(), Coverage must be measured against what the visitor actually typed. THE DEFECT…, End to end through the real questions index. HONEST SCOPE. «قیمت دلار امروز چند…, The measurement that motivated the fix, pinned as an assertion. (+30 more)
 
 ### Community 48 - "fetchAuth"
-Cohesion: 0.11
-Nodes (39): currentRoutePriorities(), initAIDebug(), loadAll(), loadRetrieval(), loadRouting(), providerErrorsByRequestId(), TASK_FA, initDashboard() (+31 more)
+Cohesion: 0.15
+Nodes (26): currentRoutePriorities(), initAIDebug(), loadAll(), loadRetrieval(), loadRouting(), providerErrorsByRequestId(), TASK_FA, initDashboard() (+18 more)
 
-### Community 49 - "dataset.js"
+### Community 49 - "escapeHtml"
 Cohesion: 0.09
-Nodes (38): deleteDatasetItem(), deleteMediaVideo(), _formatSize(), initDataset(), loadDatasetTable(), loadMediaGrid(), openDatasetModal(), openMediaBrowser() (+30 more)
+Nodes (40): deleteDatasetItem(), deleteMediaVideo(), _formatSize(), initDataset(), loadDatasetTable(), loadMediaGrid(), openDatasetModal(), openMediaBrowser() (+32 more)
 
 ### Community 50 - "test_leads_new_company.py"
 Cohesion: 0.09
 Nodes (42): _add_company(), _admin(), client(), _count_dataset(), _create(), _edits(), _last_lead(), _no_rate_limit() (+34 more)
 
 ### Community 51 - "engine.py"
-Cohesion: 0.09
-Nodes (20): Model catalog refresh via official discovery, where it exists.…, The routing engine: task → ordered targets → retry → failover. Flow (phase…, applog kwargs for an AIError — provider text only via redaction., _record_usage(), _safe_error_fields(), Padyar AI — the only interface the rest of the application uses for AI.…, Cost calculation from the time-versioned pricing table. Cost is computed AT…, AIMessage (+12 more)
-
-### Community 52 - "test_taxonomy.py"
 Cohesion: 0.20
-Nodes (22): expand_interests(), Append the extra keywords of any interest the visitor selected. A label and a…, minimal_doc(), fixture, Taxonomy loader: the file is the contract, and a bad file must not ship. This…, Point the loader at a scratch file and reset its cache., A taxonomy with no positions must still load — the form falls back to a free-…, temp_taxonomy() (+14 more)
+Nodes (7): Model catalog refresh via official discovery, where it exists.…, The routing engine: task → ordered targets → retry → failover. Flow (phase…, applog kwargs for an AIError — provider text only via redaction., _record_usage(), _safe_error_fields(), Padyar AI — the only interface the rest of the application uses for AI.…, Cost calculation from the time-versioned pricing table. Cost is computed AT…
+
+### Community 52 - "document"
+Cohesion: 0.15
+Nodes (31): document(), expand_interests(), form_options(), The current taxonomy. Cheap: an mtime stat, then a dict reference., What the registration form needs, in the visitor's language., Append the extra keywords of any interest the visitor selected. A label and a…, minimal_doc(), fixture (+23 more)
 
 ### Community 53 - "core.js"
 Cohesion: 0.11
 Nodes (37): addMessage(), audioChunks, ChatConfig, checkVideoUrl(), datasetPromise, displayQuestions, displayQuestionsPromise, EN_SUGGESTED (+29 more)
 
-### Community 54 - "security.py"
-Cohesion: 0.04
-Nodes (63): generate_chat_token(), Request, validate_chat_token(), validate_request_origin(), verify_admin(), as_datetime(), A datetime from either a TEXT timestamp or a real datetime. None passes., create_backup() (+55 more)
+### Community 54 - "backups.py"
+Cohesion: 0.15
+Nodes (22): create_backup(), delete_backup(), download_backup(), _engine(), _fail(), infra_backups_page(), list_backups(), BaseModel (+14 more)
 
 ### Community 55 - "create_instance"
-Cohesion: 0.08
-Nodes (37): create_instance(), _now_ts(), Create a provider instance. New instances are saved DISABLED unless explicitly…, Resolve a provider instance into an adapter runtime (secret revealed). The…, Seed the bootstrap catalog for a newly created instance., runtime_for(), seed_models_for_instance(), _slugify() (+29 more)
+Cohesion: 0.07
+Nodes (39): create_instance(), _now_ts(), Create a provider instance. New instances are saved DISABLED unless explicitly…, Resolve a provider instance into an adapter runtime (secret revealed). The…, Seed the bootstrap catalog for a newly created instance., runtime_for(), seed_models_for_instance(), _slugify() (+31 more)
 
 ### Community 56 - "client_ip"
 Cohesion: 0.10
 Nodes (34): client_ip(), The one place this app decides who a request came from. Every rate limit bucket…, _clear_buckets(), make_request(), fixture, parametrize, Request, Which address the app believes a request came from. This decides every rate-… (+26 more)
 
 ### Community 57 - "tests/test_ai_store.py"
-Cohesion: 0.07
-Nodes (55): get_routes(), refresh_instance_models(), add_manual_model(), apply_discovery(), list_models(), list_routes(), _load_json(), Read a config/metadata column on EITHER backend. SQLite stores TEXT →… (+47 more)
+Cohesion: 0.06
+Nodes (75): refresh_instance_models(), add_manual_model(), add_target(), apply_discovery(), get_instance(), list_models(), list_routes(), ordered_targets() (+67 more)
 
 ### Community 58 - "xAI / Grok"
 Cohesion: 0.05
 Nodes (43): (a) General chat → `grok-4.6`, Alias convention, Auth, (b) Cheap / fast classification → `grok-4.3` with low or no reasoning, Capabilities, Chat Completions, Chat Completions `usage` (exact field names), Endpoints (+35 more)
 
 ### Community 59 - "bt"
-Cohesion: 0.10
-Nodes (5): bt, Cs, nn(), os(), sn
+Cohesion: 0.14
+Nodes (3): bt, Cs, os()
 
 ### Community 60 - "test_leads_review.py"
 Cohesion: 0.14
@@ -678,11 +686,11 @@ Nodes (37): _add_company(), _admin(), _as_contact(), _booth(), client(), _edits(
 
 ### Community 61 - "routers/leads.py"
 Cohesion: 0.06
-Nodes (92): check_rate_limit(), Rate limit a request. Keyed on the client IP unless a caller passes its own…, audit_export(), One `data.export` row for one batch of data leaving this installation. A backup…, admin_block_user(), admin_create_visitor(), admin_edits(), admin_funnel() (+84 more)
+Nodes (90): check_rate_limit(), Rate limit a request. Keyed on the client IP unless a caller passes its own…, audit_export(), One `data.export` row for one batch of data leaving this installation. A backup…, admin_block_user(), admin_create_visitor(), admin_edits(), admin_funnel() (+82 more)
 
-### Community 62 - "pg_admin.py"
-Cohesion: 0.11
-Nodes (22): healthy(), pool(), pool_stats(), (ok, detail) — cheap liveness probe for the health service., The process-wide pool, created once., _probe_app_db(), Probe the engine the runtime ACTUALLY uses. Before this guard the probe read…, available_actions() (+14 more)
+### Community 62 - "healthy"
+Cohesion: 0.24
+Nodes (9): healthy(), pool(), pool_stats(), (ok, detail) — cheap liveness probe for the health service., The process-wide pool, created once., _probe_app_db(), Probe the engine the runtime ACTUALLY uses. Before this guard the probe read…, _check_connectivity() (+1 more)
 
 ### Community 63 - "migrate_json_to_db.py"
 Cohesion: 0.26
@@ -693,8 +701,8 @@ Cohesion: 0.10
 Nodes (35): _add_company(), _as_contact(), _booth(), client(), _dataset_row(), _edits(), invite(), _invite_row() (+27 more)
 
 ### Community 65 - "dataset.py"
-Cohesion: 0.21
-Nodes (15): is_module_enabled(), Check if a specific module is enabled., Write dataset to SQLite — the single source of truth. The chat frontend reads…, save_dataset(), _decode_rows(), delete_video(), import_dataset(), import_questions() (+7 more)
+Cohesion: 0.12
+Nodes (22): is_module_enabled(), Check if a specific module is enabled., load_module_routers(), module_enabled(), ModuleDef, Module Registry — defines available modules, their metadata, and loads routers…, Resolve the final list of enabled module names. - Core modules are always…, Check if a specific module is enabled. (+14 more)
 
 ### Community 66 - "leads.js"
 Cohesion: 0.16
@@ -702,23 +710,23 @@ Nodes (34): alertBox(), deviceCell(), diffHtml(), esc(), fa(), faDate(), findRis
 
 ### Community 67 - "zt"
 Cohesion: 0.09
-Nodes (12): ri(), color(), Gt(), It(), kt(), qt(), _t(), te() (+4 more)
+Nodes (13): ri(), color(), Gt(), It(), kt(), mt(), qt(), _t() (+5 more)
 
 ### Community 68 - "test_public_ui.py"
 Cohesion: 0.09
 Nodes (33): Path, The palette is indigo/violet. What this test really protects is the token…, The credit string must appear verbatim, carry the Rayen logo, and be anchored…, theme.json drives the admin theme picker's swatches — it must agree with the…, The base video partial (kept for a future module) must not reference any…, Suggested questions must be reachable + activable via keyboard., No PREVIOUS customer's branding may survive in the public UI. "Padyar"/"پادیار"…, Guards the rename itself: the old name must not creep back in. (+25 more)
 
-### Community 69 - "build_index"
-Cohesion: 0.18
-Nodes (12): build_index(), _calibrate(), Build an index, returning None (with a log line) on any failure so the caller…, skipif, Semantic retriever unit tests. The calibration contract and the fallback wiring…, With the embedding backend selected but the library missing, loading must still…, The retriever must score a colloquial paraphrase above threshold and an out-of-…, test_build_index_empty_returns_none() (+4 more)
+### Community 69 - "i"
+Cohesion: 0.14
+Nodes (13): be(), ct(), fs(), ge(), gs(), ms(), pe(), ps() (+5 more)
 
 ### Community 70 - "test_storage.py"
 Cohesion: 0.10
 Nodes (28): _fake_disk(), parametrize, Infrastructure → Storage: the numbers must be real and the alerts must be rare.…, An operator who types them the wrong way round gets a usable panel, not a state…, A busy SQLite database is three files. Reporting only the first understates it…, What shutil.disk_usage returns, with the numbers a test wants., data/ must not count data/models twice — the cached model is a gigabyte., The failure this prevents: a panel polling every few seconds while the disk is… (+20 more)
 
-### Community 71 - "document"
+### Community 71 - "test_taxonomy_admin.py"
 Cohesion: 0.08
-Nodes (36): document(), The current taxonomy. Cheap: an mtime stat, then a dict reference., sections(), anon(), client(), fixture, parametrize, Editing the taxonomy from the admin panel. The taxonomy decides what the… (+28 more)
+Nodes (29): anon(), client(), fixture, parametrize, Editing the taxonomy from the admin panel. The taxonomy decides what the…, A save must not collapse the taxonomy onto one line. The friendly editor posts…, Nothing invalidates the loader's cache by hand — an edit made seconds after…, Give the save handler a clock that advances a minute per save. Backup names are… (+21 more)
 
 ### Community 72 - "test_ai_sakoo.py"
 Cohesion: 0.16
@@ -757,20 +765,20 @@ Cohesion: 0.05
 Nodes (41): PRD: Exhibition Lead Capture, تأیید شماره چه چیزی را اثبات می‌کند و چه چیزی را نه, گام بعد, ۱. خلاصه, ۱۰. خارج از دامنه (v1), ۱۱. ریسک‌ها, ۱۲. فازها, ۱۳. پرسش‌های باز (+33 more)
 
 ### Community 82 - "tn"
-Cohesion: 0.12
+Cohesion: 0.13
 Nodes (4): addElements(), at(), tn, w()
 
 ### Community 83 - "updateElements"
 Cohesion: 0.09
-Nodes (17): ca(), _calculateBarIndexPixels(), _calculateBarValuePixels(), getBasePixel(), getLabelAndValue(), getLabelForValue(), getPixelForTick(), getPixelForValue() (+9 more)
+Nodes (16): ca(), _calculateBarIndexPixels(), _calculateBarValuePixels(), getBasePixel(), getLabelAndValue(), getLabelForValue(), getPixelForTick(), getPixelForValue() (+8 more)
 
 ### Community 84 - "marked.min.js"
 Cohesion: 0.07
 Nodes (22): A(), blockquote(), code(), constructor(), fences(), heading(), hr(), parse() (+14 more)
 
-### Community 85 - "add_target"
-Cohesion: 0.11
-Nodes (32): add_target(), get_instance(), ordered_targets(), Route targets in try-order (priority 1 first), with instance joined in one…, _instance(), The AI control plane against real PostgreSQL. `app/services/ai/store.py` is…, `ordered_targets` filters with `r.enabled = TRUE` — the portable form. `= 1`…, `UNIQUE (task, priority)` is non-deferrable, so the reorder has to use a two-… (+24 more)
+### Community 85 - "enforce"
+Cohesion: 0.14
+Nodes (15): enforce(), Reject a state-changing admin request without a valid token. Raises 403 —…, _clean_id(), csrf_protection(), An inbound correlation header is attacker-controlled. Whitelist it., Enforce CSRF on every admin mutation, in one place. A middleware rather than a…, Stamp every request with an id, then record one API row for it. The id lives in…, Baseline response hardening. Deliberately conservative — every header here was… (+7 more)
 
 ### Community 86 - "test_leads_visitor.py"
 Cohesion: 0.10
@@ -796,9 +804,9 @@ Nodes (37): Auth, Body shape (official spec, `ErrorResponse` / `Error`), Capabil
 Cohesion: 0.15
 Nodes (27): dsn(), AuditUnavailable, BackupError, _conn_parts(), create(), delete(), _dump_path(), _env() (+19 more)
 
-### Community 92 - "n"
+### Community 92 - "s"
 Cohesion: 0.05
-Nodes (13): bo, Do(), eo(), H(), j(), ko, lt(), mo() (+5 more)
+Nodes (20): Bi(), bo, Ci(), Do(), eo(), et(), Fi(), g() (+12 more)
 
 ### Community 93 - "circuit.py"
 Cohesion: 0.12
@@ -817,8 +825,8 @@ Cohesion: 0.12
 Nodes (25): _app_config(), backup_dir(), copy_database(), create_backup(), db_path(), delete_backup(), is_valid_backup(), list_backups() (+17 more)
 
 ### Community 97 - "test_pg_operations.py"
-Cohesion: 0.07
-Nodes (23): client(), fixture, Maintenance mode, timestamp coercion and the PostgreSQL admin surface. Two of…, An operator locked out by their own maintenance mode could never turn it off…, State must come from storage each time, not a cached module global., Reuses the isolated `client` fixture and simply drops the cookie. Building a…, The result must state that sibling processes need restarting rather than…, Post-cutover the SQLite views describe a store the app no longer uses. Patch… (+15 more)
+Cohesion: 0.06
+Nodes (28): compare_now(), `now` with the same awareness as `reference`, so comparison is legal., test_the_timeutil_helpers_compare_a_real_timestamptz_correctly(), client(), fixture, Maintenance mode, timestamp coercion and the PostgreSQL admin surface. Two of…, An operator locked out by their own maintenance mode could never turn it off…, State must come from storage each time, not a cached module global. (+20 more)
 
 ### Community 98 - "Connection"
 Cohesion: 0.14
@@ -829,28 +837,24 @@ Cohesion: 0.12
 Nodes (26): categories(), _category_spec(), classify(), _dir_size(), disk(), _disk_usage(), _file_size(), free_bytes() (+18 more)
 
 ### Community 100 - "prerender"
-Cohesion: 0.16
-Nodes (17): cache_key(), cache_path(), cache_prune(), prerender(), PrerenderRequest, _prune_cache(), PruneRequest, BaseModel (+9 more)
+Cohesion: 0.14
+Nodes (19): cache_key(), cache_path(), cache_prune(), prerender(), PrerenderRequest, _prune_cache(), PruneRequest, BaseModel (+11 more)
 
 ### Community 101 - "test_pg_layer.py"
 Cohesion: 0.09
 Nodes (24): needs_on_conflict(), `?` -> `%s`, skipping anything inside a quoted literal. A blind replace would…, `OR IGNORE`/`OR REPLACE` lose their meaning once rewritten; give the statement…, _swap_placeholders(), translate(), parametrize, PostgreSQL adapter and backup layer — the parts that must never regress. These…, The application wrote datetime.utcnow().isoformat() everywhere, so a naive… (+16 more)
 
 ### Community 102 - "admin_ai.py"
-Cohesion: 0.14
+Cohesion: 0.15
 Nodes (41): _actor(), add_manual_model(), add_route_target(), ai_summary(), create_provider(), delete_model(), delete_provider(), _fail() (+33 more)
 
 ### Community 104 - "otp.js"
 Cohesion: 0.26
 Nodes (23): announce(), applyChallenge(), applyLang(), buildDigits(), chip(), clearMarks(), code(), distribute() (+15 more)
 
-### Community 105 - "resources.py"
-Cohesion: 0.20
-Nodes (9): disk(), _num(), Live CPU, memory and GPU usage for the admin dashboard. NO NEW DEPENDENCY ON…, A number from one nvidia-smi CSV cell, or None. nounits mode prints unsupported…, Drop the cache and the CPU baseline. For tests and for reload paths., reset(), _clean_module_state(), The cache and the CPU baseline are module state shared by the process. Without… (+1 more)
-
-### Community 106 - "xt"
-Cohesion: 0.16
-Nodes (3): s(), xt, pt()
+### Community 105 - "render_theme_index"
+Cohesion: 0.13
+Nodes (15): _asset_version(), health_check(), Liveness: cheap, no external calls — safe for a 5s probe interval., Readiness: is the retrieval layer actually able to answer? ``deep=true``…, Cache-buster token for the chat stylesheets. Browsers cache /static and /themes…, read_root(), readiness_check(), Render theme's index.html using Jinja2 with partial override resolution. If the… (+7 more)
 
 ### Community 107 - "test_dataset_api.py"
 Cohesion: 0.13
@@ -865,8 +869,8 @@ Cohesion: 0.14
 Nodes (24): list_sets(), Every backup set, newest first. Ids sort chronologically by construction. Named…, client(), _get_setting(), _login(), paths(), fixture, Infrastructure → Backups: create, verify, download, delete, restore. Nothing… (+16 more)
 
 ### Community 110 - "test_profile_edit.py"
-Cohesion: 0.07
-Nodes (38): otp_request(), otp_resend(), otp_verify(), OtpRequestBody, OtpResendBody, OtpVerifyBody, ProfileUpdateBody, BaseModel (+30 more)
+Cohesion: 0.11
+Nodes (20): _cleanup(), client(), _no_ip_throttle(), outbox(), fixture, Editing a visitor's work profile after verification. The loop this closes:…, A code that was never entered must not unlock the row., سمت is a real field, not a placeholder — it must round-trip. (+12 more)
 
 ### Community 111 - "FakeResponse"
 Cohesion: 0.09
@@ -889,8 +893,8 @@ Cohesion: 0.08
 Nodes (7): Admin → AI → Text to speech. The speech engine listens on 127.0.0.1:8003 with…, A hand-edited row must degrade to the default, not 500 the panel., An empty knowledge base makes cleanup indistinguishable from wiping., test_a_corrupted_setting_does_not_break_the_page(), test_a_rule_rewrites_the_word_and_not_the_word_it_sits_inside(), test_cleanup_refuses_when_there_is_nothing_to_keep(), test_the_longer_rule_wins()
 
 ### Community 116 - "AIRequest"
-Cohesion: 0.18
-Nodes (6): OpenAICompatibleAdapter, Provider-specific reasoning/thinking controls. Default: none — an unknown…, Hook for providers with failure-bearing finish_reason values (Z.AI: sensitive /…, Chat Completions over a configurable base URL., messages[] with the system prompt as role:"system" at index 0. The neutral…, AIRequest
+Cohesion: 0.09
+Nodes (19): OpenAICompatibleAdapter, Provider-specific reasoning/thinking controls. Default: none — an unknown…, Hook for providers with failure-bearing finish_reason values (Z.AI: sensitive /…, Chat Completions over a configurable base URL., messages[] with the system prompt as role:"system" at index 0. The neutral…, AIMessage, AIRequest, PadyarAI (+11 more)
 
 ### Community 117 - "backup_center.py"
 Cohesion: 0.14
@@ -905,12 +909,12 @@ Cohesion: 0.14
 Nodes (19): admin(), _assert_clean(), _assert_formatting_survived(), _free_port(), live_server(), fixture, parametrize, F2, output half: markup stored in an answer must never execute in the chat.… (+11 more)
 
 ### Community 120 - "test_admin_navigation.py"
-Cohesion: 0.15
-Nodes (19): parametrize, Every admin page must be reachable from the sidebar. This exists because of a…, active_page must match what layout.html tests for, or the admin sees a sidebar…, Moving the body between blocks must not drop the page's ES module — without it…, Assert on the RENDERED html: an unbalanced <div> in a template only shows up…, A link is worthless if it 404s. Guards against the opposite failure: navigation…, The log explorer serves every category via ?category=; the sub-menu is the only…, An install without the optional module must not advertise routes it does not… (+11 more)
+Cohesion: 0.13
+Nodes (21): client(), fixture, parametrize, Every admin page must be reachable from the sidebar. This exists because of a…, active_page must match what layout.html tests for, or the admin sees a sidebar…, Moving the body between blocks must not drop the page's ES module — without it…, Assert on the RENDERED html: an unbalanced <div> in a template only shows up…, A link is worthless if it 404s. Guards against the opposite failure: navigation… (+13 more)
 
 ### Community 121 - "token_for_session"
-Cohesion: 0.08
-Nodes (27): Request, CSRF protection for admin mutations. DESIGN ------ The token is `HMAC-…, _secret(), token_for_request(), token_for_session(), client(), fixture, client() (+19 more)
+Cohesion: 0.09
+Nodes (25): Request, CSRF protection for admin mutations. DESIGN ------ The token is `HMAC-…, _secret(), token_for_request(), token_for_session(), client(), fixture, parametrize (+17 more)
 
 ### Community 122 - "Moonshot AI / Kimi"
 Cohesion: 0.06
@@ -976,17 +980,17 @@ Nodes (24): For /graphify add and --watch, For /graphify query, For the commit h
 Cohesion: 0.18
 Nodes (21): _now_iso(), Record a provider failure. Returns the resulting state. CONCURRENCY: the…, record_failure(), _setting_int(), _half_open(), The same property on the other transition. Here the probe LEASE is the proof:…, Drive the circuit to a genuine half_open state., test_concurrent_probe_attempts_emit_exactly_one_half_open_event() (+13 more)
 
-### Community 140 - "server.py"
-Cohesion: 0.16
-Nodes (16): cache_stats(), ensure_workers(), _iso(), _load_workers(), get, Persian text-to-speech service for PadyarAIChatbot. Runs Chatterbox…, One device string per worker. A single worker keeps whatever TTS_DEVICE says,…, Build every worker. A card that fails does not take the others down. Half a… (+8 more)
+### Community 139 - "ai_providers.js"
+Cohesion: 0.21
+Nodes (14): CIRCUIT_BADGE, collectConfig(), handleAction(), HEALTH_BADGE, initAIProviders(), loadProviders(), loadTypes(), openAdd() (+6 more)
+
+### Community 140 - "_load_workers"
+Cohesion: 0.25
+Nodes (8): ensure_workers(), _load_workers(), One device string per worker. A single worker keeps whatever TTS_DEVICE says,…, Build every worker. A card that fails does not take the others down. Half a…, Load the model(s) if startup could not. Startup deliberately does not crash-…, _startup(), worker_devices(), on_event
 
 ### Community 141 - "test_pg_an_abandoned_lease_expires_and_exactly_one_worker_reclaims_it"
 Cohesion: 0.22
 Nodes (14): requires_postgres, _pg_row(), n threads, each with its OWN pooled connection, released together., The thundering herd. Six workers all see an OPEN circuit whose cooldown has…, Late arrivals must not slip in behind the winner while the lease runs., The probing worker died. The lease must expire, and the reclaim must itself be…, The known past bug: the column returns a datetime while the code compares ISO…, Shared state, not process memory: the close must be readable from a different… (+6 more)
-
-### Community 142 - "jn"
-Cohesion: 0.17
-Nodes (7): Fn(), getMaxOverflow(), jn, parseArrayData(), parsePrimitiveData(), resolveDataElementOptions(), size()
 
 ### Community 143 - "test_dataset_ordering.py"
 Cohesion: 0.16
@@ -994,7 +998,7 @@ Nodes (15): client(), _ids(), fixture, The public knowledge base has an explicit
 
 ### Community 144 - "test_ops_resources.py"
 Cohesion: 0.12
-Nodes (13): Admin → dashboard → «منابع سرور» (server resources). The gauges read /proc and…, Core counts, RAM size and GPU model are a map of the machine. They are not…, snapshot() sleeps and waits up to five seconds on a subprocess. Declared `async…, The point of the whole reason/available contract: a broken GPU renders, it does…, `?v=` empty is not a cosmetic bug. Nothing sends Cache-Control for /static, so…, Two pages needed this and briefly had two copies of it. The version is the…, app/routers/tts.py grew its own `_js_version()` doing exactly this job. Two…, test_an_anonymous_caller_cannot_read_the_hosts_load() (+5 more)
+Nodes (13): Admin → dashboard → «منابع سرور» (server resources). The gauges read /proc and…, Core counts, RAM size and GPU model are a map of the machine. They are not…, snapshot() sleeps and waits up to five seconds on a subprocess. Declared `async…, Two threads polling at once must not each take half of the other's CPU window.…, `?v=` empty is not a cosmetic bug. Nothing sends Cache-Control for /static, so…, Two pages needed this and briefly had two copies of it. The version is the…, app/routers/tts.py grew its own `_js_version()` doing exactly this job. Two…, test_an_anonymous_caller_cannot_read_the_hosts_load() (+5 more)
 
 ### Community 146 - "graphify reference: extra exports and benchmark"
 Cohesion: 0.22
@@ -1012,13 +1016,13 @@ Nodes (15): pin(), Validate `url` and return everything needed to connect to a P
 Cohesion: 0.22
 Nodes (7): FakeS3Gen, ModelWithVocoder, 6561 is the START of the special tokens, not a valid speech token., test_an_out_of_range_token_is_dropped_before_it_reaches_the_vocoder(), test_ordinary_tokens_pass_through_untouched(), test_the_boundary_is_exclusive(), test_the_other_arguments_still_reach_the_vocoder()
 
-### Community 150 - "cpu"
-Cohesion: 0.22
-Nodes (9): cpu(), (idle, total) jiffies from the aggregate 'cpu' line of /proc/stat., Utilisation over the window since the last call, or a fresh short one., _read_cpu_times(), A single /proc/stat reading is the average since boot — a flat, useless number…, The kernel reports guest inside user and guest_nice inside nice, then prints…, test_a_truncated_cpu_line_is_not_a_crash(), test_cpu_percent_is_the_delta_between_two_readings() (+1 more)
+### Community 150 - "resources.py"
+Cohesion: 0.14
+Nodes (14): cpu(), disk(), _num(), Live CPU, memory and GPU usage for the admin dashboard. NO NEW DEPENDENCY ON…, A number from one nvidia-smi CSV cell, or None. nounits mode prints unsupported…, (idle, total) jiffies from the aggregate 'cpu' line of /proc/stat., Utilisation over the window since the last call, or a fresh short one., _read_cpu_times() (+6 more)
 
 ### Community 151 - "fake_smi"
 Cohesion: 0.19
-Nodes (15): gpus(), Per-card usage via nvidia-smi. Absent hardware, an absent driver and a driver…, fake_smi(), nvidia-smi prints `[N/A]` and `[Not Supported]`, brackets included, for…, The commonest real failure: the tool is installed, the driver is loaded, and it…, Two threads polling at once must not each take half of the other's CPU window.…, Replace the nvidia-smi lookup and invocation., test_a_card_that_does_not_report_a_sensor_keeps_its_other_numbers() (+7 more)
+Nodes (15): gpus(), Per-card usage via nvidia-smi. Absent hardware, an absent driver and a driver…, fake_smi(), nvidia-smi prints `[N/A]` and `[Not Supported]`, brackets included, for…, The commonest real failure: the tool is installed, the driver is loaded, and it…, The point of the whole reason/available contract: a broken GPU renders, it does…, Replace the nvidia-smi lookup and invocation., test_a_card_that_does_not_report_a_sensor_keeps_its_other_numbers() (+7 more)
 
 ### Community 152 - "test_security_headers.py"
 Cohesion: 0.13
@@ -1081,8 +1085,8 @@ Cohesion: 0.15
 Nodes (13): Check `url` against `trust_class`. Raises EndpointRejected, or returns a dict…, validate(), `localhost` resolves to ::1 on a normal machine, and ::1 also reports…, The fix must not ban all of 100.64/10. A customer may legitimately run an on-…, Falling back is only safe because every candidate already passed policy. A name…, On-prem model servers routinely have no TLS inside the perimeter., test_a_hostname_pointing_at_loopback_is_permitted_for_internal(), test_a_valid_public_endpoint_is_accepted_and_normalized() (+5 more)
 
 ### Community 168 - "client"
-Cohesion: 0.22
-Nodes (9): anon(), client(), no_proc(), proc(), fixture, The app on a throwaway database, with nobody logged in., The same app with a real admin session cookie and a CSRF token., A fake /proc. Returns a writer so a test can move the counters. (+1 more)
+Cohesion: 0.15
+Nodes (13): Drop the cache and the CPU baseline. For tests and for reload paths., reset(), anon(), _clean_module_state(), client(), no_proc(), proc(), fixture (+5 more)
 
 ### Community 169 - "settings_sms.js"
 Cohesion: 0.44
@@ -1113,8 +1117,8 @@ Cohesion: 0.25
 Nodes (8): events(), iid(), fixture, parametrize, The recovery event must be emitted by the worker that ACTUALLY recovers. WHY…, Capture at the applog sink — no log database involved., Every worker's probe succeeds at once. One recovery, one event., test_concurrent_recoveries_emit_exactly_one_closed_event()
 
 ### Community 178 - "secure_store.py"
-Cohesion: 0.13
-Nodes (20): get_app_secret(), This install's long-lived secret: SECRET_KEY, else the generated one. Public…, _backup(), env_path(), _fernet(), is_protected(), protect(), _quote() (+12 more)
+Cohesion: 0.12
+Nodes (22): get_app_secret(), This install's long-lived secret: SECRET_KEY, else the generated one. Public…, _backup(), env_path(), _fernet(), is_protected(), protect(), _quote() (+14 more)
 
 ### Community 179 - "test_reset_script.py"
 Cohesion: 0.38
@@ -1132,9 +1136,9 @@ Nodes (4): FakeModel, FakeWav, What model.generate() returns: something .squeeze
 Cohesion: 0.20
 Nodes (9): HF_HUB_OFFLINE, MKL_NUM_THREADS, OMP_NUM_THREADS, 45-prerender.sh script, TRANSFORMERS_OFFLINE, TTS_CPU_THREADS, TTS_DEVICE, TTS_LANGUAGE (+1 more)
 
-### Community 185 - "synthesize"
-Cohesion: 0.22
-Nodes (10): looks_truncated(), pick_worker(), ndarray, Round robin. Called only from the event loop thread, so no lock. Queue depth…, Model output to a PCM wav. Still the intermediate ffmpeg encodes from., Model output to a 64 kbps mono mp3. BLOCKS: never call from the loop. ffmpeg…, Generate `text` and return it as mp3 bytes. Nothing here blocks the loop., synthesize() (+2 more)
+### Community 185 - "server.py"
+Cohesion: 0.14
+Nodes (21): cache_stats(), _generate_and_store(), generate_once(), _iso(), looks_truncated(), pick_worker(), get, ndarray (+13 more)
 
 ### Community 186 - "infra_database.js"
 Cohesion: 0.49
@@ -1152,17 +1156,17 @@ Nodes (7): e(), En(), L(), M(), P(), t(), U()
 Cohesion: 0.11
 Nodes (20): ensure_tables(), Create every table and index. Idempotent; safe on each boot., Forget the rate-limit window. For tests and for a manual re-check., reset_alert_state(), client(), dba(), _install_schema(), fixture (+12 more)
 
-### Community 191 - "config.py"
-Cohesion: 0.03
-Nodes (85): enforce(), Reject a state-changing admin request without a valid token. Raises 403 —…, _JsonFormatter, log_chat(), _clean_id(), csrf_protection(), lifespan(), _mount_themes() (+77 more)
+### Community 191 - "chat.py"
+Cohesion: 0.04
+Nodes (69): log_chat(), ChatResponse, _answer_from_entry(), chat_endpoint(), post, Request, Sections matching this visitor, appended to the targeted-visit answer. Empty…, Build (and log) a chat response from a dataset entry. (+61 more)
 
 ### Community 192 - "graphify reference: query, path, explain"
 Cohesion: 0.33
 Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
 
-### Community 195 - "test_identity.py"
-Cohesion: 0.11
-Nodes (23): The identity layer: an account, a session, and a grant of ownership. Every…, REQ-037. First visit and tenth visit are the same two steps., SEC-034. Nothing on the account is a secret the person has to keep., REQ-039. `phone_hash` is unique; signing in again is not a signup., SEC-035. Not in the body of either step, and not in the database., REQ-038. The same cookie stops working, on the server., SEC-001. No credential at all is a 403 and writes nothing., SEC-002 and SEC-003. A valid session on its own opens nothing. (+15 more)
+### Community 195 - "test_admin_credentials_file.py"
+Cohesion: 0.17
+Nodes (12): fresh_db(), fixture, The generated admin login must belong to the database that generated it.…, A brand-new database in its own folder, with no admin yet., The exact bug: seeding a temp DB must not rewrite an unrelated file., A file whose password does not open the account is worse than no file., Re-running init_db must not regenerate — that would invalidate a password the…, read_password() (+4 more)
 
 ### Community 196 - "snapshot"
 Cohesion: 0.25
@@ -1184,9 +1188,9 @@ Nodes (6): ExplodingModel, A model whose generate() raises. The failure has to c
 Cohesion: 0.29
 Nodes (7): memory(), Totals from /proc/meminfo, in bytes. 'used' is total minus MemAvailable, not…, Linux fills idle RAM with page cache on purpose, so MemFree on a healthy server…, MemAvailable arrived in Linux 3.14. Older kernels get the worse number rather…, test_a_meminfo_line_that_is_not_a_number_does_not_lose_the_file(), test_memory_falls_back_to_memfree_on_a_kernel_without_memavailable(), test_used_memory_is_total_minus_available_not_total_minus_free()
 
-### Community 201 - "is_unique_violation"
-Cohesion: 0.13
-Nodes (17): DuplicateKey, is_not_null_violation(), is_unique_violation(), BaseException, Exception, Backend-neutral recognition of database constraint failures. WHY THIS EXISTS…, A row already exists with that key. Backend-neutral., True when `exc` is a UNIQUE / PRIMARY KEY constraint failure. Recognises both… (+9 more)
+### Community 201 - "fa"
+Cohesion: 0.20
+Nodes (8): ea(), fa(), ga(), ha, pa(), sa(), ta(), ua()
 
 ### Community 202 - "tts_load_varied.py"
 Cohesion: 0.48
@@ -1209,8 +1213,8 @@ Cohesion: 0.53
 Nodes (5): _load_packager(), main(), Import make-handover-zip.py by path — the hyphens make it unimportable., scan(), tracked_files()
 
 ### Community 207 - "estimate"
-Cohesion: 0.13
-Nodes (18): estimate(), (cost, currency) for one completed provider call. None cost means unknown…, lookup_pricing(), The price row in effect for (provider_type, model_id) right now. The cutoff is…, Insert a NEW effective-dated row. History is never overwritten — a price change…, record_usage(), upsert_pricing(), test_a_usage_row_stores_numeric_cost_and_jsonb_metadata() (+10 more)
+Cohesion: 0.12
+Nodes (19): estimate(), pricing_for(), (cost, currency) for one completed provider call. None cost means unknown…, lookup_pricing(), The price row in effect for (provider_type, model_id) right now. The cutoff is…, Insert a NEW effective-dated row. History is never overwritten — a price change…, record_usage(), upsert_pricing() (+11 more)
 
 ### Community 208 - "assert_safe_redirect"
 Cohesion: 0.40
@@ -1240,17 +1244,17 @@ Nodes (4): call(), main(), Does one visitor asking something NEW delay a visitor
 Cohesion: 0.40
 Nodes (5): anon(), client(), fixture, The same app with a real admin session cookie and a CSRF token., The app on a throwaway database, with nobody logged in.
 
-### Community 215 - "write_cache"
-Cohesion: 0.40
-Nodes (5): _generate_and_store(), generate_once(), Publish one entry atomically. BLOCKS: never call from the loop. Write-then-…, Generate and cache `key`, or join the generation already running for it., write_cache()
+### Community 215 - "VisitorProfile"
+Cohesion: 0.24
+Nodes (11): What the visitor said about their work — never who they are. Registration…, VisitorProfile, answer(), client(), fixture, `_answer_from_entry` with logging stubbed, returning the response text., targeted_entry(), test_other_entries_are_never_personalised() (+3 more)
 
 ### Community 216 - "Lipsync spike"
 Cohesion: 0.09
 Nodes (21): 1. What was actually run, and where, 2. The hardware decides this before anything else, 3. The survey, 4. The licence position, plainly, 5. What a second of video costs, 6. This must be pre-rendered. It cannot be live., 7. Running the spike, 8. What this spike could not verify (+13 more)
 
 ### Community 217 - "make_client"
-Cohesion: 0.11
-Nodes (24): _admin(), _capture(), client(), make_client(), _no_rate_limit(), outbox(), fixture, A field visitor registers a contact at a booth and verifies the code. (+16 more)
+Cohesion: 0.14
+Nodes (18): _capture(), client(), make_client(), _no_rate_limit(), outbox(), fixture, A field visitor registers a contact at a booth and verifies the code., SEC-036. Creating an account raises nobody's access: it did not exist. (+10 more)
 
 ### Community 218 - "resolved_ips"
 Cohesion: 0.50
@@ -1269,16 +1273,16 @@ Cohesion: 0.50
 Nodes (4): ModuleType, _load_server(), Just enough torch for import time and /health. Never used for math., _stub_torch()
 
 ### Community 225 - "Bt"
-Cohesion: 0.14
-Nodes (6): Bt, getElementFromSelector(), getSelectorFromElement(), Y, Ft(), jt()
+Cohesion: 0.20
+Nodes (4): Bt, getSelectorFromElement(), Ft(), jt()
 
 ### Community 226 - "inlineTokens"
 Cohesion: 0.29
 Nodes (7): blockTokens(), inlineTokens(), lex(), lexer(), lexInline(), me(), reflink()
 
-### Community 227 - "engine"
-Cohesion: 0.40
-Nodes (5): fast_backoff(), fixture, Shrink the retry backoff for the whole module. It changes WAIT LENGTH only —…, engine(), The router talking to a fake engine instead of a real one.
+### Community 227 - "logs_settings.js"
+Cohesion: 0.64
+Nodes (8): el(), execute(), fa(), initLogsSettings(), loadSettings(), policyWarning(), preview(), truncateFilters()
 
 ### Community 228 - "set_dir"
 Cohesion: 0.13
@@ -1477,8 +1481,8 @@ Cohesion: 0.67
 Nodes (3): Admin (cookie-session protected, under `/admin/api` and `/secure-panel-inotex`), 📡 API Overview, Public
 
 ### Community 313 - "taxonomy.py"
-Cohesion: 0.38
-Nodes (6): _clean_items(), Single source of truth for the registration form and the visit planner.…, Keep only well-formed entries; skip and log the rest. One bad row must not cost…, Return a normalised document, or None if it is unusable., _reload_if_changed(), _validate()
+Cohesion: 0.28
+Nodes (8): _clean_items(), fallback_ids(), Single source of truth for the registration form and the visit planner.…, Keep only well-formed entries; skip and log the rest. One bad row must not cost…, Return a normalised document, or None if it is unusable., _reload_if_changed(), sections(), _validate()
 
 ### Community 314 - "code-review/SKILL.md"
 Cohesion: 0.22
@@ -1724,6 +1728,10 @@ Nodes (5): ۱۲. راهبرد تست, ۱۲.۱ فایل‌ها و لایه‌ها
 Cohesion: 0.40
 Nodes (4): تغییرات نسبت به نسخهٔ ۱۴۰۵/۰۵/۲۳, محدودیت‌ها و نقشهٔ راه (صادقانه), محدودیت‌های فعلی, نقشهٔ راه پیشنهادی (اولویت‌دار)
 
+### Community 376 - "_semantic_scores"
+Cohesion: 0.33
+Nodes (7): _norm(), _profile_text(), Embedding similarity per section, or None when unavailable. Used only to rescue…, Character-level normalisation only. The DB synonym table is tuned for the Q&A…, Current sections with their keywords normalised for matching. Normalisation…, sections(), _semantic_scores()
+
 ### Community 377 - "parametrize"
 Cohesion: 0.40
 Nodes (5): parametrize, test_a_parameter_outside_chatterboxs_range_never_reaches_the_engine(), test_a_rule_that_cannot_be_obeyed_is_refused_in_persian(), test_out_of_range_settings_are_refused(), test_status_passes_the_engine_verdict_straight_through()
@@ -1764,25 +1772,37 @@ Nodes (3): app.dataset_owners, app.user_sessions, app.users
 Cohesion: 0.67
 Nodes (3): تعارض‌های ثبت‌شده با PRD, جواب مالک به دو پرسش بلاک‌کننده, ۱۵. پرسش‌های باز
 
+### Community 416 - "ai_usage.js"
+Cohesion: 0.52
+Nodes (6): currencyOf(), initAIUsage(), load(), money(), onRangeChange(), selectedDays()
+
+### Community 417 - "admin_tts_page"
+Cohesion: 0.33
+Nodes (6): admin_dashboard(), admin_js_version(), Cache-buster for an admin page's own JavaScript. Same reasoning as…, admin_tts_page(), Request, Same session check and login redirect as every other admin page (see…
+
+### Community 418 - "bootstrap.py"
+Cohesion: 0.33
+Nodes (3): pricing_rows(), Bootstrap model catalog + pricing, per provider type. Source: the research…, Flatten bootstrap pricing into (provider_type, model_id, currency, input,…
+
 ## Knowledge Gaps
-- **1167 isolated node(s):** `45-prerender.sh script`, `TTS_DEVICE`, `TTS_MODEL_DIR`, `TTS_LANGUAGE`, `TTS_CPU_THREADS` (+1162 more)
+- **1167 isolated node(s):** `graphify`, `Usage`, `What graphify is for`, `Step 0 - GitHub repos and multi-path merge (only if a URL or several paths)`, `Step 1 - Ensure graphify is installed` (+1162 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **64 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `get_db_connection()` connect `get_db_connection` to `services/leads.py`, `_login`, `HTTPException`, `test_sms_secure_storage.py`, `record_failure`, `postgres/conftest.py`, `applog.py`, `services/otp.py`, `init_db`, `test_pg_an_abandoned_lease_expires_and_exactly_one_worker_reclaims_it`, `get_setting`, `ops.py`, `execute_request`, `test_dataset_ordering.py`, `test_ops_resources.py`, `test_dbadmin.py`, `test_registration_chat_signup.py`, `test_bug_classes.py`, `public.py`, `test_dataset_sync.py`, `audit`, `create_visitor`, `test_sms_settings.py`, `client`, `test_leads_reject_reason.py`, `test_leads_content_rules.py`, `set_setting`, `test_circuit_recovery_concurrency.py`, `test_leads_new_company.py`, `_seed_answers`, `security.py`, `create_instance`, `admin_client`, `tests/test_ai_store.py`, `test_leads_review.py`, `routers/leads.py`, `migrate_json_to_db.py`, `config.py`, `dataset.py`, `test_leads_invite.py`, `test_identity.py`, `document`, `test_ai_sakoo.py`, `test_export_audit.py`, `create`, `estimate`, `add_target`, `test_leads_visitor.py`, `client`, `test_otp.py`, `circuit.py`, `test_ai_circuit.py`, `test_pg_operations.py`, `admin_ai.py`, `test_backup_center.py`, `test_profile_edit.py`, `test_leads_fraud_signals.py`, `test_tts_admin.py`, `test_admin_navigation.py`, `token_for_session`?**
-  _High betweenness centrality (0.119) - this node is a cross-community bridge._
-- **Why does `get_setting()` connect `get_setting` to `services/leads.py`, `sms.py`, `routers/otp.py`, `HTTPException`, `test_sms_secure_storage.py`, `record_failure`, `applog.py`, `services/otp.py`, `init_db`, `ops.py`, `public.py`, `get_db_connection`, `audit`, `test_sms_settings.py`, `set_setting`, `services/dbadmin.py`, `secure_store.py`, `engine.py`, `security.py`, `create_instance`, `routers/leads.py`, `config.py`, `circuit.py`, `test_pg_operations.py`, `storage.py`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
-- **Why does `set_setting()` connect `set_setting` to `services/leads.py`, `get_db_connection`, `sms.py`, `test_pg_operations.py`, `audit`, `test_storage.py`, `HTTPException`, `test_sms_secure_storage.py`, `execute_request`, `applog.py`, `test_applog.py`, `init_db`, `services/dbadmin.py`, `get_setting`, `ops.py`, `test_tts_admin.py`, `security.py`, `test_admin_pages.py`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
+- **Why does `get_db_connection()` connect `get_db_connection` to `services/leads.py`, `test_identity.py`, `HTTPException`, `test_sms_secure_storage.py`, `record_failure`, `postgres/conftest.py`, `execute_request`, `services/otp.py`, `test_pg_an_abandoned_lease_expires_and_exactly_one_worker_reclaims_it`, `test_dataset_ordering.py`, `get_setting`, `ops.py`, `test_ops_resources.py`, `test_dbadmin.py`, `test_registration_chat_signup.py`, `test_bug_classes.py`, `public.py`, `test_dataset_sync.py`, `audit`, `create_visitor`, `test_sms_settings.py`, `client`, `test_leads_reject_reason.py`, `test_leads_content_rules.py`, `test_p1_closure.py`, `services/dbadmin.py`, `test_circuit_recovery_concurrency.py`, `test_leads_new_company.py`, `_seed_answers`, `create_instance`, `admin_client`, `tests/test_ai_store.py`, `test_leads_review.py`, `chat.py`, `migrate_json_to_db.py`, `dataset.py`, `test_leads_invite.py`, `test_taxonomy_admin.py`, `test_ai_sakoo.py`, `test_export_audit.py`, `create`, `estimate`, `enforce`, `test_leads_visitor.py`, `client`, `test_otp.py`, `circuit.py`, `test_ai_circuit.py`, `test_pg_operations.py`, `admin_ai.py`, `render_theme_index`, `test_backup_center.py`, `test_profile_edit.py`, `test_leads_fraud_signals.py`, `test_tts_admin.py`, `test_admin_navigation.py`, `token_for_session`?**
+  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+- **Why does `get_setting()` connect `get_setting` to `services/leads.py`, `sms.py`, `routers/otp.py`, `HTTPException`, `test_sms_secure_storage.py`, `record_failure`, `applog.py`, `services/otp.py`, `ops.py`, `public.py`, `get_db_connection`, `audit`, `test_sms_settings.py`, `test_p1_closure.py`, `services/dbadmin.py`, `secure_store.py`, `engine.py`, `create_instance`, `routers/leads.py`, `chat.py`, `circuit.py`, `test_pg_operations.py`, `storage.py`, `render_theme_index`?**
+  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+- **Why does `init_db()` connect `get_setting` to `sms.py`, `test_identity.py`, `execute_request`, `test_dbadmin.py`, `get_db_connection`, `create_visitor`, `test_leads_reject_reason.py`, `test_leads_content_rules.py`, `test_applog.py`, `test_leads_new_company.py`, `tests/test_ai_store.py`, `test_leads_review.py`, `ensure_tables`, `migrate_json_to_db.py`, `test_leads_invite.py`, `chat.py`, `test_admin_credentials_file.py`, `test_storage.py`, `test_ai_sakoo.py`, `test_export_audit.py`, `test_ops_control.py`, `test_leads_visitor.py`, `test_ai_circuit.py`, `test_backup_center.py`, `test_leads_fraud_signals.py`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **Are the 86 inferred relationships involving `HTTPException` (e.g. with `enforce()` and `check_rate_limit()`) actually correct?**
   _`HTTPException` has 86 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `45-prerender.sh script`, `TTS_DEVICE`, `TTS_MODEL_DIR` to the rest of the system?**
+- **What connects `graphify`, `Usage`, `What graphify is for` to the rest of the system?**
   _1167 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `chart.umd.min.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.02695289206917114 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03305785123966942 - nodes in this community are weakly interconnected._
 - **Should `services/leads.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.04013906447534766 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0395118230358505 - nodes in this community are weakly interconnected._
