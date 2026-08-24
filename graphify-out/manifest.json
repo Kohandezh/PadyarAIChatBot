@@ -2190,9 +2190,9 @@
     "semantic_hash": ""
   },
   "docs/engineering/DECISIONS.md": {
-    "mtime": 1787408241.5083897,
-    "seen": 1787582366.9058502,
-    "ast_hash": "fb0f014ead3a9e3dc9c7d6b72ed20c95",
+    "mtime": 1787584344.4683056,
+    "seen": 1787584436.8784251,
+    "ast_hash": "98f8126498179154986c33e20ad17059",
     "semantic_hash": ""
   },
   "docs/engineering/DEPENDENCY_AUDIT.md": {
@@ -2310,9 +2310,9 @@
     "semantic_hash": ""
   },
   "docs/features/INDEX.md": {
-    "mtime": 1787490336.8690176,
-    "seen": 1787582366.905859,
-    "ast_hash": "08de1ced05919bca92b282e16d9965ee",
+    "mtime": 1787584380.7077377,
+    "seen": 1787584436.878465,
+    "ast_hash": "3546d504dc34a0cff9b53171a395d6f3",
     "semantic_hash": ""
   },
   "docs/features/README.md": {
@@ -2322,15 +2322,15 @@
     "semantic_hash": ""
   },
   "docs/features/exhibition-lead-capture/PRD.md": {
-    "mtime": 1787490316.6077511,
-    "seen": 1787582366.905859,
-    "ast_hash": "f1bc53a84b49e92265e6595f6e9d15dd",
+    "mtime": 1787584417.5853612,
+    "seen": 1787584436.87847,
+    "ast_hash": "aca12afe0291b611ed0a4ef0394f518e",
     "semantic_hash": ""
   },
   "docs/features/exhibition-lead-capture/SPEC.md": {
-    "mtime": 1787568393.6278307,
-    "seen": 1787582366.9058602,
-    "ast_hash": "ad11823dd84fc075baa6a73c3b21df3b",
+    "mtime": 1787585165.462455,
+    "seen": 1787585179.6644402,
+    "ast_hash": "1db7647626bc2a547c57cef8ba424438",
     "semantic_hash": ""
   },
   "docs/features/exhibition-lead-capture/SPIKE.md": {
@@ -3099,6 +3099,12 @@
     "mtime": 1787582247.514765,
     "seen": 1787582558.618588,
     "ast_hash": "9378bd03d56baaf78bd738ab3848f142",
+    "semantic_hash": ""
+  },
+  "docs/features/exhibition-lead-capture/BREAKDOWN.md": {
+    "mtime": 1787584376.1377723,
+    "seen": 1787584436.878468,
+    "ast_hash": "843ddf1174dbf05738ed35c2aac19878",
     "semantic_hash": ""
   }
 }
