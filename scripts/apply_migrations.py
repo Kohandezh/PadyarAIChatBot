@@ -73,6 +73,19 @@ def dsn() -> str:
         "postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar")
 
 
+# Both are created, with their owner, by `sudo bash deploy/05-create-databases.sh`.
+# Every migration writes into one of them, starting with `app.schema_migrations`.
+REQUIRED_SCHEMAS = ("app", "observability")
+
+
+def missing_schemas(conn) -> list:
+    """Which required schemas this database does not have yet."""
+    present = {row[0] for row in conn.execute(
+        "SELECT nspname FROM pg_namespace WHERE nspname = ANY(%s)",
+        (list(REQUIRED_SCHEMAS),)).fetchall()}
+    return [name for name in REQUIRED_SCHEMAS if name not in present]
+
+
 def checksum(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -158,6 +171,21 @@ def main() -> int:
         return 0
 
     with psycopg.connect(dsn(), options=SEARCH_PATH) as conn:
+        # Without this the first statement below dies with a raw
+        # `InvalidSchemaName` traceback, which reads like a bug in the runner
+        # rather than a provisioning step that has not been run yet.
+        absent = missing_schemas(conn)
+        if absent:
+            print("REFUSING TO CONTINUE: this database has no "
+                  f"{' or '.join(absent)} schema.\n"
+                  "  The migrations write into app and observability; they do "
+                  "not create them.\n"
+                  "  Provision the database first:\n"
+                  "      sudo bash deploy/05-create-databases.sh\n"
+                  f"  Then re-run this. (database: {conn.info.dbname}, "
+                  f"user: {conn.info.user})", file=sys.stderr)
+            return 2
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS app.schema_migrations (
                 version    TEXT PRIMARY KEY,
