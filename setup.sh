@@ -326,6 +326,63 @@ print('OK')
   spin_stop
   ok "Database initialized"
 
+  # ── Step 9: Knowledge graph (graphify) — developer tool, opt-in ──
+  step 9 "Knowledge Graph (graphify) — optional dev tool"
+  echo ""
+
+  info "graphify maps the codebase into a queryable knowledge graph for AI"
+  info "assistants (Claude Code / OpenCode). It is a DEVELOPER tool — a"
+  info "production server does not need it. The graph itself (graphify-out/)"
+  info "already arrives with git clone either way."
+  read -rp "  Install graphify CLI + auto-rebuild git hooks on this machine? [y/N]: " want_graphify
+  case "${want_graphify:-N}" in
+    [Yy]*) ;;
+    *) ok "Skipped graphify (dev tool) — production installs don't need it" ;;
+  esac
+
+  if [[ "${want_graphify:-N}" == [Yy]* ]]; then
+  # Per machine we only need the CLI and the git hooks that rebuild the
+  # graph automatically on commit/checkout.
+  if command -v graphify &>/dev/null; then
+    ok "graphify CLI already installed"
+  elif command -v uv &>/dev/null; then
+    info "Installing graphify CLI via uv (isolated tool env)..."
+    if uv tool install "graphifyy[sql]" >/dev/null 2>&1; then
+      case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+      esac
+      if command -v graphify &>/dev/null; then
+        ok "graphify installed"
+      else
+        warn "graphify installed but not on PATH — run 'uv tool update-shell' and reopen your terminal"
+      fi
+    else
+      warn "graphify CLI install failed — skipping (optional dev tool)"
+    fi
+  else
+    warn "uv not found — skipping graphify CLI (optional dev tool; docs: https://github.com/Graphify-Labs/graphify)"
+  fi
+
+  if command -v graphify &>/dev/null; then
+    if graphify hook install >/dev/null 2>&1; then
+      ok "git hooks installed — knowledge graph auto-rebuilds on every commit/checkout"
+    else
+      warn "Could not install graphify git hooks"
+    fi
+    if [[ -f "${SCRIPT_DIR}/graphify-out/graph.json" ]]; then
+      ok "Committed knowledge graph found at graphify-out/"
+    else
+      info "Building initial code graph (local AST parsing, no API key needed)..."
+      if (cd "${SCRIPT_DIR}" && graphify extract . --code-only >/dev/null 2>&1); then
+        ok "Knowledge graph built at graphify-out/"
+      else
+        warn "Graph build failed — run manually: graphify extract . --code-only"
+      fi
+    fi
+  fi
+  fi
+
   # ── Done ─────────────────────────────────────────────────────
   echo ""
   echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════╗${RESET}"
@@ -346,6 +403,8 @@ print('OK')
   msg "  The app will be available at: ${CYAN}http://127.0.0.1:8000${RESET}"
   echo ""
   msg "  To reconfigure, run: ${CYAN}./setup.sh${RESET}"
+  echo ""
+  msg "  Knowledge graph: ${DIM}graphify-out/ — rebuilds automatically on every git commit${RESET}"
   echo ""
 }
 

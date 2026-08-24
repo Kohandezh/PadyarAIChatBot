@@ -89,8 +89,15 @@ media/uploads/
 media/tts-cache/
 tts-cache/
 
-# Graphify code-graph output (regenerated, not source)
-graphify-out/
+# Graphify knowledge graph: graph.json/manifest/report are COMMITTED so a
+# fresh clone starts with the map (manifest keys are relative paths, portable).
+# Only regenerable/local artifacts stay out. The union merge driver (installed
+# per-machine by `graphify hook install`, wired via .gitattributes) keeps
+# graph.json conflict-free when two people commit in parallel.
+graphify-out/cost.json
+graphify-out/cache/
+# Pre-overwrite snapshots (backup_if_protected) — git history is our backup
+graphify-out/2*/
 
 # Local embedding model cache (regenerable, ~100MB)
 data/models/
