@@ -11,9 +11,10 @@ from fastapi import HTTPException, Request, Depends
 
 from app import config
 from app.config import (
-    ALLOWED_ORIGINS, SECRET_KEY,
+    ALLOWED_ORIGINS, SECRET_KEY, logger,
     CHAT_TOKEN_TTL, CHAT_RATE_LIMIT, CHAT_RATE_WINDOW,
     ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS,
+    MAX_LOGIN_ATTEMPTS, BLOCK_TIME_MINUTES,
 )
 
 
@@ -205,10 +206,143 @@ def generate_chat_token() -> str:
     return f"{ts}.{sig}"
 
 
-# --- Admin Auth ---
+# --- Admin Brute-Force Lockout ---
+#
+# The state lives in the `login_attempts` table, not in a module-level dict.
+# The dict was per process and per boot, and both halves of that were holes:
+#
+#   * every deploy or restart handed an attacker a clean counter, which is the
+#     one thing a lockout must not do;
+#   * production runs uvicorn with --workers N (deploy/systemd/*.service), so N
+#     processes each kept their own count. An attacker got roughly
+#     N * MAX_LOGIN_ATTEMPTS guesses before anything blocked, and once one
+#     worker blocked them the next request could land on a worker that had
+#     never heard of them.
+#
+# The table has existed since migrations/0001_initial.sql, which says plainly
+# why it was created. Nothing ever read or wrote it until now.
+#
+# FAILING OPEN, DELIBERATELY
+# --------------------------
+# Every function here swallows storage errors and reports "not blocked". That
+# is the weaker of the two choices against an attacker, and it is the right one
+# here:
+#
+#   * the password check does NOT depend on this table. If the database is
+#     fully down the `admins` lookup fails too and nobody authenticates at all,
+#     so failing open costs nothing in that case;
+#   * the case that actually differs is a partial failure (missing table after
+#     a botched migration, a permission error on this table alone). Failing
+#     closed there locks the real admin out of the panel exactly when they need
+#     it to fix the outage, and the only way back in is direct database access;
+#   * bcrypt at 12 rounds still costs an attacker ~0.5s per guess, so the
+#     throttle degrades rather than disappearing.
+#
+# The trade is: a degraded store means slower guessing instead of no guessing.
+# The failure is logged at error level so an operator sees the lockout is down.
+#
+# PRUNING
+# -------
+# Nothing prunes this table and nothing needs to. It holds at most one row per
+# IP that has failed an admin login, a successful login deletes that IP's row,
+# and an expired block deletes it too. One admin panel behind one hostname
+# collects internet scanners at a rate of, at worst, thousands of rows a year,
+# which is kilobytes. It would only matter against a botnet spraying millions
+# of distinct addresses, and the answer then is a periodic DELETE by
+# last_attempt, not per-request work on every login.
 
-# Brute Force Tracker (IP -> {attempts, block_until})
-login_attempts: Dict[str, dict] = {}
+
+def login_block_active(ip: str) -> bool:
+    """True while `ip` is inside a brute-force lockout.
+
+    Clears the row when the block has run out, so the next failure starts a
+    fresh count. That is what the in-memory version did on expiry.
+    """
+    from app.db.connection import get_db_connection
+    from app.db.timeutil import as_datetime, compare_now
+
+    try:
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                "SELECT attempts, block_until FROM login_attempts WHERE ip = ?",
+                (ip,)).fetchone()
+            if not row or row["block_until"] is None:
+                return False
+            until = as_datetime(row["block_until"])
+            if until and compare_now(until) < until:
+                return True
+            conn.execute("DELETE FROM login_attempts WHERE ip = ?", (ip,))
+            conn.commit()
+            return False
+        finally:
+            conn.close()
+    except Exception as exc:                      # noqa: BLE001
+        logger.error("Brute-force lockout unreadable, allowing the attempt: %s", exc)
+        return False
+
+
+def record_failed_login(ip: str) -> int:
+    """Count one failed login for `ip`. Returns the new total, 0 if unstorable.
+
+    The increment is a single statement. Reading the count and writing it back
+    would let two workers that fail a login at the same moment both read 4 and
+    both write 5, which hands an attacker free attempts. That is the exact bug
+    that made the per-process dict worth replacing. `attempts + 1` is computed by
+    the database inside the row's own write, so concurrent callers serialise on
+    the row and every failure is counted exactly once.
+    """
+    from app.db.connection import get_db_connection
+
+    now = datetime.datetime.now()
+    block_until = (now + datetime.timedelta(minutes=BLOCK_TIME_MINUTES)).isoformat()
+    # A brand-new row is attempt number 1, which reaches the limit only if the
+    # limit is 1. Derived rather than assumed, so MAX_LOGIN_ATTEMPTS stays the
+    # only source of the number.
+    first_block = block_until if MAX_LOGIN_ATTEMPTS <= 1 else None
+    try:
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                """
+                INSERT INTO login_attempts (ip, attempts, block_until, last_attempt)
+                VALUES (?, 1, ?, ?)
+                ON CONFLICT (ip) DO UPDATE SET
+                    attempts     = login_attempts.attempts + 1,
+                    last_attempt = excluded.last_attempt,
+                    block_until  = CASE WHEN login_attempts.attempts + 1 >= ?
+                                        THEN ? ELSE login_attempts.block_until END
+                RETURNING attempts
+                """,
+                (ip, first_block, now.isoformat(),
+                 MAX_LOGIN_ATTEMPTS, block_until),
+            ).fetchone()
+            conn.commit()
+            return int(row["attempts"]) if row else 0
+        finally:
+            conn.close()
+    except Exception as exc:                      # noqa: BLE001
+        logger.error("Brute-force lockout not recorded for %s: %s", ip, exc)
+        return 0
+
+
+def clear_login_attempts(ip: str) -> None:
+    """Forget `ip`'s failures. Called on a successful login."""
+    from app.db.connection import get_db_connection
+
+    try:
+        conn = get_db_connection()
+        try:
+            conn.execute("DELETE FROM login_attempts WHERE ip = ?", (ip,))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:                      # noqa: BLE001
+        # Housekeeping must never turn a good login into a failed one.
+        logger.error("Could not clear login attempts for %s: %s", ip, exc)
+
+
+# --- Admin Auth ---
 
 
 async def verify_admin(request: Request):

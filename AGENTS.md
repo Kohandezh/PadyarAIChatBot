@@ -237,7 +237,7 @@ This is a CMS installed per-customer — branding customization is a first-class
 - HMAC-signed chat tokens (validated on every `/chat` request)
 - Origin/Referer validation against allowlist
 - Rate limiting: `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (defaults: 20 / 60, both env-overridable)
-- Admin: SHA-256 + salt passwords, session cookies, brute-force lockout (5 attempts → 5 min)
+- Admin: SHA-256 + salt passwords, session cookies, brute-force lockout (5 attempts → 5 min, stored in the `login_attempts` table so it survives a restart and is shared across workers)
 - Sliding admin sessions (1 hour)
 
 ### Theme System
