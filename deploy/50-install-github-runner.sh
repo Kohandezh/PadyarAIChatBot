@@ -103,9 +103,11 @@ sudo -u "$RUNNER_USER" bash -c "cd '$RUNNER_DIR' && ./config.sh --url '$REPO_URL
   --name padyar-gpuserver --labels padyar --unattended --replace"
 
 log "Installing and starting the systemd service"
-# The runner's own svc.sh installs the unit; run it as the runner user, then
-# let systemd own it from here on.
-sudo -u "$RUNNER_USER" bash -c "cd '$RUNNER_DIR' && sudo ./svc.sh install $RUNNER_USER" || true
+# svc.sh install must run AS ROOT — it writes the unit under /etc/systemd and
+# chowns the runner directory. Running it via `sudo -u gh-runner … sudo …`
+# would prompt for a password the system user does not have. The unit it
+# writes runs the service as the gh-runner user (passed as the argument).
+(cd "$RUNNER_DIR" && ./svc.sh install "$RUNNER_USER")
 systemctl enable --now "$SERVICE_NAME" 2>/dev/null || systemctl enable --now "${SERVICE_NAME}.service"
 sleep 3
 systemctl is-active --quiet "$SERVICE_NAME" || { journalctl -u "$SERVICE_NAME" -n 30 --no-pager; exit 1; }
