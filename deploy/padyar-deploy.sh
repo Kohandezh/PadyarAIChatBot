@@ -53,7 +53,10 @@ if [[ $EUID -ne 0 ]]; then echo "Run with sudo." >&2; exit 1; fi
 APP_DIR="/opt/padyar-${SLUG}"
 USER="padyar-${SLUG}"
 SERVICE="padyar-${SLUG}"
-HEALTH_URL="http://127.0.0.1:${PORT}/health"
+# The app's liveness endpoint (app/routers/public.py). NOT /health — that
+# route does not exist, and a 404 here would read as "unhealthy" and trigger
+# a pointless rollback on a perfectly good deploy.
+HEALTH_URL="http://127.0.0.1:${PORT}/api/health"
 
 log()  { printf '\n==> %s\n' "$*"; }
 die()  { printf '\n!! %s\n' "$*" >&2; exit 1; }
