@@ -25,6 +25,13 @@ This is the #1 product principle. Every decision must pass this test.
 5. **Every new file/module/class must justify its existence.** If it doesn't make the code simpler, don't add it.
 6. **Always use `pip install` for dependencies.** Update `requirements.txt` when adding packages.
 
+### Communication Language
+
+Malik-e product (Sina) Finglish minevisi — farsi ba horuf-e latin. Jawab-ha
+HAMESH Finglish ast. Hich vaght parsi script, hich vaght makhs. Code, commit
+message, test, doc tu zaban-e khodeshun mimunan — in ghaedeh faghat baraye
+chat ast.
+
 ---
 
 ## What Is This Project?
