@@ -234,11 +234,15 @@ This is a CMS installed per-customer — branding customization is a first-class
 
 ### Security
 
-- HMAC-signed chat tokens (validated on every `/chat` request)
+- HMAC-signed chat tokens (validated on every `/chat` **and** `/api/transcribe` request)
 - Origin/Referer validation against allowlist
-- Rate limiting: `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (defaults: 20 / 60, both env-overridable)
-- Admin: SHA-256 + salt passwords, session cookies, brute-force lockout (5 attempts → 5 min, stored in the `login_attempts` table so it survives a restart and is shared across workers)
-- Sliding admin sessions (1 hour)
+- Rate limiting: `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (defaults: 20 / 60, env-overridable) — counters live in the `rate_limit_buckets` table so they are shared across workers and survive restarts
+- Request body ceiling: `MAX_BODY_BYTES` (default 512 MB) via the Content-Length header, plus per-endpoint read caps where uploads are buffered in memory
+- Admin: bcrypt passwords (legacy SHA-256 rows upgrade on next login), bcrypt security answers (legacy rows upgrade too), session cookies, brute-force lockout (5 attempts → 5 min, stored in the `login_attempts` table so it survives a restart and is shared across workers)
+- Sliding admin sessions (1 hour); a password change revokes every other session for that admin
+- Secrets stored encrypted at rest (`enc:` Fernet tokens via `app/services/secure_store.py`, including the legacy `ai_api_key`) — `get_setting()` decrypts transparently
+- CSV exports neutralize spreadsheet formula injection; admin-editable branding injected into public HTML is escaped
+- `data/` is NOT served over HTTP; static mounts cover `/static`, `/media`, `/LOGO`, `/themes/*` only
 
 ### Theme System
 

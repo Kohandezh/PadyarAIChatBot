@@ -56,6 +56,56 @@ def is_legacy_hash(stored_hash: str) -> bool:
     return bool(stored_hash) and not stored_hash.startswith("$2")
 
 
+# --- Security-Answer Hashing ---
+# The security answer is a mandatory login factor, so it gets the same
+# treatment as the password: bcrypt at rest, with a legacy unsalted-SHA-256
+# verify path so existing installs keep working and are upgraded on the next
+# successful login. A domain separator keeps an answer from ever being useful
+# as (or colliding with) a password hash.
+
+_ANSWER_DOMAIN = "padyar-security-answer:"
+
+
+def hash_security_answer(answer: str) -> str:
+    return hash_password(_ANSWER_DOMAIN + answer)
+
+
+def verify_security_answer(answer: str, stored_hash: str) -> bool:
+    if not stored_hash:
+        return False
+    if stored_hash.startswith("$2"):  # bcrypt
+        try:
+            return bcrypt.checkpw((_ANSWER_DOMAIN + answer).encode("utf-8"),
+                                  stored_hash.encode("utf-8"))
+        except ValueError:
+            return False
+    legacy = hashlib.sha256(answer.encode()).hexdigest()
+    return secrets.compare_digest(legacy, stored_hash)
+
+
+def is_legacy_answer_hash(stored_hash: str) -> bool:
+    return bool(stored_hash) and not stored_hash.startswith("$2")
+
+
+# A login for a username that does not exist returns in microseconds; one for
+# a real username spends ~300-500 ms in bcrypt. Equalizing the two is the
+# standard fix for timing-based username enumeration: run a dummy verify on
+# the no-user path so both branches cost the same. Lazily built so the test
+# suite's BCRYPT_ROUNDS override also applies here.
+_dummy_bcrypt_hash = ""
+
+
+def timing_equalize(password: str) -> None:
+    """Spend the same bcrypt cost an unknown username would have spent."""
+    global _dummy_bcrypt_hash
+    if not _dummy_bcrypt_hash:
+        _dummy_bcrypt_hash = hash_password(secrets.token_hex(16))
+    try:
+        bcrypt.checkpw(password.encode("utf-8"), _dummy_bcrypt_hash.encode("utf-8"))
+    except ValueError:
+        pass
+
+
 # --- Client IP ---
 
 def client_ip(request: Request) -> str:
@@ -98,7 +148,52 @@ def client_ip(request: Request) -> str:
 
 
 # --- Chat Rate Limiting State ---
+# In-memory fallback ONLY. The primary limiter is the `rate_limit_buckets`
+# table, for exactly the reason the login lockout moved to the database (see
+# the brute-force section below): uvicorn --workers N gives this dict N
+# independent copies, so the real limit was N × CHAT_RATE_LIMIT and every
+# restart handed out a fresh one. The dict survives as the fail-open path for
+# when the database itself is unreachable — an unreachable store must degrade
+# the limit, not take the chat endpoint down with it.
 _chat_rate_limits: Dict[str, List[float]] = {}
+
+
+def _db_rate_limit(bucket: str) -> bool | None:
+    """Shared fixed-window limiter. True/False = allowed/blocked, None = down.
+
+    One atomic upsert per request (same shape as record_failed_login): the
+    count is computed inside the row's own write, so concurrent workers can
+    neither race the counter nor both admit the same over-limit request. A
+    fixed window can admit a 2× burst straddling a boundary — the accepted
+    trade for staying a single statement.
+    """
+    from app.db.connection import get_db_connection
+
+    now = time.time()
+    window_start = datetime.datetime.fromtimestamp(
+        int(now // CHAT_RATE_WINDOW) * CHAT_RATE_WINDOW).isoformat()
+    try:
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                """
+                INSERT INTO rate_limit_buckets (key, window_start, count)
+                VALUES (?, ?, 1)
+                ON CONFLICT(key) DO UPDATE SET
+                    count        = CASE WHEN rate_limit_buckets.window_start = excluded.window_start
+                                        THEN rate_limit_buckets.count + 1 ELSE 1 END,
+                    window_start = excluded.window_start
+                RETURNING count
+                """,
+                (bucket, window_start),
+            ).fetchone()
+            conn.commit()
+            return int(row["count"]) <= CHAT_RATE_LIMIT
+        finally:
+            conn.close()
+    except Exception as exc:                      # noqa: BLE001
+        logger.error("Rate-limit store unreadable, degrading to in-memory: %s", exc)
+        return None
 
 
 def check_rate_limit(http_request: Request, key: str = ""):
@@ -108,13 +203,24 @@ def check_rate_limit(http_request: Request, key: str = ""):
     # "unknown" rather than "": an empty key would put every clientless request
     # (there is no socket in some ASGI test transports) into a bucket that also
     # collects anything else that fails to resolve, silently and unlabelled.
-    ip = key or client_ip(http_request) or "unknown"
+    bucket = key or client_ip(http_request) or "unknown"
+
+    allowed = _db_rate_limit(f"rl:{bucket}")
+    if allowed is not None:
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please wait a moment."
+            )
+        return
+
+    # In-memory fallback (store unavailable): the original sliding window.
     now = time.time()
     # Purge stale IPs to prevent unbounded memory growth
     stale = [k for k, v in _chat_rate_limits.items() if not v or now - v[-1] > CHAT_RATE_WINDOW]
     for k in stale:
         del _chat_rate_limits[k]
-    timestamps = _chat_rate_limits.get(ip, [])
+    timestamps = _chat_rate_limits.get(bucket, [])
     timestamps = [t for t in timestamps if now - t < CHAT_RATE_WINDOW]
     if len(timestamps) >= CHAT_RATE_LIMIT:
         raise HTTPException(
@@ -122,7 +228,7 @@ def check_rate_limit(http_request: Request, key: str = ""):
             detail="Too many requests. Please wait a moment."
         )
     timestamps.append(now)
-    _chat_rate_limits[ip] = timestamps
+    _chat_rate_limits[bucket] = timestamps
 
 
 # --- Chat Token ---

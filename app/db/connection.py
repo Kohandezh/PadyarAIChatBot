@@ -166,6 +166,17 @@ def _create_sqlite_schema(cursor):
     )
     ''')
 
+    # Cross-worker rate limiting (chat + public form endpoints). Same story as
+    # login_attempts above: an in-process dict is one dict per uvicorn worker.
+    # Mirrors app.rate_limit_buckets in migrations/0007_security_hardening.sql.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+        key TEXT PRIMARY KEY,
+        window_start TIMESTAMP NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0
+    )
+    ''')
+
     # Migration: add username column to existing admin_sessions
     try:
         cursor.execute('SELECT username FROM admin_sessions LIMIT 1')
@@ -285,12 +296,12 @@ def _seed_admin(cursor):
     and change it. If an admin already exists this is a no-op, so existing
     installs are never touched."""
     from app.config import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECURITY_ANSWER
-    from app.auth.security import hash_password
+    from app.auth.security import hash_password, hash_security_answer
 
     password = ADMIN_PASSWORD or secrets.token_urlsafe(12)
     answer = ADMIN_SECURITY_ANSWER or secrets.token_urlsafe(6)
     pwd_hash = hash_password(password)
-    ans_hash = hashlib.sha256(answer.encode()).hexdigest()
+    ans_hash = hash_security_answer(answer)
 
     # INSERT OR IGNORE (username is PRIMARY KEY) — race-safe across gunicorn
     # workers; rowcount is 1 only for the worker that actually created the row.
@@ -339,10 +350,14 @@ def _write_admin_credentials(username, password, answer):
             )
         logger.warning("Admin credentials generated → %s (change them, then delete the file)", path)
     except OSError as e:
-        # If the file can't be written, surface BOTH credentials in the logs —
-        # the security answer is needed for password reset, so losing it locks
-        # the admin out of recovery.
+        # Never the credentials themselves in a log — a shipped journal or log
+        # aggregator would make the bootstrap password durable far beyond the
+        # file's intended lifetime. Point the operator at the recovery path
+        # instead (re-seed by deleting the DB, or set ADMIN_PASSWORD /
+        # ADMIN_SECURITY_ANSWER in the environment before first boot).
         logger.warning(
-            "Admin credentials generated (file write failed: %s) — password: %s, security answer: %s",
-            e, password, answer,
+            "Admin credentials generated but the credentials file could not be "
+            "written (%s). Re-run with ADMIN_PASSWORD / ADMIN_SECURITY_ANSWER "
+            "set in the environment, or delete the database to re-seed.",
+            e,
         )

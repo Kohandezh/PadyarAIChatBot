@@ -123,6 +123,9 @@ def _quote(value: str) -> str:
     """Quote only when the value needs it (dotenv-compatible)."""
     if value and all(c.isalnum() or c in "._-:/=+@" for c in value):
         return value
+    # A raw newline inside quotes is read back fine by python-dotenv but
+    # splits under shell/docker env_file parsers — flatten it.
+    value = value.replace("\n", " ").replace("\r", " ")
     return '"%s"' % value.replace("\\", "\\\\").replace('"', '\\"')
 
 
