@@ -60,7 +60,19 @@
 
                 <hr>
 
-                <!-- Manual + list -->
+                {% if backup_engine == 'postgres' %}
+                <!-- PostgreSQL: نسخه‌ها و بازگردانی این‌جا نیستند. فایل‌های
+                     این صفحه مال SQLite بودند و روی PostgreSQL وجود ندارند؛
+                     نسخه‌های پشتیبان واقعی از صفحه زیردستمی خوانده می‌شوند. -->
+                <div class="alert alert-info d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <span>نسخه‌های پشتیبان، بررسی سالم بودن و بازگردانی آن‌ها در صفحهٔ
+                        «زیرساخت» انجام می‌شود.</span>
+                    <a class="btn btn-primary" href="/secure-panel-inotex/infrastructure/backups">
+                        <i class="fas fa-server me-1"></i>رفتن به پشتیبان‌های پایگاه داده
+                    </a>
+                </div>
+                {% else %}
+                <!-- Manual + list (SQLite) -->
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h6 class="m-0">نسخه‌های پشتیبان</h6>
                     <div class="d-flex gap-2">
@@ -88,6 +100,7 @@
                         </tbody>
                     </table>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>

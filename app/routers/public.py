@@ -362,7 +362,15 @@ async def admin_settings_backup(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
-    return _render("admin/settings_backup.html", request=request, active_page="settings_backup")
+    # On PostgreSQL, the backup list/upload on this page is SQLite-era dead
+    # weight: the files it would list (.db sets) do not exist and the upload
+    # cannot restore a pg_dump archive. Only the schedule belongs here; the
+    # list, verify, download and restore of PostgreSQL backups live on the
+    # infrastructure page. The template hides the dead section on this flag.
+    from app.config import DB_BACKEND
+    return _render("admin/settings_backup.html", request=request,
+                   active_page="settings_backup",
+                   backup_engine=("postgres" if DB_BACKEND == "postgres" else "sqlite"))
 
 
 # --- Public APIs ---

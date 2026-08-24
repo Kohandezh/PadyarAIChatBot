@@ -96,22 +96,45 @@ def _claim_due_slot(current_next: str, new_next: str) -> bool:
 def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
     """Take a backup SET + prune, and record the time.
 
-    A SET, not a single file: this install has TWO databases (content and
-    logging) and a copy of one without the other cannot restore the system.
-    app/services/backup_center.py owns that, including the WAL-safe copy and
-    the manifest — this function only decides WHEN.
+    A SET, not a single file — on SQLite: this install has TWO databases
+    (content and logging) and a copy of one without the other cannot restore
+    the system. app/services/backup_center.py owns that, including the
+    WAL-safe copy and the manifest. On PostgreSQL the unit is a pg_dump
+    custom archive owned by app/services/pg_backup.py. This function only
+    decides WHEN — and, since the PostgreSQL cutover, WHICH engine.
 
-    Returns the new set's directory path, keeping the old string contract so
-    the legacy admin endpoint (`os.path.basename(path)`) still reports a
-    sensible name — it now reports the backup id."""
+    The engine dispatch mirrors `app/routers/backups.py:_engine()`: anything
+    that decides to run a backup must reach the implementation that can
+    actually restore it. The scheduler used to call the SQLite sets path
+    unconditionally, which on a PostgreSQL install logged "No database at
+    .../chat_history.db" every night at 03:00 and backed nothing up.
+
+    Returns the new backup's directory path, keeping the old string contract
+    so the legacy admin endpoint (`os.path.basename(path)`) still reports a
+    sensible name — it reports the backup id."""
+    if _backup_engine() == "postgres":
+        from app.services import pg_backup
+        summary = pg_backup.create(actor=actor, reason=kind)
+        removed = pg_backup.prune()
+        set_setting("backup_last_run", datetime.now().isoformat())
+        logger.info("PostgreSQL backup created: %s%s", summary["backup_id"],
+                    f" (pruned {len(removed)})" if removed else "")
+        return pg_backup.backup_dir(summary["backup_id"]) or summary["backup_id"]
+
     from app.services import backup_center
-
     summary = backup_center.create(actor=actor, kind=kind)
     removed = backup_center.prune()
     set_setting("backup_last_run", datetime.now().isoformat())
     logger.info("Backup set created: %s%s", summary["backup_id"],
                 f" (pruned {len(removed)})" if removed else "")
     return backup_center.set_dir(summary["backup_id"]) or summary["backup_id"]
+
+
+def _backup_engine() -> str:
+    """`postgres` or `sqlite`. Same test the backups router uses, in one
+    place so the scheduler and the API can never disagree."""
+    from app.config import DB_BACKEND
+    return "postgres" if DB_BACKEND == "postgres" else "sqlite"
 
 
 def create_backup_now(actor: str = "admin"):
