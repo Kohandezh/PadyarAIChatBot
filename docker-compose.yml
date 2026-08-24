@@ -1,4 +1,19 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=padyar_app
+      - POSTGRES_PASSWORD=padyar_local_dev
+      - POSTGRES_DB=padyar
+    volumes:
+      - padyar-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U padyar_app -d padyar"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   padyar:
     build: .
     ports:
@@ -9,12 +24,23 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_API_BASE=${OPENAI_API_BASE:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
-      - DB_PATH=/app/data/chat_history.db
+      - DB_BACKEND=postgres
+      - DATABASE_URL=postgresql://padyar_app:padyar_local_dev@db:5432/padyar
+    # The migration runner is idempotent and checksum-guarded, so applying on
+    # every boot is safe — and the only step a fresh install needs before the
+    # app can create its tables' contents.
+    command: >
+      sh -c "python scripts/apply_migrations.py &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - padyar-data:/app/data
       - padyar-media:/app/media
     restart: unless-stopped
 
 volumes:
+  padyar-pgdata:
   padyar-data:
   padyar-media:

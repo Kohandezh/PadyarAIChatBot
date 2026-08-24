@@ -2,6 +2,10 @@
 
 Run from the project root:  python scripts/change-admin.py
 
+Works on the configured backend: PostgreSQL in production, SQLite for the
+test suite / rollback (`--db`-style file overrides live in
+reset-admin-password.py).
+
 Passwords are hashed with SHA-256 + a per-account salt, matching how the app
 seeds admins and how the login endpoint verifies them. The security answer is
 hashed with SHA-256, matching how the login and "change security question"
@@ -46,13 +50,21 @@ def prompt_password():
 
 
 def main():
-    if not os.path.exists(DB_PATH):
-        print(f"Database not found at {DB_PATH}. Start the app once to create it.")
-        sys.exit(1)
+    from app.config import DB_BACKEND
+    if DB_BACKEND == "postgres":
+        from app.db.connection import get_db_connection
+        conn = get_db_connection()
+        where = "PostgreSQL"
+    else:
+        if not os.path.exists(DB_PATH):
+            print(f"Database not found at {DB_PATH}. Start the app once to create it.")
+            sys.exit(1)
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        where = f"SQLite at {DB_PATH}"
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
+    print(f"Database : {where}")
 
     existing = [r["username"] for r in cur.execute("SELECT username FROM admins").fetchall()]
     if existing:

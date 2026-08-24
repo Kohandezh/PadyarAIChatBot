@@ -112,9 +112,9 @@ async def read_root():
 
 # --- Public Data API (DB is the single source of truth) ---
 # The chat frontend reads these endpoints for its suggested-question list.
-# Dataset/questions live in SQLite only — there are no JSON data files.
+# Dataset/questions live in the database only — there are no JSON data files.
 
-# Defined as sync `def` (not `async def`): they run blocking SQLite queries,
+# Defined as sync `def` (not `async def`): they run blocking database queries,
 # so FastAPI runs them in a threadpool instead of blocking the event loop —
 # important since the chat frontend hits these frequently.
 @router.get("/api/dataset")

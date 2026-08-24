@@ -21,7 +21,6 @@ production marker). The code is never returned by any API response.
 """
 import hmac
 import os
-import sqlite3
 import re
 import secrets
 import hashlib
