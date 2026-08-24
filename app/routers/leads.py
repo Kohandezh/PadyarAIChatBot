@@ -289,8 +289,13 @@ async def edit_state(token: str, request: Request):
     # `متن پاسخ`, plus the company name as a read-only heading so the contact
     # knows whose text this is. `id`, `video_url` and the English columns are
     # not in this response, because they are not part of this conversation.
+    # `submission` is what happened to the last text this company sent, and the
+    # invite in a rejection notice opens THIS page, so the reviewer's reason has
+    # to arrive with it. Without it the contact reads "not approved" and has
+    # nothing to change.
     return {"company": view["company"], "text": view["text"],
-            "pending": view["pending"], "expires_at": view["expires_at"],
+            "pending": view["pending"], "submission": view["submission"],
+            "expires_at": view["expires_at"],
             "consent_script": leads_service.consent_script()["text"]}
 
 
@@ -543,6 +548,22 @@ async def admin_stuck(request: Request, admin: str = Depends(verify_admin)):
     return {"stuck": rows}
 
 
+@router.post("/admin/api/leads/{lead_id}/remind")
+async def admin_remind(lead_id: str, request: Request,
+                       admin: str = Depends(verify_admin)):
+    """Send a stuck contact their link again. One row, one click, one message.
+
+    The other half of the stuck list: releasing gives the company back to the
+    visitors, reminding gives the contact one more chance to answer for it.
+    Until this existed the person who verified their number and then went quiet
+    heard nothing at all.
+    """
+    try:
+        return leads_service.remind_lead(lead_id, _base_url(request), actor=admin)
+    except LeadError as e:
+        raise _fail(e)
+
+
 @router.post("/admin/api/leads/{lead_id}/release")
 async def admin_release(lead_id: str, request: Request,
                         admin: str = Depends(verify_admin)):
@@ -658,6 +679,12 @@ async def admin_edits(request: Request, status: str = "pending",
 
 class ReviewBody(BaseModel):
     approve: bool
+    # Why the text was refused. Required on a rejection and dropped on an
+    # approval; both rules live in leads_service.clean_review_note, because the
+    # panel is not the only thing that will ever call review_edit. The ceiling
+    # is the column's, so an over-long note is a `422` here rather than a
+    # silent truncation two layers down.
+    note: str = Field(default="", max_length=leads_service.MAX_REVIEW_NOTE_CHARS)
 
 
 @router.post("/admin/api/leads/edits/{edit_id}")
@@ -668,7 +695,8 @@ async def admin_review_edit(edit_id: str, body: ReviewBody, request: Request,
         # session cookie, which named nobody and put a piece of a live
         # credential in a table the panel prints.
         return leads_service.review_edit(edit_id, body.approve, reviewer=admin,
-                                         base_url=_base_url(request))
+                                         base_url=_base_url(request),
+                                         note=body.note)
     except LeadError as e:
         raise _fail(e)
 

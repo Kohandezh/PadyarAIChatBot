@@ -39,16 +39,31 @@
     return false;
   }
 
-  /* Three states, in the words a person would use. `none` is the first visit
-     and says nothing at all: an empty box needs no banner. */
+  /* The person reading this is a company manager on a phone who may not
+     remember what this system is, so the banner carries the whole explanation.
+
+     Two of these must never be mistaken for each other. `rejected` means a
+     person read the text and refused it: there is a reason, and the manager
+     has to change something. `none` means they have simply not sent anything
+     yet: nothing was refused and nobody did anything wrong. Telling somebody
+     their text was turned down when they never sent one is worse than saying
+     nothing, so `none` gets its own tone, its own words and no reason line. */
   var STATE = {
+    none: ['info', 'یک قدم مانده',
+      'متن پایین را بخوانید. اگر درست است دکمهٔ «ثبت متن» را بزنید. اگر جایی‌اش باید عوض شود، همین‌جا اصلاحش کنید و بعد بفرستید.'],
     pending: ['wait', 'در انتظار بررسی',
       'متن شما ثبت شده و در نوبت بررسی است. تا وقتی تأیید نشده، همان متن قبلی روی چت‌بات می‌ماند.'],
     approved: ['ok', 'تأیید شد',
       'متن شما تأیید شد و روی چت‌بات نمایشگاه نشست. اگر باز هم تغییری لازم بود، همین‌جا بنویسید و بفرستید.'],
-    rejected: ['bad', 'تأیید نشد',
-      'متن قبلی شما تأیید نشد. آن را اصلاح کنید و دوباره بفرستید.']
+    rejected: ['bad', 'متن شما نیاز به اصلاح دارد',
+      'همکار ما متن را خواند و فعلاً روی چت‌بات نگذاشت. متن را اصلاح کنید و دوباره بفرستید.']
   };
+
+  /* The same sentence when there IS a reason to point at. A rejection made
+     before the reviewer had a box to write in has none, and a page that says
+     «دلیلش را پایین نوشته» above an empty line is a page that lies. */
+  var REJECTED_WITH_REASON =
+    'همکار ما متن را خواند و فعلاً روی چت‌بات نگذاشت. دلیلش را پایین نوشته است. متن را اصلاح کنید و دوباره بفرستید.';
 
   /* The server may carry the review result inline on the company row or under
      a `submission` object. Both are read here so the page has one shape. */
@@ -66,11 +81,14 @@
       el('state').hidden = true;
       return;
     }
+    var rejectedWithReason = info.status === 'rejected' && info.reason;
     el('state').hidden = false;
     el('state').className = 'state ' + meta[0];
     el('state-title').textContent = meta[1];
-    el('state-text').textContent = meta[2];
-    el('state-reason').hidden = !(info.status === 'rejected' && info.reason);
+    el('state-text').textContent = rejectedWithReason ? REJECTED_WITH_REASON : meta[2];
+    /* textContent, never innerHTML. An administrator typed this and a stranger
+       is reading it on their own phone. */
+    el('state-reason').hidden = !rejectedWithReason;
     el('state-reason').textContent = info.reason ? 'دلیل: ' + info.reason : '';
   }
 
@@ -103,6 +121,7 @@
     api('/api/my/edit/' + encodeURIComponent(company.id)).then(function (data) {
       company.text = data.text || '';
       if (data.company && !company.title) { company.title = data.company; }
+      if (data.submission && !company.submission) { company.submission = data.submission; }
       if (data.pending && !company.submission && !company.edit_status) { company.pending = true; }
       openCompany(company);
     }).catch(function (e) {

@@ -29,6 +29,15 @@
       <blockquote id="consent-text">سلام، من از تیم چت‌بات نمایشگاه هستم. کاری که انجام می‌دهیم تأیید اطلاعات شرکت شما برای نمایش در چت‌بات نمایشگاه است. الان یک کد پیامکی برای شما می‌آید، لطفاً آن را برای من بخوانید. بعد از ثبت، خودتان باید بروید و ببینید اطلاعات شرکتتان درست وارد شده باشد. این اطلاعات شامل یک متن معرفی است که شرکت شما و محصولاتش را توصیف می‌کند.</blockquote>
     </div>
 
+    <!-- A rejection notice sends the contact back to THIS page with a fresh
+         link, so the reviewer's reason has to be readable here. Empty and
+         hidden until the server says the last text was refused. -->
+    <div class="state bad" id="reject-state" hidden>
+      <h3 id="reject-title"></h3>
+      <p id="reject-text"></p>
+      <p id="reject-reason" hidden></p>
+    </div>
+
     <h2>متن پاسخ</h2>
     <p class="hint">این همان متنی است که چت‌بات نمایشگاه در پاسخ به بازدیدکننده‌ها دربارهٔ شرکت شما می‌گوید. هر جای آن را لازم دیدید اصلاح کنید.</p>
     <div class="note warn" id="pending-note" hidden>متن قبلی شما ثبت شده و در انتظار بررسی است. اگر لازم است اصلاحش کنید و دوباره تأیید بزنید.</div>

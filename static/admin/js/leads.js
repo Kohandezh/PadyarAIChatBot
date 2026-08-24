@@ -102,11 +102,14 @@ function gapCell(l) {
         : `<span class="small">${text}</span>`;
 }
 
-function alertBox(text) {
+// Danger unless told otherwise, because almost everything that lands here is a
+// refusal. The reminder is the exception: "the SMS went out" in red reads as a
+// failure to whoever glances at it.
+function alertBox(text, tone) {
     const el = document.getElementById('leads-alert');
-    if (!text) { el.classList.add('d-none'); el.textContent = ''; return; }
+    if (!text) { el.className = 'alert alert-danger d-none'; el.textContent = ''; return; }
+    el.className = `alert alert-${tone || 'danger'}`;
     el.textContent = text;
-    el.classList.remove('d-none');
 }
 
 function note(id, text, tone) {
@@ -295,6 +298,59 @@ async function loadFunnel() {
     document.getElementById('pending-count').textContent = fa(data.pending_review);
 }
 
+// ── Rejecting with a reason ─────────────────────────────────────────────
+//
+// A rejection used to be one click and a confirm box, and the contact was told
+// only that their text was not approved. They opened their page, read back
+// their own words, and had nothing to change, so the honest next move was to
+// send the same text again. The reason is now required, because an optional
+// box on this screen is an empty box: whoever is clearing forty items skips it
+// every time, which is the defect it exists to remove.
+//
+// The cost of requiring it is paid down here rather than argued away. A
+// rejection is the rare verdict, approving still asks for nothing, and the
+// four sentences that actually repeat are one tap each. So the fast path and
+// the useful path are the same path.
+//
+// Every sentence here is read by a company manager on their own phone, so they
+// name what to change and never scold.
+const REJECT_REASONS = [
+    'شمارهٔ تماس یا نشانی اینترنتی را از متن بردارید.',
+    'متن خیلی کوتاه است. کمی بیشتر دربارهٔ شرکت و محصولاتتان بنویسید.',
+    'این متن دربارهٔ شرکت شما نیست.',
+    'متن حالت تبلیغ دارد. لطفاً یک معرفی ساده بنویسید.',
+];
+
+// Same floor the server enforces (leads_service.MIN_REVIEW_NOTE_CHARS). Said
+// twice on purpose: the server is the rule, this is so the reviewer finds out
+// before the round trip.
+const MIN_REASON = 10;
+const MAX_REASON = 300;
+
+function rejectBox() {
+    return `
+      <div class="mt-3 d-none" data-reject-box>
+        <label class="form-label fw-bold small mb-1">
+          چرا این متن رد می‌شود؟ این جمله را خودِ مخاطب می‌خواند.
+        </label>
+        <div class="mb-2">
+          ${REJECT_REASONS.map(r => `
+            <button type="button" class="btn btn-sm btn-outline-secondary mb-1"
+                    data-reason="${esc(r)}">${esc(r)}</button>`).join(' ')}
+        </div>
+        <textarea class="form-control" rows="2" maxlength="${MAX_REASON}"
+                  data-reason-input
+                  placeholder="مثلاً: شمارهٔ تماس را از متن بردارید."></textarea>
+        <div class="small text-danger mt-1 d-none" data-reason-error></div>
+        <div class="mt-2">
+          <button class="btn btn-danger btn-sm" data-reject-send="1">
+            <i class="fas fa-paper-plane me-1"></i>رد کن و به مخاطب اطلاع بده
+          </button>
+          <button class="btn btn-link btn-sm text-muted" data-reject-cancel="1">انصراف</button>
+        </div>
+      </div>`;
+}
+
 async function loadEdits() {
     const { edits } = await get('/admin/api/leads/edits');
     const box = document.getElementById('edits');
@@ -314,9 +370,10 @@ async function loadEdits() {
           <button class="btn btn-success btn-sm" data-approve="1">
             <i class="fas fa-check me-1"></i>تأیید و انتشار روی چت‌بات
           </button>
-          <button class="btn btn-outline-danger btn-sm" data-approve="0">
+          <button class="btn btn-outline-danger btn-sm" data-reject-open="1">
             <i class="fas fa-times me-1"></i>رد و اطلاع به مخاطب
           </button>
+          ${rejectBox()}
         </div>`).join('');
 }
 
@@ -360,6 +417,14 @@ async function loadStuck() {
           <td>${esc(s.visitor_name) || '<span class="text-muted">—</span>'}</td>
           <td>${esc(waitedFor(s))}</td>
           <td class="text-end">
+            <!-- Nothing has reached this person since the booth. They read six
+                 digits out loud and were handed a link they never opened, and
+                 that is a normal thing to happen at a busy stand, not a
+                 failure. So the first button is a nudge and only the second
+                 one gives the company away. -->
+            <button class="btn btn-sm btn-outline-secondary" data-remind="1">
+              فرستادن دوبارهٔ لینک
+            </button>
             <button class="btn btn-sm btn-outline-primary" data-release="1">
               آزاد کردن و برگرداندن به فهرست
             </button>
@@ -533,19 +598,64 @@ export function initLeads() {
     });
 
     document.getElementById('edits').addEventListener('click', async (ev) => {
-        const btn = ev.target.closest('[data-approve]');
-        if (!btn) return;
-        const approve = btn.dataset.approve === '1';
-        const ask = approve
-            ? 'این متن از همین لحظه پاسخی است که چت‌بات به همهٔ بازدیدکننده‌ها می‌دهد. تأیید می‌کنید؟'
-            : 'متن رد می‌شود و یک پیامک به مخاطب می‌رود که دوباره متن را بفرستد. ادامه می‌دهید؟';
-        if (!confirm(ask)) return;
-        btn.disabled = true;
-        const id = btn.closest('[data-edit]').dataset.edit;
-        const data = await post(`/admin/api/leads/edits/${encodeURIComponent(id)}`, { approve });
+        const card = ev.target.closest('[data-edit]');
+        if (!card) return;
+        const rejectPanel = card.querySelector('[data-reject-box]');
+        const input = card.querySelector('[data-reason-input]');
+        const error = card.querySelector('[data-reason-error]');
+
+        // One tap fills the box with a sentence the contact can act on. It
+        // lands in the textarea rather than posting straight away, so the
+        // reviewer can add the specific word before it goes.
+        const preset = ev.target.closest('[data-reason]');
+        if (preset) {
+            input.value = preset.dataset.reason;
+            error.classList.add('d-none');
+            input.focus();
+            return;
+        }
+
+        if (ev.target.closest('[data-reject-open]')) {
+            rejectPanel.classList.remove('d-none');
+            input.focus();
+            return;
+        }
+
+        if (ev.target.closest('[data-reject-cancel]')) {
+            rejectPanel.classList.add('d-none');
+            error.classList.add('d-none');
+            return;
+        }
+
+        const approveBtn = ev.target.closest('[data-approve]');
+        const sendBtn = ev.target.closest('[data-reject-send]');
+        if (!approveBtn && !sendBtn) return;
+        const approve = !!approveBtn;
+        const id = card.dataset.edit;
+
+        let note = '';
+        if (!approve) {
+            note = input.value.trim();
+            if (note.length < MIN_REASON) {
+                // Checked here so the reviewer finds out in place, not after a
+                // round trip. The server refuses it either way.
+                error.textContent = 'دلیل را در یک جملهٔ کامل بنویسید. مخاطب فقط همین را می‌خواند.';
+                error.classList.remove('d-none');
+                input.focus();
+                return;
+            }
+            error.classList.add('d-none');
+        } else if (!confirm('این متن از همین لحظه پاسخی است که چت‌بات به همهٔ بازدیدکننده‌ها می‌دهد. تأیید می‌کنید؟')) {
+            return;
+        }
+
+        (approveBtn || sendBtn).disabled = true;
+        const data = await post(`/admin/api/leads/edits/${encodeURIComponent(id)}`,
+                                { approve, note });
         // Rejecting notifies the contact by SMS, and that can fail on its own.
+        // The reason is stored either way and waits on their page.
         if (data && data.notified === false) {
-            alertBox('متن رد شد، ولی پیامک اطلاع‌رسانی به مخاطب نرفت'
+            alertBox('متن رد شد و دلیلش ذخیره شد، ولی پیامک اطلاع‌رسانی به مخاطب نرفت'
                 + (data.notify_error ? `: ${data.notify_error}` : '.'));
         }
         await refresh();
@@ -575,11 +685,30 @@ export function initLeads() {
     });
 
     document.getElementById('stuck').addEventListener('click', async (ev) => {
+        const row = ev.target.closest('[data-lead]');
+        if (!row) return;
+        const id = row.dataset.lead;
+
+        const remind = ev.target.closest('[data-remind]');
+        if (remind) {
+            if (!confirm('یک پیامک با لینک تازه به مخاطب فرستاده می‌شود و لینک قبلی‌اش از کار می‌افتد. ادامه می‌دهید؟')) return;
+            remind.disabled = true;
+            const data = await post(`/admin/api/leads/${encodeURIComponent(id)}/remind`);
+            if (data && data.notified === false) {
+                alertBox('پیامک به مخاطب نرفت'
+                    + (data.notify_error ? `: ${data.notify_error}` : '.'));
+            } else if (data) {
+                alertBox(`لینک تازه برای ${data.destination_masked || 'مخاطب'} فرستاده شد.`,
+                         'success');
+            }
+            remind.disabled = false;
+            return;
+        }
+
         const btn = ev.target.closest('[data-release]');
         if (!btn) return;
         if (!confirm('نام این شرکت به فهرست جستجوی همکاران غرفه برمی‌گردد و لینک قبلی مخاطب از کار می‌افتد. ادامه می‌دهید؟')) return;
         btn.disabled = true;
-        const id = btn.closest('[data-lead]').dataset.lead;
         if (await post(`/admin/api/leads/${encodeURIComponent(id)}/release`)) await refresh();
         else btn.disabled = false;
     });

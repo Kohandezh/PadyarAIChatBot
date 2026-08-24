@@ -199,7 +199,11 @@ def test_the_read_response_carries_the_company_and_the_text_and_nothing_else(
     assert read.status_code == 200, read.text
     body = read.json()
 
-    assert set(body) == {"company", "text", "pending", "expires_at", "consent_script"}
+    # `submission` is what became of the last text this company sent, and it is
+    # here because the invite a rejection notice carries opens THIS page: the
+    # reviewer's reason has nowhere else to be read.
+    assert set(body) == {"company", "text", "pending", "submission",
+                         "expires_at", "consent_script"}
     assert body["company"] == invite["company"]
     assert body["text"] == invite["live_text"]
     assert body["pending"] is False

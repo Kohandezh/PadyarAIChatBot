@@ -34,6 +34,27 @@
     el('counter').classList.toggle('over', left <= 0);
   }
 
+  /* Why the last text was refused, on the page the rejection notice opens.
+     The SMS can only say "not approved and here is a link", so this is the
+     only place the person ever reads what to change. It appears ONLY for a
+     rejection: a first visit is the normal case and needs no banner at all,
+     and a banner on one would tell somebody their text was turned down when
+     they never sent one. */
+  function paintRejection(submission) {
+    var status = (submission || {}).status || '';
+    if (status !== 'rejected') { return; }
+    var reason = ((submission || {}).reason || '').trim();
+    el('reject-state').hidden = false;
+    el('reject-title').textContent = 'متن شما نیاز به اصلاح دارد';
+    el('reject-text').textContent = reason
+      ? 'همکار ما متن قبلی را خواند و فعلاً روی چت‌بات نگذاشت. دلیلش را پایین نوشته است. متن را اصلاح کنید و دوباره تأیید بزنید.'
+      : 'همکار ما متن قبلی را خواند و فعلاً روی چت‌بات نگذاشت. متن را اصلاح کنید و دوباره تأیید بزنید.';
+    /* textContent, never innerHTML. An administrator typed this sentence and a
+       stranger's browser is rendering it. */
+    el('reject-reason').hidden = !reason;
+    el('reject-reason').textContent = reason ? 'دلیل: ' + reason : '';
+  }
+
   api(endpoint).then(function (data) {
     /* A missing name leaves the heading that shipped with the page. An empty
        heading, or the word undefined, would be worse than a generic one. */
@@ -41,6 +62,7 @@
     if (company) { el('company').textContent = company; }
     el('text').value = data.text || '';
     el('pending-note').hidden = !data.pending;
+    paintRejection(data.submission);
     /* The booth script is an admin setting and can be reworded. The page ships
        with the approved text so the consent is never missing. */
     if (data.consent_script) { el('consent-text').textContent = data.consent_script; }

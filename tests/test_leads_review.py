@@ -78,6 +78,9 @@ def client(paths):
 
 LIVE_TEXT = "متن قدیمی که تیم پادیار نوشته است."
 NEW_TEXT = "متن درست شرکت را خودمان نوشتیم."
+# What a reviewer types when they refuse. The contact reads this sentence and
+# nothing else, so every rejection in these tests carries a real one.
+REASON = "شمارهٔ تماس را از متن بردارید."
 
 
 def _admin(client):
@@ -259,7 +262,8 @@ def test_rejecting_leaves_the_live_answer_untouched_and_tells_the_contact(
 
     _admin(client)
     edit_id = client.get("/admin/api/leads/edits").json()["edits"][0]["id"]
-    rejected = client.post(f"/admin/api/leads/edits/{edit_id}", json={"approve": False})
+    rejected = client.post(f"/admin/api/leads/edits/{edit_id}",
+                           json={"approve": False, "note": REASON})
     assert rejected.status_code == 200, rejected.text
     assert rejected.json()["status"] == "rejected"
     assert rejected.json()["notified"] is True
@@ -298,7 +302,8 @@ def test_the_rejection_notice_is_traceable_to_its_lead(client, outbox, notices):
     _submit(client, booth["token"])
     _admin(client)
     edit_id = client.get("/admin/api/leads/edits").json()["edits"][0]["id"]
-    client.post(f"/admin/api/leads/edits/{edit_id}", json={"approve": False})
+    client.post(f"/admin/api/leads/edits/{edit_id}",
+                json={"approve": False, "note": REASON})
 
     assert len(notices) == 1
     assert notices[0][2] == booth["lead_id"]

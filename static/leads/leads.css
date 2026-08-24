@@ -233,6 +233,9 @@ button + button { margin-top: 10px; }
 .state.wait { background: #fff6e5; color: #8a5b00; border-color: #f0dcae; }
 .state.ok   { background: #e6f7f3; color: #076b58; border-color: #bfe7dd; }
 .state.bad  { background: #fdecec; color: var(--bad); border-color: #f3c9c7; }
+/* «You have not sent anything yet». Calm blue, not the red of a refusal:
+   nothing went wrong here and the colour must not say otherwise. */
+.state.info { background: #e8effb; color: #24457c; border-color: #c6d6f0; }
 
 .badge.err { background: #fdecec; color: var(--bad); }
 

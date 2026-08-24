@@ -161,6 +161,63 @@ MARKUP_MESSAGE = (
 )
 
 
+# ── The reviewer's reason (SPEC REQ-026, gap closed 2026-08-24) ──────────
+#
+# WHY A REJECTION MUST CARRY ONE
+# `dataset_edits` used to record who reviewed and when, and nothing about why.
+# A company manager got an SMS saying their text was not approved, opened their
+# page, read back the words they had written, and had nothing to change. The
+# only move left is to send the same text again, so the queue grows a row that
+# will be refused for the same unstated reason.
+#
+# WHY IT IS REQUIRED AND NOT OPTIONAL
+# An optional box produces exactly the empty rejection this exists to remove:
+# the reviewer clearing forty items skips it every time, and the contact is
+# back where they started. The cost of requiring it is real but small, because
+# a rejection is the rare verdict here, an approval asks for nothing, and the
+# panel offers one-tap sentences for the reasons that actually repeat. So the
+# fast path and the useful path are the same path.
+#
+# A minimum length rather than "not empty": a required field that takes a space
+# is an optional field with an extra keystroke. Ten characters is short enough
+# for a real Persian sentence («متن کوتاه است») and long enough that a full
+# stop does not pass.
+MIN_REVIEW_NOTE_CHARS = 10
+MAX_REVIEW_NOTE_CHARS = 300
+
+REVIEW_NOTE_REQUIRED_MESSAGE = (
+    "دلیل رد را بنویسید. مخاطب شرکت همین جمله را روی صفحهٔ خودش می‌خواند و تنها "
+    "چیزی است که به او می‌گوید چه چیزی را باید عوض کند."
+)
+
+# The note is written by an administrator and rendered to an outside contact,
+# so it meets the same rule as the answer text (see _TAG_SHAPED above). Its
+# readers all escape today; the column is new and its next reader is not
+# written yet, and a reason for a refusal never needs markup. The sentence
+# differs from MARKUP_MESSAGE because the audience does: this one is read by a
+# colleague with the panel open, not by a manager on a phone.
+REVIEW_NOTE_MARKUP_MESSAGE = (
+    "دلیل رد نباید کد HTML داشته باشد. همان جمله را ساده بنویسید."
+)
+
+
+def clean_review_note(note: str, approve: bool) -> str:
+    """The reason a rejection carries, or '' for an approval.
+
+    An approval sends nothing and shows nothing, so a note typed beside one is
+    dropped rather than stored: a reason nobody will ever read is a reason that
+    misleads whoever finds it later.
+    """
+    text = " ".join((note or "").split())
+    if approve:
+        return ""
+    if len(text) < MIN_REVIEW_NOTE_CHARS:
+        raise LeadError(REVIEW_NOTE_REQUIRED_MESSAGE, code="note_required")
+    if _TAG_SHAPED.search(text):
+        raise LeadError(REVIEW_NOTE_MARKUP_MESSAGE, code="markup_not_allowed")
+    return text[:MAX_REVIEW_NOTE_CHARS]
+
+
 def assert_plain_text(text: str) -> None:
     """Refuse an answer text that carries markup. Both doors call this.
 
@@ -311,7 +368,10 @@ _TABLES = (
         status       TEXT NOT NULL DEFAULT 'pending',
         created_at   TEXT NOT NULL,
         reviewed_at  TEXT,
-        reviewed_by  TEXT NOT NULL DEFAULT ''
+        reviewed_by  TEXT NOT NULL DEFAULT '',
+        -- Why the reviewer refused. Empty on an approval and on every row
+        -- written before migrations/0009_review_note.sql.
+        review_note  TEXT NOT NULL DEFAULT ''
     )
     """,
 )
@@ -373,6 +433,13 @@ _SQLITE_UPGRADE_0007 = (
     "ALTER TABLE lead_visitors_new RENAME TO lead_visitors",
 )
 
+# The SQLite half of migrations/0009_review_note.sql. One column, and the
+# historical rows keep the empty default, which reads as "no reason given" the
+# same way an approval does.
+_SQLITE_UPGRADE_0009 = (
+    "ALTER TABLE dataset_edits ADD COLUMN review_note TEXT NOT NULL DEFAULT ''",
+)
+
 
 def ensure_tables() -> None:
     from app.config import DB_BACKEND
@@ -404,6 +471,8 @@ def _upgrade_sqlite(conn) -> None:
                    _SQLITE_UPGRADE)
     _apply_upgrade(conn, "SELECT code_hash FROM lead_visitors LIMIT 1",
                    _SQLITE_UPGRADE_0007)
+    _apply_upgrade(conn, "SELECT review_note FROM dataset_edits LIMIT 1",
+                   _SQLITE_UPGRADE_0009)
 
 
 def _apply_upgrade(conn, probe: str, statements) -> None:
@@ -476,10 +545,6 @@ def sms_capability() -> dict:
     if not sms_service.asanak_configured():
         return {"available": False,
                 "reason": "نام کاربری، رمز عبور و شماره فرستنده را در تنظیمات پیامک وارد کنید."}
-    if not sms_service.setting("sms_asanak_invite_template_id").strip():
-        return {"available": False,
-                "reason": "شناسهٔ قالب پیامکِ لینک دعوت تنظیم نشده است. یک قالب حاوی "
-                          "لینک را در پنل آسانک تأیید بگیرید و شناسه‌اش را وارد کنید."}
     return {"available": True, "reason": ""}
 
 
@@ -1175,12 +1240,18 @@ def verify_contact(lead_id: str, code: str, base_url: str,
 
 
 def _send_link(destination: str, url: str, kind: str, reference: str = ""):
-    """Hand a link to the SMS module. Returns (sent, operator reason).
+    """Hand a link to the SMS module. Returns (sent, operator failure reason).
 
     Every caller here can carry on without the SMS: the invite falls back to a
     QR and a rejection notice that never left is shown to the admin instead. So
     a failure is reported, never raised, including the failure where the
     gateway is not configured at all.
+
+    The reviewer's reason does NOT travel here. The SMS is the nudge; the
+    reason is read on the page the link opens. If the gateway refuses a link
+    outright (Asanak 1014, a line without link permission), `send_invite_link`
+    re-raises it as a link refusal, which lands here as a reason and sends the
+    booth to the QR (SPEC REQ-057).
     """
     from app.services import sms as sms_service
     try:
@@ -1265,17 +1336,19 @@ def invite_view(token: str, ip: str = "") -> dict:
         _audit("invite_company_missing", "", lead_id=row["lead_id"], ip=ip)
         raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
 
-    pending = pending_edit_for(row["dataset_id"])
+    # The invite the rejection notice carries opens THIS page, so the reason a
+    # reviewer wrote has to be readable here and not only on /my. Without it
+    # the contact is back where the gap started: their own words on screen, a
+    # message saying they were refused, and nothing to change.
+    last = _last_edit(row["dataset_id"])
     return {
         "lead_id": row["lead_id"], "dataset_id": company["id"],
         "issued_by_session": row["issued_by_session"],
         "company": company["title"],
-        # What they see in the box: their own unreviewed text if there is one,
-        # otherwise the live answer. Coming back must not silently discard a
-        # rewrite that was already sent.
-        "text": pending["new_text"] if pending else company["text"],
+        "text": _draft_text(last, company["text"]),
         "live_text": company["text"],
-        "pending": bool(pending),
+        "pending": bool(last and last["status"] == "pending"),
+        "submission": _submission(last),
         "expires_at": row["expires_at"],
     }
 
@@ -1391,34 +1464,61 @@ def _last_edit(dataset_id: str) -> Optional[dict]:
     conn = get_db_connection()
     try:
         row = conn.execute(
-            "SELECT id, status, new_text, created_at, reviewed_at FROM dataset_edits"
-            " WHERE dataset_id = ? ORDER BY created_at DESC LIMIT 1", (dataset_id,),
+            "SELECT id, status, new_text, created_at, reviewed_at, review_note"
+            " FROM dataset_edits WHERE dataset_id = ?"
+            " ORDER BY created_at DESC LIMIT 1", (dataset_id,),
         ).fetchone()
     finally:
         conn.close()
     return dict(row) if row else None
 
 
-def owner_edit_view(user_id: str, ownership_id: str = "") -> dict:
-    """The company's answer as its owner sees it.
+def _submission(last: Optional[dict]) -> dict:
+    """What became of the last thing this company sent, for the person who sent it.
 
-    The box holds their own unreviewed text when there is one, and the live
-    answer otherwise, exactly as the invite page does: coming back must not
-    silently throw away a rewrite that was already sent.
+    Two of these must never look alike, and telling them apart is the whole
+    reason `review_note` exists. `rejected` means a human read the text and
+    refused it, and `reason` is the sentence they wrote about it. `none` means
+    nobody has sent anything yet: nothing was refused, there is no reason, and
+    a page that hints at one accuses somebody of a mistake they did not make.
+
+    A reason is returned for a rejection ONLY. Carrying the note on an
+    approved or superseded row would put a stale sentence next to text it was
+    never about.
     """
+    if not last:
+        return {"status": "none", "reason": ""}
+    rejected = last["status"] == "rejected"
+    return {"status": last["status"],
+            "reason": (last.get("review_note") or "") if rejected else ""}
+
+
+def _draft_text(last: Optional[dict], live_text: str) -> str:
+    """What belongs in the box.
+
+    Their own words while the review is not finished with them, the live answer
+    otherwise. A `pending` draft, because coming back must not silently discard
+    a rewrite that was already sent. A `rejected` draft for the same reason
+    read forwards: the next step is to fix the one thing the reviewer named,
+    and that is not the same task as retyping four hundred words from memory.
+    """
+    if last and last["status"] in ("pending", "rejected"):
+        return last["new_text"]
+    return live_text
+
+
+def owner_edit_view(user_id: str, ownership_id: str = "") -> dict:
+    """The company's answer as its owner sees it, and what happened to it."""
     ensure_tables()
     grant = _owned(user_id, ownership_id)
     last = _last_edit(grant["dataset_id"])
-    pending = bool(last and last["status"] == "pending")
     return {
         "ownership_id": grant["id"],
         "company": grant["title"],
-        "text": last["new_text"] if pending else grant["text"],
+        "text": _draft_text(last, grant["text"]),
         "live_text": grant["text"],
-        "pending": pending,
-        # What happened to the last thing they sent, in the vocabulary of
-        # `dataset_edits.status`. `none` is a first visit and says nothing.
-        "submission": {"status": last["status"] if last else "none"},
+        "pending": bool(last and last["status"] == "pending"),
+        "submission": _submission(last),
         "expires_at": grant["expires_at"],
         "consent_script": consent_script()["text"],
     }
@@ -1436,12 +1536,11 @@ def owner_companies(user_id: str) -> list:
     out = []
     for grant in identity.live_grants(user_id):
         last = _last_edit(grant["dataset_id"])
-        pending = bool(last and last["status"] == "pending")
         out.append({
             "id": grant["id"],
             "title": grant["title"],
-            "text": last["new_text"] if pending else grant["text"],
-            "submission": {"status": last["status"] if last else "none"},
+            "text": _draft_text(last, grant["text"]),
+            "submission": _submission(last),
             "expires_at": grant["expires_at"],
         })
     return out
@@ -1594,7 +1693,8 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     try:
         rows = conn.execute(
             "SELECT e.id, e.dataset_id, e.lead_id, e.old_text, e.new_text, e.status,"
-            " e.created_at, e.reviewed_at, e.reviewed_by, l.company_name, d.title,"
+            " e.created_at, e.reviewed_at, e.reviewed_by, e.review_note,"
+            " l.company_name, d.title,"
             " l.first_name, l.last_name, l.position, l.phone, l.verified_at"
             " FROM dataset_edits e LEFT JOIN company_leads l ON l.id = e.lead_id"
             " LEFT JOIN dataset d ON d.id = e.dataset_id"
@@ -1622,14 +1722,22 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
 
 
 def review_edit(edit_id: str, approve: bool, reviewer: str = "",
-                base_url: str = "") -> dict:
+                base_url: str = "", note: str = "") -> dict:
     """Approve (write into `dataset`, reindex) or reject a pending edit.
 
     Approval sends nothing: the text appears on the chatbot, which is the
     notification. Rejection has to be told, and is told with a fresh 24-hour
     invite so the contact can act on it.
+
+    `note` is why. It is stored, never texted (see `_send_link`), and read on
+    the page the invite opens. That split is deliberate: the SMS is a fixed
+    approved template with room for a link and nothing else, and the page has
+    room for a sentence a person can actually act on.
     """
     ensure_tables()
+    # Before the row is read, let alone written: a refusal for a missing reason
+    # must leave the edit sitting in the queue exactly as it was.
+    reason = clean_review_note(note, approve)
     now = _now()
     conn = get_db_connection()
     try:
@@ -1645,10 +1753,10 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
             conn.execute("UPDATE dataset SET text = ? WHERE id = ?",
                          (row["new_text"], row["dataset_id"]))
         conn.execute(
-            "UPDATE dataset_edits SET status = ?, reviewed_at = ?, reviewed_by = ?"
-            " WHERE id = ?",
+            "UPDATE dataset_edits SET status = ?, reviewed_at = ?, reviewed_by = ?,"
+            " review_note = ? WHERE id = ?",
             ("approved" if approve else "rejected", now.isoformat(),
-             (reviewer or "")[:60], edit_id),
+             (reviewer or "")[:60], reason, edit_id),
         )
         conn.commit()
     finally:
@@ -1660,8 +1768,12 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
         _trigger_reindex()
     _audit("edit_reviewed", edit_id, approved=approve, reviewer=reviewer)
 
-    result = {"ok": True, "status": "approved" if approve else "rejected"}
+    result = {"ok": True, "status": "approved" if approve else "rejected",
+              "note": reason}
     if approve or not row["lead_id"]:
+        # An owner's edit has no lead and therefore no invite to mint. The
+        # reason is stored all the same: they read it on /my, where they wrote
+        # the text from.
         return result
     invite = create_invite(row["lead_id"], row["dataset_id"], base_url)
     # The lead id is the `reference`. Without it app/services/sms.py logs
@@ -1669,13 +1781,13 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
     # rejection notice that WORKED left no trace and "did this contact ever
     # hear we refused their text" was unanswerable a week later. The invite
     # path already passes it; this one was the odd case out.
-    sent, reason = _send_link(row["phone"] or "", invite["invite_url"], "reject",
-                              row["lead_id"])
+    sent, failure = _send_link(row["phone"] or "", invite["invite_url"], "reject",
+                               row["lead_id"])
     if not sent:
         # The contact does not know their text was refused. That is the admin's
         # problem to see, not something to swallow.
-        _audit("reject_notice_failed", reason, lead_id=row["lead_id"])
-    return {**result, "notified": sent, "notify_error": reason}
+        _audit("reject_notice_failed", failure, lead_id=row["lead_id"])
+    return {**result, "notified": sent, "notify_error": failure}
 
 
 def revert_edit(edit_id: str, actor: str = "") -> dict:
@@ -1908,6 +2020,48 @@ def stuck_leads() -> list:
         since = d.get("verified_at") or d.get("created_at")
         d["waiting_hours"] = round((now - to_naive_utc(since)).total_seconds() / 3600, 1)
     return out
+
+
+def remind_lead(lead_id: str, base_url: str, actor: str = "") -> dict:
+    """Text a stuck contact their link again, once, because an admin asked.
+
+    NOTHING reached this person before. They read six digits out loud at a
+    booth, were handed a QR they did not scan, and the only trace of them is a
+    row on an admin screen they will never see. `verified` is a normal resting
+    state (SPEC section 4), not a failure, so the answer is a nudge and not an
+    escalation.
+
+    An operator presses this for one company at a time on purpose. A scheduled
+    sweep over hundreds of numbers is a bulk SMS campaign, which SPEC section 3
+    puts out of scope, and it would spend the daily budget on people who are
+    simply busy. One click, one message, one person.
+
+    A fresh invite, because the old one may have expired and a link that opens
+    nothing is worse than no message. Minting it kills the previous one
+    (REQ-015), which is the same rule the rejection notice already lives by.
+    """
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        lead = _lead(conn, lead_id)
+    finally:
+        conn.close()
+    if lead is None or lead["status"] != "verified" or lead["released_at"]:
+        # Anything else has either not verified yet (no link to send) or has
+        # already sent its text (nothing to nudge about).
+        raise LeadError("این ثبت منتظر متن نیست.", status=404, code="not_remindable")
+
+    invite = create_invite(lead_id, lead["dataset_id"], base_url)
+    sent, failure = _send_link(lead["phone"] or "", invite["invite_url"],
+                               "invite", lead_id)
+    from app.services import applog
+    applog.audit("leads.reminded", "لینک ویرایش دوباره برای مخاطب فرستاده شد",
+                 actor=actor, target=lead_id,
+                 metadata={"delivered": sent, "detail": failure})
+    if not sent:
+        _audit("reminder_failed", failure, lead_id=lead_id)
+    return {"ok": True, "notified": sent, "notify_error": failure,
+            "destination_masked": otp_service.mask_destination(lead["phone"] or "")}
 
 
 def release_lead(lead_id: str, actor: str = "", ip: str = "") -> dict:
