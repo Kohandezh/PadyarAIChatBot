@@ -77,27 +77,70 @@ def get_theme_index_path(name: str) -> str:
     return os.path.join(THEMES_DIR, name, "index.html")
 
 
+# --- Rendered-page cache --------------------------------------------------
+# The public chat page is the most-visited endpoint of an exhibition and its
+# render was anything but cheap: a fresh Jinja2 Environment, a template
+# compile and several file reads per request, all on the event loop. The only
+# per-visitor part of the page is the HMAC chat token, so the rendered shell
+# is cached and the token is spliced in per request.
+#
+# The cache key includes the mtimes of every file behind the render, so a
+# theme upgrade invalidates itself on the next request with no TTL guessing.
+_TOKEN_PLACEHOLDER = "__PADYAR_CHAT_TOKEN__"
+_PAGE_CACHE: Dict[tuple, str] = {}
+_PAGE_CACHE_MAX = 8
+
+
+def _fingerprint(paths) -> str:
+    parts = []
+    for p in paths:
+        if not os.path.isdir(p):
+            continue
+        for root, _dirs, files in os.walk(p):
+            for f in sorted(files):
+                fp = os.path.join(root, f)
+                try:
+                    parts.append(f"{f}:{int(os.path.getmtime(fp))}")
+                except OSError:
+                    continue
+    return "|".join(parts)
+
+
 def render_theme_index(theme_name: str, context: dict) -> str:
     """Render theme's index.html using Jinja2 with partial override resolution.
 
     If the theme has a partials/ directory, uses Jinja2 FileSystemLoader with
     child-first search path: [theme/partials, parent/partials, base/partials].
     Falls back to raw file read for legacy themes with index.html.
+
+    The rendered shell is cached (see the module comment above); only the
+    chat token differs between visitors.
     """
     theme_dir = os.path.join(THEMES_DIR, theme_name)
     theme_partials = os.path.join(theme_dir, "partials")
     base_partials = os.path.join(THEMES_DIR, "base", "partials")
 
+    token = str(context.get("chat_token", "") or "")
+
     # Legacy mode: theme has index.html but no partials/
     if not os.path.isdir(theme_partials):
         index_path = os.path.join(theme_dir, "index.html")
         if os.path.isfile(index_path):
-            with open(index_path, "r", encoding="utf-8") as f:
-                html = f.read()
-            token = context.get("chat_token", "")
-            html = html.replace("<!-- CHAT_TOKEN -->",
-                                f'<meta name="chat-token" content="{token}">')
-            return html
+            try:
+                mtime = int(os.path.getmtime(index_path))
+            except OSError:
+                mtime = 0
+            key = ("legacy", theme_name, mtime)
+            html = _PAGE_CACHE.get(key)
+            if html is None:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    html = f.read().replace(
+                        "<!-- CHAT_TOKEN -->",
+                        f'<meta name="chat-token" content="{_TOKEN_PLACEHOLDER}">')
+                if len(_PAGE_CACHE) >= _PAGE_CACHE_MAX:
+                    _PAGE_CACHE.clear()
+                _PAGE_CACHE[key] = html
+            return html.replace(_TOKEN_PLACEHOLDER, token)
         raise FileNotFoundError(f"No partials/ or index.html for theme '{theme_name}'")
 
     # Determine parent theme
@@ -120,10 +163,19 @@ def render_theme_index(theme_name: str, context: dict) -> str:
     if os.path.isdir(base_partials):
         search_path.append(base_partials)
 
-    loader = jinja2.FileSystemLoader(search_path)
-    env = jinja2.Environment(loader=loader, autoescape=False)
-    template = env.get_template("index.html")
-    return template.render(**context)
+    key = ("partials", theme_name, _fingerprint(search_path))
+    html = _PAGE_CACHE.get(key)
+    if html is None:
+        loader = jinja2.FileSystemLoader(search_path)
+        env = jinja2.Environment(loader=loader, autoescape=False)
+        template = env.get_template("index.html")
+        render_context = dict(context)
+        render_context["chat_token"] = _TOKEN_PLACEHOLDER
+        html = template.render(**render_context)
+        if len(_PAGE_CACHE) >= _PAGE_CACHE_MAX:
+            _PAGE_CACHE.clear()
+        _PAGE_CACHE[key] = html
+    return html.replace(_TOKEN_PLACEHOLDER, token)
 
 
 # ── Internal helpers ───────────────────────────────────────────────────

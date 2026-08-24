@@ -99,6 +99,8 @@ def client_ip(request: Request) -> str:
 
 # --- Chat Rate Limiting State ---
 _chat_rate_limits: Dict[str, List[float]] = {}
+_last_bucket_sweep = 0.0
+_SWEEP_INTERVAL = 30.0
 
 
 def check_rate_limit(http_request: Request, key: str = ""):
@@ -110,10 +112,18 @@ def check_rate_limit(http_request: Request, key: str = ""):
     # collects anything else that fails to resolve, silently and unlabelled.
     ip = key or client_ip(http_request) or "unknown"
     now = time.time()
-    # Purge stale IPs to prevent unbounded memory growth
-    stale = [k for k, v in _chat_rate_limits.items() if not v or now - v[-1] > CHAT_RATE_WINDOW]
-    for k in stale:
-        del _chat_rate_limits[k]
+    # Purge stale buckets to prevent unbounded memory growth. Amortised: the
+    # old per-request sweep walked EVERY known IP on EVERY chat call — with a
+    # hall full of visitors that scan was itself a bottleneck. A bucket is
+    # unreachable for the rest of its window once swept, and per-bucket
+    # filtering below still drops aged timestamps exactly as before.
+    global _last_bucket_sweep
+    if now - _last_bucket_sweep >= _SWEEP_INTERVAL:
+        _last_bucket_sweep = now
+        stale = [k for k, v in _chat_rate_limits.items()
+                 if not v or now - v[-1] > CHAT_RATE_WINDOW]
+        for k in stale:
+            del _chat_rate_limits[k]
     timestamps = _chat_rate_limits.get(ip, [])
     timestamps = [t for t in timestamps if now - t < CHAT_RATE_WINDOW]
     if len(timestamps) >= CHAT_RATE_LIMIT:

@@ -74,6 +74,22 @@ def _never_touch_the_real_log_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_settings_cache():
+    """Drop the process-local settings TTL cache around every test.
+
+    Tests swap to a fresh throwaway database constantly; a cached value from
+    the previous test's database (e.g. `openai_enabled=false` set by a kill-
+    switch test) would leak into a test that never wrote the key and whose
+    database says the default. The cache's TTL is a production convergence
+    trade-off, and it must not change what a test observes.
+    """
+    from app.db import queries
+    queries.clear_settings_cache()
+    yield
+    queries.clear_settings_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_log_storm_suppression():
     """Clear applog's duplicate-suppression window between tests.
 

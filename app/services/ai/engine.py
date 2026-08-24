@@ -34,6 +34,7 @@ LOCKED PRINCIPLES ENFORCED HERE
   and circuit state are read/committed before, results written after.
 """
 import asyncio
+import os
 import random
 
 from . import circuit, errors as ai_errors, pricing, store
@@ -46,6 +47,14 @@ TASK_TIMEOUT_S = {"chat": 45.0, "classify": 45.0}
 TASK_MAX_OUTPUT_TOKENS = {"chat": 555, "classify": 1500}
 RETRY_BACKOFF_S = 1.5          # fixed wait today; jitter added per attempt
 RETRY_BACKOFF_JITTER_S = 0.5
+
+# Ceiling on simultaneous external provider calls per process. Without one,
+# every ambiguous question under a load spike fans out its own classifier +
+# generation call; the burst then depends entirely on the provider's 429s.
+# Requests past the cap queue here instead (nginx's 120s window covers the
+# wait). 0 disables the gate.
+AI_MAX_CONCURRENCY = max(0, int(os.getenv("AI_MAX_CONCURRENCY", "16")))
+_concurrency_gate = asyncio.Semaphore(AI_MAX_CONCURRENCY) if AI_MAX_CONCURRENCY else None
 
 
 def _kill_switch_on() -> bool:
@@ -155,7 +164,11 @@ async def execute_request(req: AIRequest) -> AIResponse:
                                   "provider_name": t["display_name"]})
             t0 = asyncio.get_event_loop().time()
             try:
-                resp = await adapter.invoke(rt, t["model_id"], req)
+                if _concurrency_gate is None:
+                    resp = await adapter.invoke(rt, t["model_id"], req)
+                else:
+                    async with _concurrency_gate:
+                        resp = await adapter.invoke(rt, t["model_id"], req)
                 # An EMPTY chat answer is a failure, not a success. gpt-5-nano
                 # once spent its whole budget on hidden reasoning and returned
                 # content="" with finish_reason=length; adapters coerce a null

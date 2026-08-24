@@ -11,6 +11,7 @@ Central tracking for all features.
 | targeted-visit | Implemented | Ready | registration | 2026-08-16 | 2026-08-16 |
 | text-to-speech | Implemented | Ready | tts | 2026-08-21 | 2026-08-21 |
 | exhibition-lead-capture | Draft | Not started | leads | 2026-08-22 | 2026-08-23 |
+| exhibition-perf-hardening | Implemented | Ready | infrastructure | 2026-08-24 | 2026-08-24 |
 
 ## Quick Features
 

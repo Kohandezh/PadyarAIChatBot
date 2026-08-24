@@ -26,20 +26,19 @@ router = APIRouter()
 
 
 def _trigger_reindex():
-    """Rebuild this worker's TF-IDF index from the DB after a write.
+    """Rebuild this worker's indexes after a write and publish a new version
+    stamp so every other worker rebuilds too (see search.reindex_and_publish).
 
-    Dataset/questions live in SQLite (the single source of truth). Each write
+    Dataset/questions live in the DB (the single source of truth). Each write
     below is a targeted INSERT/UPDATE/DELETE so concurrent admin edits across
-    gunicorn workers can't clobber each other. After the write we reindex *this*
-    worker so its chat matching reflects the change immediately; other workers
-    pick the change up on their next reload/restart.
+    workers can't clobber each other.
     """
-    from app.services.search import load_dataset_internal
+    from app.services.search import reindex_and_publish
     try:
         loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, load_dataset_internal)
+        loop.run_in_executor(None, reindex_and_publish)
     except RuntimeError:
-        load_dataset_internal()
+        reindex_and_publish()
 
 
 # --- Video Management (gated by 'video' module) ---

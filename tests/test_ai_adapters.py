@@ -531,36 +531,32 @@ def test_transport_refuses_redirects(tmp_path):
     """base.http itself must raise on a 3xx — the SSRF walk-around is a
     permitted host 302-ing to a metadata address."""
     import httpx
+    from app.services.ai.adapters import base as base_mod
     from app.services.ai.adapters.base import BaseAdapter
 
     class RedirectTransport(httpx.AsyncBaseTransport):
-        def handle_request(self, request):
+        async def handle_async_request(self, request):
             return httpx.Response(302, headers={
                 "Location": "http://169.254.169.254/latest/meta-data"})
 
     ad = adapter_for("openai")
+    stub = httpx.AsyncClient(transport=RedirectTransport(),
+                             follow_redirects=False)
+    orig = base_mod._shared_http_client
+    base_mod.reset_shared_client(stub)
 
-    class ClientStub:
-        def __init__(self, *a, **kw):
-            pass
+    async def _scenario():
+        err = None
+        try:
+            await ad.http(rt("openai"), "GET", "https://api.openai.com/v1/models")
+        except ai_errors.AIError as e:
+            err = e
+        await stub.aclose()
+        return err
 
-        async def __aenter__(self):
-            class Inner:
-                async def request(self, method, url, **kw):
-                    return RedirectTransport().handle_request(
-                        httpx.Request(method, url))
-            return Inner()
-
-        async def __aexit__(self, *exc):
-            return False
-
-    import app.services.ai.adapters.base as base_mod
-    orig = base_mod.httpx.AsyncClient
-    base_mod.httpx.AsyncClient = ClientStub
     try:
-        with pytest.raises(ai_errors.AIError) as e:
-            asyncio.run(ad.http(rt("openai"), "GET", "https://api.openai.com/v1/models"))
-        assert e.value.code == "invalid_response"
-        assert "169.254.169.254" not in e.value.provider_detail or "redirect" in e.value.provider_detail
+        e = asyncio.run(_scenario())
+        assert e is not None and e.code == "invalid_response"
+        assert "169.254.169.254" not in e.provider_detail or "redirect" in e.provider_detail
     finally:
-        base_mod.httpx.AsyncClient = orig
+        base_mod.reset_shared_client(orig)

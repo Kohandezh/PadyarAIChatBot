@@ -1,3 +1,7 @@
+import asyncio
+import os
+import threading
+import time
 from typing import List, Optional, Dict
 
 import numpy as np
@@ -45,6 +49,105 @@ RERANK_CANDIDATES = 5
 # every reindex from the question corpus). None when the semantic backend
 # is off or training data is insufficient.
 intent_classifier = None
+
+
+# --- Cross-worker index freshness ---
+# Every retrieval index is process-local, but the app runs several uvicorn
+# workers. Before this existed, a dataset edit reindexed only the worker that
+# handled it; the others kept serving the old answers until a restart. At a
+# live event, where staff correct content while visitors are asking, that is
+# a correctness bug, not a performance one.
+#
+# Writers stamp a monotonically increasing version into `settings`; readers
+# poll that version at most once per INDEX_REFRESH_SECONDS (one fresh settings
+# read) and rebuild in the background when they are behind.
+INDEX_VERSION_KEY = "search_index_version"
+INDEX_REFRESH_SECONDS = max(1.0, float(os.getenv("SEARCH_INDEX_REFRESH_SECONDS", "5")))
+_index_version = 0
+_last_version_check = 0.0
+_rebuild_lock = threading.Lock()
+
+
+def _read_index_version() -> int:
+    from app.db.queries import get_setting
+    try:
+        return int(get_setting(INDEX_VERSION_KEY, "0", fresh=True) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def init_index_version() -> None:
+    """Adopt the stored version at boot. First boot ever publishes 1, so the
+    key exists for later comparisons."""
+    global _index_version
+    current = _read_index_version()
+    if current <= 0:
+        from app.db.queries import set_setting
+        current = 1
+        set_setting(INDEX_VERSION_KEY, str(current))
+    _index_version = current
+
+
+def bump_index_version() -> None:
+    """Publish a new version without rebuilding — for writers that have
+    already refreshed their own in-process state (e.g. synonym edits)."""
+    global _index_version
+    _index_version = max(time.time_ns(), _index_version + 1)
+    from app.db.queries import set_setting
+    set_setting(INDEX_VERSION_KEY, str(_index_version))
+
+
+def _rebuild(publish: bool, version_floor: int = 0) -> None:
+    """Single rebuild path. Never blocks: a rebuild already in progress wins
+    and the caller simply returns."""
+    global _index_version
+    if not _rebuild_lock.acquire(blocking=False):
+        return
+    try:
+        try:
+            started = time.monotonic()
+            load_dataset_internal()
+            if publish:
+                _index_version = max(time.time_ns(), _index_version + 1)
+                from app.db.queries import set_setting
+                set_setting(INDEX_VERSION_KEY, str(_index_version))
+            else:
+                _index_version = max(version_floor, _index_version)
+            report_reindex(len(dataset), len(questions_data),
+                           int((time.monotonic() - started) * 1000))
+        except Exception:  # noqa: BLE001 — a failed rebuild must retry on the next poll
+            logger.exception("[search] index rebuild failed")
+            _index_version = 0
+    finally:
+        _rebuild_lock.release()
+
+
+def reindex_and_publish() -> None:
+    """Rebuild after THIS worker changed content, and stamp a new version so
+    every other worker picks the change up within INDEX_REFRESH_SECONDS."""
+    _rebuild(publish=True)
+
+
+def _maybe_refresh() -> None:
+    """Version poll on the query path. At most one fresh settings read per
+    INDEX_REFRESH_SECONDS; a newer version triggers a background rebuild so
+    the in-flight query still answers from the current (old) index."""
+    global _last_version_check, _index_version
+    now = time.monotonic()
+    if now - _last_version_check < INDEX_REFRESH_SECONDS:
+        return
+    _last_version_check = now
+    try:
+        latest = _read_index_version()
+    except Exception:  # noqa: BLE001 — freshness polling must never 500 a query
+        return
+    if latest > _index_version:
+        _index_version = latest
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, _rebuild, False, latest)
+        except RuntimeError:
+            threading.Thread(target=_rebuild, args=(False, latest), daemon=True).start()
 
 
 def load_dataset_internal():
@@ -189,6 +292,7 @@ def classify_intent_local(query: str):
     """
     if intent_classifier is None:
         return None, 0.0
+    _maybe_refresh()
     try:
         dataset_id, prob = intent_classifier.classify(normalize_persian(query))
         # Trust scales with measured quality: when the holdout accuracy of the
@@ -208,8 +312,10 @@ def classify_intent_local(query: str):
 
 def find_best_match(query: str):
     if not dataset or not normalized_titles:
+        _maybe_refresh()
         return None, 0.0
 
+    _maybe_refresh()
     normalized_query = normalize_persian(query)
     # Same query, synonyms NOT expanded — the coverage signal must see
     # what the visitor actually typed. See rerank.rerank(coverage_query).
@@ -295,8 +401,10 @@ def find_similar_question(query: str, exact_only: bool = False):
     the later fallback tiers.
     """
     if not questions_data or not normalized_questions:
+        _maybe_refresh()
         return None, 0.0
 
+    _maybe_refresh()
     normalized_query = normalize_persian(query)
     # Same query, synonyms NOT expanded — the coverage signal must see
     # what the visitor actually typed. See rerank.rerank(coverage_query).
