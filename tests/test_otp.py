@@ -210,26 +210,30 @@ def test_destination_hourly_rate_limit(client, outbox):
 def _without_html_comments(html: str) -> str:
     """What the BROWSER sees.
 
-    The companion is commented out rather than deleted, and an HTML comment is
-    still bytes in the response — so `'id="pet-canvas"' in r.text` passes
-    whether the element renders or not. A test that cannot fail proves
-    nothing, which is exactly what this one did after the companion was
-    switched off.
+    An HTML comment is still bytes in the response, so asserting against
+    raw text cannot tell "present" from "commented out" — this helper makes
+    companion-presence assertions actually falsifiable.
     """
     return re.sub(r"<!--.*?-->", "", html, flags=re.S)
 
 
-def test_verify_page_renders_the_digit_group_without_the_companion(client):
+def _otp_css() -> str:
+    from pathlib import Path
+    p = Path(__file__).resolve().parent.parent / "static" / "otp" / "otp.css"
+    return p.read_text(encoding="utf-8")
+
+
+def test_verify_page_renders_the_digit_group_with_the_companion(client):
     r = client.get("/verify")
     assert r.status_code == 200
     html = r.text
     visible = _without_html_comments(html)
 
-    # The companion is deliberately off. Asserted on the comment-stripped
-    # markup, so re-enabling it fails HERE and whoever does it updates this
-    # test on purpose rather than discovering later that it never checked.
-    assert 'id="pet-canvas"' not in visible
-    assert 'id="pet-canvas"' in html, "expected it commented out, not deleted"
+    # The companion is live again (owner request, 2026-08-24), desktop/tablet
+    # only — otp.css hides it below 640px. Asserted on the comment-stripped
+    # markup, so disabling it via HTML comments fails HERE on purpose.
+    assert 'id="pet-canvas"' in visible
+    assert "@media (max-width: 639px)" in _otp_css()
 
     assert 'id="otp-digits"' in visible          # semantic group
     assert 'role="group"' in visible

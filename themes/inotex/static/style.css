@@ -1030,6 +1030,14 @@ body.video-mode .pet-panel { bottom: 96px; }
     .pet-panel { bottom: 12px; max-height: 78vh; }
 }
 
+/* Phones below 640px: the companion is a desktop/tablet companion — on a
+   small screen it would sit on top of the composer. It is unreachable
+   there (the panel only opens through the character), so both halves go. */
+@media (max-width: 639px) {
+    .pet-slot,
+    .pet-panel { display: none; }
+}
+
 /* ── Voice stage ──────────────────────────────────────────────────── */
 .voice-stage[hidden] { display: none; }
 
