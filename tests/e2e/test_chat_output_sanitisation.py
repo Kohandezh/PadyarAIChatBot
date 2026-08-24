@@ -60,9 +60,38 @@ PAYLOAD = (
     '## عنوان\n\n- یک\n- دو\n\n**پررنگ** [سایت](https://inotex.com/)\n'
 )
 
-# Every theme a customer can switch to. "minimal" has no head.html of its
-# own, so it is also what covers themes/base/partials/head.html.
-SELECTABLE_THEMES = ["inotex", "liquid-glass", "minimal", "haj"]
+# Every theme a customer can switch to, paired with the motion preference the
+# browser has to report for that theme's own render to be observable.
+# "minimal" has no head.html of its own, so it is also what covers
+# themes/base/partials/head.html.
+#
+# The motion column is not cosmetic. Two themes read the media query
+# themselves, and they need opposite answers:
+#
+#   liquid-glass needs "reduce". Its footer paints a full-viewport canvas with
+#   `filter: blur(18px)` on every animation frame and runs a sprung
+#   border-beam loop alongside it. In headless chromium that starves
+#   typeWriter's 20ms setTimeout down to ~235ms per character, so the
+#   184-character payload took 43s to finish typing and the 30s wait for the
+#   heading expired on every run. "reduce" parks both loops (the theme checks
+#   the query itself) and the same typeWriter finishes in 4.4s. The render
+#   path is untouched: liquid-glass's addMessageFn has no reduced-motion
+#   branch, so the answer still goes typeWriter -> renderMarkdown.
+#
+#   haj must NOT get "reduce". Its addMessageFn checks HAJ_REDUCED and skips
+#   the typewriter outright when it is set. Under "reduce" both halves of this
+#   test would take the instant branch, the typewriter path would never run,
+#   and the test would stay green while covering half of what it claims.
+#
+# The anchor itself is the same everywhere: all four themes put the answer's
+# markdown in one element, so `.message.bot h2` finds the right container on
+# each. No per-theme selector is needed.
+SELECTABLE_THEMES = [
+    ("inotex", "no-preference"),
+    ("liquid-glass", "reduce"),
+    ("minimal", "no-preference"),
+    ("haj", "no-preference"),
+]
 
 
 def _free_port() -> int:
@@ -198,6 +227,10 @@ async def _rendered_answer(page):
     .liquidGlass-text) and wrap it in chrome that legitimately contains its own
     <img> avatar. Anchoring on the heading the payload produced gives the exact
     container under test on every theme.
+
+    On the typewriter path the heading is also the completion signal: typeWriter
+    types the raw text as text nodes and only calls renderMarkdown at the end,
+    so a visible <h2> means the render under test has already happened.
     """
     heading = await page.wait_for_selector(".message.bot h2", timeout=30_000)
     return (await heading.evaluate_handle("el => el.parentElement")).as_element()
@@ -226,8 +259,10 @@ async def _assert_formatting_survived(answer):
         "link was eaten"
 
 
-@pytest.mark.parametrize("theme", SELECTABLE_THEMES)
-async def test_stored_markup_never_executes_in_the_chat(live_server, admin, seeded, theme):
+@pytest.mark.parametrize("theme,motion", SELECTABLE_THEMES,
+                         ids=[name for name, _ in SELECTABLE_THEMES])
+async def test_stored_markup_never_executes_in_the_chat(live_server, admin, seeded,
+                                                        theme, motion):
     res = admin.post("/admin/api/themes/activate", json={"name": theme})
     assert res.status_code == 200, res.text
 
@@ -239,7 +274,9 @@ async def test_stored_markup_never_executes_in_the_chat(live_server, admin, seed
             # failing would say the sanitiser is broken when it is untested.
             pytest.skip(f"chromium not installed (playwright install chromium): {exc}")
         try:
-            page = await browser.new_page()
+            # See SELECTABLE_THEMES for why the motion preference is per-theme.
+            context = await browser.new_context(reduced_motion=motion)
+            page = await context.new_page()
             await page.goto(live_server, wait_until="domcontentloaded")
             # The sanitiser is only there if the theme's head.html loads it. A
             # theme that overrides head.html and forgets the line fails here.
