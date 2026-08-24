@@ -345,8 +345,10 @@ COMPANION-OFF (end) -->
                 }).observe(textLayer, { childList: true, subtree: true });
                 typeWriter(textLayer, content);
             } else {
-                if (typeof marked !== 'undefined') textLayer.innerHTML = marked.parse(content);
-                else textLayer.textContent = content;
+                // renderMarkdown (core.js) sanitises before it renders. A
+                // theme that calls marked itself renders an answer nobody
+                // cleaned.
+                renderMarkdown(textLayer, content);
                 enrich(textLayer);
                 msg.classList.add('is-complete');
             }

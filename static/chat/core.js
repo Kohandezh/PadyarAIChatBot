@@ -258,6 +258,49 @@ function switchTabInternal(tabName) {
 
 // ── Message Logic ──────────────────────────────────────────────────────
 
+/* The one place an answer becomes HTML.
+   An answer's text is no longer written only by the admin. Since the
+   lead-capture flow an exhibitor contact can propose it, and the reviewer
+   approves it from a screen that escapes it correctly — so `<img src=x
+   onerror=...>` looks like ordinary prose during review and then runs in every
+   visitor's session, on the same origin as /verify and the admin panel.
+   marked builds the HTML and strips nothing, so DOMPurify has to run on the
+   result. It keeps headings, lists, bold, code and links, which is everything
+   the answers actually use.
+   Every theme routes its bubble through here rather than calling marked
+   itself, because one theme that forgets the sanitiser reopens the hole for
+   everyone on that install. */
+function renderMarkdown(element, text) {
+    // Fail closed. No parser or no sanitiser means plain text, never raw HTML.
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+        return renderPlainText(element, text);
+    }
+    element.innerHTML = DOMPurify.sanitize(marked.parse(text), {
+        /* An answer is prose. It has never carried an image or a form, and a
+           video has its own field on the entry. Stripping the handler off a
+           remote <img> is not enough: the tag still fetches an
+           attacker-chosen URL from every visitor's browser, which reports the
+           whole exhibition floor to whoever proposed the text. <form>/<input>
+           would let an approved answer draw a login box inside the chat, on
+           the same origin as the real one. svg and math are dropped because
+           they are where the parser-confusion bypasses live and no answer
+           uses them. */
+        FORBID_TAGS: ['img', 'svg', 'math', 'form', 'input', 'button', 'style'],
+    });
+    element.querySelectorAll('a').forEach(a => a.target = '_blank');
+}
+
+/* Plain text with its line breaks, built from text nodes and <br> elements.
+   Nothing here goes through innerHTML, so the string cannot execute whatever
+   it contains. */
+function renderPlainText(element, text) {
+    element.textContent = '';
+    String(text).split('\n').forEach((line, i) => {
+        if (i) element.appendChild(document.createElement('br'));
+        element.appendChild(document.createTextNode(line));
+    });
+}
+
 function typeWriter(element, text, speed = 20) {
     let i = 0;
     element.innerHTML = '';
@@ -279,12 +322,7 @@ function typeWriter(element, text, speed = 20) {
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             setTimeout(type, speed);
         } else {
-            if (typeof marked !== 'undefined') {
-                element.innerHTML = marked.parse(text);
-                element.querySelectorAll('a').forEach(a => a.target = '_blank');
-            } else {
-                element.innerHTML = text.replace(/\n/g, '<br>');
-            }
+            renderMarkdown(element, text);
         }
     }
     type();
@@ -307,12 +345,7 @@ function addMessage(content, type, save = true, instant = false) {
     if (type === 'bot' && !instant) {
         typeWriter(bubble, content);
     } else {
-        if (typeof marked !== 'undefined') {
-            bubble.innerHTML = marked.parse(content);
-            bubble.querySelectorAll('a').forEach(a => a.target = '_blank');
-        } else {
-            bubble.textContent = content;
-        }
+        renderMarkdown(bubble, content);
     }
     chatContent.scrollTop = chatContent.scrollHeight;
     if (save) saveToHistory(content, type);

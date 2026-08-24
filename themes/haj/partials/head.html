@@ -23,6 +23,10 @@
      glyphs for a reader who cannot compensate. -->
 <link href="/static/vendor/vazirmatn/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
 <script src="/static/vendor/marked/marked.min.js"></script>
+<!-- marked builds HTML and removes nothing dangerous, so DOMPurify loads with
+     it. This theme overrides head.html, so it needs its own copy: a theme that
+     skips this line is a theme where an answer can still run a script. -->
+<script src="/static/vendor/dompurify/purify.min.js"></script>
 
 <!-- Foreign service-worker guard.
      This app registers no service worker. But on a shared host — localhost

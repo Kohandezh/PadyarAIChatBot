@@ -12,3 +12,12 @@
 <link href="/themes/{{ theme_name }}/static/style.css?v={{ asset_version | default('0', true) }}" rel="stylesheet" type="text/css" />
 <link href="/static/vendor/vazirmatn/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
 <script src="/static/vendor/marked/marked.min.js"></script>
+<!-- marked turns an answer into HTML; it does not remove anything dangerous,
+     and it dropped its own sanitize option years ago. Since the lead-capture
+     flow an answer's text can originate outside the building: an exhibitor
+     contact proposes it, an admin approves it from a screen that escapes it
+     correctly, and it then renders in every visitor's chat. DOMPurify is what
+     strips the executable parts before that HTML reaches the page. It must
+     load with marked, on every theme, or the theme that misses it is the one
+     the attack uses. -->
+<script src="/static/vendor/dompurify/purify.min.js"></script>

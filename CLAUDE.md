@@ -201,7 +201,10 @@ PadyarAIChatbot/
     companion/                   # On-page companion UI (companion.js, companion-ui.js,
                                  #   registration.js, button/ art)
     vendor/                      # Third-party: Tabler, Bootstrap, Chart.js, FontAwesome,
-                                 #   Vazirmatn, marked.js, liquid-glass background/switcher
+                                 #   Vazirmatn, marked.js, DOMPurify 3.4.14, liquid-glass
+                                 #   background/switcher. Version lives in each file's
+                                 #   license banner. DOMPurify loads with marked in every
+                                 #   head.html, because marked sanitises nothing.
 
   themes/                        # Pluggable chat UI themes (WordPress-style partials)
     base/                        # Base theme — default partials all themes inherit
