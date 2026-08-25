@@ -400,7 +400,7 @@ async def admin_settings_backup(request: Request):
 
 @router.get("/api/health")
 async def health_check():
-    """Liveness: the process is up and serving. Nothing else.
+    """Liveness: the process answers. One word, deliberately.
 
     This endpoint is UNAUTHENTICATED and reachable from the internet, so its
     body is a deliberate minimum. It used to also return the enabled module
@@ -409,8 +409,12 @@ async def health_check():
     on, AI fallback is off") for anyone who typed the URL. Those diagnostics
     now live behind admin auth at /admin/api/ops/health.
 
-    No database query either: this is the endpoint probes hit every few
-    seconds, and its own docstring always promised "cheap".
+    It also used to run a dataset COUNT(*): a load balancer, a Docker
+    HEALTHCHECK and every deploy script poll this endpoint, so a flood of
+    cheap GETs (or a wedged database) exhausted the connection pool and took
+    the panel down with the chat. Now it touches NOTHING. Anything that must
+    inspect the database or the AI providers belongs on /api/ready, which
+    exists for exactly that.
     """
     return {"status": "ok"}
 

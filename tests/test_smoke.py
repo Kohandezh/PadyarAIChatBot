@@ -54,3 +54,21 @@ def test_public_endpoints_do_not_return_a_server_error(path):
     with TestClient(app) as client:
         res = client.get(path)
         assert res.status_code < 500, f"{path} -> {res.status_code}\n{res.text[:300]}"
+
+
+def test_health_is_free_of_the_database(monkeypatch, tmp_path):
+    """/api/health is the liveness probe — it must not touch the store.
+
+    It used to run a dataset COUNT(*), so a flood of cheap GETs (or a wedged
+    database) exhausted the connection pool and took the admin panel down
+    with the chat. If any storage call sneaks back into the REQUEST path,
+    this fails closed (patched after boot so startup seeding still runs).
+    """
+    import app.db.connection as conn_mod
+    with TestClient(app) as client:
+        monkeypatch.setattr(conn_mod, "get_db_connection",
+                            lambda: (_ for _ in ()).throw(AssertionError(
+                                "/api/health must not open a database connection")))
+        res = client.get("/api/health")
+        assert res.status_code == 200
+        assert res.json() == {"status": "ok"}

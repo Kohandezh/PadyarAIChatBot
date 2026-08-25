@@ -247,7 +247,7 @@ time and keep live synthesis for the Tier-2 fallback only.
 ```bash
 systemctl status padyar-inotex padyar-elecomp padyar-tts
 journalctl -u padyar-inotex -f
-curl -s localhost:8001/api/health | jq
+curl -s localhost:8001/api/health | jq        # liveness only: {"status":"ok"}
 curl -s localhost:8001/api/ready | jq        # 503 until the retrieval index is built
 curl -s localhost:8003/health | jq
 
