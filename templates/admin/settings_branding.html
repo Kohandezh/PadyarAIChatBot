@@ -1,0 +1,83 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}برندینگ{% endblock %}
+
+{% block page_content %}
+<!-- Topbar -->
+<div class="topbar">
+    <h5 class="m-0 text-dark">برندینگ</h5>
+    <div class="user-profile">
+        <span class="text-muted small" id="display-username">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<!-- Branding form -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-paint-brush me-2"></i>برندینگ دستیار</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    نام و رنگ‌های دلخواه خودتان را انتخاب کنید. این تنظیمات در صفحهٔ چت و نام
+                    پنل مدیریت اعمال می‌شود. اگر چیزی را تغییر ندهید، ظاهر فعلی دست‌نخورده می‌ماند.
+                </p>
+                <form id="branding-form">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label" for="brand-app-name">نام نمایشی دستیار</label>
+                            <input type="text" id="brand-app-name" class="form-control" dir="rtl"
+                                maxlength="60" required
+                                value="{{ branding.whitelabel_app_name }}">
+                            <small class="text-muted">این نام بالای صفحهٔ گفتگو و در پنل مدیریت دیده می‌شود.</small>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-primary">رنگ اصلی</label>
+                            <input type="color" id="brand-primary" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_primary_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-accent">رنگ تأکیدی</label>
+                            <input type="color" id="brand-accent" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_accent_color }}">
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label" for="brand-welcome">پیام خوش‌آمدگویی</label>
+                            <textarea id="brand-welcome" class="form-control" dir="rtl" rows="3"
+                                maxlength="300">{{ branding.whitelabel_welcome_text }}</textarea>
+                            <small class="text-muted">اولین پیامی که بازدیدکننده می‌بیند. خالی بگذارید تا پیام پیش‌فرض نمایش داده شود.</small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="brand-logo">نشانی لوگو</label>
+                            <input type="text" id="brand-logo" class="form-control" dir="ltr"
+                                placeholder="مثلا: /LOGO/logo.png"
+                                value="{{ branding.whitelabel_logo_url }}">
+                            <small class="text-muted">خالی بگذارید تا نشان پیش‌فرض نمایش داده شود.</small>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <img id="brand-logo-preview" src="{{ branding.whitelabel_logo_url }}" alt=""
+                                height="48"
+                                {% if not branding.whitelabel_logo_url %}hidden{% endif %}
+                                class="border rounded bg-light p-1"
+                                onerror="this.hidden = true;">
+                        </div>
+                    </div>
+                    <button type="submit" id="save-branding-btn" class="btn btn-primary mt-3">ذخیره برندینگ</button>
+                    <div id="branding-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initBranding } from '/static/admin/js/settings.js';
+    initBranding();
+</script>
+{% endblock %}

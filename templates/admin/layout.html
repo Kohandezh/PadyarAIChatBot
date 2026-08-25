@@ -13,7 +13,9 @@
 
             <h1 class="navbar-brand navbar-brand-autodark m-0">
                 <i class="fas fa-robot ms-2"></i>
-                <span>{{ brand_title }}</span>
+                {# The install's own name (whitelabel_app_name) — raw value,
+                   escaped by this env's autoescape. Never pre-escape it here. #}
+                <span>{{ wl_app_name }}</span>
             </h1>
 
             <div class="collapse navbar-collapse" id="sidebar-menu">
@@ -185,6 +187,13 @@
                             <a class="dropdown-item {% if active_page == 'settings_ai' %}active{% endif %}"
                                 href="/secure-panel-inotex/settings/ai">
                                 <i class="fas fa-robot ms-2"></i> دستیار هوشمند
+                            </a>
+                            {# Branding is core, never module-gated: every
+                                install has a name and colors, bought modules
+                                or not. #}
+                            <a class="dropdown-item {% if active_page == 'settings_branding' %}active{% endif %}"
+                                href="/secure-panel-inotex/settings/branding">
+                                <i class="fas fa-paint-brush ms-2"></i> برندینگ
                             </a>
                             {# Both pages belong to the optional `registration` module. An
                                install without it has no such routes, so the links must go

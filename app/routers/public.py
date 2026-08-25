@@ -43,13 +43,13 @@ def _render(template_name: str, **context) -> HTMLResponse:
     context.setdefault("enabled_modules", ENABLED_MODULES)
     # The panel's own name. This repository deploys to more than one install
     # (inotex, elecomp) from one branch, so a literal name in layout.html
-    # would brand every install with one event's identity. The white-label
-    # key is the install's display name; the default below is today's exact
-    # wording, so an install that never sets the key sees no change.
-    from app.db.queries import get_setting
-    context.setdefault(
-        "brand_title",
-        (get_setting("whitelabel_app_name", "") or "دستیار اینوتکس").strip())
+    # would brand every install with one event's identity — the white-label
+    # key is the install's display name. RAW value, deliberately not
+    # pre-escaped: this Jinja env has autoescape=True, so Jinja escapes it —
+    # pre-escaping here would double-escape in the sidebar. (The theme env is
+    # the opposite: see app/services/branding.py.)
+    from app.services.branding import get_branding
+    context.setdefault("wl_app_name", get_branding()["whitelabel_app_name"])
     context.setdefault("maintenance_on", False)
     try:
         from app.services import maintenance
@@ -134,14 +134,20 @@ async def read_root(request: Request):
     )
     try:
         from app.services.themes import get_active_theme, render_theme_index
+        from app.services.branding import chat_branding_context
         active_theme = get_active_theme()
         token = generate_chat_token()
-        html = render_theme_index(active_theme, {
+        # Branding is baked into the (cached) shell: same bytes for every
+        # visitor, so the only per-visitor splice stays the token. The cache
+        # key carries wl_cache_key for exactly this reason — see
+        # app/services/themes.py.
+        context = {
             "theme_name": active_theme,
             "chat_token": token,
-            "app_title": "دستیار پادیار",
             "asset_version": _asset_version(active_theme),
-        })
+        }
+        context.update(chat_branding_context())
+        html = render_theme_index(active_theme, context)
         return html
     except Exception:
         # Fallback to root index.html
@@ -444,6 +450,21 @@ async def admin_settings_backup(request: Request):
     return _render("admin/settings_backup.html", request=request,
                    active_page="settings_backup",
                    backup_engine=("postgres" if DB_BACKEND == "postgres" else "sqlite"))
+
+
+@router.get("/secure-panel-inotex/settings/branding", response_class=HTMLResponse)
+async def admin_settings_branding(request: Request):
+    # Branding is core, never module-gated: every install has a name and
+    # colors, whether or not it bought any optional module.
+    redirect = await _require_admin(request)
+    if redirect:
+        return redirect
+    # Server-rendered field values (raw — this env autoescapes) so the form
+    # is filled on first paint, no JS required; initBranding() re-reads via
+    # the API like every other settings page.
+    from app.services.branding import get_branding
+    return _render("admin/settings_branding.html", request=request,
+                   active_page="settings_branding", branding=get_branding())
 
 
 # --- Public APIs ---

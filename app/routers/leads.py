@@ -48,18 +48,21 @@ def _brand(page: str) -> str:
     Same placeholder pattern the chat UI and the /verify page already use, so
     these pages need no template engine and stay copy-deployable.
 
-    Every injected value is escaped. These are operator-editable settings, and
-    a `</style><script>` pasted into a colour field would otherwise run in the
-    contact's browser.
+    Values come from the shared branding service (one source of truth for
+    the 5 whitelabel_* keys) but the escaping stays HERE: this is raw HTML
+    string-replacement, not a Jinja env, so every value is escaped at the
+    injection point — a `</style><script>` pasted into a colour field would
+    otherwise run in the contact's browser.
     """
-    from app.db.queries import get_setting
+    from app.services.branding import get_branding
+    b = get_branding()
     out = page.replace("<!-- APP_NAME -->",
-                       html.escape(get_setting("whitelabel_app_name", "پادیار ویدیو چت")))
+                       html.escape(b["whitelabel_app_name"]))
     out = out.replace(
         "<!-- BRAND_CSS -->",
         "<style>:root{"
-        f"--brand-primary:{html.escape(get_setting('whitelabel_primary_color', '#2D5CA7'))};"
-        f"--brand-accent:{html.escape(get_setting('whitelabel_accent_color', '#FCB715'))};"
+        f"--brand-primary:{html.escape(b['whitelabel_primary_color'])};"
+        f"--brand-accent:{html.escape(b['whitelabel_accent_color'])};"
         "}</style>",
     )
     return out.replace("<!-- CONSENT_SCRIPT -->",

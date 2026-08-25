@@ -421,6 +421,72 @@ export function initAi() {
     });
 }
 
+// ---- White-label branding ----
+
+function applyBranding(d) {
+    if (!d) return;
+    document.getElementById('brand-app-name').value = d.whitelabel_app_name || '';
+    document.getElementById('brand-primary').value = d.whitelabel_primary_color || '#2D5CA7';
+    document.getElementById('brand-accent').value = d.whitelabel_accent_color || '#FCB715';
+    document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
+    document.getElementById('brand-logo').value = d.whitelabel_logo_url || '';
+    updateLogoPreview();
+}
+
+// The preview mirrors the input live — the operator sees the logo they are
+// about to save, not the one already stored. A broken URL just hides it.
+function updateLogoPreview() {
+    const url = document.getElementById('brand-logo').value.trim();
+    const img = document.getElementById('brand-logo-preview');
+    if (!url) { img.hidden = true; img.removeAttribute('src'); return; }
+    img.hidden = false;
+    img.src = url;
+}
+
+async function loadBranding() {
+    try {
+        const res = await fetchAuth('/admin/api/branding');
+        if (!res.ok) return;
+        applyBranding(await res.json());
+    } catch { /* form keeps its server-rendered values */ }
+}
+
+export function initBranding() {
+    loadProfile();
+    const form = document.getElementById('branding-form');
+    if (!form) return;
+    loadBranding();
+    document.getElementById('brand-logo').addEventListener('input', updateLogoPreview);
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('save-branding-btn');
+        btn.disabled = true;
+        try {
+            const res = await fetchAuth('/admin/api/branding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    app_name: document.getElementById('brand-app-name').value.trim(),
+                    logo_url: document.getElementById('brand-logo').value.trim(),
+                    primary_color: document.getElementById('brand-primary').value,
+                    accent_color: document.getElementById('brand-accent').value,
+                    welcome_text: document.getElementById('brand-welcome').value.trim(),
+                }),
+            });
+            let detail = '';
+            try { detail = (await res.json()).detail || ''; } catch { /* no body */ }
+            if (res.ok) showMsg('branding-msg', 'برندینگ ذخیره شد', 'success');
+            else showMsg('branding-msg', detail || 'خطا در ذخیره برندینگ', 'danger');
+        } catch {
+            showMsg('branding-msg', 'خطای ارتباط با سرور', 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
+
 export function initAccount() {
     loadProfile();
 

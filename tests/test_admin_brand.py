@@ -47,11 +47,13 @@ def _panel_title(client):
     return m.group(1).strip()
 
 
-def test_unset_brand_shows_yesterdays_exact_title(client):
-    """The default is the previous hard-coded wording, verbatim — an install
-    that never configured branding wakes up after this change to the same
-    panel it went to sleep with."""
-    assert _panel_title(client) == "دستیار اینوتکس"
+def test_unset_brand_shows_the_platform_default(client):
+    """No key set → the panel titles itself with the PLATFORM name
+    («دستیار پادیار»), never one event's name: this repo deploys inotex
+    AND elecomp from one branch, so the fallback must be install-neutral.
+    An install wanting its own name sets whitelabel_app_name once via
+    Settings → برندینگ (the branding page added by the whitelabel PR)."""
+    assert _panel_title(client) == "دستیار پادیار"
 
 
 def test_a_set_brand_titles_the_panel(client):
@@ -68,4 +70,4 @@ def test_the_hardcoded_name_is_gone_from_the_template():
     from pathlib import Path
     html = Path("templates/admin/layout.html").read_text(encoding="utf-8")
     assert "دستیار اینوتکس" not in html
-    assert "{{ brand_title }}" in html
+    assert "{{ wl_app_name }}" in html

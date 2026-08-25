@@ -86,6 +86,14 @@ def get_theme_index_path(name: str) -> str:
 #
 # The cache key includes the mtimes of every file behind the render, so a
 # theme upgrade invalidates itself on the next request with no TTL guessing.
+#
+# Branding is baked into the cached shell (read_root merges
+# branding.chat_branding_context() into the render), so the key also carries
+# wl_cache_key — the identity of the 5 brand values. Without it an admin save
+# would leave every visitor on the old shell until a theme file happened to
+# change. A save pops the settings TTL cache (set_setting), the next request
+# builds a new wl_cache_key, and exactly one fresh render happens. The token
+# splice path is untouched: the placeholder never leaves this module.
 _TOKEN_PLACEHOLDER = "__PADYAR_CHAT_TOKEN__"
 _PAGE_CACHE: Dict[tuple, str] = {}
 _PAGE_CACHE_MAX = 8
@@ -121,6 +129,9 @@ def render_theme_index(theme_name: str, context: dict) -> str:
     base_partials = os.path.join(THEMES_DIR, "base", "partials")
 
     token = str(context.get("chat_token", "") or "")
+    # Brand identity of this render (absent for callers that pass none — e.g.
+    # a bare test render — and then None keeps the key shape stable).
+    wl_key = context.get("wl_cache_key")
 
     # Legacy mode: theme has index.html but no partials/
     if not os.path.isdir(theme_partials):
@@ -130,7 +141,7 @@ def render_theme_index(theme_name: str, context: dict) -> str:
                 mtime = int(os.path.getmtime(index_path))
             except OSError:
                 mtime = 0
-            key = ("legacy", theme_name, mtime)
+            key = ("legacy", theme_name, mtime, wl_key)
             html = _PAGE_CACHE.get(key)
             if html is None:
                 with open(index_path, "r", encoding="utf-8") as f:
@@ -163,7 +174,7 @@ def render_theme_index(theme_name: str, context: dict) -> str:
     if os.path.isdir(base_partials):
         search_path.append(base_partials)
 
-    key = ("partials", theme_name, _fingerprint(search_path))
+    key = ("partials", theme_name, _fingerprint(search_path), wl_key)
     html = _PAGE_CACHE.get(key)
     if html is None:
         loader = jinja2.FileSystemLoader(search_path)

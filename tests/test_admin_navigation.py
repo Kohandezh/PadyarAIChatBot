@@ -61,6 +61,10 @@ REQUIRED_LINKS = [
     "/secure-panel-inotex/infrastructure/database",
     "/secure-panel-inotex/infrastructure/storage",
     "/secure-panel-inotex/infrastructure/backups",
+    # Branding is core (never module-gated), so its page must be reachable
+    # in every install — exactly the orphaned-page failure this file exists
+    # to prevent.
+    "/secure-panel-inotex/settings/branding",
 ]
 
 

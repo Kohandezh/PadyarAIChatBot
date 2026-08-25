@@ -50,12 +50,20 @@ const EN_SUGGESTED = [
 ];
 
 
+// ── Server-injected brand override ────────────────────────────────────
+// The page ships with the install's own name/welcome pre-rendered; this
+// object (emitted by app/services/branding.py into head.html) keeps setLang()
+// from reverting them to the hardcoded fa strings on load. Branding is
+// fa-only by owner decision — the en dict keeps its hardcoded strings.
+const BRAND = window.PADYAR_BRAND || {};
+
+
 // ── Bilingual UI strings ──────────────────────────────────────────────
 const I18N = {
     fa: {
         html_lang: 'fa', html_dir: 'rtl',
-        app_title: "دستیار پادیار",
-        welcome: "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید.",
+        app_title: BRAND.app_name || "دستیار پادیار",
+        welcome: BRAND.welcome || "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید.",
         videoTab: "ویدیو",
         textTab: "چت",
         videoReady: "ویدیوهای راهنمای اینوتکس در این بخش نمایش داده می‌شوند",

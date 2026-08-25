@@ -1,6 +1,7 @@
 import io
 import asyncio
 import csv
+import re
 import secrets
 import datetime
 
@@ -11,7 +12,7 @@ from app.models import (
     SmsSettingsRequest, SmsTestRequest,
     LoginRequest, ToggleRequest, ChangePasswordRequest,
     ChangeSecurityQuestionRequest, BackupScheduleRequest,
-    AssistantContentRequest, AIConnectionRequest,
+    AssistantContentRequest, AIConnectionRequest, WhitelabelBrandingRequest,
 )
 from app.services import embeddings as embeddings_service
 from app.services import applog
@@ -592,6 +593,73 @@ async def save_assistant_content(req: AssistantContentRequest, username: str = D
     set_setting("assistant_personality", req.personality.strip())
     set_setting("assistant_medical_safety", req.medical_safety.strip())
     set_setting("assistant_tone", tone)
+    return {"status": "updated"}
+
+
+# ── White-label branding ────────────────────────────────────────────────
+# Defaults and the escaping/cache contract live in app/services/branding.py;
+# these endpoints are only the read/write surface for the admin form.
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_SAFE_LOGO_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+@router.get("/admin/api/branding", dependencies=[Depends(verify_admin)])
+async def get_branding_settings():
+    """The 5 keys with defaults filled in, so the form always shows the
+    active look — including on a fresh install that never saved anything."""
+    from app.services.branding import get_branding
+    return get_branding()
+
+
+@router.post("/admin/api/branding", dependencies=[Depends(verify_admin)])
+async def save_branding_settings(req: WhitelabelBrandingRequest,
+                                 username: str = Depends(verify_admin)):
+    name = req.app_name.strip()
+    logo = req.logo_url.strip()
+    primary = req.primary_color.strip()
+    accent = req.accent_color.strip()
+    welcome = req.welcome_text.strip()
+
+    # Backstop validation — the form's native color picker can only emit
+    # #rrggbb, but this API is reachable by any admin tooling, and a bad
+    # value here renders into the PUBLIC chat page. Empty welcome is legal
+    # and means "fall back to the default greeting" (branding.get_branding).
+    if not name or len(name) > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="نام نمایشی دستیار نمی‌تواند خالی باشد و حداکثر ۶۰ نویسه است.")
+    if not _HEX_COLOR_RE.match(primary) or not _HEX_COLOR_RE.match(accent):
+        raise HTTPException(
+            status_code=400,
+            detail="رنگ‌ها باید کد شش‌رقمی hex باشند، مثل #2D5CA7.")
+    if len(welcome) > 300:
+        raise HTTPException(
+            status_code=400,
+            detail="پیام خوش‌آمدگویی حداکثر می‌تواند ۳۰۰ نویسه باشد.")
+    # Scheme allowlist, not a denylist: `javascript:` and every exotic scheme
+    # are rejected by construction. Site-relative (uploaded logo) or absolute
+    # http(s) only. A leading `//` is protocol-relative — an EXTERNAL origin
+    # in disguise — so it is excluded from the site-relative branch too.
+    if logo and (logo.startswith("//")
+                 or not (logo.startswith("/") or _SAFE_LOGO_RE.match(logo))):
+        raise HTTPException(
+            status_code=400,
+            detail="نشانی لوگو باید با / شروع شود یا یک آدرس کامل http/https باشد.")
+
+    from app.services.branding import WL_FIELD_TO_KEY
+    values = {
+        "app_name": name, "logo_url": logo, "primary_color": primary,
+        "accent_color": accent, "welcome_text": welcome,
+    }
+    for field, key in WL_FIELD_TO_KEY.items():
+        set_setting(key, values[field])
+    # Every value is validated server-side and re-escaped at every render
+    # (branding.chat_branding_context) — the audit row records only what
+    # changed, never the operator's raw paste.
+    applog.audit("settings.branding.updated",
+                 "برندینگ نصب به‌روزرسانی شد",
+                 actor=username, target="settings")
     return {"status": "updated"}
 
 
