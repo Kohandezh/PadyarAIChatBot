@@ -40,17 +40,24 @@ def _filters(request: Request) -> dict:
 @router.get("/admin/api/logs", dependencies=[Depends(verify_admin)])
 async def list_logs(request: Request):
     params = _filters(request)
+
+    def _int_param(name: str, default: int) -> int:
+        try:
+            return int(request.query_params.get(name) or default)
+        except (TypeError, ValueError):
+            return default
+
     rows, total = applog.query(
         sort=request.query_params.get("sort", "created_at"),
         direction=request.query_params.get("direction", "desc"),
-        limit=request.query_params.get("limit", 50),
-        offset=request.query_params.get("offset", 0),
+        limit=_int_param("limit", 50),
+        offset=_int_param("offset", 0),
         **params)
     return {
         "rows": [{k: v for k, v in r.items() if k not in _LIST_OMIT} for r in rows],
         "total": total,
-        "limit": min(max(int(request.query_params.get("limit") or 50), 1), 500),
-        "offset": max(int(request.query_params.get("offset") or 0), 0),
+        "limit": min(max(_int_param("limit", 50), 1), 500),
+        "offset": max(_int_param("offset", 0), 0),
         "categories": applog.CATEGORIES,
         "levels": list(applog.LEVELS),
         "filters": params,

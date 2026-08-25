@@ -90,7 +90,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     if not user_query:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    logger.info(f"Received query: {user_query}")
+    # Same content policy as the structured row below — the stdlib log must
+    # not become the one place a visitor's PII lands unredacted.
+    logger.info(f"Received query: {applog.apply_content_policy(user_query)}")
 
     # One id for the whole logical operation. The middleware already stamped a
     # request id; this binds the CONVERSATION so message -> retrieval -> LLM ->

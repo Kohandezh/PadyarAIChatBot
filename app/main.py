@@ -73,6 +73,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.error("[ai] control-plane startup hook failed: %s", type(e).__name__)
 
+    # One-time at-rest encryption of the legacy AI key. Existing installs have
+    # a plaintext `ai_api_key` settings row (new saves are encrypted by the
+    # admin router); get_setting() decrypts transparently, so both forms keep
+    # working and this quietly converges every install to encrypted.
+    # Guarded: a failure leaves the plaintext row in place, which still works.
+    try:
+        from app.services import secure_store
+        from app.db.connection import get_db_connection
+        from app.db.queries import set_setting
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'ai_api_key'").fetchone()
+        conn.close()
+        _legacy_key = (row["value"] or "").strip() if row else ""
+        if _legacy_key and not secure_store.is_protected(_legacy_key):
+            set_setting("ai_api_key", secure_store.protect(_legacy_key))
+            logger.info("[secure_store] encrypted the legacy AI key at rest")
+    except Exception as e:  # noqa: BLE001
+        logger.error("[secure_store] legacy AI key encryption failed: %s",
+                     type(e).__name__)
+
     # Mount theme static directories
     _mount_themes(app)
 
@@ -124,6 +144,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Backstop on request size, from the Content-Length header. Generous by design
+# (video uploads are large and stream to disk); its job is to stop a single
+# request from buffering an unbounded body, not to police legitimate uploads.
+# Chunked bodies carry no Content-Length — the endpoints that buffer a whole
+# upload in memory (transcribe, imports, restore) enforce their own read caps.
+MAX_BODY_BYTES = int(os.getenv("MAX_BODY_BYTES", str(512 * 1024 * 1024)))
+
+
+@app.middleware("http")
+async def reject_oversized_bodies(request, call_next):
+    length = request.headers.get("content-length")
+    if length:
+        try:
+            if int(length) > MAX_BODY_BYTES:
+                from fastapi.responses import JSONResponse
+                return JSONResponse({"detail": "Request body too large"},
+                                    status_code=413)
+        except ValueError:
+            pass
+    return await call_next(request)
 
 
 # Paths that must never generate a log row. /static, /themes and /media are
@@ -195,10 +237,10 @@ async def request_correlation(request, call_next):
         applog.exception("api", "api.request.failed", exc,
                          message=f"{request.method} {path}",
                          route=path, http_method=request.method, http_status=500,
-                         duration_ms=int((_time.perf_counter() - started) * 1000),
-                         ip=client_ip,
-                         user_agent=request.headers.get("user-agent", ""),
-                         request_id=request_id, correlation_id=correlation_id)
+                          duration_ms=int((_time.perf_counter() - started) * 1000),
+                          ip=ip,
+                          user_agent=request.headers.get("user-agent", ""),
+                          request_id=request_id, correlation_id=correlation_id)
         raise
 
     duration_ms = int((_time.perf_counter() - started) * 1000)
@@ -214,7 +256,7 @@ async def request_correlation(request, call_next):
                           level=level,
                           message=f"{request.method} {path} -> {status}",
                           route=path, http_method=request.method, http_status=status,
-                          duration_ms=duration_ms, ip=client_ip,
+                          duration_ms=duration_ms, ip=ip,
                           user_agent=request.headers.get("user-agent", ""),
                           request_id=request_id, correlation_id=correlation_id,
                           outcome="failed" if status >= 400 else "ok")
@@ -266,8 +308,11 @@ async def security_headers(request, call_next):
 
 # --- Static Files ---
 app.mount("/LOGO", StaticFiles(directory="LOGO"), name="logo")
-app.mount("/data", StaticFiles(directory="data"), name="data")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+# NOTE: data/ is deliberately NOT mounted. Nothing in the chat UI or admin
+# panel fetches it over HTTP (the taxonomy is read server-side from its file
+# path), and the directory can hold dev-only artifacts with visitor PII
+# (otp-dev-outbox.log) that must never be downloadable.
 # Serve uploaded media (videos) locally. In production nginx serves /media
 # directly; this mount is the fallback so video URLs work in local/dev too.
 # The media dir is gitignored, so it may be absent on a fresh checkout —

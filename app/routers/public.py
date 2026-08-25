@@ -392,15 +392,27 @@ async def health_check():
 
 
 @router.get("/api/ready")
-async def readiness_check(deep: bool = False):
+async def readiness_check(deep: bool = False, request: Request = None):
     """Readiness: is the retrieval layer actually able to answer?
 
     ``deep=true`` additionally probes the external AI endpoint (never done
     in the request path). Returns 503 while the local layer is not ready so
     an orchestrator holds traffic until the index is built.
+
+    The deep probe is admin-only: it makes the server call the external
+    provider, and an anonymous caller able to trigger outbound traffic on
+    demand is a free abuse relay. Unauthenticated requests silently get the
+    shallow answer an orchestrator needs.
     """
+    from fastapi import HTTPException
     from fastapi.responses import JSONResponse
     from app.services.providers import local_provider, external_provider
+
+    if deep:
+        try:
+            await verify_admin(request)
+        except HTTPException:
+            deep = False
 
     local = local_provider.health_check()
     body = {

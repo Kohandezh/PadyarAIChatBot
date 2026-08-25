@@ -1,6 +1,5 @@
 import io
 import csv
-import hashlib
 import secrets
 import datetime
 
@@ -15,6 +14,7 @@ from app.models import (
 )
 from app.services import embeddings as embeddings_service
 from app.services import applog
+from app.services import secure_store
 from app.config import (
     logger, MAX_LOGIN_ATTEMPTS, BLOCK_TIME_MINUTES,
     SESSION_TIMEOUT_HOURS, ADMIN_COOKIE_NAME, COOKIE_SECURE,
@@ -22,6 +22,8 @@ from app.config import (
 from app.auth.security import (
     verify_admin, login_block_active, record_failed_login, clear_login_attempts,
     hash_password, verify_password, is_legacy_hash,
+    hash_security_answer, verify_security_answer, is_legacy_answer_hash,
+    timing_equalize,
     client_ip as resolve_client_ip,
 )
 from app.db.connection import get_db_connection
@@ -84,8 +86,7 @@ async def admin_login(creds: LoginRequest, request: Request):
     if user:
         salt = user['salt'] if 'salt' in user.keys() and user['salt'] else ""
         password_ok = verify_password(creds.password, user['password_hash'], salt)
-        ans_hash = hashlib.sha256(creds.sec_answer.encode()).hexdigest()
-        if password_ok and ans_hash == user['security_answer_hash']:
+        if password_ok and verify_security_answer(creds.sec_answer, user['security_answer_hash']):
             auth_success = True
             # Transparent upgrade: re-hash legacy SHA-256 passwords with bcrypt.
             if is_legacy_hash(user['password_hash']):
@@ -98,6 +99,20 @@ async def admin_login(creds: LoginRequest, request: Request):
                 conn.commit()
                 conn.close()
                 logger.info(f"Upgraded password hash to bcrypt for: {creds.username}")
+            # Same upgrade for a legacy unsalted-SHA-256 security answer.
+            if is_legacy_answer_hash(user['security_answer_hash']):
+                conn = get_db_connection()
+                conn.execute(
+                    'UPDATE admins SET security_answer_hash = ? WHERE username = ?',
+                    (hash_security_answer(creds.sec_answer), creds.username)
+                )
+                conn.commit()
+                conn.close()
+                logger.info(f"Upgraded security-answer hash to bcrypt for: {creds.username}")
+    else:
+        # A real username costs a bcrypt verify; an invented one must too, or
+        # the response time itself tells an attacker which usernames exist.
+        timing_equalize(creds.password)
 
     if not auth_success:
         # The REASON is recorded, never the submitted password or answer.
@@ -421,6 +436,7 @@ async def get_ai_connection():
         "api_base": get_setting("ai_api_base", ""),
         "api_base_default": OPENAI_API_BASE,
         # The key itself never leaves the server — only whether one exists.
+        # (get_setting transparently decrypts the at-rest form.)
         "has_key": bool((get_setting("ai_api_key", "") or "").strip()),
         # `model_chat` / `model_classify` are DEPRECATED and no longer read by
         # the runtime — the AI Control Plane's routes decide those. They are
@@ -446,7 +462,9 @@ async def get_ai_connection():
 async def save_ai_connection(req: AIConnectionRequest):
     set_setting("ai_api_base", req.api_base.strip())
     if req.api_key.strip():
-        set_setting("ai_api_key", req.api_key.strip())
+        # Encrypted at rest, like every other secret the panel stores — a
+        # plaintext row would ship in every downloadable database backup.
+        set_setting("ai_api_key", secure_store.protect(req.api_key.strip()))
     # `model_chat` / `model_classify` are accepted for backward compatibility
     # with an older client, but deliberately NOT persisted: the runtime reads
     # route targets from the AI Control Plane, so storing them would recreate
@@ -542,6 +560,20 @@ async def get_low_confidence():
     return [dict(row) for row in logs]
 
 
+def _csv_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in exported cells.
+
+    Visitor-typed text is exported and opened in Excel/Sheets; a cell starting
+    with = + - @ (or tab/CR, which some suites still treat as a formula lead)
+    would execute there. A leading apostrophe defuses it and is invisible in
+    the rendered cell.
+    """
+    s = "" if value is None else str(value)
+    if s.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + s
+    return s
+
+
 @router.get("/admin/api/export_csv", dependencies=[Depends(verify_admin)])
 async def export_csv():
     conn = get_db_connection()
@@ -554,9 +586,11 @@ async def export_csv():
 
     for log in logs:
         writer.writerow([
-            log['id'], log['created_at'], log['query'], log['response'],
-            log['response_type'], log['source'], log['confidence'],
-            log['tokens'], log['cost']
+            _csv_safe(log['id']), _csv_safe(log['created_at']),
+            _csv_safe(log['query']), _csv_safe(log['response']),
+            _csv_safe(log['response_type']), _csv_safe(log['source']),
+            _csv_safe(log['confidence']), _csv_safe(log['tokens']),
+            _csv_safe(log['cost'])
         ])
 
     output.seek(0)
@@ -611,7 +645,7 @@ async def get_profile(username: str = Depends(verify_admin)):
 
 
 @router.post("/admin/api/change-password", dependencies=[Depends(verify_admin)])
-async def change_password(req: ChangePasswordRequest, username: str = Depends(verify_admin)):
+async def change_password(req: ChangePasswordRequest, request: Request, username: str = Depends(verify_admin)):
     if req.new_password != req.confirm_password:
         raise HTTPException(status_code=400, detail="رمز عبور جدید و تکرار آن مطابقت ندارند")
     if len(req.new_password) < 6:
@@ -631,6 +665,13 @@ async def change_password(req: ChangePasswordRequest, username: str = Depends(ve
         # Store the new password as bcrypt (salt embedded, so the salt column is cleared)
         new_hash = hash_password(req.new_password)
         conn.execute('UPDATE admins SET password_hash = ?, salt = ? WHERE username = ?', (new_hash, '', username))
+        # A password change is a rotation: every OTHER session for this admin
+        # dies now, so one stolen cookie cannot outlive the rotation (the
+        # current session stays — the operator changing their own password is
+        # not the attacker). Sliding expiry already bounds it to an hour, this
+        # closes that hour.
+        conn.execute('DELETE FROM admin_sessions WHERE username = ? AND token <> ?',
+                     (username, request.cookies.get(ADMIN_COOKIE_NAME, "")))
         conn.commit()
     finally:
         conn.close()
@@ -758,19 +799,17 @@ async def change_security_question(req: ChangeSecurityQuestionRequest, username:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Verify current answer
-        current_hash = hashlib.sha256(req.current_answer.encode()).hexdigest()
-        if current_hash != user['security_answer_hash']:
+        # Verify current answer (bcrypt, or a legacy SHA-256 row)
+        if not verify_security_answer(req.current_answer, user['security_answer_hash']):
             raise HTTPException(status_code=401, detail="پاسخ سوال امنیتی فعلی اشتباه است")
 
         if not req.new_question.strip() or not req.new_answer.strip():
             raise HTTPException(status_code=400, detail="سوال و پاسخ جدید نمی‌توانند خالی باشند")
 
-        # Update
-        new_answer_hash = hashlib.sha256(req.new_answer.encode()).hexdigest()
+        # Update — bcrypt at rest, same policy as the password.
         conn.execute(
             'UPDATE admins SET security_question = ?, security_answer_hash = ? WHERE username = ?',
-            (req.new_question.strip(), new_answer_hash, username)
+            (req.new_question.strip(), hash_security_answer(req.new_answer.strip()), username)
         )
         conn.commit()
     finally:

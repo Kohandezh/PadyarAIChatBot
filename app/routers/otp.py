@@ -220,30 +220,37 @@ async def otp_page():
         html = f.read()
 
     b = branding()
+    # html.escape on everything injected into HTML/CSS/JS: the branding values
+    # are admin-editable settings, and an unescaped quote or angle bracket
+    # becomes stored XSS against every visitor on this page. The leads module
+    # already escapes its injections; this matches it. `attr` mode for the
+    # CSS/JS contexts so both quote styles are covered.
+    import html as _html
+    esc = lambda v: _html.escape(str(v), quote=True)
     companion = b["otp_companion_atlas"].strip()
     brand_css = (
         "<style>:root{"
-        f"--inotex-primary:{b['otp_color_primary']};"
-        f"--inotex-yellow-light:{b['otp_color_primary_hover']};"
-        f"--inotex-blue:{b['otp_color_blue']};"
-        f"--inotex-navy:{b['otp_color_navy']};"
-        f"--inotex-teal:{b['otp_color_teal']};"
-        f"--inotex-background:{b['otp_color_background']};"
+        f"--inotex-primary:{esc(b['otp_color_primary'])};"
+        f"--inotex-yellow-light:{esc(b['otp_color_primary_hover'])};"
+        f"--inotex-blue:{esc(b['otp_color_blue'])};"
+        f"--inotex-navy:{esc(b['otp_color_navy'])};"
+        f"--inotex-teal:{esc(b['otp_color_teal'])};"
+        f"--inotex-background:{esc(b['otp_color_background'])};"
         "}"
-        f"body{{background-image:url('{b['otp_background_image']}');}}"
+        f"body{{background-image:url('{esc(b['otp_background_image'])}');}}"
         + ("" if companion else ".pet-slot{display:none;}")
         + "</style>"
     )
     config = (
         "<script>window.OTP_CONFIG="
-        f'{{"companionAtlas":"{companion}","companionCell":{b["otp_companion_cell"]}}};'
+        f'{{"companionAtlas":"{esc(companion)}","companionCell":{b["otp_companion_cell"]}}};'
         "</script>"
     )
 
     html = html.replace("<!-- BRAND_CSS -->", brand_css)
     html = html.replace("<!-- BRAND_CONFIG -->", config)
-    html = html.replace("<!-- BRAND_MARK -->", b["otp_brand_mark"])
-    html = html.replace("<!-- BRAND_NAME -->", b["otp_brand_name"])
+    html = html.replace("<!-- BRAND_MARK -->", esc(b["otp_brand_mark"]))
+    html = html.replace("<!-- BRAND_NAME -->", esc(b["otp_brand_name"]))
     return HTMLResponse(html)
 
 

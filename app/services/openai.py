@@ -22,6 +22,8 @@ _MODEL_DEFAULTS = {"chat": "gpt-4.1", "classify": "gpt-5-nano", "stt": "whisper-
 
 def provider_config():
     from app.db.queries import get_setting
+    # get_setting transparently decrypts `enc:`-protected rows (and passes
+    # legacy plaintext through), so both storage forms work here.
     base = (get_setting("ai_api_base", "") or "").strip() or OPENAI_API_BASE
     key = (get_setting("ai_api_key", "") or "").strip() or (OPENAI_API_KEY or "")
     return base, key

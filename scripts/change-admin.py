@@ -6,17 +6,14 @@ Works on the configured backend: PostgreSQL in production, SQLite for the
 test suite / rollback (`--db`-style file overrides live in
 reset-admin-password.py).
 
-Passwords are hashed with SHA-256 + a per-account salt, matching how the app
-seeds admins and how the login endpoint verifies them. The security answer is
-hashed with SHA-256, matching how the login and "change security question"
-endpoints verify it. No credentials are hardcoded — everything is prompted.
+Passwords and the security answer are hashed with bcrypt via the app's own
+helpers (app/auth/security.py), matching how the login endpoint verifies
+them. No credentials are hardcoded — everything is prompted.
 """
 
 import os
 import sys
 import sqlite3
-import hashlib
-import secrets
 from getpass import getpass
 
 # Make the `app` package importable no matter where this is launched from.
@@ -24,6 +21,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+from app.auth.security import hash_password, hash_security_answer
 from app.config import DB_PATH
 
 DEFAULT_QUESTION = "What is your favorite color?"
@@ -78,9 +76,8 @@ def main():
     question = input(f"Security question [{DEFAULT_QUESTION}]: ").strip() or DEFAULT_QUESTION
     answer = prompt_nonempty("Security answer: ")
 
-    salt = secrets.token_hex(16)
-    pwd_hash = hashlib.sha256((salt + password).encode()).hexdigest()  # matches app seeding
-    ans_hash = hashlib.sha256(answer.encode()).hexdigest()             # matches login verification
+    pwd_hash = hash_password(password)          # bcrypt (salt embedded)
+    ans_hash = hash_security_answer(answer)     # bcrypt, app's scheme
 
     # Upsert: username is the PRIMARY KEY, so ON CONFLICT updates in place.
     cur.execute(
@@ -93,13 +90,13 @@ def main():
             security_question = excluded.security_question,
             security_answer_hash = excluded.security_answer_hash
         """,
-        (username, pwd_hash, salt, question, ans_hash),
+        (username, pwd_hash, "", question, ans_hash),
     )
     conn.commit()
     conn.close()
 
     action = "Updated" if username in existing else "Created"
-    print(f"\n✓ {action} admin '{username}' (password hashed with SHA-256 + salt).")
+    print(f"\n✓ {action} admin '{username}' (credentials hashed with bcrypt).")
 
 
 if __name__ == "__main__":

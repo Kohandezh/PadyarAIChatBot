@@ -29,7 +29,6 @@ Usage:
 import os
 import sys
 import sqlite3
-import hashlib
 import argparse
 from getpass import getpass
 
@@ -54,7 +53,7 @@ def main():
     if not password:
         sys.exit("✗ Password cannot be empty.")
 
-    from app.auth.security import hash_password
+    from app.auth.security import hash_password, hash_security_answer
     pwd_hash = hash_password(password)
 
     if args.db:
@@ -80,7 +79,7 @@ def main():
                 "UPDATE admins SET password_hash = ?, salt = ?, security_answer_hash = ?"
                 " WHERE username = ?",
                 (pwd_hash, "",
-                 hashlib.sha256(args.security_answer.encode()).hexdigest(),
+                 hash_security_answer(args.security_answer),
                  args.username))
         else:
             cur = conn.execute(
