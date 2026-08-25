@@ -3,7 +3,6 @@ import io
 import csv
 import json
 import asyncio
-import sqlite3
 import mimetypes
 import shutil
 from contextlib import closing

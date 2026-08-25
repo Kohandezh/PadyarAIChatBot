@@ -16,6 +16,12 @@ This is the #1 product principle. It overrides everything else.
 
 **When in doubt: simplify. Remove. Hide. Auto-detect. Default.**
 
+## Communication
+
+Malik-e product (Sina) Finglish minevisi — farsi ba horuf-e latin. Jawab-ha
+HAMESH Finglish ast. Hich vaght parsi script, hich vaght makhs. Faghat baraye
+chat — code, commit, doc tu zaban-e khod.
+
 ---
 
 ## Project Overview
@@ -292,9 +298,10 @@ Self-contained themes in `/themes/{name}/` — each has `theme.json`, `index.htm
 
 ### Database Changes
 
-1. Modify schema in `app/db/connection.py` (`init_db()`)
-2. Add queries in `app/db/queries.py`
-3. DB auto-creates on first boot — no migration system
+1. Add a new versioned file `migrations/NNNN_name.sql` (PostgreSQL owns the schema)
+2. Apply with `python scripts/apply_migrations.py` (idempotent, checksum-guarded)
+3. Mirror test-suite needs in the SQLite DDL (`app/db/connection.py` and the `ensure_*` helpers)
+4. Add queries in `app/db/queries.py` — `?` placeholders and `INSERT OR IGNORE` are translated by `app/db/pg.py`
 
 ## Configuration Reference
 
@@ -342,10 +349,11 @@ The product instance is now **INOTEX** (پانزدهمین نمایشگاه بی
   source manifest is `content/sources.json`; conflicts pending human review
   live in `content/review-queue.md`. Freshness checking:
   `python3 scripts/refresh-inotex-context.py`.
-- **Mascot policy:** the current UI renders **no Pet/mascot**. The former pet
-  iframe, its `/assets` mount and `static/pet/` are removed. Decorative
-  lower-left region uses modular brick visuals from the coordinated asset set
-  (`../image/`, manifest at `../image/asset-manifest.json`).
+- **Mascot policy:** the Pet-INOTEX companion is **back on** (owner request,
+  2026-08-24) via `themes/inotex/partials/footer.html` +
+  `static/companion/companion{,-ui}.js` — desktop/tablet only, hidden below a
+  640px viewport by the theme CSS. The old pet iframe, its `/assets` mount and
+  `static/pet/` remain removed.
 - **Design:** the INOTEX theme uses the official palette
   (#FCB715, #FEBE27, #2D5CA7, #1E2D52, #04A584, #00644F, #000000, #FFFFFF)
   as design tokens. The frontend skeleton (routes, partial hierarchy,

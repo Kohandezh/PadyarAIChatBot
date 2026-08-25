@@ -2,6 +2,10 @@
 
 Run from the project root:  python scripts/change-admin.py
 
+Works on the configured backend: PostgreSQL in production, SQLite for the
+test suite / rollback (`--db`-style file overrides live in
+reset-admin-password.py).
+
 Passwords and the security answer are hashed with bcrypt via the app's own
 helpers (app/auth/security.py), matching how the login endpoint verifies
 them. No credentials are hardcoded — everything is prompted.
@@ -44,13 +48,21 @@ def prompt_password():
 
 
 def main():
-    if not os.path.exists(DB_PATH):
-        print(f"Database not found at {DB_PATH}. Start the app once to create it.")
-        sys.exit(1)
+    from app.config import DB_BACKEND
+    if DB_BACKEND == "postgres":
+        from app.db.connection import get_db_connection
+        conn = get_db_connection()
+        where = "PostgreSQL"
+    else:
+        if not os.path.exists(DB_PATH):
+            print(f"Database not found at {DB_PATH}. Start the app once to create it.")
+            sys.exit(1)
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        where = f"SQLite at {DB_PATH}"
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
+    print(f"Database : {where}")
 
     existing = [r["username"] for r in cur.execute("SELECT username FROM admins").fetchall()]
     if existing:
@@ -64,8 +76,8 @@ def main():
     question = input(f"Security question [{DEFAULT_QUESTION}]: ").strip() or DEFAULT_QUESTION
     answer = prompt_nonempty("Security answer: ")
 
-    pwd_hash = hash_password(password)                      # bcrypt (salt embedded)
-    ans_hash = hash_security_answer(answer)                 # bcrypt, app's scheme
+    pwd_hash = hash_password(password)          # bcrypt (salt embedded)
+    ans_hash = hash_security_answer(answer)     # bcrypt, app's scheme
 
     # Upsert: username is the PRIMARY KEY, so ON CONFLICT updates in place.
     cur.execute(

@@ -59,11 +59,10 @@
     const canvas = canvasEl;
     // No canvas or no configured atlas → expose a COMPLETE no-op so every
     // caller stays unconditional and the page works identically without a
-    // companion. This is the live path right now: the character's markup is
-    // commented out in the theme footers and templates/otp/verify.html (search
-    // COMPANION-OFF), so there is no #pet-canvas to find. Every method the
-    // real object publishes is stubbed — a partial stub would turn a missing
-    // character into a TypeError the first time anything called lookAt().
+    // companion (e.g. a host page that ships no character markup). Every
+    // method the real object publishes is stubbed — a partial stub would
+    // turn a missing character into a TypeError the first time anything
+    // called lookAt().
     const NOOP = function () { };
     if (!canvas || !ATLAS_URL) {
         window.PetCompanion = {

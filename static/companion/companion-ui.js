@@ -17,11 +17,11 @@
 (function () {
     'use strict';
 
-    // The character's markup is currently COMMENTED OUT in the theme footers
-    // (search COMPANION-OFF) at the owner's request, so #pet-slot does not
-    // exist and this whole module returns here without binding anything. The
-    // mini chat panel is only reachable through the character, so it is
-    // dormant with it; uncommenting the markup brings both back unchanged.
+    // The character's markup lives in the theme footer (active theme:
+    // inotex). If a host ever ships without it, #pet-slot does not exist
+    // and this whole module returns here without binding anything — no
+    // element below is dereferenced. The theme CSS hides the companion
+    // below a 640px viewport; it stays fully interactive above that.
     const pet = window.PetCompanion;
     const slot = document.getElementById('pet-slot');
     const rail = document.getElementById('pet-rail');
