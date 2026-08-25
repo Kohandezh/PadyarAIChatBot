@@ -173,5 +173,20 @@ jobs:
           sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
             /usr/local/bin/padyar-deploy inotex "${{ github.sha }}"
 
+      # Second install, same host, same script, same order of operations.
+      # Deliberately SEQUENTIAL, not `strategy: matrix`: the two deploys share
+      # one host, one PostgreSQL and one pip cache — a matrix would run them
+      # concurrently and the restarts would interleave. If elecomp fails, the
+      # job fails red with inotex already (independently) deployed and rolled
+      # back only by its own health gate — each install's safety is its own.
+      - name: Deploy elecomp to production
+        run: |
+          set -euo pipefail
+          sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
+            /usr/local/bin/padyar-deploy elecomp "${{ github.sha }}"
+
       - name: Report
-        run: echo "Deployed ${{ github.sha }} to padyar-inotex (port 8001)."
+        run: |
+          echo "Deployed ${{ github.sha }}:"
+          echo "  - padyar-inotex  (inotex.padyar.com,  port 8001)"
+          echo "  - padyar-elecomp (elecomp.padyar.com, port 8002)"
