@@ -620,8 +620,11 @@ async def verify_admin(request: Request):
         conn.close()
         raise HTTPException(status_code=401, detail="Session expired")
 
-    # Slide expiry on activity
-    new_expiry = datetime.datetime.now() + datetime.timedelta(hours=SESSION_TIMEOUT_HOURS)
+    # Slide expiry on activity. AWARE and UTC: `expiry` is TIMESTAMPTZ in
+    # production, and a naive datetime is read by PostgreSQL in the server's
+    # own timezone — on any host not on UTC the slide wrote a moment already
+    # in the past, and the admin's SECOND request expired the session.
+    new_expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=SESSION_TIMEOUT_HOURS)
     conn = get_db_connection()
     conn.execute('UPDATE admin_sessions SET expiry = ? WHERE token = ?', (new_expiry.isoformat(), token))
     conn.commit()

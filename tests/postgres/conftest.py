@@ -369,7 +369,13 @@ def client(tmp_path, monkeypatch, pg_clean):
         db.execute("INSERT INTO admin_sessions (token, username, expiry)"
                    " VALUES (?,?,?)",
                    (token, "pgadmin",
-                    datetime.datetime.now() + datetime.timedelta(hours=1)))
+                    # AWARE, and UTC: `expiry` is TIMESTAMPTZ, so PostgreSQL
+                    # reads a naive datetime in its own timezone. On a machine
+                    # four hours behind UTC the naive-local "+1 hour" landed
+                    # three hours in the past and every admin request 401'd
+                    # with "Session expired" before the test body ran.
+                    datetime.datetime.now(datetime.timezone.utc)
+                    + datetime.timedelta(hours=1)))
         db.commit()
         db.close()
         c.cookies.set("admin_session", token)
