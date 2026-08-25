@@ -40,6 +40,15 @@ def _render(template_name: str, **context) -> HTMLResponse:
     """
     from app.config import ENABLED_MODULES
     context.setdefault("enabled_modules", ENABLED_MODULES)
+    # The panel's own name. This repository deploys to more than one install
+    # (inotex, elecomp) from one branch, so a literal name in layout.html
+    # would brand every install with one event's identity. The white-label
+    # key is the install's display name; the default below is today's exact
+    # wording, so an install that never sets the key sees no change.
+    from app.db.queries import get_setting
+    context.setdefault(
+        "brand_title",
+        (get_setting("whitelabel_app_name", "") or "دستیار اینوتکس").strip())
     context.setdefault("maintenance_on", False)
     try:
         from app.services import maintenance
