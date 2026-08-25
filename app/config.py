@@ -110,12 +110,31 @@ except ValueError:
 
 # --- Chat Security ---
 CHAT_TOKEN_TTL = 3600  # 1 hour
-# Rate limiting is per client IP, and at an exhibition a whole hall of
-# visitors often arrives through one NAT'd address — a strict per-IP limit
-# would throttle the entire booth, not one abuser. Sized for that; tune per
-# install via env.
-CHAT_RATE_LIMIT = int(os.getenv("CHAT_RATE_LIMIT", "20"))    # max requests per window per IP
-CHAT_RATE_WINDOW = int(os.getenv("CHAT_RATE_WINDOW", "60"))  # seconds
+# Rate limiting is per VISITOR IDENTITY — the nonce inside the signed chat
+# token — with a loose per-IP backstop. At an exhibition a whole hall of
+# visitors often arrives through one NAT'd address, and a per-IP-only limit
+# throttles the entire booth, not one abuser. CHAT_RATE_LIMIT is the
+# per-visitor ceiling; CHAT_IP_RATE_LIMIT (5x) bounds the trick of refreshing
+# the page to mint a fresh identity (~5 refresh cycles/min per IP) while
+# still giving the booth its collective headroom. One shared window — one
+# number an operator can reason about. Tune per install via env.
+CHAT_RATE_LIMIT = int(os.getenv("CHAT_RATE_LIMIT", "20"))    # max requests per window per identity
+CHAT_RATE_WINDOW = int(os.getenv("CHAT_RATE_WINDOW", "60"))  # seconds — shared by every bucket below
+CHAT_IP_RATE_LIMIT = int(os.getenv("CHAT_IP_RATE_LIMIT", str(CHAT_RATE_LIMIT * 5)))  # loose per-IP backstop
+
+# OTP endpoints: identity buckets (per canonicalized destination on /request,
+# per challenge everywhere else) plus a per-IP backstop. The identity buckets
+# stop a booth's registration bursts from collectively locking the hall out;
+# the backstop stops rotating destinations from turning the endpoints into a
+# free SMS relay. The service-level caps (attempts/resends/destination-hourly)
+# remain the real bounds — these just trip before the service is reached.
+OTP_RATE_LIMIT = int(os.getenv("OTP_RATE_LIMIT", "10"))      # per identity per window
+OTP_IP_RATE_LIMIT = int(os.getenv("OTP_IP_RATE_LIMIT", "60"))  # per IP per window
+
+# GET / (the render that MINTS chat tokens): generous per-IP fence that
+# exists only to stop render hammering — renders are cheap, but each one
+# mints a fresh rate-limit identity. 120/min is far above any human or kiosk.
+PAGE_RATE_LIMIT = int(os.getenv("PAGE_RATE_LIMIT", "120"))   # page renders per IP per window
 
 # Minimum probability for the locally trained intent classifier to answer on
 # its own (Tier 1.5, between local retrieval and the external AI classifier).

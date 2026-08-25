@@ -8,7 +8,10 @@ from app.config import (
     QUESTIONS_FALLBACK_THRESHOLD,
     INTENT_TRUST_THRESHOLD,
 )
-from app.auth.security import validate_request_origin, validate_chat_token, check_rate_limit
+from app.auth import security
+from app.auth.security import (
+    client_ip, validate_chat_token, validate_request_origin,
+)
 import time as _perf
 
 from app.db.queries import get_setting, log_chat
@@ -82,8 +85,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     from app.services.maintenance import guard as _maintenance_guard
     _maintenance_guard()
     validate_request_origin(http_request)
-    validate_chat_token(http_request)
-    check_rate_limit(http_request)
+    nonce = validate_chat_token(http_request)
+    # Two-tier limit: the tight bucket is the visitor's signed-token nonce, so
+    # one abuser behind the booth's shared NAT exhausts only their own budget;
+    # the loose per-IP backstop bounds the refresh-to-mint-a-fresh-identity
+    # trick. A legacy (v1) token carries no nonce and falls back to the
+    # IP-keyed tight bucket — exactly the pre-nonce behaviour. Limits are read
+    # off the security module at CALL time so the enforcing module stays the
+    # one place tests and operators tune.
+    ip = client_ip(http_request) or "unknown"
+    security.check_rate_limits(http_request, [
+        (f"chat:{nonce or 'ip:' + ip}", security.CHAT_RATE_LIMIT),
+        (f"chatip:{ip}", security.CHAT_IP_RATE_LIMIT),
+    ])
 
     lang = "en" if (request.lang or "").lower().startswith("en") else "fa"
     user_query = request.message.strip()

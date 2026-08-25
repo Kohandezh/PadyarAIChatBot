@@ -13,9 +13,14 @@ from app import config
 from app.config import (
     ALLOWED_ORIGINS, SECRET_KEY, logger,
     CHAT_TOKEN_TTL, CHAT_RATE_LIMIT, CHAT_RATE_WINDOW,
+    CHAT_IP_RATE_LIMIT, OTP_RATE_LIMIT, OTP_IP_RATE_LIMIT, PAGE_RATE_LIMIT,
     ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS,
     MAX_LOGIN_ATTEMPTS, BLOCK_TIME_MINUTES,
 )
+# The limits above are import-bound on purpose, exactly like CHAT_RATE_LIMIT:
+# this module ENFORCES them, so tests and operators tune one place
+# (security.CHAT_IP_RATE_LIMIT etc.) and every router that reads them through
+# `security.` at call time follows — re-reading app.config could disagree.
 
 
 # --- Password Hashing (bcrypt) ---
@@ -160,43 +165,56 @@ _last_bucket_sweep = 0.0
 _SWEEP_INTERVAL = 30.0
 
 
-def _db_rate_limit(bucket: str) -> bool | None:
-    """Shared SLIDING-window limiter. True/False = allowed/blocked, None = down.
+def _db_rate_limits(buckets, window: int | None = None) -> bool | None:
+    """Shared SLIDING-window limiter over SEVERAL buckets in one connection.
+
+    True/False = allowed/blocked, None = store down. `buckets` is a list of
+    (key, limit) pairs sharing one window.
 
     One row per ADMITTED request (bucket, unix-ts). A request is allowed when
-    fewer than CHAT_RATE_LIMIT hits fall inside the last CHAT_RATE_WINDOW
-    seconds — a true sliding window, matching the in-memory limiter it
-    replaced. A fixed-window counter was tried first (single atomic upsert)
-    and rejected: it resets to zero at every window boundary, admitting a 2×
-    burst around it, and that same reset is what made the boundary-crossing
-    CI test flake.
+    fewer than its bucket's limit hits fall inside the last `window` seconds —
+    a true sliding window, matching the in-memory limiter it replaced. A
+    fixed-window counter was tried first (single atomic upsert) and rejected:
+    it resets to zero at every window boundary, admitting a 2× burst around
+    it, and that same reset is what made the boundary-crossing CI test flake.
 
-    Blocked attempts are deliberately NOT recorded. Recording them would keep
-    a tripped bucket full for as long as the caller keeps trying, which turns
-    a shared-NAT booth (the exact case CHAT_RATE_LIMIT is sized for) into a
-    self-inflicted lockout. Unrecorded, the window drains from its admitted
-    timestamps and every visitor recovers after one window.
+    Two phases, deliberately:
+      1. count every bucket READ-ONLY; if ANY bucket is over, the request is
+         blocked and NOTHING is written — not even the rows of the buckets
+         that were still under. Blocked attempts are deliberately NOT
+         recorded: recording them would keep a tripped bucket full for as
+         long as the caller keeps trying, which turns a shared-NAT booth (the
+         exact case these limits are sized for) into a self-inflicted
+         lockout. Multi-bucket checking must not break that rule sideways —
+         a blocked identity must not drain the shared IP backstop either —
+         and all-or-nothing removes any outcome where one tier spends a hit
+         while the other refuses.
+      2. only when every bucket allows: insert one row per bucket and prune
+         each bucket's own expired rows.
 
-    Growth is bounded: the allowed path prunes the bucket's own expired rows,
-    and a blocked caller leaves at most CHAT_RATE_LIMIT rows behind.
+    Growth is bounded: the allowed path prunes every bucket's expired rows,
+    and a blocked caller leaves at most `limit` rows behind per bucket.
     """
     from app.db.connection import get_db_connection
 
+    window_seconds = CHAT_RATE_WINDOW if window is None else window
     now = time.time()
-    cutoff = now - CHAT_RATE_WINDOW
+    cutoff = now - window_seconds
     try:
         conn = get_db_connection()
         try:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM rate_limit_hits WHERE key = ? AND ts > ?",
-                (bucket, cutoff),
-            ).fetchone()
-            if int(row["n"]) >= CHAT_RATE_LIMIT:
-                return False  # read-only path: a spamming key writes nothing
-            conn.execute("INSERT INTO rate_limit_hits (key, ts) VALUES (?, ?)",
-                         (bucket, now))
-            conn.execute("DELETE FROM rate_limit_hits WHERE key = ? AND ts <= ?",
-                         (bucket, cutoff))
+            for bucket, limit in buckets:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM rate_limit_hits WHERE key = ? AND ts > ?",
+                    (bucket, cutoff),
+                ).fetchone()
+                if int(row["n"]) >= limit:
+                    return False  # read-only path: a spamming key writes nothing
+            for bucket, _limit in buckets:
+                conn.execute("INSERT INTO rate_limit_hits (key, ts) VALUES (?, ?)",
+                             (bucket, now))
+                conn.execute("DELETE FROM rate_limit_hits WHERE key = ? AND ts <= ?",
+                             (bucket, cutoff))
             conn.commit()
             return True
         finally:
@@ -206,16 +224,29 @@ def _db_rate_limit(bucket: str) -> bool | None:
         return None
 
 
-def check_rate_limit(http_request: Request, key: str = ""):
-    """Rate limit a request. Keyed on the client IP unless a caller passes its
-    own key, which lets a route limit per authenticated identity instead of per
-    address. Thresholds are shared; only the bucket changes."""
+def _db_rate_limit(bucket: str, limit: int | None = None,
+                   window: int | None = None) -> bool | None:
+    """Single-bucket form of _db_rate_limits (semantics documented there).
+
+    limit/window default to the chat constants so every caller that predates
+    per-bucket thresholds keeps today's behaviour exactly.
+    """
+    return _db_rate_limits(
+        [(bucket, CHAT_RATE_LIMIT if limit is None else limit)], window)
+
+
+def check_rate_limit(http_request: Request, key: str = "",
+                     limit: int | None = None, window: int | None = None):
+    """Rate limit a request against ONE bucket. Keyed on the client IP unless a
+    caller passes its own key, which lets a route limit per authenticated
+    identity instead of per address. limit/window default to the chat
+    constants so existing callers keep today's thresholds."""
     # "unknown" rather than "": an empty key would put every clientless request
     # (there is no socket in some ASGI test transports) into a bucket that also
     # collects anything else that fails to resolve, silently and unlabelled.
     bucket = key or client_ip(http_request) or "unknown"
 
-    allowed = _db_rate_limit(f"rl:{bucket}")
+    allowed = _db_rate_limit(f"rl:{bucket}", limit, window)
     if allowed is not None:
         if not allowed:
             raise HTTPException(
@@ -238,15 +269,67 @@ def check_rate_limit(http_request: Request, key: str = ""):
                  if not v or now - v[-1] > CHAT_RATE_WINDOW]
         for k in stale:
             del _chat_rate_limits[k]
+    effective_limit = CHAT_RATE_LIMIT if limit is None else limit
+    window_seconds = CHAT_RATE_WINDOW if window is None else window
     timestamps = _chat_rate_limits.get(bucket, [])
-    timestamps = [t for t in timestamps if now - t < CHAT_RATE_WINDOW]
-    if len(timestamps) >= CHAT_RATE_LIMIT:
+    timestamps = [t for t in timestamps if now - t < window_seconds]
+    if len(timestamps) >= effective_limit:
         raise HTTPException(
             status_code=429,
             detail="Too many requests. Please wait a moment."
         )
     timestamps.append(now)
     _chat_rate_limits[bucket] = timestamps
+
+
+def check_rate_limits(http_request: Request, buckets):
+    """Rate limit one request against SEVERAL buckets in ONE all-or-nothing pass.
+
+    `buckets` is a list of (key, limit) pairs sharing the chat window. The
+    pattern this exists for is two-tier: a tight per-identity bucket (the
+    signed chat token's nonce — one abuser behind a shared NAT exhausts only
+    their own budget) plus a loose per-IP backstop (mint-flooding fresh
+    identities still runs into it). Checking every bucket in one connection
+    with an all-or-nothing write keeps the blocked-not-recorded rule true for
+    BOTH tiers at once — a blocked identity must not drain the shared IP
+    backstop either (see _db_rate_limits) — and never lets one tier spend a
+    hit the other refuses. The `rl:` prefix is added here, once.
+    """
+    rl_buckets = [(f"rl:{key}", limit) for key, limit in buckets]
+
+    allowed = _db_rate_limits(rl_buckets)
+    if allowed is not None:
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please wait a moment."
+            )
+        return
+
+    # In-memory fallback (store unavailable): the single-bucket fallback's
+    # sliding window, applied per bucket with the same all-or-nothing shape —
+    # check every bucket first, then append to all of them or none.
+    now = time.time()
+    global _last_bucket_sweep
+    if now - _last_bucket_sweep >= _SWEEP_INTERVAL:
+        _last_bucket_sweep = now
+        stale = [k for k, v in _chat_rate_limits.items()
+                 if not v or now - v[-1] > CHAT_RATE_WINDOW]
+        for k in stale:
+            del _chat_rate_limits[k]
+    kept = []
+    for bucket, limit in rl_buckets:
+        timestamps = [t for t in _chat_rate_limits.get(bucket, [])
+                      if now - t < CHAT_RATE_WINDOW]
+        if len(timestamps) >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please wait a moment."
+            )
+        kept.append((bucket, timestamps))
+    for bucket, timestamps in kept:
+        timestamps.append(now)
+        _chat_rate_limits[bucket] = timestamps
 
 
 # --- Chat Token ---
@@ -289,23 +372,50 @@ def get_app_secret() -> str:
     return _get_hmac_key()
 
 
-def validate_chat_token(http_request: Request):
+def validate_chat_token(http_request: Request, grace_seconds: float = 0.0) -> str:
+    """Check the signed chat token; return the visitor identity it carries.
+
+    v2 tokens are "{ts}.{nonce}.{sig}": the nonce is a random per-token
+    identity INSIDE the HMAC-signed payload, so /chat and /api/transcribe can
+    rate-limit per visitor even when a whole exhibition hall shares one
+    NAT'd address. The identity cannot be forged or chosen by the client — it
+    is only believed after the signature over "{ts}.{nonce}" verifies.
+
+    v1 tokens ("{ts}.{sig}", minted before nonces existed) stay valid for
+    their remaining TTL and return "" — the caller then falls back to an
+    IP-keyed tight bucket, exactly the pre-nonce behaviour, so a deploy never
+    invalidates tokens visitors already hold.
+
+    `grace_seconds` extends the TTL (the token-refresh flow lands on this
+    same signature; 0.0 is today's strict expiry). Raises 403 exactly as
+    before on anything missing, tampered, malformed or expired.
+    """
     token = http_request.headers.get("X-Chat-Token")
     if not token:
         raise HTTPException(status_code=403, detail="Invalid or missing chat token.")
     try:
         parts = token.split(".")
-        if len(parts) != 2:
+        if len(parts) == 3:
+            ts_raw, nonce, signature = parts
+            if not nonce:
+                raise ValueError()
+        elif len(parts) == 2:
+            ts_raw, signature = parts
+            nonce = ""
+        else:
             raise ValueError()
-        payload, signature = parts
+        # The signed payload is everything but the signature: v2 signs
+        # "{ts}.{nonce}", v1 signs the bare "{ts}".
+        payload = f"{ts_raw}.{nonce}" if nonce else ts_raw
         expected_sig = hashlib.sha256(f"{payload}.{_get_hmac_key()}".encode()).hexdigest()[:32]
         if not secrets.compare_digest(signature, expected_sig):
             raise HTTPException(status_code=403, detail="Invalid or missing chat token.")
-        ts = float(payload)
-        if time.time() - ts > CHAT_TOKEN_TTL:
+        ts = float(ts_raw)
+        if time.time() - ts > CHAT_TOKEN_TTL + grace_seconds:
             raise HTTPException(status_code=403, detail="Chat token expired. Please refresh the page.")
     except (ValueError, IndexError):
         raise HTTPException(status_code=403, detail="Invalid or missing chat token.")
+    return nonce
 
 
 def validate_request_origin(http_request: Request):
@@ -325,9 +435,18 @@ def validate_request_origin(http_request: Request):
 
 
 def generate_chat_token() -> str:
+    """Mint a v2 chat token: "{ts}.{nonce}.{sig}".
+
+    The nonce (16 hex chars, 64 bits) makes every mint unique — two renders
+    in the same second used to produce IDENTICAL tokens, which also meant one
+    shared rate-limit identity for anyone holding both. Unforgeability still
+    comes from the signature, not the nonce's entropy: the nonce is the
+    identity, the HMAC is the proof.
+    """
     ts = str(int(time.time()))
-    sig = hashlib.sha256(f"{ts}.{_get_hmac_key()}".encode()).hexdigest()[:32]
-    return f"{ts}.{sig}"
+    nonce = secrets.token_hex(8)
+    sig = hashlib.sha256(f"{ts}.{nonce}.{_get_hmac_key()}".encode()).hexdigest()[:32]
+    return f"{ts}.{nonce}.{sig}"
 
 
 # --- Admin Brute-Force Lockout ---

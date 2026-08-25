@@ -7,7 +7,8 @@ from jinja2 import Environment, FileSystemLoader
 
 from app.config import BASE_DIR, is_module_enabled, ENABLED_MODULES
 from app.db.queries import get_setting
-from app.auth.security import generate_chat_token, verify_admin
+from app.auth import security
+from app.auth.security import client_ip, generate_chat_token, verify_admin
 
 
 router = APIRouter()
@@ -118,7 +119,19 @@ def _asset_version(theme_name: str) -> str:
 # --- Public Pages ---
 
 @router.get("/", response_class=HTMLResponse)
-async def read_root():
+async def read_root(request: Request):
+    # Every render mints a fresh signed chat token — i.e. a fresh rate-limit
+    # identity — so the mint path gets its own generous per-IP fence. Renders
+    # are file reads and cache hits (cheap), but unbounded hammering would
+    # mint unbounded identities. 120/min is far above any human or kiosk, and
+    # this is defense in depth: the /chat IP backstop already fences what
+    # minted tokens can spend. PAGE_RATE_LIMIT is read off the security module
+    # at call time so the enforcing module stays the one place tests tune.
+    security.check_rate_limit(
+        request,
+        key=f"page:{client_ip(request) or 'unknown'}",
+        limit=security.PAGE_RATE_LIMIT,
+    )
     try:
         from app.services.themes import get_active_theme, render_theme_index
         active_theme = get_active_theme()
