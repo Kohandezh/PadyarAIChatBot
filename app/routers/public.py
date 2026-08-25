@@ -1,7 +1,7 @@
 import os
 from contextlib import closing
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 
@@ -204,6 +204,22 @@ async def _require_admin(request: Request):
         return RedirectResponse(url="/secure-panel-inotex/login", status_code=303)
 
 
+def _require_module(module_name: str) -> None:
+    """404 unless this install enabled the module — mirrors the sidebar,
+    which hides the link, so only a hand-typed URL ever lands here.
+
+    404, not a redirect: the module's data APIs already 404 and its router
+    (leads/tts/otp pattern) unmounts entirely, so this keeps one semantic
+    everywhere — "not part of this install". A redirect to admin home would
+    mask a stale bookmark and send the admin hunting for a page that is
+    not there. The invariant "no visible link ever 404s" holds because each
+    call site's module name is copied verbatim from the sidebar guard in
+    layout.html.
+    """
+    if not is_module_enabled(module_name):
+        raise HTTPException(status_code=404, detail="Module not enabled")
+
+
 @router.get("/secure-panel-inotex/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request):
     redirect = await _require_admin(request)
@@ -258,6 +274,7 @@ async def admin_infra_database(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("infra")
     return _render("admin/infra_database.html", request=request,
                    active_page="infra_database")
 
@@ -267,15 +284,19 @@ async def admin_infra_storage(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("infra")
     return _render("admin/infra_storage.html", request=request,
                    active_page="infra_storage")
 
 
 @router.get("/secure-panel-inotex/ops", response_class=HTMLResponse)
 async def admin_ops_dashboard(request: Request):
+    # Page shell only — the maintenance banner it once carried lives in
+    # layout.html and renders on every admin page regardless of this gate.
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("ops")
     return _render("admin/ops_dashboard.html", request=request, active_page="ops")
 
 
@@ -284,14 +305,18 @@ async def admin_ops_services(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("ops")
     return _render("admin/ops_services.html", request=request, active_page="ops_services")
 
 
 @router.get("/secure-panel-inotex/security/sessions", response_class=HTMLResponse)
 async def admin_security_sessions(request: Request):
+    # Sessions sit under the ops module per the sidebar grouping; if session
+    # management ever becomes its own module, layout.html moves with it.
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("ops")
     return _render("admin/security_sessions.html", request=request,
                    active_page="security_sessions")
 
@@ -303,6 +328,7 @@ async def admin_logs(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("logs")
     from app.services.applog import CATEGORIES
     preset = request.query_params.get("category", "")
     title = CATEGORIES.get(preset, "همهٔ رخدادها")
@@ -316,6 +342,7 @@ async def admin_logs_overview(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("logs")
     return _render("admin/logs_overview.html", request=request,
                    active_page="logs_overview")
 
@@ -367,6 +394,7 @@ async def admin_logs_settings(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("logs")
     from app.services.applog import CATEGORIES
     return _render("admin/logs_settings.html", request=request,
                    active_page="logs_settings", categories=CATEGORIES)
@@ -454,7 +482,6 @@ async def readiness_check(deep: bool = False, request: Request = None):
     demand is a free abuse relay. Unauthenticated requests silently get the
     shallow answer an orchestrator needs.
     """
-    from fastapi import HTTPException
     from fastapi.responses import JSONResponse
     from app.services.providers import local_provider, external_provider
 

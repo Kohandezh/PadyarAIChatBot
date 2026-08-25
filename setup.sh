@@ -101,12 +101,26 @@ cleanup() {
 trap cleanup SIGINT SIGTERM ERR EXIT
 
 # ── Module definitions ─────────────────────────────────────────
+# Source of truth: app/modules/registry.py — keep in sync.
 declare -A MODULE_DESC=(
-  [voice]="Voice input via Whisper API"
-  [video]="Video response upload and serving"
+  [voice]="ورودی صوتی (تبدیل گفتار به متن)"
+  [video]="آپلود و مدیریت ویدیوهای پاسخ"
+  [infra]="مرکز زیرساخت — پایگاه داده و فضای ذخیره‌سازی"
+  [backups]="پشتیبان‌گیری و بازیابی"
+  [ops]="مرکز عملیات — داشبورد، سرویس‌ها و نشست‌ها"
+  [logs]="لاگ‌ها و رخدادهای امنیتی"
+  [tts]="تبدیل متن به گفتار فارسی (Chatterbox)"
+  [registration]="ثبت‌نام بازدیدکننده با تأیید پیامکی"
+  [leads]="جذب سرنخ نمایشگاهی"
 )
 
-MODULE_NAMES=("voice" "video")
+# Registry order (all 9 optional modules — "Full Install" expands this list,
+# so a 2-name catalogue was silently installing a 2-module "full" install).
+# CORE_MODULES are always on; writing them explicitly into a zero-selection
+# .env is how setup.sh keeps its core-only promise — an empty ENABLED_MODULES
+# means "all optional modules" to the app's resolver.
+MODULE_NAMES=("voice" "video" "infra" "backups" "ops" "logs" "tts" "registration" "leads")
+CORE_MODULES=("chat" "admin" "search" "dataset" "theme")
 
 # ── State ──────────────────────────────────────────────────────
 INSTALL_TYPE=""
@@ -143,7 +157,7 @@ main() {
   if [[ "$INSTALL_TYPE" == "custom" ]]; then
     step 2 "Module Selection"
     echo ""
-    info "Core modules (chat, admin, search, dataset) are always enabled."
+    info "Core modules (${CORE_MODULES[*]}) are always enabled."
     info "Select optional modules to install:"
     echo ""
 
@@ -291,9 +305,19 @@ main() {
   step 7 "Configuration File"
   echo ""
 
-  # Build ENABLED_MODULES string
+  # Build ENABLED_MODULES string. A custom install with zero optional
+  # selections must NOT leave it empty: the registry resolves an empty value
+  # to "all optional modules" (backward compat for existing installs), which
+  # silently turned the promised core-only install into the full one. Writing
+  # the core names explicitly keeps the promise — the registry recognizes
+  # core names and always includes them, so this resolves to true core-only
+  # and stays that way even if core modules are added later.
+  selected=("${ENABLED_MODULES[@]}")
+  if [[ ${#selected[@]} -eq 0 ]]; then
+    selected=("${CORE_MODULES[@]}")
+  fi
   modules_str=""
-  for mod in "${ENABLED_MODULES[@]}"; do
+  for mod in "${selected[@]}"; do
     if [[ -n "$modules_str" ]]; then modules_str+=","; fi
     modules_str+="$mod"
   done
@@ -333,7 +357,7 @@ print('OK')
   echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
   echo ""
   msg "  Modules enabled:"
-  echo -e "    ${DIM}core:${RESET} chat, admin, search, dataset"
+  echo -e "    ${DIM}core:${RESET} ${CORE_MODULES[*]}"
   if [[ ${#ENABLED_MODULES[@]} -gt 0 ]]; then
     echo -e "    ${DIM}optional:${RESET} ${ENABLED_MODULES[*]}"
   fi

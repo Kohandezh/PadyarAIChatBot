@@ -66,13 +66,14 @@ def test_ops_page_renders_the_toggle(client):
 
 
 def test_toggle_hidden_when_ops_module_is_disabled(tmp_path, monkeypatch):
-    """Without the ops module there is no API behind the switch, so the page
-    must render no switch at all — a control that 404s on use is worse than
-    no control (mirrors the sidebar-gating test in test_admin_navigation.py).
+    """Without the ops module the whole ops PAGE 404s (module-gating plan's
+    _require_module), so there is no switch to render — a control that 404s
+    on use is worse than no control (mirrors the sidebar-gating test in
+    test_admin_navigation.py).
 
     Patched BEFORE startup like that test: with ENABLED_MODULES=["theme"]
-    the ops API routers do not even mount, while the page route in
-    public.py always exists.
+    the ops API routers do not even mount, and the page route itself now
+    matches their absence.
     """
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "mtui2.db"))
@@ -93,7 +94,7 @@ def test_toggle_hidden_when_ops_module_is_disabled(tmp_path, monkeypatch):
         conn.close()
         c.cookies.set("admin_session", token)
         res = c.get("/secure-panel-inotex/ops")
-    assert res.status_code == 200
+    assert res.status_code == 404
     assert 'id="maintenance-toggle"' not in res.text
 
 
