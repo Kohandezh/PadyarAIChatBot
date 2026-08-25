@@ -5,6 +5,26 @@
 {% block page_content %}
 <div class="page-header"><h2 class="page-title">مرکز عملیات</h2></div>
 
+{# ── Maintenance mode ─────────────────────────────────────────────
+   The switch that silences the public chatbot sits ABOVE everything
+   else on this page — an operator must not scroll past health rings
+   to find it. Gated exactly like the sidebar entry: without the ops
+   module there is no API behind this switch, so it must not render. #}
+{% if 'ops' in (enabled_modules or []) %}
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title">حالت تعمیرات</h3></div>
+  <div class="card-body">
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="maintenance-toggle" role="switch">
+      <label class="form-check-label" for="maintenance-toggle">چت‌بات برای بازدیدکنندگان <span id="maintenance-status">فعال</span> است</label>
+    </div>
+    <div class="text-muted small mt-1">وقتی روشن است، بازدیدکننده نمی‌تواند چت کند و پیام «سامانه برای نگهداری کوتاه‌مدت در دسترس نیست...» را می‌بیند. پنل مدیریت مثل همیشه کار می‌کند.</div>
+    <div class="text-muted small mt-1" id="maintenance-meta"></div>
+    <div id="maintenance-msg"></div>
+  </div>
+</div>
+{% endif %}
+
 <div class="row row-cards mt-3">
   <div class="col-md-3">
     <div class="card">

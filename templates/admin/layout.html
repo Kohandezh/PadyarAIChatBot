@@ -236,6 +236,35 @@
     <div class="page-wrapper">
         <div class="page-body">
             <div class="container-xl">
+                {# ── Maintenance banner ──────────────────────────────────────
+                   The one reminder an operator cannot miss. Maintenance
+                   silences the public chatbot, and a banner limited to some
+                   pages would let an admin wander off to dataset editing and
+                   forget. Renders on EVERY authed admin page whenever the
+                   state is on, no matter which module set it (a backups
+                   restore enables it too) — that is why this is NOT wrapped
+                   in a module check. Deliberately not dismissible: forgetting
+                   the mode is on is the exact failure this banner prevents.
+                   maintenance_by / maintenance_at are admin-entered values
+                   rendered through Jinja autoescape — never |safe. #}
+                {% if maintenance_on %}
+                <div class="alert alert-warning" role="alert" id="maintenance-banner">
+                    <i class="fas fa-triangle-exclamation ms-1"></i>
+                    <strong>حالت تعمیرات روشن است — چت‌بات برای بازدیدکنندگان تعطیل است.</strong>
+                    {% if maintenance_by or maintenance_at %}
+                    <span class="d-block small mt-1">
+                        {% if maintenance_by %}روشن‌شده توسط {{ maintenance_by }}{% endif %}
+                        {% if maintenance_by and maintenance_at %} · {% endif %}
+                        {% if maintenance_at %}<span dir="ltr">{{ maintenance_at[:16].replace('T', ' ') }}</span>{% endif %}
+                    </span>
+                    {% endif %}
+                    {# Only the fix link gates on the module — without `ops`
+                       there is no toggle page to link to. #}
+                    {% if 'ops' in (enabled_modules or []) %}
+                    <a href="/secure-panel-inotex/ops" class="d-block mt-1">خاموش کردن</a>
+                    {% endif %}
+                </div>
+                {% endif %}
                 {% block page_content %}{% endblock %}
             </div>
         </div>
