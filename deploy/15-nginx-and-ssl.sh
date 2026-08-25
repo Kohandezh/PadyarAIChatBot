@@ -25,6 +25,12 @@ log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 log "Installing the Cloudflare real-IP config"
 install -m 0644 "${HERE}/nginx/cloudflare-realip.conf" /etc/nginx/conf.d/cloudflare-realip.conf
 
+log "Installing the shared L7 rate-limit zones"
+install -m 0644 "${HERE}/nginx/padyar-rate-limits.conf" /etc/nginx/conf.d/padyar-rate-limits.conf
+# Cache dir for the /api/dataset + /api/questions microcache (proxy_cache_path
+# does not create it; nginx refuses to start if it is missing).
+install -d -m 0755 -o www-data -g www-data /var/cache/nginx/padyar
+
 log "Preparing the ACME webroot"
 install -d -m 0755 /var/www/certbot
 

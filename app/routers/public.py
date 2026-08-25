@@ -377,18 +377,16 @@ async def admin_settings_backup(request: Request):
 
 @router.get("/api/health")
 async def health_check():
-    """Liveness: cheap, no external calls — safe for a 5s probe interval."""
-    from app.db.connection import get_db_connection
-    openai_enabled = get_setting('openai_enabled', 'true')
-    with closing(get_db_connection()) as conn:
-        dataset_size = conn.execute('SELECT COUNT(*) AS n FROM dataset').fetchone()["n"]
-    return {
-        "status": "ok",
-        "dataset_size": dataset_size,
-        "openai_enabled": openai_enabled,
-        "knowledge_version": get_setting("knowledge_version", "unversioned"),
-        "modules": ENABLED_MODULES,
-    }
+    """Liveness: the process answers — safe for a 1s probe interval.
+
+    Deliberately touches NOTHING. This endpoint is what a load balancer,
+    a Docker HEALTHCHECK and every deploy script poll; it used to run a
+    dataset COUNT(*), which meant a flood of cheap GETs (or a wedged
+    database) exhausted the connection pool and took the panel down with
+    the chat. Anything that must inspect the database or the AI providers
+    belongs on /api/ready, which exists for exactly that.
+    """
+    return {"status": "ok"}
 
 
 @router.get("/api/ready")
