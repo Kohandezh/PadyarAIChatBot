@@ -6,7 +6,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE
+from app.config import (logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE,
+                        ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS)
 from app.auth.csrf import PROTECTED_PREFIXES
 from app.db.connection import init_db
 from app.services.search import load_dataset_internal
@@ -323,6 +324,41 @@ async def security_headers(request, call_next):
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
+    return response
+
+
+@app.middleware("http")
+async def slide_admin_cookie(request, call_next):
+    """Re-issue the admin session cookie whenever its DB row just slid.
+
+    verify_admin slides the `admin_sessions` row on every authenticated
+    request, but a dependency cannot touch the response — so the cookie kept
+    its original 1h max_age and died mid-session while the row stayed valid.
+    The dependency sets request.state.slide_admin_cookie instead (dependencies
+    run INSIDE call_next, so the flag is guaranteed visible here), and this
+    middleware re-issues the cookie with the same attributes login used.
+
+    Deliberately unconditional on every authenticated response (no threshold,
+    no hysteresis): cookie lifetime then tracks the DB slide exactly — no
+    drift, no new column, no migration — and the cost is one Set-Cookie
+    header per response on no-store pages read by a handful of staff.
+
+    Safe against logout by construction: admin_logout never runs verify_admin
+    (it reads the cookie directly), so the flag is never set on a logout
+    request and the middleware cannot resurrect the cookie logout deleted.
+    The status guard keeps renewal off error responses — a 429/500 from an
+    admin API call must not look like activity.
+    """
+    response = await call_next(request)
+    if getattr(request.state, "slide_admin_cookie", False) \
+            and response.status_code < 400:
+        token = request.cookies.get(ADMIN_COOKIE_NAME)
+        if token:
+            response.set_cookie(
+                key=ADMIN_COOKIE_NAME, value=token,
+                httponly=True, secure=COOKIE_SECURE, samesite="lax",
+                max_age=SESSION_TIMEOUT_HOURS * 3600,
+            )
     return response
 
 # --- Static Files ---

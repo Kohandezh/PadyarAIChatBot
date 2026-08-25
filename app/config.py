@@ -109,7 +109,25 @@ except ValueError:
     TRUSTED_PROXY_HOPS = 0
 
 # --- Chat Security ---
-CHAT_TOKEN_TTL = 3600  # 1 hour
+# Lifetime of the signed chat token, in seconds. Env-tunable like its rate
+# siblings: a demo kiosk may want a short TTL, an all-day booth a longer one.
+# NOTE: app/auth/security.py binds this at import (`from app.config import
+# CHAT_TOKEN_TTL`), so env must be set before import (standard dotenv usage)
+# and tests must patch app.auth.security.CHAT_TOKEN_TTL — the enforcing
+# module's binding, not app.config's copy.
+CHAT_TOKEN_TTL = int(os.getenv("CHAT_TOKEN_TTL", "3600"))  # 1 hour
+# How long past its TTL the refresh endpoint (POST /api/chat-token) still
+# accepts the OLD token when minting a new one. This is what saves a visitor
+# whose token expired mid-conversation: without it the endpoint would demand
+# an unexpired token to issue one, a dead end. 900s (15 min) covers "expired
+# a few minutes ago, presses send now" without quietly doubling the TTL for
+# every other purpose — /chat and /api/transcribe still enforce the strict
+# expiry.
+CHAT_TOKEN_REFRESH_GRACE = int(os.getenv("CHAT_TOKEN_REFRESH_GRACE", "900"))
+# Lifetime of the padyar_conv correlation cookie (24h). Constant, not env:
+# an operator has no reason to tune a correlation window, and a sliding 24h
+# already outlives any real conversation. "When in doubt: default."
+CONV_COOKIE_MAX_AGE = 24 * 3600
 # Rate limiting is per VISITOR IDENTITY — the nonce inside the signed chat
 # token — with a loose per-IP backstop. At an exhibition a whole hall of
 # visitors often arrives through one NAT'd address, and a per-IP-only limit

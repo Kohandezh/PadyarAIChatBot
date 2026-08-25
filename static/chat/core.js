@@ -341,6 +341,34 @@ function visitorProfile() {
     }
 }
 
+// Silently swap the page's chat token for a fresh one. Called reactively
+// (only after a 403 from /chat), so the visitor never sees a thing: a token
+// that expired mid-conversation used to kill the chat until a manual page
+// reload — which wipes the DOM-only history. The old token is sent as proof
+// of possession; the server accepts it within its grace window and returns
+// a fresh v2 mint, which we write straight back into the meta tag so the
+// NEXT send (and the retry that prompted this call) picks it up. Returns
+// false on any failure — the caller then falls through to the visible
+// "please refresh" message.
+async function refreshChatToken() {
+    const meta = document.querySelector('meta[name="chat-token"]');
+    const oldToken = meta?.content || '';
+    try {
+        const response = await fetch('/api/chat-token', {
+            method: 'POST',
+            headers: { 'X-Chat-Token': oldToken }
+        });
+        if (!response.ok) return false;
+        const data = await response.json();
+        if (!data.token || !meta) return false;
+        meta.content = data.token;
+        return true;
+    } catch (e) {
+        console.error('token refresh failed:', e);
+        return false;
+    }
+}
+
 async function sendMessage(fromPreset = false) {
     // In a text-only theme there is never background video to stop.
     if (!ChatConfig.isTextOnly && isResponsePlaying && avatarVideo) {
@@ -373,18 +401,41 @@ async function sendMessage(fromPreset = false) {
     chatContent.scrollTop = chatContent.scrollHeight;
 
     try {
-        const chatToken = document.querySelector('meta[name="chat-token"]')?.content || '';
-        const response = await fetch('/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Chat-Token': chatToken
-            },
-            body: JSON.stringify(Object.assign(
-                { message: text, lang: currentLang },
-                visitorProfile()
-            ))
-        });
+        // Built ONCE, before any network attempt: the retried send must reuse
+        // the ORIGINAL payload — same text, lang and visitorProfile() snapshot.
+        // The user already said it once; a retry is purely the network send,
+        // so re-running anything user-visible above (a second bubble) would be
+        // a visible duplicate.
+        const payload = JSON.stringify(Object.assign(
+            { message: text, lang: currentLang },
+            visitorProfile()
+        ));
+        // The token is read INSIDE the send fn (fresh from the meta each
+        // attempt) so the post-refresh retry picks up the new value.
+        const doSend = () => {
+            const chatToken = document.querySelector('meta[name="chat-token"]')?.content || '';
+            return fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Chat-Token': chatToken
+                },
+                body: payload
+            });
+        };
+
+        let response = await doSend();
+
+        // Literal 403 only — never 429. A rate-limited request was already
+        // admitted to be auth-valid; refreshing there would waste the attempt
+        // and mask the wait-a-moment message. One silent refresh + ONE retry:
+        // a second 403 (refresh failed, or the new token died too) falls
+        // through to the existing "please refresh" message below. No loops,
+        // and no 403-reason parsing — any 403 gets the same single chance.
+        if (response.status === 403) {
+            const refreshed = await refreshChatToken();
+            if (refreshed) response = await doSend();
+        }
 
         if (!response.ok) {
             if (response.status === 429) {

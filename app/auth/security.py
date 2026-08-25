@@ -626,4 +626,15 @@ async def verify_admin(request: Request):
     conn.execute('UPDATE admin_sessions SET expiry = ? WHERE token = ?', (new_expiry.isoformat(), token))
     conn.commit()
     conn.close()
+    # The DB row just slid, but a dependency has no handle on the response, so
+    # it cannot re-issue the cookie that carries this session — without help
+    # the cookie still dies 1h after login no matter how active the admin is.
+    # The slide_admin_cookie middleware (app/main.py) reads this flag after
+    # call_next returns and re-issues the cookie, keeping the browser's copy
+    # in lockstep with the row. Always-on rather than threshold-gated: admin
+    # traffic is a handful of staff on no-store pages, and one Set-Cookie per
+    # response avoids a cookie-issued-at column + migration for zero benefit.
+    # Logout never runs verify_admin, so this flag is never set on a logout —
+    # the middleware cannot resurrect the cookie logout just deleted.
+    request.state.slide_admin_cookie = True
     return row['username']
