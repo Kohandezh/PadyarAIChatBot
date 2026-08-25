@@ -148,7 +148,7 @@ def client_ip(request: Request) -> str:
 
 
 # --- Chat Rate Limiting State ---
-# In-memory fallback ONLY. The primary limiter is the `rate_limit_buckets`
+# In-memory fallback ONLY. The primary limiter is the `rate_limit_hits`
 # table, for exactly the reason the login lockout moved to the database (see
 # the brute-force section below): uvicorn --workers N gives this dict N
 # independent copies, so the real limit was N × CHAT_RATE_LIMIT and every
@@ -159,36 +159,44 @@ _chat_rate_limits: Dict[str, List[float]] = {}
 
 
 def _db_rate_limit(bucket: str) -> bool | None:
-    """Shared fixed-window limiter. True/False = allowed/blocked, None = down.
+    """Shared SLIDING-window limiter. True/False = allowed/blocked, None = down.
 
-    One atomic upsert per request (same shape as record_failed_login): the
-    count is computed inside the row's own write, so concurrent workers can
-    neither race the counter nor both admit the same over-limit request. A
-    fixed window can admit a 2× burst straddling a boundary — the accepted
-    trade for staying a single statement.
+    One row per ADMITTED request (bucket, unix-ts). A request is allowed when
+    fewer than CHAT_RATE_LIMIT hits fall inside the last CHAT_RATE_WINDOW
+    seconds — a true sliding window, matching the in-memory limiter it
+    replaced. A fixed-window counter was tried first (single atomic upsert)
+    and rejected: it resets to zero at every window boundary, admitting a 2×
+    burst around it, and that same reset is what made the boundary-crossing
+    CI test flake.
+
+    Blocked attempts are deliberately NOT recorded. Recording them would keep
+    a tripped bucket full for as long as the caller keeps trying, which turns
+    a shared-NAT booth (the exact case CHAT_RATE_LIMIT is sized for) into a
+    self-inflicted lockout. Unrecorded, the window drains from its admitted
+    timestamps and every visitor recovers after one window.
+
+    Growth is bounded: the allowed path prunes the bucket's own expired rows,
+    and a blocked caller leaves at most CHAT_RATE_LIMIT rows behind.
     """
     from app.db.connection import get_db_connection
 
     now = time.time()
-    window_start = datetime.datetime.fromtimestamp(
-        int(now // CHAT_RATE_WINDOW) * CHAT_RATE_WINDOW).isoformat()
+    cutoff = now - CHAT_RATE_WINDOW
     try:
         conn = get_db_connection()
         try:
             row = conn.execute(
-                """
-                INSERT INTO rate_limit_buckets (key, window_start, count)
-                VALUES (?, ?, 1)
-                ON CONFLICT(key) DO UPDATE SET
-                    count        = CASE WHEN rate_limit_buckets.window_start = excluded.window_start
-                                        THEN rate_limit_buckets.count + 1 ELSE 1 END,
-                    window_start = excluded.window_start
-                RETURNING count
-                """,
-                (bucket, window_start),
+                "SELECT COUNT(*) AS n FROM rate_limit_hits WHERE key = ? AND ts > ?",
+                (bucket, cutoff),
             ).fetchone()
+            if int(row["n"]) >= CHAT_RATE_LIMIT:
+                return False  # read-only path: a spamming key writes nothing
+            conn.execute("INSERT INTO rate_limit_hits (key, ts) VALUES (?, ?)",
+                         (bucket, now))
+            conn.execute("DELETE FROM rate_limit_hits WHERE key = ? AND ts <= ?",
+                         (bucket, cutoff))
             conn.commit()
-            return int(row["count"]) <= CHAT_RATE_LIMIT
+            return True
         finally:
             conn.close()
     except Exception as exc:                      # noqa: BLE001

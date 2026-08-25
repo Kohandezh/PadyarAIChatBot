@@ -168,14 +168,18 @@ def _create_sqlite_schema(cursor):
 
     # Cross-worker rate limiting (chat + public form endpoints). Same story as
     # login_attempts above: an in-process dict is one dict per uvicorn worker.
-    # Mirrors app.rate_limit_buckets in migrations/0007_security_hardening.sql.
+    # One row per admitted request; `ts` is a unix epoch float so the window
+    # comparison is plain numeric on both backends. Mirrors
+    # app.rate_limit_hits in migrations/0007_security_hardening.sql.
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS rate_limit_buckets (
-        key TEXT PRIMARY KEY,
-        window_start TIMESTAMP NOT NULL,
-        count INTEGER NOT NULL DEFAULT 0
+    CREATE TABLE IF NOT EXISTS rate_limit_hits (
+        key TEXT NOT NULL,
+        ts REAL NOT NULL
     )
     ''')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS ix_rate_limit_hits_key_ts'
+        ' ON rate_limit_hits(key, ts)')
 
     # Migration: add username column to existing admin_sessions
     try:

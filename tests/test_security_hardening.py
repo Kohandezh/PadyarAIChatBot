@@ -24,6 +24,13 @@ from fastapi.testclient import TestClient
 ORIGIN_HEADERS = {"Origin": "http://localhost", "User-Agent": "pytest-agent/1.0"}
 
 
+def _chat_limit() -> int:
+    """The limit as the ENFORCING module sees it (it binds the value at
+    import time, so re-reading app.config could disagree)."""
+    from app.auth import security
+    return security.CHAT_RATE_LIMIT
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     import app.config as config
@@ -129,7 +136,7 @@ def test_rate_limit_state_lands_in_the_shared_table(client):
         client.post("/chat", json={"message": "salud"},
                     headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
     conn = get_db_connection()
-    rows = conn.execute("SELECT key, count FROM rate_limit_buckets").fetchall()
+    rows = conn.execute("SELECT key, ts FROM rate_limit_hits").fetchall()
     conn.close()
     assert any(r["key"].startswith("rl:testclient") for r in rows)
 
@@ -137,15 +144,60 @@ def test_rate_limit_state_lands_in_the_shared_table(client):
 def test_rate_limit_blocks_in_the_db_not_per_process(client):
     """The counter must be readable by ANOTHER connection (i.e. another
     worker), which is the whole point of moving it out of the dict."""
-    import app.config as config
     from app.auth.security import generate_chat_token
-    limit = config.CHAT_RATE_LIMIT
+    limit = _chat_limit()
     for _ in range(limit):
         client.post("/chat", json={"message": "x"},
                     headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
     r = client.post("/chat", json={"message": "x"},
                     headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
     assert r.status_code == 429
+
+
+def test_rate_limit_window_is_sliding_not_fixed(client):
+    """Regression for the CI flake: a fixed-window counter reset to zero at
+    every window boundary, so requests straddling one were all admitted.
+    The sliding window must block on the count inside the last window, no
+    matter where the wall-clock window edges fall."""
+    from app.auth.security import generate_chat_token
+    limit = _chat_limit()
+    # Fill the bucket right up to the limit — nothing here knows or cares
+    # where a window boundary sits; a fixed window would reset on one.
+    for _ in range(limit):
+        client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+    # Old hits (well outside the window) must not count: seed them directly
+    # so no sleeps are involved, then the very next request is judged only
+    # against the fresh ones.
+    import time as _time
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    conn.execute("UPDATE rate_limit_hits SET ts = ?", (_time.time() - 10_000,))
+    conn.commit()
+    conn.close()
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+    assert r.status_code != 429  # everything expired -> window slid clean
+
+
+def test_blocked_attempts_are_not_recorded(client):
+    """A rejected request must not write a hit. Recording them would keep a
+    tripped shared-NAT bucket full for as long as anyone keeps trying — the
+    self-inflicted booth lockout the generous limit exists to avoid."""
+    from app.auth.security import generate_chat_token
+    from app.db.connection import get_db_connection
+    limit = _chat_limit()
+    for _ in range(limit):
+        client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+    for _ in range(3):  # hammer past the limit
+        client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+    conn = get_db_connection()
+    n = conn.execute("SELECT COUNT(*) AS n FROM rate_limit_hits"
+                     " WHERE key LIKE 'rl:testclient'").fetchone()["n"]
+    conn.close()
+    assert n == limit  # exactly the admitted requests, not one more
 
 
 # ── security answer: bcrypt upgrade path ────────────────────────────────

@@ -242,7 +242,7 @@ This is a CMS installed per-customer — branding customization is a first-class
 
 - HMAC-signed chat tokens (validated on every `/chat` **and** `/api/transcribe` request)
 - Origin/Referer validation against allowlist
-- Rate limiting: `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (defaults: 20 / 60, env-overridable) — counters live in the `rate_limit_buckets` table so they are shared across workers and survive restarts
+- Rate limiting: `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (defaults: 20 / 60, env-overridable) — sliding-window counters live in the `rate_limit_hits` table so they are shared across workers and survive restarts
 - Request body ceiling: `MAX_BODY_BYTES` (default 512 MB) via the Content-Length header, plus per-endpoint read caps where uploads are buffered in memory
 - Admin: bcrypt passwords (legacy SHA-256 rows upgrade on next login), bcrypt security answers (legacy rows upgrade too), session cookies, brute-force lockout (5 attempts → 5 min, stored in the `login_attempts` table so it survives a restart and is shared across workers)
 - Sliding admin sessions (1 hour); a password change revokes every other session for that admin
