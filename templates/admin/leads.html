@@ -91,7 +91,7 @@
     </div>
 
     <!-- Field visitors and their personal links. -->
-    <div class="col-12 col-lg-6">
+    <div class="col-12">
         <div class="content-card h-100">
             <div class="card-header"><span><i class="fas fa-id-badge me-2"></i>همکاران غرفه</span></div>
             <div class="card-body">
@@ -130,7 +130,7 @@
 
     <!-- How the contact receives the edit link, and what the visitor reads aloud
          before sending a code. Both are one setting away from the funnel above. -->
-    <div class="col-12 col-lg-6">
+    <div class="col-12">
         <div class="content-card h-100">
             <div class="card-header"><span><i class="fas fa-paper-plane me-2"></i>تحویل لینک و متن غرفه</span></div>
             <div class="card-body">
@@ -152,6 +152,30 @@
                     <i class="fas fa-save me-1"></i>ذخیره
                 </button>
                 <div id="settings-msg" class="fw-bold mt-2 small"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- A booth missing from the knowledge base. The operator types the name
+         here so the visitor at that booth can find and select it; the answer
+         text still only ever arrives through the review queue. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-building me-2"></i>افزودن شرکت به فهرست</span>
+            </div>
+            <div class="card-body">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="company-title"
+                           placeholder="نام شرکتی که در فهرست نیست">
+                    <button class="btn btn-primary" id="add-company" type="button">
+                        <i class="fas fa-plus me-1"></i>افزودن
+                    </button>
+                </div>
+                <p class="text-muted small mt-2 mb-0">
+                    شرکت بلافاصله در جستجوی همکاران غرفه ظاهر می‌شود. متن معرفی را خودِ
+                    شرکت از طریق لینک می‌فرستد و مثل بقیه به تأیید شما می‌رسد.
+                </p>
             </div>
         </div>
     </div>
