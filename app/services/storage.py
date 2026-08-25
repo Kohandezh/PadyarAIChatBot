@@ -119,6 +119,21 @@ def _sqlite_group_size(path: str) -> int:
     return sum(_file_size(path + suffix) for suffix in ("", "-wal", "-shm"))
 
 
+def _pg_database_size() -> int:
+    """What the PostgreSQL server itself reports for the database in use.
+
+    The DB_PATH/LOGS_DB_PATH files describe a store the app no longer writes
+    on this backend, so the two SQLite categories are replaced by this one
+    number — measured by the server, not estimated from the client."""
+    try:
+        from app.db import pg
+        with pg.connect() as conn:
+            return int(conn.execute(
+                "SELECT pg_database_size(current_database())").fetchone()[0])
+    except Exception:  # noqa: BLE001 — the panel must render, not 500
+        return 0
+
+
 def _dir_size(path: str, exclude: tuple = ()) -> int:
     """Bytes under `path`, skipping any directory listed in `exclude`.
 
@@ -153,11 +168,19 @@ def _category_spec() -> list[tuple]:
 
     data_dir = os.path.join(BASE_DIR, "data")
     models_dir = os.path.join(data_dir, "models")
+    if config.DB_BACKEND == "postgres":
+        # One server, one database — the SQLite file pair has no meaning here.
+        databases = [("database", "پایگاه دادهٔ پستگرس (محتوا، تنظیمات، گفتگوها، لاگ‌ها)",
+                      "pg", "", ())]
+    else:
+        databases = [
+            ("database_app", "پایگاه دادهٔ اصلی (محتوا، تنظیمات، گفتگوها)",
+             "sqlite", config.DB_PATH, ()),
+            ("database_logs", "پایگاه دادهٔ لاگ‌ها",
+             "sqlite", config.LOGS_DB_PATH, ()),
+        ]
     spec = [
-        ("database_app", "پایگاه دادهٔ اصلی (محتوا، تنظیمات، گفتگوها)",
-         "sqlite", config.DB_PATH, ()),
-        ("database_logs", "پایگاه دادهٔ لاگ‌ها",
-         "sqlite", config.LOGS_DB_PATH, ()),
+        *databases,
         ("videos", "ویدیوهای پاسخ",
          "dir", os.path.join(BASE_DIR, "media", "videos"), ()),
         ("uploads", "فایل‌های بارگذاری‌شده",
@@ -182,7 +205,10 @@ def categories() -> list[dict]:
     out = []
     for key, label_fa, kind, path, exclude in _category_spec():
         try:
-            if kind == "sqlite":
+            if kind == "pg":
+                size = _pg_database_size()
+                exists = size > 0
+            elif kind == "sqlite":
                 size = _sqlite_group_size(path)
                 exists = os.path.exists(path)
             else:

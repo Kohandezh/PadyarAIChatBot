@@ -428,20 +428,15 @@ body {
     font-size: 13px;
 }
 
-/* ══ COMPANION CHARACTER — DISABLED ══════════════════════════════════
-   The "pet" is switched off at the owner's request; its layout rules are
-   COMMENTED OUT rather than deleted so it can come back unchanged. To
-   restore, delete the COMPANION-OFF marker lines below (and the matching
-   ones in templates/otp/verify.html). Sprite assets stay in static/otp/pet/.
-   ═══════════════════════════════════════════════════════════════════════ */
-/* COMPANION-OFF (start)
-( ── Pet-INOTEX slot ──────────────────────────────────────────────── )
+/* Pet-INOTEX slot. RE-ENABLED 2026-08-24 (owner request), desktop/tablet
+   only — see the 639px media query below. Sprite assets: static/otp/pet/. */
+/* ── Pet-INOTEX slot ──────────────────────────────────────────────── )
 .pet-slot {
     position: absolute;
     z-index: 2;
     pointer-events: none;
-    ( Desktop: beside the card, standing on its inline-start side, never
-       over inputs (the card has its own stacking context above the page). )
+    /* Desktop: beside the card, standing on its inline-start side, never
+       over inputs (the card has its own stacking context above the page). */
     width: 190px;
     height: 190px;
 }
@@ -460,7 +455,7 @@ body {
         bottom: calc(50% - 260px);
     }
 
-    ( teal base-plate glow under the pet's feet — its brick platform )
+    /* teal base-plate glow under the pet's feet — its brick platform */
     .pet-slot::after {
         content: "";
         position: absolute;
@@ -473,21 +468,26 @@ body {
         opacity: .65;
     }
 }
-COMPANION-OFF (end) */
 
 @media (max-width: 899px) {
     /* Mobile/tablet: compact companion above the card, centered; it shares
        the flow so it can never cover inputs or shrink them. */
     .otp-stage { flex-direction: column; gap: 2px; }
 
-    /* COMPANION-OFF (start)
+    /* Mobile/tablet: compact companion above the card, centered; it shares
+       the flow so it can never cover inputs or shrink them. */
     .pet-slot {
         position: static;
         width: 108px;
         height: 108px;
         order: -1;
     }
-    COMPANION-OFF (end) */
+}
+
+/* Phones below 640px: no room for a companion next to the verification
+   card — same desktop/tablet-only rule as the chat theme. */
+@media (max-width: 639px) {
+    .pet-slot { display: none; }
 }
 
 /* ── Responsive digits ────────────────────────────────────────────── */

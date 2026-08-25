@@ -284,6 +284,38 @@ def delete(backup_id: str, actor: str = "") -> bool:
     return True
 
 
+def backup_dir(backup_id: str) -> str:
+    """Directory of one backup, for callers that report a path."""
+    return _safe_dir(backup_id)
+
+
+# How many backups prune keeps. Mirrors backup_center's KEEP so both engines
+# age the same whether an install is on SQLite today or PostgreSQL tomorrow.
+KEEP = 14
+
+
+def prune(keep: int = KEEP) -> list:
+    """Delete the oldest backups beyond `keep`. Returns the removed ids.
+
+    Without this, a nightly scheduler on PostgreSQL grows backups/postgres/
+    forever — the SQLite engine always pruned, this one never did. Never
+    raises: a prune failure must not fail a backup that just succeeded; the
+    cost of skipping one prune is disk, not data.
+    """
+    try:
+        ids = [b["backup_id"] for b in list_backups() if b.get("backup_id")]
+        removed = []
+        for backup_id in ids[keep:]:
+            try:
+                delete(backup_id, actor="prune")
+                removed.append(backup_id)
+            except BackupError:
+                continue  # already gone — that is what prune wanted anyway
+        return removed
+    except Exception:  # noqa: BLE001 — see docstring
+        return []
+
+
 # ── Restore ─────────────────────────────────────────────────────────────
 
 def restore(backup_id: str, actor: str = "", confirmation: str = "") -> dict:

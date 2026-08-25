@@ -380,8 +380,11 @@ async def tts_add_voice(request: Request,
 @router.delete("/admin/api/tts/voices/{name}")
 async def tts_delete_voice(name: str, username: str = Depends(verify_admin)):
     try:
+        # Quote the path segment: a raw name carries ../, ? and # straight
+        # into the upstream URL.
+        from urllib.parse import quote
         async with httpx.AsyncClient(timeout=TTS_STATUS_TIMEOUT) as client:
-            response = await client.delete(_upstream(f"/voices/{name}"))
+            response = await client.delete(_upstream(f"/voices/{quote(name, safe='')}"))
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 

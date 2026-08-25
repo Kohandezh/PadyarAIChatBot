@@ -722,9 +722,13 @@ async function transcribeAudio(audioBlob) {
     try {
         const formData = new FormData();
         formData.append('audio', audioBlob, 'recording.webm');
+        const chatToken = document.querySelector('meta[name="chat-token"]')?.content || '';
 
         const response = await fetch('/api/transcribe', {
             method: 'POST',
+            headers: {
+                'X-Chat-Token': chatToken
+            },
             body: formData,
         });
 

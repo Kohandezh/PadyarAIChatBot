@@ -49,34 +49,46 @@ def _without_html_comments(markup: str) -> str:
     return re.sub(r"<!--.*?-->", "", markup, flags=re.S)
 
 
-def test_companion_is_switched_off_but_kept_restorable():
-    """The companion is commented out, not deleted — and this pins BOTH halves.
+def test_companion_is_live_but_desktop_only():
+    """The companion is back in the rendered markup — and pinned as LIVE.
 
     Policy history: barred from the chat UI, restored on request (2026-08-15)
-    with the full Pet-INOTEX interaction set, then switched off again
-    (2026-08-21) because the owner did not want it. It was commented rather
-    than removed so it can come back.
+    with the full Pet-INOTEX interaction set, switched off again (2026-08-21),
+    and restored AGAIN on 2026-08-24 — this time desktop/tablet only: every
+    surface that carries the character must hide it below a 640px viewport so
+    it never crowds a phone composer or the OTP card.
 
-    This test used to assert the companion's controls were focusable buttons.
-    Once the markup was commented out that assertion kept passing, because a
-    comment is still text in the file — it proved nothing. It now asserts on
-    the comment-stripped markup, so re-enabling the companion fails HERE and
-    whoever does it restores the accessibility checks deliberately.
+    Assertions run on comment-stripped markup, so a future re-disable via
+    HTML comments fails HERE instead of silently shipping.
     """
     footer = read(ROOT / "themes" / "inotex" / "partials" / "footer.html")
     visible = _without_html_comments(footer)
 
-    assert 'id="pet-canvas"' not in visible, "companion should be switched off"
-    assert "COMPANION-OFF" in footer, "expected the off-markers, not a deletion"
-    assert 'id="pet-canvas"' in footer, "expected it commented out, not deleted"
+    assert 'id="pet-canvas"' in visible, "companion should be live markup"
+    assert "COMPANION-OFF" not in footer, "stale off-markers left behind"
 
-    # The accessibility contract to restore WITH it: the drawing is decorative
-    # and every action is a real, labelled button. Kept here so bringing the
-    # companion back means making these pass again rather than rediscovering
-    # the requirement.
+    # The accessibility contract: the drawing is decorative and every action
+    # is a real, labelled button.
     for control in ('id="pet-eye"', 'id="pet-larger"', 'id="pet-smaller"',
                     'id="pet-hit"', 'id="pet-close"'):
-        assert control in footer, f"companion control {control} was deleted, not commented"
+        assert control in visible, f"companion control {control} not live"
+
+    # The desktop-only rule, on every surface that carries the character.
+    theme_css = read(ROOT / "themes" / "inotex" / "static" / "style.css")
+    otp_css = read(ROOT / "static" / "otp" / "otp.css")
+    for css, name in ((theme_css, "inotex theme"), (otp_css, "otp page")):
+        assert "@media (max-width: 639px)" in css, f"{name}: missing <640px hide"
+    pet_hide = re.search(
+        r"@media \(max-width: 639px\) \{[^}]*\.pet-slot[^}]*display: none", theme_css)
+    assert pet_hide, "inotex theme: .pet-slot not hidden under 640px"
+    pet_hide_otp = re.search(
+        r"@media \(max-width: 639px\) \{[^}]*\.pet-slot[^}]*display: none", otp_css)
+    assert pet_hide_otp, "otp page: .pet-slot not hidden under 640px"
+
+    # The OTP surface carries the character too — same live, same rule.
+    otp_visible = _without_html_comments(
+        read(ROOT / "templates" / "otp" / "verify.html"))
+    assert 'id="pet-canvas"' in otp_visible, "otp page companion should be live"
 
 
 def test_one_sound_control_for_the_surface_in_view():

@@ -12,8 +12,9 @@ inotex.com, they must do it explicitly. This script is that explicit, safe path.
 
 SAFETY
 ------
-1. It ALWAYS creates a timestamped backup copy of the SQLite database before
-   touching anything. If the backup cannot be written, the script aborts.
+1. It ALWAYS creates a backup before touching anything — a timestamped file
+   copy on SQLite, a `pg_dump` archive on PostgreSQL. If the backup cannot be
+   written, the script aborts.
 2. It requires interactive confirmation (or --yes) and shows exactly what will
    be reset.
 3. By default it resets the content tables only (dataset, questions, synonyms).
@@ -21,11 +22,13 @@ SAFETY
    Use --full to also clear chat logs; use --all to additionally reset settings.
 
 USAGE (run from the project root)
----------------------------------
+--------------------------------
     python3 scripts/reset-content-to-defaults.py            # interactive, content only
     python3 scripts/reset-content-to-defaults.py --yes      # non-interactive (CI/ops)
     python3 scripts/reset-content-to-defaults.py --full     # also clear chat logs
     python3 scripts/reset-content-to-defaults.py --db /path/to/chat_history.db
+                                       # (SQLite file override; PostgreSQL is
+                                       #  selected automatically from the env)
 
 After running, restart the app so the in-memory search index reloads.
 """
@@ -40,6 +43,7 @@ from pathlib import Path
 # Make `import app.*` work when run from the project root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.config import DB_BACKEND  # noqa: E402
 from app.default_content import (  # noqa: E402
     INOTEX_DATASET,
     INOTEX_QUESTIONS,
@@ -47,7 +51,7 @@ from app.default_content import (  # noqa: E402
     seed_default_content,
     seed_default_synonyms,
 )
-from app.db.connection import ensure_dataset_columns
+from app.db.connection import ensure_dataset_columns, get_db_connection  # noqa: E402
 
 
 def find_db_path(explicit: str) -> Path:
@@ -74,6 +78,12 @@ def backup_db(db_path: Path) -> Path:
     return dest
 
 
+def backup_postgres() -> str:
+    from app.services import pg_backup
+    manifest = pg_backup.create(reason="reset-content")
+    return f"backups/postgres/{manifest['backup_id']}/{manifest['file']}"
+
+
 def row_counts(conn, table):
     return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
@@ -84,8 +94,11 @@ def reset_content(conn):
     conn.execute("DELETE FROM dataset")
     conn.execute("DELETE FROM synonyms")
     cur = conn.cursor()
-    # The DB being reset may predate the bilingual columns.
-    ensure_dataset_columns(cur)
+    if DB_BACKEND != "postgres":
+        # The DB being reset may predate the bilingual columns. On PostgreSQL
+        # migrations/0004 already owns the columns, and ensure_dataset_columns
+        # speaks only the SQLite dialect.
+        ensure_dataset_columns(cur)
     seed_default_content(cur)
     seed_default_synonyms(cur)
     conn.commit()
@@ -93,19 +106,24 @@ def reset_content(conn):
 
 def main():
     p = argparse.ArgumentParser(description="Reset DB content to INOTEX defaults (with backup).")
-    p.add_argument("--db", default="", help="Path to the SQLite database (default: ./chat_history.db).")
+    p.add_argument("--db", default="", help="Path to a SQLite database (default: ./chat_history.db)."
+                                            " Ignored when the configured backend is PostgreSQL.")
     p.add_argument("--yes", action="store_true", help="Skip interactive confirmation.")
     p.add_argument("--full", action="store_true", help="Also clear chat_logs.")
     p.add_argument("--all", action="store_true", help="Also clear settings (branding/theme). Implies --full.")
     args = p.parse_args()
 
-    db_path = find_db_path(args.db)
-    print(f"Database : {db_path}")
-
-    backup = backup_db(db_path)
+    use_postgres = DB_BACKEND == "postgres" and not args.db
+    if use_postgres:
+        conn = get_db_connection()
+        print("Database : PostgreSQL (configured backend)")
+        backup = backup_postgres()
+    else:
+        db_path = find_db_path(args.db)
+        print(f"Database : {db_path}")
+        backup = backup_db(db_path)
+        conn = sqlite3.connect(str(db_path))
     print(f"Backup   : {backup}")
-
-    conn = sqlite3.connect(str(db_path))
 
     scope = []
     scope.append("dataset, questions, synonyms  →  INOTEX defaults")

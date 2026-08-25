@@ -179,7 +179,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.gapgpt.app/v1")
 
 if OPENAI_API_KEY:
-    logger.info(f"OPENAI_API_KEY loaded from env: {OPENAI_API_KEY[:5]}...")
+    # Presence only — never any part of the key itself.
+    logger.info("OPENAI_API_KEY loaded from env")
 else:
     # Not fatal: the key can be supplied from the admin panel (Settings → AI)
     # and is stored per-install in the settings table.

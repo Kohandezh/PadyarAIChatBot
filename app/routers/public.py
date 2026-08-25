@@ -112,9 +112,9 @@ async def read_root():
 
 # --- Public Data API (DB is the single source of truth) ---
 # The chat frontend reads these endpoints for its suggested-question list.
-# Dataset/questions live in SQLite only — there are no JSON data files.
+# Dataset/questions live in the database only — there are no JSON data files.
 
-# Defined as sync `def` (not `async def`): they run blocking SQLite queries,
+# Defined as sync `def` (not `async def`): they run blocking database queries,
 # so FastAPI runs them in a threadpool instead of blocking the event loop —
 # important since the chat frontend hits these frequently.
 @router.get("/api/dataset")
@@ -362,7 +362,15 @@ async def admin_settings_backup(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
-    return _render("admin/settings_backup.html", request=request, active_page="settings_backup")
+    # On PostgreSQL, the backup list/upload on this page is SQLite-era dead
+    # weight: the files it would list (.db sets) do not exist and the upload
+    # cannot restore a pg_dump archive. Only the schedule belongs here; the
+    # list, verify, download and restore of PostgreSQL backups live on the
+    # infrastructure page. The template hides the dead section on this flag.
+    from app.config import DB_BACKEND
+    return _render("admin/settings_backup.html", request=request,
+                   active_page="settings_backup",
+                   backup_engine=("postgres" if DB_BACKEND == "postgres" else "sqlite"))
 
 
 # --- Public APIs ---
@@ -384,15 +392,27 @@ async def health_check():
 
 
 @router.get("/api/ready")
-async def readiness_check(deep: bool = False):
+async def readiness_check(deep: bool = False, request: Request = None):
     """Readiness: is the retrieval layer actually able to answer?
 
     ``deep=true`` additionally probes the external AI endpoint (never done
     in the request path). Returns 503 while the local layer is not ready so
     an orchestrator holds traffic until the index is built.
+
+    The deep probe is admin-only: it makes the server call the external
+    provider, and an anonymous caller able to trigger outbound traffic on
+    demand is a free abuse relay. Unauthenticated requests silently get the
+    shallow answer an orchestrator needs.
     """
+    from fastapi import HTTPException
     from fastapi.responses import JSONResponse
     from app.services.providers import local_provider, external_provider
+
+    if deep:
+        try:
+            await verify_admin(request)
+        except HTTPException:
+            deep = False
 
     local = local_provider.health_check()
     body = {

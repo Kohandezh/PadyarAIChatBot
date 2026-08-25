@@ -3,7 +3,6 @@ import io
 import csv
 import json
 import asyncio
-import sqlite3
 import mimetypes
 import shutil
 from contextlib import closing
@@ -71,11 +70,11 @@ async def upload_video(file: UploadFile = File(...)):
 
     ALLOWED_MIMETYPES = {"video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/avi"}
 
-    ext = os.path.splitext(file.filename)[1].lower()
+    ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_VIDEO_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"Invalid extension '{ext}'. Allowed: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}")
+        raise HTTPException(status_code=400, detail=f"Invalid extension '{ext}'. Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}")
 
-    mime_type, _ = mimetypes.guess_type(file.filename)
+    mime_type, _ = mimetypes.guess_type(file.filename or "")
     if mime_type and mime_type not in ALLOWED_MIMETYPES:
         raise HTTPException(status_code=400, detail=f"Invalid MIME type '{mime_type}'. Only video files are allowed.")
 
@@ -97,7 +96,7 @@ async def upload_video(file: UploadFile = File(...)):
     await file.seek(0)
     os.makedirs(VIDEO_DIR, exist_ok=True)
 
-    safe_name = os.path.basename(file.filename)
+    safe_name = os.path.basename(file.filename or "")
     save_path = os.path.join(VIDEO_DIR, safe_name)
 
     if os.path.exists(save_path):
@@ -278,6 +277,15 @@ async def delete_question(question_id: int):
 #   "add"     -> merge into existing data (no data lost)
 #   "replace" -> wipe and load only the file's contents
 
+def _csv_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in exported cells (a leading
+    = + - @ or tab/CR would execute when the operator opens the file)."""
+    s = "" if value is None else str(value)
+    if s.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + s
+    return s
+
+
 def _to_csv(rows: list, cols: list) -> str:
     """Serialize rows to CSV text with a BOM so Excel reads Persian correctly."""
     buf = io.StringIO()
@@ -285,7 +293,7 @@ def _to_csv(rows: list, cols: list) -> str:
     writer = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     writer.writeheader()
     for r in rows:
-        writer.writerow({c: r.get(c, "") for c in cols})
+        writer.writerow({c: _csv_safe(r.get(c, "")) for c in cols})
     return buf.getvalue()
 
 

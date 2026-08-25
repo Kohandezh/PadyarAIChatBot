@@ -39,6 +39,38 @@ sudo HF_TOKEN=hf_xxx bash deploy/25-install-tts.sh
 bash deploy/30-verify.sh                     # end-to-end smoke test
 ```
 
+## Auto-deploy from CI (optional, one-time setup)
+
+After the two installs are live and verified, merges to `main` can deploy
+themselves: CI green → one approval click → the server updates itself. Setup:
+
+```bash
+# 1. On your dev machine (gh logged in as a repo admin), mint the 1-hour token:
+gh api -X POST repos/Kohandezh/PadyarAIChatBot/actions/runners/registration-token --jq .token
+
+# 2. On the server:
+sudo bash deploy/50-install-github-runner.sh <that-token>
+
+# 3. Once, in the browser: repo Settings → Environments → New environment
+#    "production" → Required reviewers → add yourself.
+```
+
+What each piece is allowed to do:
+
+| Piece | Privilege |
+|---|---|
+| `gh-runner` user | run `/usr/local/bin/padyar-deploy` with sudo — nothing else (`/etc/sudoers.d/gh-runner-deploy`, one entry) |
+| `padyar-deploy` script | root-owned at `/usr/local/bin`; backup → fetch → deps → migrate → restart → health, with code rollback |
+| GitHub job token | `contents: read`, dies when the job ends; never stored on the server |
+
+During an event: do not deploy. The approval click is the calendar — an
+unapproved deploy sits in the queue and harms nothing.
+
+To deploy manually without GitHub: `sudo /usr/local/bin/padyar-deploy inotex <sha>`
+does exactly what the pipeline does (fetch needs a credential for the private
+repo; a one-line `PADYAR_GIT_TOKEN=... sudo -E` works, or push the branch and
+let the pipeline carry it).
+
 ## Things that will bite you, and why
 
 **`PADYAR_ENV=production` makes the app refuse to boot on a bad config.**

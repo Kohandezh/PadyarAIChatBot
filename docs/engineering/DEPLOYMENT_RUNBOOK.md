@@ -14,7 +14,29 @@ python main.py              # dev — یا در تولید:
 gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 127.0.0.1:8000 app.main:app
 ```
 
-Docker: `docker compose up -d` (Dockerfile و docker-compose.yml موجود است).
+ Docker: `docker compose up -d` (Dockerfile و docker-compose.yml موجود است).
+
+## استقرار و به‌روزرسانی production (gpuserver)
+
+نصب اولیه با `deploy/` (README همان پوشه). پس از آن، هر merge به `main`
+خودش مستقر می‌شود: CI سبز → یک تأیید در environment «production» → runner
+خودمیزبان روی سرور `padyar-deploy` را صدا می‌زند. مراحل آن اسکریپت، به
+ترتیب: پشتیبان pg_dump → checkout کد جدید (پروسهٔ قدیم هنوز سرو می‌کند) →
+`pip install` → `apply_migrations.py` (هر فایل یک تراکنش) → ری‌استارت →
+`/health` × 3.
+
+**بازگشت کد خودکار است:** سلامت نرسید → reset به commit قبلی + ری‌استارت.
+**بازگشت دیتابیس خودکار نیست و نباید باشد:** مهاجرت‌های این پروژه تا امروز
+فقط افزوده‌اند و کد قدیمی جداول ناشناخته را نادیده می‌گیرد؛ اگر روزی
+مهاجرتی مخرب رسید، بازگردانی از پشتیبانِ قبل از استقرار یک اقدام دستی و
+مصرحانه از پنل ادمین است (زیرساخت → پشتیبان‌ها).
+
+**در زمان رویداد مستقر نکنید.** تأیید انسانی تقویم است؛ deploy تأییدنشده
+در صف می‌ماند و آسیبی نمی‌زند. صف deploy با `concurrency` مسلسل شده، پس دو
+merge پشت‌سرهم همدیگر را له نمی‌کنند.
+
+دستی (بدون GitHub): `sudo /usr/local/bin/padyar-deploy inotex <sha>` — همان
+مراحل، همان بازگشت.
 
 ## بررسی سلامت
 - Liveness: `GET /api/health` (ارزان، بدون فراخوانی خارجی)

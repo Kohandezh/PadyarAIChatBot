@@ -43,29 +43,15 @@
     <button type="button" class="voice-stop" id="voice-stop" data-i18n="voiceStop">توقف</button>
 </div>
 
-<!-- ══ COMPANION CHARACTER — DISABLED ═══════════════════════════════════
-     The "pet" companion is switched off at the owner's request. It is
-     COMMENTED OUT rather than deleted so it can come back unchanged.
-
-     TO RESTORE: delete the two marker lines below (the comment opener and
-     its closer) so the markup between them is live again. Nothing else
-     needs changing — the sprite assets are still on disk, and
-     static/companion/companion.js + companion-ui.js both detect the markup
-     and wire themselves up automatically when it is present.
-
-     While it is off: companion.js finds no #pet-canvas and publishes a
-     no-op PetCompanion, and companion-ui.js finds no #pet-slot and returns
-     before binding anything, so every `pet.set(...)` call elsewhere on the
-     page is a safe no-op and nothing dereferences a missing element. The
-     mini chat panel below is only reachable through the character, so it is
-     dormant too — it comes back with it.
-     ═════════════════════════════════════════════════════════════════════ -->
 <!-- Pet-INOTEX companion. Theme level, so it is present on both tabs.
      Ported from the Pet-Inotex module: control rail (hide / − / +), pointer
      drag, tap to open the chat panel, double-tap for one energetic reaction.
      The character never carries information on its own — the chat text and
-     #pet-status always do. -->
-<!-- COMPANION-OFF (start)
+     #pet-status always do.
+     RE-ENABLED 2026-08-24 (owner request), desktop/tablet only: the theme
+     CSS hides it below a 640px viewport so it never crowds the phone
+     composer. companion.js + companion-ui.js detect this markup and wire
+     themselves up automatically. -->
 <div class="pet-slot" id="pet-slot" data-open="false" data-hidden="false">
     <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه اینوتکس">
         <button type="button" class="pet-rail-btn" id="pet-eye" aria-pressed="false"
@@ -95,8 +81,6 @@
         aria-controls="pet-panel" aria-label="گفت‌وگو با دستیار اینوتکس"></button>
 
 </div>
-COMPANION-OFF (end) -->
-
 
 <!-- Mini chat: a compact VIEW of the same conversation, not a second one. -->
 <section class="pet-panel" id="pet-panel" hidden aria-labelledby="pet-panel-title">
@@ -586,10 +570,9 @@ COMPANION-OFF (end) -->
     // always showing what the app is actually doing — never a decorative
     // animation running on its own timer.
     //
-    // Inert while the character is switched off (see COMPANION-OFF above):
-    // window.PetCompanion is then a complete no-op, so every set() here does
-    // nothing. Left wired on purpose — uncommenting the markup brings the
-    // reactions back with it.
+    // Safe by design: if the pet markup is ever removed again,
+    // window.PetCompanion degrades to a complete no-op, so every set()
+    // here does nothing.
     (function () {
         const pet = window.PetCompanion;
         if (!pet) return;

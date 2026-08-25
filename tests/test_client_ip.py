@@ -106,7 +106,17 @@ def test_no_socket_and_no_trusted_header_yields_empty_string():
 # ── Rate limiting ────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
-def _clear_buckets():
+def _clear_buckets(tmp_path, monkeypatch):
+    """Isolate the limiter for every test in this module.
+
+    The limiter's primary state is the shared `rate_limit_buckets` table
+    (these tests run against synthetic Requests, never a live app), so each
+    test gets a throwaway database AND both stores cleared — otherwise one
+    test's quota follows the next through whichever bucket the synthetic
+    requests resolve to.
+    """
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "rl.db"))
     _chat_rate_limits.clear()
     yield
     _chat_rate_limits.clear()

@@ -494,9 +494,12 @@ def search_companies(query: str, limit: int = 20) -> list:
     conn = get_db_connection()
     try:
         if term:
+            # % and _ are user input here — escape them so a visitor typing a
+            # wildcard cannot broaden the match beyond what they typed.
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             rows = conn.execute(
-                "SELECT id, title FROM dataset WHERE title LIKE ?" + unowned
-                + " ORDER BY title LIMIT ?", (f"%{term}%", limit),
+                "SELECT id, title FROM dataset WHERE title LIKE ? ESCAPE '\\'" + unowned
+                + " ORDER BY title LIMIT ?", (f"%{escaped}%", limit),
             ).fetchall()
         else:
             rows = conn.execute(

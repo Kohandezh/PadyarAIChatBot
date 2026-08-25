@@ -114,13 +114,20 @@ async function doRestore(fetchPromise) {
 
 export function initBackup() {
     loadProfile();
-    loadBackups();
+    // On PostgreSQL this page shows only the schedule; the list/upload
+    // controls live on the infrastructure page. loadBackups() is what feeds
+    // them, so it is the one thing to skip — nothing below may assume the
+    // buttons exist.
+    const hasList = !!document.getElementById('backup-list');
+    if (hasList) loadBackups();
 
     // Restore from an uploaded backup file.
-    document.getElementById('restore-upload-btn').addEventListener('click', () => {
+    const uploadBtn = document.getElementById('restore-upload-btn');
+    if (uploadBtn) uploadBtn.addEventListener('click', () => {
         document.getElementById('restore-file-input').click();
     });
-    document.getElementById('restore-file-input').addEventListener('change', (e) => {
+    const fileInput = document.getElementById('restore-file-input');
+    if (fileInput) fileInput.addEventListener('change', (e) => {
         const fileEl = e.target;
         const file = fileEl.files[0];
         if (!file) return;
@@ -157,7 +164,11 @@ export function initBackup() {
         } catch { showMsg('schedule-msg', 'خطای ارتباط با سرور', 'danger'); }
     });
 
-    document.getElementById('create-backup-btn').addEventListener('click', async (e) => {
+    // The three controls below exist only on the SQLite page (see
+    // settings_backup.html); on PostgreSQL the list lives on the
+    // infrastructure page.
+    const createBtn = document.getElementById('create-backup-btn');
+    if (createBtn) createBtn.addEventListener('click', async (e) => {
         const btn = e.currentTarget;
         btn.disabled = true;
         try {
@@ -169,7 +180,8 @@ export function initBackup() {
         finally { btn.disabled = false; }
     });
 
-    document.getElementById('backup-list').addEventListener('click', async (e) => {
+    const listEl = document.getElementById('backup-list');
+    if (listEl) listEl.addEventListener('click', async (e) => {
         const dl = e.target.closest('[data-download]');
         if (dl) { downloadBackup(dl.dataset.download); return; }
         const restore = e.target.closest('[data-restore]');
