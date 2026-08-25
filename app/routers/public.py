@@ -28,9 +28,32 @@ def _render(template_name: str, **context) -> HTMLResponse:
     pages an install does not have. Without it, an install whose
     ENABLED_MODULES omits a module still shows its menu entry, and the admin
     lands on a 404.
+
+    Every admin page also gets the maintenance state so layout.html can show
+    the persistent warning banner. The banner is NOT module-gated: the state
+    is real no matter which module set it (an operator, a backups restore),
+    so it must follow the operator onto every authed page — only the
+    «خاموش کردن» link inside it gates on the ops module (see layout.html).
+    The state() read is exception-safe and excluded from the settings TTL
+    cache by key, so this is one fresh, cheap SELECT per low-traffic admin
+    page render with no staleness window.
     """
     from app.config import ENABLED_MODULES
     context.setdefault("enabled_modules", ENABLED_MODULES)
+    context.setdefault("maintenance_on", False)
+    try:
+        from app.services import maintenance
+        m = maintenance.state()
+        if m.get("enabled"):
+            context["maintenance_on"] = True
+            context["maintenance_reason"] = m.get("reason", "")
+            context["maintenance_by"] = m.get("enabled_by", "")
+            context["maintenance_at"] = m.get("enabled_at") or ""
+    except Exception:
+        # state() already swallows its own errors; this belt-and-braces wrap
+        # keeps _render total no matter what — a broken banner read must
+        # never take an admin page down.
+        context["maintenance_on"] = False
     template = _jinja_env.get_template(template_name)
     html = template.render(context)
     return HTMLResponse(html)
@@ -377,18 +400,19 @@ async def admin_settings_backup(request: Request):
 
 @router.get("/api/health")
 async def health_check():
-    """Liveness: cheap, no external calls — safe for a 5s probe interval."""
-    from app.db.connection import get_db_connection
-    openai_enabled = get_setting('openai_enabled', 'true')
-    with closing(get_db_connection()) as conn:
-        dataset_size = conn.execute('SELECT COUNT(*) AS n FROM dataset').fetchone()["n"]
-    return {
-        "status": "ok",
-        "dataset_size": dataset_size,
-        "openai_enabled": openai_enabled,
-        "knowledge_version": get_setting("knowledge_version", "unversioned"),
-        "modules": ENABLED_MODULES,
-    }
+    """Liveness: the process is up and serving. Nothing else.
+
+    This endpoint is UNAUTHENTICATED and reachable from the internet, so its
+    body is a deliberate minimum. It used to also return the enabled module
+    list, the AI toggle, the knowledge version and the dataset size — a free
+    reconnaissance map of the attack surface ("registration is on, voice is
+    on, AI fallback is off") for anyone who typed the URL. Those diagnostics
+    now live behind admin auth at /admin/api/ops/health.
+
+    No database query either: this is the endpoint probes hit every few
+    seconds, and its own docstring always promised "cheap".
+    """
+    return {"status": "ok"}
 
 
 @router.get("/api/ready")
