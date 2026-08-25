@@ -267,6 +267,58 @@ Self-contained themes in `/themes/{name}/` — each has `theme.json`, `index.htm
 | `app/utils/normalizer.py` | Persian text processing                   |
 | `app/modules/registry.py` | Module definitions                        |
 
+## How a Feature Ships (the anti-scaffold rule)
+
+A 2026-08 audit of this repo found the same defect class seven times over: a
+capability **built but never wired to its production call-site** — a rate
+limiter with a per-identity `key` param no route ever passed, a conversation
+cookie read on every request but never set, a maintenance mode fully enforced
+with no UI to toggle it, a documented white-label system that did not exist in
+code (PR #17 fixed all seven). The rule below exists so that class of defect
+cannot merge again.
+
+**A feature is a scenario, not a capability.** Before building, name the
+scenario: who triggers it, from where, under what real conditions (a NAT'd
+booth sharing one IP, a visitor an hour into a conversation, a non-technical
+operator at 3 clicks, two installs deploying from one branch). If the scenario
+cannot be named, the feature is not specified. The scenario — not the
+mechanism — is what gets tested and reviewed.
+
+### Flow: spike → prototype → spec → wire → verify
+
+1. **Spike** (optional, timeboxed) — de-risk the unknown. Throwaway code, no
+   commit to main.
+2. **Prototype** — the thinnest vertical slice that exercises the scenario
+   end-to-end. If the slice cannot reach the scenario, the design is wrong.
+3. **Spec** (`docs/features/{slug}/`) — written AFTER the prototype, from what
+   it proved. A spec documents what IS shipping. A spec describing machinery
+   that does not exist in code is a defect (doc-fiction), not a roadmap —
+   planned items live in the feature folder, clearly marked.
+4. **Wire** — every param, function, endpoint, setting, cookie or table this
+   feature introduces has its production caller **in the same change**. A
+   `key=` param with zero callers, an endpoint with zero consumers, a reader
+   with no writer: all are review-blocking defects, not forward compatibility.
+5. **Verify** — the scenario has a test that **fails when the wiring is
+   removed**. Write it first and watch it fail (red), then make it pass. A
+   test that asserts the unwired behavior (e.g. per-IP limiting when the
+   design says per-identity) is an approval of the bug, not a guard.
+
+### Reader–writer pairs must close
+
+The audit's failures were one-sided mechanisms. These pairs must BOTH ship or
+neither does: cookie read ↔ cookie set; token validated ↔ token refreshable;
+secret saved ↔ secret reachable by its consumer; admin page ↔ its data API
+(module-gated together); sidebar link ↔ route exists; docs ↔ code. Health and
+panel status must reflect whether the feature can actually serve (routes
+exist, wiring live), never merely whether config is present — green with zero
+routes is a defect.
+
+### Scale
+
+Bugfix / small change: no phases — just the checklist above at review time.
+New feature or optional module: the full flow, and the spec folder is the
+record of the scenario.
+
 ## Patterns to Follow
 
 ### New Module (required for all features)
@@ -286,10 +338,10 @@ Self-contained themes in `/themes/{name}/` — each has `theme.json`, `index.htm
 
 ### New White-Label Setting
 
-1. Add key to `settings` table (prefix with `whitelabel_`)
-2. Add default in `get_setting("whitelabel_key", default)` calls
-3. Add field to admin white-label settings page
-4. Inject via `branding_context` context processor
+1. Add key to `settings` table (prefix with `whitelabel_`) + default in `WL_DEFAULTS` (`app/services/branding.py`)
+2. Escape it in `chat_branding_context()` (theme env is `autoescape=False`)
+3. Add field to Settings → برندینگ (`templates/admin/settings_branding.html` + `initBranding()`)
+4. Extend the theme page-cache key (`themes.py`) if the value is baked into the chat shell
 
 ### New Theme
 
