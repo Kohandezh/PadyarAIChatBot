@@ -356,6 +356,15 @@ async def admin_visitor_active(visitor_id: str, body: VisitorActiveBody):
     return {"ok": True}
 
 
+@router.delete("/admin/api/leads/visitors/{visitor_id}")
+async def admin_delete_visitor(visitor_id: str, admin: str = Depends(verify_admin)):
+    """Take a colleague off the roster. Their link stops working immediately;
+    the leads they captured are history and stay."""
+    if not leads_service.delete_visitor(visitor_id, actor=admin):
+        raise HTTPException(status_code=404, detail="این همکار پیدا نشد.")
+    return {"ok": True}
+
+
 @router.post("/admin/api/leads/visitors/{visitor_id}/rotate",
              dependencies=[Depends(verify_admin)])
 async def admin_rotate_visitor(visitor_id: str, request: Request):

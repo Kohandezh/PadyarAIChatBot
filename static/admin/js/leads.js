@@ -96,6 +96,19 @@ async function get(url) {
     return res.json();
 }
 
+// Same refusal discipline as post(), for the one DELETE on this page.
+async function del(url) {
+    alertBox('');
+    const res = await fetchAuth(url, { method: 'DELETE' });
+    let data = {};
+    try { data = await res.json(); } catch { /* empty body is fine */ }
+    if (!res.ok) {
+        alertBox(data.detail || 'این کار انجام نشد. دوباره تلاش کنید.');
+        return false;
+    }
+    return true;
+}
+
 // ── Risky content in a proposed answer ──────────────────────────────────
 //
 // An approved edit becomes the answer the chatbot gives every visitor, and the
@@ -314,6 +327,9 @@ async function loadVisitors() {
                     data-active="${v.active ? '0' : '1'}">
               ${v.active ? 'غیرفعال' : 'فعال'}
             </button>
+            <button class="btn btn-sm btn-outline-danger" data-remove="1">
+              <i class="fas fa-trash me-1"></i>حذف
+            </button>
           </td>
         </tr>`).join('');
 }
@@ -477,6 +493,15 @@ export function initLeads() {
             if (!data) return;
             showNewLink('لینک تازهٔ این همکار (لینک قبلی دیگر کار نمی‌کند):', data);
             await refresh();
+            return;
+        }
+
+        const remove = ev.target.closest('[data-remove]');
+        if (remove) {
+            if (!confirm('این همکار از فهرست بیرون می‌رود و لینک شخصی‌اش از همین لحظه از کار می‌افتد. ثبت‌هایی که انجام داده سر جایشان می‌مانند. ادامه می‌دهید؟')) return;
+            remove.disabled = true;
+            if (await del(`/admin/api/leads/visitors/${encodeURIComponent(id)}`)) await refresh();
+            else remove.disabled = false;
             return;
         }
 
