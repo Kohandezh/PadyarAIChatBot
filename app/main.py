@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE
+from app.auth.csrf import PROTECTED_PREFIXES
 from app.db.connection import init_db
 from app.services.search import load_dataset_internal
 from app.modules.registry import load_module_routers
@@ -201,10 +202,17 @@ async def csrf_protection(request, call_next):
     admin mutations across several routers, and any new one added later would
     silently be unprotected if this were opt-in. Here it is opt-OUT, and the
     only opt-out is the login endpoint.
+
+    Which prefixes count as admin surface lives in PROTECTED_PREFIXES
+    (app/auth/csrf.py — one policy file), and the conformance test in
+    tests/test_csrf.py walks every registered route and fails the build if a
+    verify_admin-protected mutation appears outside them. That is what keeps
+    the "no unprotected mutation by accident" promise true even for routers
+    mounted outside /admin/ (the synonyms API is the first such case).
     """
     path = request.url.path
-    if (request.method in ("POST", "PUT", "PATCH", "DELETE")
-            and (path.startswith("/admin/") or path.startswith("/secure-panel-inotex"))):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") \
+            and path.startswith(PROTECTED_PREFIXES):
         from app.auth.csrf import enforce
         from fastapi.responses import JSONResponse
         from fastapi import HTTPException as _HTTPException

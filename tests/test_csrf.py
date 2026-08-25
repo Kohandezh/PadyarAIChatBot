@@ -71,6 +71,10 @@ MUTATIONS = [
     ("db maintenance",  "/admin/api/infra/database/pg/maintenance", {"action": "check_connectivity"}),
     ("backup create",   "/admin/api/infra/backups",                 {}),
     ("sms settings",    "/admin/api/sms",                           {"enabled": False, "provider": "dev"}),
+    # The gap this branch closes: the synonyms router mounts outside the
+    # /admin/ prefixes while authenticating with the admin cookie, so its
+    # mutations belong in the same 403 matrix as every admin family above.
+    ("synonyms add",    "/api/synonyms",                            {"source": "الف", "target": "ب"}),
 ]
 
 
@@ -113,6 +117,39 @@ def test_delete_is_protected_too(client):
     assert r.status_code == 403
 
 
+def test_synonyms_delete_without_a_token_is_forbidden(client):
+    """The original CSRF gap: DELETE /api/synonyms rides the admin cookie
+    from a forged cross-site page just like POST does."""
+    r = client.delete("/api/synonyms/x?target=y")
+    assert r.status_code == 403
+
+
+def test_a_valid_token_lets_synonyms_mutations_through(client):
+    """Closing the gap must not close out the real caller — fetchAuth()
+    already sends the header for both calls, so they keep working."""
+    headers = {"X-CSRF-Token": _token(client)}
+    assert client.post("/api/synonyms", json={"source": "cs", "target": "ct"},
+                       headers=headers).status_code == 200
+    assert client.delete("/api/synonyms/cs?target=ct",
+                         headers=headers).status_code == 200
+
+
+def test_synonyms_get_with_cookie_and_no_token_still_works(client):
+    """Pins enforce()'s method gate against over-reach: /api/synonyms newly
+    sits under a protected prefix, but a read must never need a token —
+    GET does not even enter the gate."""
+    r = client.get("/api/synonyms")
+    assert r.status_code == 200
+
+
+def test_anonymous_synonyms_post_is_auth_rejected_not_csrf_rejected(client):
+    """With no cookie, enforce() steps aside and lets authentication speak:
+    401, not 403 — the distinction an operator debugging a failure relies on."""
+    client.cookies.clear()
+    r = client.post("/api/synonyms", json={"source": "a", "target": "b"})
+    assert r.status_code == 401
+
+
 def test_login_stays_exempt_because_there_is_no_session_yet(client):
     """A session-bound token cannot exist before authentication; login is
     protected by credentials and the brute-force lockout instead."""
@@ -136,3 +173,71 @@ def test_the_public_chat_endpoint_is_not_csrf_protected(client):
     HMAC chat token, origin allowlist and rate limiting."""
     r = client.post("/chat", json={"message": "سلام", "lang": "fa"})
     assert r.status_code != 403 or "توکن امنیتی" not in r.text
+
+
+# --- Conformance: the middleware's promise, checked against the route table ---
+
+def _iter_api_routes(routes):
+    """Yield every APIRoute reachable from a Starlette route list.
+
+    FastAPI 0.141 nests each included router in a private _IncludedRouter
+    (no public .routes), so the walker recurses through original_router.
+    A plain .routes fallback keeps it working for Mounts and any future
+    wrapper that exposes routes directly; if FastAPI ever changes shape and
+    both paths go silent, the non-vacuity guard below fails loudly instead
+    of the test passing vacuously.
+    """
+    from fastapi.routing import APIRoute
+    for route in routes:
+        if isinstance(route, APIRoute):
+            yield route
+            continue
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            yield from _iter_api_routes(nested.routes)
+        elif hasattr(route, "routes"):
+            yield from _iter_api_routes(route.routes)
+
+
+def _depends_on_verify_admin(dependant, depth=0):
+    """True if verify_admin appears anywhere in the dependency tree.
+
+    Router-level dependencies (APIRouter(dependencies=[Depends(verify_admin)]))
+    are merged into each route's dependant at include time, so one recursive
+    walk over dependant.dependencies covers both declaration styles.
+    """
+    from app.auth.security import verify_admin
+    if depth > 8:
+        return False
+    return any(sub.call is verify_admin or _depends_on_verify_admin(sub, depth + 1)
+               for sub in dependant.dependencies)
+
+
+def test_every_admin_mutation_sits_under_the_csrf_prefixes():
+    """The middleware gates on path prefixes (PROTECTED_PREFIXES), so a
+    verify_admin-protected mutation mounted outside them would be silently
+    unprotected — exactly how the synonyms API shipped. This walks the live
+    route table and restores the invariant generally: add a cookie-authed
+    mutation anywhere outside the prefixes and CI fails here, not in an
+    audit a year later.
+    """
+    from app.main import app
+    from app.auth.csrf import PROTECTED_PREFIXES, PROTECTED_METHODS
+
+    mutating = [r for r in _iter_api_routes(app.routes)
+                if r.methods & PROTECTED_METHODS]
+    protected = [r for r in mutating if _depends_on_verify_admin(r.dependant)]
+
+    # Non-vacuity: if a FastAPI change makes the walker see almost nothing,
+    # the assertions below would pass while checking nothing. The counts are
+    # floors measured on the full route table (~95 mutating, ~83 protected),
+    # not exact snapshots, so adding routes never breaks the guard.
+    assert len(mutating) >= 50, f"route walker went blind: {len(mutating)} mutating"
+    assert len(protected) >= 30, f"route walker went blind: {len(protected)} protected"
+
+    unprotected = [f"{sorted(r.methods)} {r.path}" for r in protected
+                   if not r.path.startswith(PROTECTED_PREFIXES)]
+    assert not unprotected, (
+        "verify_admin mutations outside PROTECTED_PREFIXES are CSRF-exempt "
+        f"by accident — extend PROTECTED_PREFIXES in app/auth/csrf.py or "
+        f"move the route: {unprotected}")
