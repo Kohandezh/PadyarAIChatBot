@@ -177,6 +177,31 @@ async def run_service_action(req: ServiceActionRequest, request: Request,
 
 # ── System information ──────────────────────────────────────────────────
 
+@router.get("/admin/api/ops/health", dependencies=[Depends(verify_admin)])
+async def install_health():
+    """The post-deploy verification endpoint: what did I just deploy, and is
+    it holding the content it should?
+
+    These are exactly the diagnostics /api/health used to hand to anonymous
+    callers (dataset size, AI toggle, knowledge version, enabled modules).
+    An operator curling right after a deploy still wants them; a stranger on
+    the internet never did. Same answers, one login.
+    """
+    from contextlib import closing
+    from app.config import ENABLED_MODULES
+    from app.db.connection import get_db_connection
+    from app.db.queries import get_setting
+    with closing(get_db_connection()) as conn:
+        dataset_size = conn.execute('SELECT COUNT(*) AS n FROM dataset').fetchone()["n"]
+    return {
+        "status": "ok",
+        "dataset_size": dataset_size,
+        "openai_enabled": get_setting('openai_enabled', 'true'),
+        "knowledge_version": get_setting("knowledge_version", "unversioned"),
+        "modules": list(ENABLED_MODULES),
+    }
+
+
 @router.get("/admin/api/ops/system", dependencies=[Depends(verify_admin)])
 async def system_info():
     """Non-sensitive runtime facts only. No secrets, no credentials, no full

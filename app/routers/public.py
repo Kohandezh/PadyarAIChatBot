@@ -28,9 +28,32 @@ def _render(template_name: str, **context) -> HTMLResponse:
     pages an install does not have. Without it, an install whose
     ENABLED_MODULES omits a module still shows its menu entry, and the admin
     lands on a 404.
+
+    Every admin page also gets the maintenance state so layout.html can show
+    the persistent warning banner. The banner is NOT module-gated: the state
+    is real no matter which module set it (an operator, a backups restore),
+    so it must follow the operator onto every authed page — only the
+    «خاموش کردن» link inside it gates on the ops module (see layout.html).
+    The state() read is exception-safe and excluded from the settings TTL
+    cache by key, so this is one fresh, cheap SELECT per low-traffic admin
+    page render with no staleness window.
     """
     from app.config import ENABLED_MODULES
     context.setdefault("enabled_modules", ENABLED_MODULES)
+    context.setdefault("maintenance_on", False)
+    try:
+        from app.services import maintenance
+        m = maintenance.state()
+        if m.get("enabled"):
+            context["maintenance_on"] = True
+            context["maintenance_reason"] = m.get("reason", "")
+            context["maintenance_by"] = m.get("enabled_by", "")
+            context["maintenance_at"] = m.get("enabled_at") or ""
+    except Exception:
+        # state() already swallows its own errors; this belt-and-braces wrap
+        # keeps _render total no matter what — a broken banner read must
+        # never take an admin page down.
+        context["maintenance_on"] = False
     template = _jinja_env.get_template(template_name)
     html = template.render(context)
     return HTMLResponse(html)
@@ -377,14 +400,21 @@ async def admin_settings_backup(request: Request):
 
 @router.get("/api/health")
 async def health_check():
-    """Liveness: the process answers — safe for a 1s probe interval.
+    """Liveness: the process answers. One word, deliberately.
 
-    Deliberately touches NOTHING. This endpoint is what a load balancer,
-    a Docker HEALTHCHECK and every deploy script poll; it used to run a
-    dataset COUNT(*), which meant a flood of cheap GETs (or a wedged
-    database) exhausted the connection pool and took the panel down with
-    the chat. Anything that must inspect the database or the AI providers
-    belongs on /api/ready, which exists for exactly that.
+    This endpoint is UNAUTHENTICATED and reachable from the internet, so its
+    body is a deliberate minimum. It used to also return the enabled module
+    list, the AI toggle, the knowledge version and the dataset size — a free
+    reconnaissance map of the attack surface ("registration is on, voice is
+    on, AI fallback is off") for anyone who typed the URL. Those diagnostics
+    now live behind admin auth at /admin/api/ops/health.
+
+    It also used to run a dataset COUNT(*): a load balancer, a Docker
+    HEALTHCHECK and every deploy script poll this endpoint, so a flood of
+    cheap GETs (or a wedged database) exhausted the connection pool and took
+    the panel down with the chat. Now it touches NOTHING. Anything that must
+    inspect the database or the AI providers belongs on /api/ready, which
+    exists for exactly that.
     """
     return {"status": "ok"}
 
