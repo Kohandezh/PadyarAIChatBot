@@ -4,6 +4,10 @@ on:
   push:
     branches: [main, main-noor]
   pull_request:
+  # Manual trigger: "Run workflow" button (Actions tab) or
+  # `gh workflow run CI --ref main`. Same gates, same deploy — the only way
+  # this differs from a push is who asked.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -149,7 +153,11 @@ jobs:
   # stored on the server; the token dies when the job ends.
   deploy:
     needs: [test, evaluation, dependency-audit, secret-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Push to main deploys; so does a manual dispatch ON main (the button is
+    # the operator saying "deploy the current main again" — same gates).
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, padyar]
     timeout-minutes: 15
     environment: production
