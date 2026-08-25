@@ -4,6 +4,10 @@ on:
   push:
     branches: [main, main-noor]
   pull_request:
+  # Manual trigger: "Run workflow" button (Actions tab) or
+  # `gh workflow run CI --ref main`. Same gates, same deploy — the only way
+  # this differs from a push is who asked.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -149,7 +153,11 @@ jobs:
   # stored on the server; the token dies when the job ends.
   deploy:
     needs: [test, evaluation, dependency-audit, secret-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Push to main deploys; so does a manual dispatch ON main (the button is
+    # the operator saying "deploy the current main again" — same gates).
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, padyar]
     timeout-minutes: 15
     environment: production
@@ -165,5 +173,20 @@ jobs:
           sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
             /usr/local/bin/padyar-deploy inotex "${{ github.sha }}"
 
+      # Second install, same host, same script, same order of operations.
+      # Deliberately SEQUENTIAL, not `strategy: matrix`: the two deploys share
+      # one host, one PostgreSQL and one pip cache — a matrix would run them
+      # concurrently and the restarts would interleave. If elecomp fails, the
+      # job fails red with inotex already (independently) deployed and rolled
+      # back only by its own health gate — each install's safety is its own.
+      - name: Deploy elecomp to production
+        run: |
+          set -euo pipefail
+          sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
+            /usr/local/bin/padyar-deploy elecomp "${{ github.sha }}"
+
       - name: Report
-        run: echo "Deployed ${{ github.sha }} to padyar-inotex (port 8001)."
+        run: |
+          echo "Deployed ${{ github.sha }}:"
+          echo "  - padyar-inotex  (inotex.padyar.com,  port 8001)"
+          echo "  - padyar-elecomp (elecomp.padyar.com, port 8002)"
