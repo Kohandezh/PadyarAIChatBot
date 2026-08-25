@@ -30,6 +30,9 @@ WHAT IS EXEMPT, AND WHY
 `POST /admin/login` — there is no session yet, so there is no token to bind
 to; it is protected by credentials plus the brute-force lockout instead.
 Everything else that mutates state is protected.
+
+Which paths the middleware gates is defined by `PROTECTED_PREFIXES` below;
+the conformance test in tests/test_csrf.py holds that definition honest.
 """
 import hmac
 import hashlib
@@ -45,6 +48,11 @@ FORM_FIELD = "csrf_token"
 # The login endpoint cannot carry a session-bound token by definition.
 EXEMPT_PATHS = frozenset({"/admin/login"})
 PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Path prefixes whose mutations are admin surface. The conformance test in
+# tests/test_csrf.py fails if a verify_admin-protected mutation is added
+# outside these prefixes.
+PROTECTED_PREFIXES = ("/admin/", "/secure-panel-inotex", "/api/synonyms")
 
 
 def _secret() -> bytes:

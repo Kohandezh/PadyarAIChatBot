@@ -14,7 +14,7 @@ The reference deployment is **INOTEX** (the international innovation & technolog
 - **Video answers** — every dataset entry can carry a video URL, played inline in the chat.
 - **Voice input** *(optional module)* — transcribes voice messages to text via Whisper.
 - **Visitor registration** *(optional module `registration`)* — phone verification by SMS one-time code (only a keyed HMAC of the code is stored, never the code itself), a profile form whose job / title / interest options are driven by a data file rather than code, and a targeted-visit planner that matches the visitor's profile to the event's own sections. Managed from two admin pages: SMS gateway + on/off switch, and a form-options editor with a raw-JSON mode.
-- **White-label / branding** — app name, logo, favicon, colors, welcome text, footer and custom CSS, all editable in the admin panel and injected into every page (Jinja2 context processor + a dynamic `/theme.css` endpoint).
+- **White-label / branding** — app name, logo, primary/accent colors and welcome text (5 `whitelabel_*` settings), editable on the admin Settings → «برندینگ» page and injected into the chat page, admin sidebar and lead pages.
 - **Pluggable chat themes** — WordPress-style partial templates; switch the active theme from the admin panel. Ships with `inotex` (active in this installation), `liquid-glass` and `minimal`.
 - **Admin panel** (Tabler / Bootstrap 5 RTL) — dashboard with usage stats and low-confidence queries, dataset & questions CRUD, synonym management, video upload & library (in the dataset page), theme switching, white-label settings, AI-assistant settings, and scheduled database backups.
 - **Import / export** — dataset and questions as JSON or CSV.
@@ -279,7 +279,7 @@ PostgreSQL 16 (schemas `app` + `observability`). The schema is owned by the vers
 
 ## 🎨 White-Label & Themes
 
-- **Branding** is stored in `settings` under `whitelabel_*` keys (app name, logo, favicon, primary/accent/sidebar colors, welcome text, footer, custom CSS). Defaults live in Python (`get_setting(key, default)`), not the DB. Values are injected into admin templates via a Jinja2 context processor and exposed to both UIs through a dynamic `/theme.css` endpoint using CSS custom properties (`var(--brand-primary)`).
+- **Branding** is stored in `settings` under exactly 5 `whitelabel_*` keys (app name, logo URL, primary/accent colors, welcome text). Defaults live in Python (`app/services/branding.py`), not the DB. The chat render receives pre-escaped values plus `--wl-primary`/`--wl-accent` custom properties and a `window.PADYAR_BRAND` JS override; the admin sidebar and the `/v` lead pages read the same keys. Editable from Settings → «برندینگ».
 - **Chat themes** use a WordPress-style partial system: `themes/base/` provides default partials; each theme overrides only the partials it needs. Drop a new folder under `themes/` with a `theme.json` and it's auto-discovered at startup. The active theme is stored in `settings` and switched from the admin panel.
 
 ## 💾 Backups
@@ -309,7 +309,6 @@ python backup_db.py   # take one backup now + prune old ones
 | `GET`  | `/api/health`       | Health check + module status               |
 | `GET`  | `/api/voice-status` | Voice module availability                  |
 | `POST` | `/api/transcribe`   | Audio → text (voice module)                |
-| `GET`  | `/theme.css`        | Dynamic branding CSS                       |
 
 ### Admin (cookie-session protected, under `/admin/api` and `/secure-panel-inotex`)
 

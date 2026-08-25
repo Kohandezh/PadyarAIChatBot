@@ -79,6 +79,12 @@
                     <label class="form-label">متن پاسخ انگلیسی</label>
                     <textarea id="ds-edit-text-en" class="form-control" rows="5" dir="ltr"></textarea>
                 </div>
+                {# The `video` module governs upload/management, not playback:
+                   the ویدیو table column and existing previews are core and
+                   stay, but an install without the module has no upload or
+                   browse API — a picker whose every action 404s is worse than
+                   no picker. Same idiom as the sidebar guards in layout.html. #}
+                {% if 'video' in (enabled_modules or []) %}
                 <div class="mb-3">
                     <label class="form-label">ویدیو</label>
                     <input type="hidden" id="ds-edit-video">
@@ -91,6 +97,7 @@
                         <p class="text-muted mb-0 mt-1 small">انتخاب از کتابخانه یا آپلود ویدیو جدید</p>
                     </div>
                 </div>
+                {% endif %}
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
@@ -138,6 +145,11 @@
     </div>
 </div>
 
+{# Media Browser — reachable only from the picker above, so it hides with
+   the same `video` gate; without the module its listing/upload/delete APIs
+   are 404s. dataset.js keeps its handlers defined but unreachable — no JS
+   change needed (playback stays core, per the module plan's D3). #}
+{% if 'video' in (enabled_modules or []) %}
 <!-- Media Browser Modal -->
 <div class="modal fade" id="mediaBrowserModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
@@ -162,6 +174,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block page_js %}

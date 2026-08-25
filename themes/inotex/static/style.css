@@ -6,9 +6,17 @@
 
 :root {
     /* — Official INOTEX base palette — */
-    --inotex-primary: #FCB715;
+    /* The two --wl-fed tokens are the white-label hook: the chat page ships
+       --wl-primary/--wl-accent from the whitelabel_* settings (see
+       app/services/branding.py). The mapping below is INTENTIONALLY crossed
+       and must not be "fixed": --wl-primary (#2D5CA7, blue) feeds
+       --inotex-blue and --wl-accent (#FCB715, yellow) feeds --inotex-primary,
+       because the leads pages already established primary=blue / accent=yellow
+       semantics for these keys. var() fallbacks keep the official palette
+       when branding is unset. */
+    --inotex-primary: var(--wl-accent, #FCB715);
     --inotex-yellow-light: #FEBE27;
-    --inotex-blue: #2D5CA7;
+    --inotex-blue: var(--wl-primary, #2D5CA7);
     --inotex-navy: #1E2D52;
     --inotex-teal: #04A584;
     --inotex-dark-teal: #00644F;

@@ -107,6 +107,22 @@ class AssistantContentRequest(BaseModel):
     password: Optional[str] = None  # required only when medical_safety changes
 
 
+class WhitelabelBrandingRequest(BaseModel):
+    """The 5 white-label keys (see app/services/branding.py for the contract).
+
+    Field names are the admin-form / API names; the router maps them onto the
+    `whitelabel_*` setting keys and validates every value server-side — the
+    native color picker always emits #rrggbb, but the API is the backstop.
+    All fields default to empty so a partial POST can never 422 on a missing
+    key; the router rejects empties where empty is not legal (app_name).
+    """
+    app_name: str = ""
+    logo_url: str = ""
+    primary_color: str = ""
+    accent_color: str = ""
+    welcome_text: str = ""
+
+
 class SmsSettingsRequest(BaseModel):
     """Registration/SMS settings.
 

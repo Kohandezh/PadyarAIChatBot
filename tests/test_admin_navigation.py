@@ -9,6 +9,7 @@ ever checked page CONTENT, never the menu.
 The lesson encoded here: assert against RENDERED HTML, not against a template
 file and never against a script's own claim of success.
 """
+import contextlib
 import datetime
 import secrets
 
@@ -60,6 +61,10 @@ REQUIRED_LINKS = [
     "/secure-panel-inotex/infrastructure/database",
     "/secure-panel-inotex/infrastructure/storage",
     "/secure-panel-inotex/infrastructure/backups",
+    # Branding is core (never module-gated), so its page must be reachable
+    # in every install — exactly the orphaned-page failure this file exists
+    # to prevent.
+    "/secure-panel-inotex/settings/branding",
 ]
 
 
@@ -115,6 +120,110 @@ def test_menus_hide_when_their_module_is_disabled(tmp_path, monkeypatch):
         sidebar = c.get("/secure-panel-inotex").text
     assert 'nav-link-title">لاگ‌ها<' not in sidebar
     assert 'nav-link-title">زیرساخت<' not in sidebar
+
+
+# ── Module-gated admin pages ─────────────────────────────────────────────
+#
+# public.py is always mounted and serves the HTML shells of module-owned
+# pages whose data APIs live in conditionally-mounted module routers. Before
+# the gates, disabling a module still rendered the shell — a whole page whose
+# every fetch 404'd, one hand-typed URL away from anyone with a stale
+# bookmark. Each (url, module) pair mirrors the sidebar guard in layout.html
+# verbatim, which is what keeps the invariant "no visible link ever 404s".
+GATED_PAGES = [
+    ("/secure-panel-inotex/infrastructure/database", "infra"),
+    ("/secure-panel-inotex/infrastructure/storage", "infra"),
+    ("/secure-panel-inotex/ops", "ops"),
+    ("/secure-panel-inotex/ops/services", "ops"),
+    ("/secure-panel-inotex/security/sessions", "ops"),
+    ("/secure-panel-inotex/logs", "logs"),
+    ("/secure-panel-inotex/logs/overview", "logs"),
+    ("/secure-panel-inotex/logs/settings", "logs"),
+]
+
+
+@contextlib.contextmanager
+def _core_only_client(tmp_path, monkeypatch):
+    """A client whose install enabled only the registry's core modules —
+    CORE_MODULE_NAMES imported from app.modules.registry, never hardcoded,
+    so promoting a module to core later cannot silently fake a pass here.
+    Same seeding pattern as the disabled-module test above.
+
+    Patches go through a scoped monkeypatch context: they undo when this
+    helper EXITS, not at test end, so a test can mix this client with the
+    default `client` fixture afterwards — otherwise the default client's
+    DB and module set silently become this helper's and its session 401s.
+    """
+    import app.config as config
+    from app.modules.registry import CORE_MODULE_NAMES
+    with monkeypatch.context() as mp:
+        mp.setattr(config, "DB_PATH", str(tmp_path / "nav-core.db"))
+        mp.setattr(config, "SEED_DEFAULT_CONTENT", False)
+        mp.setattr(config, "ENABLED_MODULES", CORE_MODULE_NAMES)
+        from app.main import app
+        with TestClient(app) as c:
+            from app.db.connection import get_db_connection
+            conn = get_db_connection()
+            token = secrets.token_hex(16)
+            conn.execute(
+                "INSERT OR IGNORE INTO admins (username, password_hash, salt,"
+                " security_question, security_answer_hash) VALUES ('nav','x','y','q','z')")
+            conn.execute(
+                "INSERT INTO admin_sessions (token, username, expiry) VALUES (?,?,?)",
+                (token, "nav",
+                 (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat()))
+            conn.commit()
+            conn.close()
+            c.cookies.set("admin_session", token)
+            yield c
+
+
+@pytest.mark.parametrize("url,module", GATED_PAGES)
+def test_gated_page_404s_when_module_disabled(tmp_path, monkeypatch, url, module):
+    """The shell must not render when its module is off: the page's every
+    data API lives in the (unmounted) module router, so a rendered shell is
+    a broken page. 404, not a redirect — the truth about this install."""
+    with _core_only_client(tmp_path, monkeypatch) as c:
+        assert c.get(url, follow_redirects=False).status_code == 404, url
+
+
+@pytest.mark.parametrize("url,module", GATED_PAGES)
+def test_gated_page_renders_when_module_enabled(client, url, module):
+    """Symmetry with the 404 test: with every module on (the default
+    fixture), the gate must not overreach — pairs with
+    test_every_linked_page_actually_responds."""
+    assert client.get(url, follow_redirects=False).status_code == 200, url
+
+
+def test_video_picker_hidden_when_video_module_disabled(tmp_path, monkeypatch, client):
+    """The `video` module governs upload/management, not playback: without
+    it the picker's upload/browse APIs 404, so the whole affordance — picker
+    block and Media Browser modal — must vanish. An admin must never see a
+    button that errors when clicked (the grandmother test)."""
+    with _core_only_client(tmp_path, monkeypatch) as c:
+        html = c.get("/secure-panel-inotex/manage-datasets").text
+    assert "mediaBrowserModal" not in html
+    assert "ds-video-empty" not in html
+    # …and with the module on, the default client still shows both.
+    enabled = client.get("/secure-panel-inotex/manage-datasets").text
+    assert 'id="mediaBrowserModal"' in enabled
+    assert 'id="ds-video-empty"' in enabled
+
+
+def test_maintenance_banner_survives_ops_gating(tmp_path, monkeypatch):
+    """The banner lives in layout.html, not the ops page — gating the ops
+    PAGE on the ops module must not take the banner down with it. With
+    maintenance ON and ops DISABLED, the core dashboard (never gated) still
+    shows the banner, carrying no «خاموش کردن» link: the toggle lives on
+    the gated page, and the banner must not carry a dead control."""
+    with _core_only_client(tmp_path, monkeypatch) as c:
+        from app.services import maintenance
+        maintenance.enable("ops-gating test", "nav")
+        res = c.get("/secure-panel-inotex")
+    assert res.status_code == 200
+    assert 'id="maintenance-banner"' in res.text
+    assert "حالت تعمیرات روشن است" in res.text
+    assert "خاموش کردن" not in res.text
 
 
 # ── The sidebar must survive on the page itself ──────────────────────────

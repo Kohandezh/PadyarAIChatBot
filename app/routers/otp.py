@@ -20,7 +20,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app.config import BASE_DIR, logger
-from app.auth.security import check_rate_limit, verify_admin
+from app.auth import security
+from app.auth.security import check_rate_limits, client_ip, verify_admin
 from app.services import otp as otp_service
 
 router = APIRouter()
@@ -59,6 +60,36 @@ def branding() -> dict:
     return {key: (get_setting(key, default) or default) for key, default in _BRAND_DEFAULTS.items()}
 
 
+def check_rate_limit(request: Request) -> None:
+    """Two-tier limiter for this router's public endpoints.
+
+    Tight bucket = the request's OTP identity (per canonicalized destination
+    on /request, per challenge everywhere else) at OTP_RATE_LIMIT; loose
+    bucket = the per-IP backstop at OTP_IP_RATE_LIMIT. Identity buckets exist
+    so a booth's registration bursts do not collectively lock the hall out;
+    the backstop exists so rotating identities cannot turn the endpoints into
+    a free SMS relay. The service-level caps (attempts, resends,
+    per-destination-hourly) remain the real bounds — these buckets just stop
+    a booth lockout before the service is reached.
+
+    Defined at module level under this router's historical name ON PURPOSE:
+    the OTP test suites disable HTTP throttling by monkeypatching exactly this
+    attribute (`otp_router.check_rate_limit = lambda request: None`) because
+    dozens of requests from one client IP in seconds is their normal mode —
+    the single-`request` call shape is part of that contract. The identity
+    key arrives on request.state (each handler sets it from its already-parsed
+    body; the raw stream is not re-readable from here). A request whose
+    identity could not be canonicalized gets no tight bucket — only the
+    backstop counts it.
+    """
+    identity = getattr(request.state, "otp_limit_identity", "")
+    ip = client_ip(request) or "unknown"
+    buckets = [(f"otpip:{ip}", security.OTP_IP_RATE_LIMIT)]
+    if identity:
+        buckets.insert(0, (identity, security.OTP_RATE_LIMIT))
+    check_rate_limits(request, buckets)
+
+
 class OtpRequestBody(BaseModel):
     destination: str = Field(..., min_length=5, max_length=32)
     first_name: str = Field("", max_length=60)
@@ -94,7 +125,14 @@ class VisitPlanBody(BaseModel):
 async def otp_request(body: OtpRequestBody, request: Request):
     from app.services.maintenance import guard as _maintenance_guard
     _maintenance_guard()
-    check_rate_limit(request)  # per-IP, same window as /chat
+    # Tight bucket on the CANONICALIZED destination (server-side
+    # shape-validated) — never the raw body string, or "+98 912…" and
+    # "0098912…" would mint separate buckets for one phone. A shape that
+    # fails validation gets no tight bucket: the service is about to refuse
+    # it anyway, and the per-IP backstop still counts the attempt.
+    dest = otp_service.normalize_destination(body.destination)
+    request.state.otp_limit_identity = f"otp:dest:{dest}" if dest else ""
+    check_rate_limit(request)
     try:
         return otp_service.request_challenge(
             body.destination, body.first_name, body.last_name,
@@ -106,6 +144,10 @@ async def otp_request(body: OtpRequestBody, request: Request):
 
 @router.post("/api/auth/otp/verify")
 async def otp_verify(body: OtpVerifyBody, request: Request):
+    # Per-challenge bucket: challenge_id is a server-minted unguessable
+    # capability, so one phone's retries cannot consume a neighbour's budget.
+    # The service's own 5-attempts bound stays the real brute-force limit.
+    request.state.otp_limit_identity = f"otp:chal:{body.challenge_id}"
     check_rate_limit(request)
     ok, message = otp_service.verify(body.challenge_id, body.code)
     if ok:
@@ -119,6 +161,9 @@ async def otp_verify(body: OtpVerifyBody, request: Request):
 
 @router.post("/api/auth/otp/resend")
 async def otp_resend(body: OtpResendBody, request: Request):
+    # Same per-challenge bucket as verify; the service's 45s cooldown and
+    # max-3 resends remain the real caps on top.
+    request.state.otp_limit_identity = f"otp:chal:{body.challenge_id}"
     check_rate_limit(request)
     try:
         return otp_service.resend(body.challenge_id)
@@ -152,6 +197,9 @@ async def update_profile(body: ProfileUpdateBody, request: Request):
     and cannot be edited from the browser. An unverified (or unknown) challenge
     is refused, so this cannot be used to write into someone else's row.
     """
+    # Per-challenge bucket, as verify: a client-supplied garbage id merely
+    # creates a bucket only the backstop ever counts — it grants nothing.
+    request.state.otp_limit_identity = f"otp:chal:{body.challenge_id}"
     check_rate_limit(request)
     ok = otp_service.update_profile(
         body.challenge_id, body.job, body.position, body.interests
@@ -169,6 +217,10 @@ async def visit_plan_endpoint(body: VisitPlanBody, request: Request):
     fields in the body: the server already knows what the visitor typed at
     registration, and that copy cannot be edited from the browser.
     """
+    # Identity bucket only when a challenge is supplied: the planner is useful
+    # without one, and a body carrying none limits by IP alone.
+    request.state.otp_limit_identity = (
+        f"otp:chal:{body.challenge_id}" if body.challenge_id else "")
     check_rate_limit(request)
     from app.services import visit_plan as planner
 

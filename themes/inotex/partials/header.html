@@ -1,6 +1,12 @@
 <header class="inx-header">
     <div class="logo-container">
         <div class="the-logo">
+            <!-- A set whitelabel_logo_url REPLACES the hexagon mark (owner
+                 decision): one identity, not two competing ones. Empty
+                 default keeps the SVG mark — pixel-identical to today. -->
+            {% if wl_logo_url %}
+            <img class="brand-mark" src="{{ wl_logo_url }}" alt="{{ app_title }}" width="38" height="38">
+            {% else %}
             <!-- INOTEX hexagon-cube interface motif (conceptual mark from the
                  coordinated visual system — not the official event logo). -->
             <svg class="brand-mark" viewBox="0 0 64 64" width="38" height="38"
@@ -19,9 +25,10 @@
                 <path d="M32 32v15L19 39.5v-15Z" fill="#24487F" />
                 <path d="M32 47 45 39.5v-6.2L32 40.8Z" fill="#FCB715" />
             </svg>
+            {% endif %}
         </div>
         <div class="the-slogan">
-            <div class="header-title" data-i18n="app_title">دستیار پادیار</div>
+            <div class="header-title" data-i18n="app_title">{{ app_title }}</div>
             <div class="header-subtitle">INOTEX</div>
         </div>
     </div>

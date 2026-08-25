@@ -3,10 +3,11 @@
 import asyncio
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 
+from app.auth import security
 from app.auth.security import (
-    check_rate_limit, validate_chat_token, validate_request_origin,
+    client_ip, validate_chat_token, validate_request_origin,
 )
 from app.config import logger, is_module_enabled
 from app.db.queries import get_setting
@@ -26,20 +27,30 @@ _ALLOWED_AUDIO_EXTS = {".webm", ".ogg", ".oga", ".mp3", ".mp4", ".m4a",
                        ".wav", ".flac"}
 
 
-@router.post(
-    "/api/transcribe",
-    dependencies=[
-        Depends(validate_request_origin),
-        Depends(validate_chat_token),
-        Depends(check_rate_limit),
-    ],
-)
-async def transcribe_audio(audio: UploadFile = File(...)):
+@router.post("/api/transcribe")
+async def transcribe_audio(request: Request, audio: UploadFile = File(...)):
     """Transcribe uploaded audio to text using the configured STT model.
 
     Same guard trio as /chat (origin + HMAC token + rate limit): this endpoint
     spends the install owner's STT credits, so it must never be an open relay.
+
+    The guards are in-handler sequential calls (not router dependencies), in
+    the same order the dependencies ran — origin → token → limit — and sit
+    before every other check, so their 403/429 keep today's precedence over
+    the module 404 / toggle 403 / provider 500 below. In-handler because the
+    token check RETURNS the visitor identity the two-tier limiter needs:
+    transcribe draws from the SAME chat:{nonce} + chatip:{ip} buckets as
+    /chat, so one visitor has ONE budget across text and voice and cannot
+    double an address's traffic by alternating surfaces.
     """
+    validate_request_origin(request)
+    nonce = validate_chat_token(request)
+    ip = client_ip(request) or "unknown"
+    security.check_rate_limits(request, [
+        (f"chat:{nonce or 'ip:' + ip}", security.CHAT_RATE_LIMIT),
+        (f"chatip:{ip}", security.CHAT_IP_RATE_LIMIT),
+    ])
+
     if not is_module_enabled("voice"):
         raise HTTPException(status_code=404, detail="Voice module is not enabled")
 

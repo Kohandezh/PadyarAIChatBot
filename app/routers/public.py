@@ -1,13 +1,14 @@
 import os
 from contextlib import closing
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 
 from app.config import BASE_DIR, is_module_enabled, ENABLED_MODULES
 from app.db.queries import get_setting
-from app.auth.security import generate_chat_token, verify_admin
+from app.auth import security
+from app.auth.security import client_ip, generate_chat_token, verify_admin
 
 
 router = APIRouter()
@@ -42,13 +43,13 @@ def _render(template_name: str, **context) -> HTMLResponse:
     context.setdefault("enabled_modules", ENABLED_MODULES)
     # The panel's own name. This repository deploys to more than one install
     # (inotex, elecomp) from one branch, so a literal name in layout.html
-    # would brand every install with one event's identity. The white-label
-    # key is the install's display name; the default below is today's exact
-    # wording, so an install that never sets the key sees no change.
-    from app.db.queries import get_setting
-    context.setdefault(
-        "brand_title",
-        (get_setting("whitelabel_app_name", "") or "دستیار اینوتکس").strip())
+    # would brand every install with one event's identity — the white-label
+    # key is the install's display name. RAW value, deliberately not
+    # pre-escaped: this Jinja env has autoescape=True, so Jinja escapes it —
+    # pre-escaping here would double-escape in the sidebar. (The theme env is
+    # the opposite: see app/services/branding.py.)
+    from app.services.branding import get_branding
+    context.setdefault("wl_app_name", get_branding()["whitelabel_app_name"])
     context.setdefault("maintenance_on", False)
     try:
         from app.services import maintenance
@@ -118,17 +119,35 @@ def _asset_version(theme_name: str) -> str:
 # --- Public Pages ---
 
 @router.get("/", response_class=HTMLResponse)
-async def read_root():
+async def read_root(request: Request):
+    # Every render mints a fresh signed chat token — i.e. a fresh rate-limit
+    # identity — so the mint path gets its own generous per-IP fence. Renders
+    # are file reads and cache hits (cheap), but unbounded hammering would
+    # mint unbounded identities. 120/min is far above any human or kiosk, and
+    # this is defense in depth: the /chat IP backstop already fences what
+    # minted tokens can spend. PAGE_RATE_LIMIT is read off the security module
+    # at call time so the enforcing module stays the one place tests tune.
+    security.check_rate_limit(
+        request,
+        key=f"page:{client_ip(request) or 'unknown'}",
+        limit=security.PAGE_RATE_LIMIT,
+    )
     try:
         from app.services.themes import get_active_theme, render_theme_index
+        from app.services.branding import chat_branding_context
         active_theme = get_active_theme()
         token = generate_chat_token()
-        html = render_theme_index(active_theme, {
+        # Branding is baked into the (cached) shell: same bytes for every
+        # visitor, so the only per-visitor splice stays the token. The cache
+        # key carries wl_cache_key for exactly this reason — see
+        # app/services/themes.py.
+        context = {
             "theme_name": active_theme,
             "chat_token": token,
-            "app_title": "دستیار پادیار",
             "asset_version": _asset_version(active_theme),
-        })
+        }
+        context.update(chat_branding_context())
+        html = render_theme_index(active_theme, context)
         return html
     except Exception:
         # Fallback to root index.html
@@ -191,6 +210,22 @@ async def _require_admin(request: Request):
         return RedirectResponse(url="/secure-panel-inotex/login", status_code=303)
 
 
+def _require_module(module_name: str) -> None:
+    """404 unless this install enabled the module — mirrors the sidebar,
+    which hides the link, so only a hand-typed URL ever lands here.
+
+    404, not a redirect: the module's data APIs already 404 and its router
+    (leads/tts/otp pattern) unmounts entirely, so this keeps one semantic
+    everywhere — "not part of this install". A redirect to admin home would
+    mask a stale bookmark and send the admin hunting for a page that is
+    not there. The invariant "no visible link ever 404s" holds because each
+    call site's module name is copied verbatim from the sidebar guard in
+    layout.html.
+    """
+    if not is_module_enabled(module_name):
+        raise HTTPException(status_code=404, detail="Module not enabled")
+
+
 @router.get("/secure-panel-inotex/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request):
     redirect = await _require_admin(request)
@@ -245,6 +280,7 @@ async def admin_infra_database(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("infra")
     return _render("admin/infra_database.html", request=request,
                    active_page="infra_database")
 
@@ -254,15 +290,19 @@ async def admin_infra_storage(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("infra")
     return _render("admin/infra_storage.html", request=request,
                    active_page="infra_storage")
 
 
 @router.get("/secure-panel-inotex/ops", response_class=HTMLResponse)
 async def admin_ops_dashboard(request: Request):
+    # Page shell only — the maintenance banner it once carried lives in
+    # layout.html and renders on every admin page regardless of this gate.
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("ops")
     return _render("admin/ops_dashboard.html", request=request, active_page="ops")
 
 
@@ -271,14 +311,18 @@ async def admin_ops_services(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("ops")
     return _render("admin/ops_services.html", request=request, active_page="ops_services")
 
 
 @router.get("/secure-panel-inotex/security/sessions", response_class=HTMLResponse)
 async def admin_security_sessions(request: Request):
+    # Sessions sit under the ops module per the sidebar grouping; if session
+    # management ever becomes its own module, layout.html moves with it.
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("ops")
     return _render("admin/security_sessions.html", request=request,
                    active_page="security_sessions")
 
@@ -290,6 +334,7 @@ async def admin_logs(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("logs")
     from app.services.applog import CATEGORIES
     preset = request.query_params.get("category", "")
     title = CATEGORIES.get(preset, "همهٔ رخدادها")
@@ -303,6 +348,7 @@ async def admin_logs_overview(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("logs")
     return _render("admin/logs_overview.html", request=request,
                    active_page="logs_overview")
 
@@ -354,6 +400,7 @@ async def admin_logs_settings(request: Request):
     redirect = await _require_admin(request)
     if redirect:
         return redirect
+    _require_module("logs")
     from app.services.applog import CATEGORIES
     return _render("admin/logs_settings.html", request=request,
                    active_page="logs_settings", categories=CATEGORIES)
@@ -405,6 +452,21 @@ async def admin_settings_backup(request: Request):
                    backup_engine=("postgres" if DB_BACKEND == "postgres" else "sqlite"))
 
 
+@router.get("/secure-panel-inotex/settings/branding", response_class=HTMLResponse)
+async def admin_settings_branding(request: Request):
+    # Branding is core, never module-gated: every install has a name and
+    # colors, whether or not it bought any optional module.
+    redirect = await _require_admin(request)
+    if redirect:
+        return redirect
+    # Server-rendered field values (raw — this env autoescapes) so the form
+    # is filled on first paint, no JS required; initBranding() re-reads via
+    # the API like every other settings page.
+    from app.services.branding import get_branding
+    return _render("admin/settings_branding.html", request=request,
+                   active_page="settings_branding", branding=get_branding())
+
+
 # --- Public APIs ---
 
 @router.get("/api/health")
@@ -441,7 +503,6 @@ async def readiness_check(deep: bool = False, request: Request = None):
     demand is a free abuse relay. Unauthenticated requests silently get the
     shallow answer an orchestrator needs.
     """
-    from fastapi import HTTPException
     from fastapi.responses import JSONResponse
     from app.services.providers import local_provider, external_provider
 

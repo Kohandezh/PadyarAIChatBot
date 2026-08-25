@@ -3,7 +3,7 @@
  * can contain attacker-influenced text. textContent / createElement only —
  * never innerHTML with dynamic values.
  */
-import { fetchAuth } from './utils.js';
+import { fetchAuth, showMsg } from './utils.js';
 
 const el = (id) => document.getElementById(id);
 const fa = (n) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('fa-IR'));
@@ -32,6 +32,9 @@ function tile(id, value, href) {
 }
 
 async function load() {
+  // Rides the same 30s cycle as the KPIs so a toggle flipped in another
+  // tab shows up here too (the state read is uncached server-side).
+  loadMaintenance();
   const res = await fetchAuth('/admin/api/ops/dashboard');
   if (!res.ok) return;
   const d = await res.json();
@@ -72,7 +75,77 @@ async function load() {
   el('t-runtime').textContent = `Python ${d.process.python} · ${engine}`;
 }
 
+/* ── Maintenance mode ─────────────────────────────────────────────────
+ * The one switch that silences the public chatbot. State shapes mirror
+ * maintenance.state()/set_maintenance exactly — the POST response IS the
+ * new state, so a successful toggle re-renders from it with no extra GET
+ * and no stale read. enabled_by/enabled_at are admin-entered text, so
+ * they reach the page through textContent only.
+ */
+let maintenancePending = false;
+
+function renderMaintenance(m) {
+  const toggle = el('maintenance-toggle');
+  // Skip the checkbox while the operator is on it or a POST is in flight:
+  // the 30s poll otherwise snaps the switch back to the old server state
+  // mid-click and the card lies about what was just changed.
+  if (toggle && document.activeElement !== toggle && !maintenancePending) {
+    toggle.checked = m.enabled;
+  }
+  const status = el('maintenance-status');
+  if (status) status.textContent = m.enabled ? 'موقتاً تعطیل' : 'فعال';
+  const meta = el('maintenance-meta');
+  if (meta) {
+    meta.textContent = (m.enabled && m.enabled_by)
+      ? `روشن‌کننده: ${m.enabled_by}` +
+        (m.enabled_at ? ` · از ${new Date(m.enabled_at).toLocaleString('fa-IR')}` : '')
+      : '';
+  }
+}
+
+async function loadMaintenance() {
+  // Install without the ops module renders no card — nothing to refresh.
+  if (!el('maintenance-toggle')) return;
+  const res = await fetchAuth('/admin/api/ops/maintenance');
+  if (res.ok) renderMaintenance(await res.json());
+}
+
+async function toggleMaintenance(e) {
+  const enabled = e.target.checked;
+  // Only the consequential direction asks: turning ON silences every
+  // visitor. Turning OFF stays frictionless — an operator must always be
+  // able to undo what they did without the UI arguing.
+  if (enabled &&
+      !window.confirm('چت‌بات برای همهٔ بازدیدکنندگان موقتاً تعطیل می‌شود. ادامه می‌دهید؟')) {
+    e.target.checked = false;
+    return;
+  }
+  maintenancePending = true;
+  try {
+    const res = await fetchAuth('/admin/api/ops/maintenance', {
+      method: 'POST', body: JSON.stringify({ enabled, reason: '' }) });
+    if (res.ok) {
+      renderMaintenance(await res.json());
+      showMsg('maintenance-msg',
+              enabled ? 'حالت تعمیرات روشن شد' : 'حالت تعمیرات خاموش شد', 'success');
+    } else {
+      // The change never landed — put the switch back and surface the
+      // server's Persian detail instead of a generic shrug.
+      e.target.checked = !enabled;
+      const data = await res.json().catch(() => ({}));
+      showMsg('maintenance-msg', data.detail || 'تغییر ممکن نشد', 'danger');
+    }
+  } catch {
+    e.target.checked = !enabled;
+    showMsg('maintenance-msg', 'خطای ارتباط با سرور', 'danger');
+  } finally {
+    maintenancePending = false;
+  }
+}
+
 export function initOpsDashboard() {
+  const toggle = el('maintenance-toggle');
+  if (toggle) toggle.onchange = toggleMaintenance;
   load();
   // 30s: the underlying probes are cached server-side, so this is cheap.
   setInterval(load, 30000);

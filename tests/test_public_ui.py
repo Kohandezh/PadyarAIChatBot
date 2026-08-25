@@ -22,8 +22,11 @@ def read(p: Path) -> str:
 # ── R4: INOTEX branding + red theme + mascot + credit badge ────────────
 
 def test_active_theme_is_inotex_branded():
+    # The header title is the templated whitelabel value (rendered by
+    # /), not a hardcoded literal — branding is served from the
+    # whitelabel_app_name setting with this fallback.
     header = read(LIQUID / "partials" / "header.html")
-    assert "دستیار پادیار" in header
+    assert "{{ app_title }}" in header
     assert "INOTEX" in header
 
 
@@ -113,8 +116,14 @@ def test_one_sound_control_for_the_surface_in_view():
 
 def test_inotex_theme_uses_official_palette_tokens():
     css = read(ROOT / "themes" / "inotex" / "static" / "style.css")
-    for token in ("--inotex-primary: #FCB715", "--inotex-blue: #2D5CA7",
-                  "--inotex-navy: #1E2D52", "--inotex-teal: #04A584"):
+    # primary/accent feed from the whitelabel --wl-* custom properties, with
+    # the official palette as var() fallbacks (the mapping is intentionally
+    # crossed: --wl-primary is BLUE, --wl-accent is YELLOW — see
+    # app/services/branding.py). The untouched tokens stay literal.
+    for token in ("--inotex-primary: var(--wl-accent, #FCB715)",
+                  "--inotex-blue: var(--wl-primary, #2D5CA7)",
+                  "--inotex-navy: #1E2D52",
+                  "--inotex-teal: #04A584"):
         assert token in css, f"missing palette token: {token}"
     # No unapproved purple/magenta in the INOTEX theme.
     for banned in ("#8b5cf6", "#9b1c53", "#b32462", "magenta"):
@@ -180,7 +189,9 @@ def test_active_theme_inherits_video_and_chat_layout():
 def test_active_theme_messages_have_language_aware_welcome():
     messages = read(LIQUID / "partials" / "messages.html")
     assert 'id="welcome-text"' in messages
-    assert "دستیار پادیار" in messages
+    # The greeting is the templated whitelabel_welcome_text value — the
+    # shipped default text lives in app/services/branding.py (WL_DEFAULTS).
+    assert "{{ wl_welcome }}" in messages
 
 
 def test_video_partial_has_no_remote_media():
@@ -275,10 +286,17 @@ def test_no_brand_leakage_in_public_ui_files():
 
 
 def test_the_assistant_name_is_the_one_the_customer_chose():
-    """Guards the rename itself: the old name must not creep back in."""
+    """Guards the rename itself: the old name must not creep back in.
+
+    The headers now render {{ app_title }} (the whitelabel_app_name value);
+    core.js keeps the shipped fa fallback so the brand override can fail
+    safe. The fallback — not a hardcoded header — is where the name lives.
+    """
     for p in [LIQUID / "partials" / "header.html",
-              ROOT / "themes" / "inotex" / "partials" / "header.html",
-              CORE_JS]:
+              ROOT / "themes" / "inotex" / "partials" / "header.html"]:
         text = read(p)
-        assert "دستیار پادیار" in text or "Padyar Assistant" in text, p
+        assert "{{ app_title }}" in text, p
         assert "دستیار هوشمند اینوتکس" not in text, f"old name returned in {p}"
+    js = read(CORE_JS)
+    assert "دستیار پادیار" in js or "Padyar Assistant" in js
+    assert "دستیار هوشمند اینوتکس" not in js

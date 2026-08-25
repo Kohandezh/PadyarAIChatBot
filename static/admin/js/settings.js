@@ -287,8 +287,18 @@ async function loadAIConnection() {
         const d = await res.json();
         document.getElementById('ai-conn-base').value = d.api_base || '';
         document.getElementById('ai-conn-base').placeholder = d.api_base_default || 'https://...';
-        document.getElementById('ai-conn-key-state').textContent =
-            d.has_key ? 'کلید ذخیره شده است.' : 'هنوز کلیدی ذخیره نشده.';
+        // Key presence alone used to read as "AI works" while zero eligible
+        // route targets meant every ambiguous query failed. `routes` carries
+        // the same eligible counts the health probe reports: when a key
+        // exists but either count is zero, say so in plain Persian. The fix
+        // is pressing save on this very form (the server then rebuilds the
+        // missing routing), and the submit handler reloads this state right
+        // after a save — so the warning clears itself the moment it is fixed.
+        const routes = d.routes || {};
+        const unrouted = d.has_key && (!(routes.chat > 0) || !(routes.classify > 0));
+        document.getElementById('ai-conn-key-state').textContent = unrouted
+            ? 'کلید ذخیره شده اما مسیر پاسخ‌گویی هوش مصنوعی فعال نیست — در تنظیمات هوش مصنوعی دوباره ذخیره کنید.'
+            : (d.has_key ? 'کلید ذخیره شده است.' : 'هنوز کلیدی ذخیره نشده.');
         // The chat / classification model inputs were removed from this page:
         // routing owns those now, and writing them here changed nothing at
         // runtime while telling the operator it had saved.
@@ -410,6 +420,72 @@ export function initAi() {
         }
     });
 }
+
+// ---- White-label branding ----
+
+function applyBranding(d) {
+    if (!d) return;
+    document.getElementById('brand-app-name').value = d.whitelabel_app_name || '';
+    document.getElementById('brand-primary').value = d.whitelabel_primary_color || '#2D5CA7';
+    document.getElementById('brand-accent').value = d.whitelabel_accent_color || '#FCB715';
+    document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
+    document.getElementById('brand-logo').value = d.whitelabel_logo_url || '';
+    updateLogoPreview();
+}
+
+// The preview mirrors the input live — the operator sees the logo they are
+// about to save, not the one already stored. A broken URL just hides it.
+function updateLogoPreview() {
+    const url = document.getElementById('brand-logo').value.trim();
+    const img = document.getElementById('brand-logo-preview');
+    if (!url) { img.hidden = true; img.removeAttribute('src'); return; }
+    img.hidden = false;
+    img.src = url;
+}
+
+async function loadBranding() {
+    try {
+        const res = await fetchAuth('/admin/api/branding');
+        if (!res.ok) return;
+        applyBranding(await res.json());
+    } catch { /* form keeps its server-rendered values */ }
+}
+
+export function initBranding() {
+    loadProfile();
+    const form = document.getElementById('branding-form');
+    if (!form) return;
+    loadBranding();
+    document.getElementById('brand-logo').addEventListener('input', updateLogoPreview);
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('save-branding-btn');
+        btn.disabled = true;
+        try {
+            const res = await fetchAuth('/admin/api/branding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    app_name: document.getElementById('brand-app-name').value.trim(),
+                    logo_url: document.getElementById('brand-logo').value.trim(),
+                    primary_color: document.getElementById('brand-primary').value,
+                    accent_color: document.getElementById('brand-accent').value,
+                    welcome_text: document.getElementById('brand-welcome').value.trim(),
+                }),
+            });
+            let detail = '';
+            try { detail = (await res.json()).detail || ''; } catch { /* no body */ }
+            if (res.ok) showMsg('branding-msg', 'برندینگ ذخیره شد', 'success');
+            else showMsg('branding-msg', detail || 'خطا در ذخیره برندینگ', 'danger');
+        } catch {
+            showMsg('branding-msg', 'خطای ارتباط با سرور', 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
 
 export function initAccount() {
     loadProfile();

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.models import ChatRequest, ChatResponse
 from app.config import (
@@ -7,8 +7,14 @@ from app.config import (
     LOCAL_FALLBACK_THRESHOLD,
     QUESTIONS_FALLBACK_THRESHOLD,
     INTENT_TRUST_THRESHOLD,
+    COOKIE_SECURE,
+    CHAT_TOKEN_REFRESH_GRACE,
+    CONV_COOKIE_MAX_AGE,
 )
-from app.auth.security import validate_request_origin, validate_chat_token, check_rate_limit
+from app.auth import security
+from app.auth.security import (
+    client_ip, validate_chat_token, validate_request_origin,
+)
 import time as _perf
 
 from app.db.queries import get_setting, log_chat
@@ -76,14 +82,26 @@ def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest, http_request: Request):
+async def chat_endpoint(request: ChatRequest, http_request: Request,
+                        response: Response):
     # Maintenance blocks VISITOR traffic only; the admin panel stays reachable
     # so an operator can watch and end the maintenance they started.
     from app.services.maintenance import guard as _maintenance_guard
     _maintenance_guard()
     validate_request_origin(http_request)
-    validate_chat_token(http_request)
-    check_rate_limit(http_request)
+    nonce = validate_chat_token(http_request)
+    # Two-tier limit: the tight bucket is the visitor's signed-token nonce, so
+    # one abuser behind the booth's shared NAT exhausts only their own budget;
+    # the loose per-IP backstop bounds the refresh-to-mint-a-fresh-identity
+    # trick. A legacy (v1) token carries no nonce and falls back to the
+    # IP-keyed tight bucket — exactly the pre-nonce behaviour. Limits are read
+    # off the security module at CALL time so the enforcing module stays the
+    # one place tests and operators tune.
+    ip = client_ip(http_request) or "unknown"
+    security.check_rate_limits(http_request, [
+        (f"chat:{nonce or 'ip:' + ip}", security.CHAT_RATE_LIMIT),
+        (f"chatip:{ip}", security.CHAT_IP_RATE_LIMIT),
+    ])
 
     lang = "en" if (request.lang or "").lower().startswith("en") else "fa"
     user_query = request.message.strip()
@@ -98,6 +116,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # request id; this binds the CONVERSATION so message -> retrieval -> LLM ->
     # answer can be reconstructed from a single value in the log explorer.
     conversation_id = (http_request.cookies.get("padyar_conv") or "")[:64] or applog.new_id()
+    # Echo the conversation id on EVERY successful response. The read above
+    # shipped long ago but nothing ever wrote the cookie, so every message
+    # got a fresh random id and message → retrieval → LLM → answer could not
+    # be reconstructed from one value in the log explorer. Echoing (not
+    # set-once) also slides the 24h window for long conversations. Same
+    # attribute set as the leads visitor cookie; HttpOnly because only the
+    # server reads it. Exception paths (400/429/503) skip this — no answer
+    # was served, and the next successful message starts/continues the cookie.
+    response.set_cookie(
+        key="padyar_conv", value=conversation_id,
+        httponly=True, secure=COOKIE_SECURE, samesite="lax",
+        max_age=CONV_COOKIE_MAX_AGE,
+    )
     applog.set_request_context(correlation_id=applog.current_request_id() or applog.new_id())
     _chat_started = _perf.perf_counter()
     applog.info("chat", "conversation.message.received", "پیام بازدیدکننده دریافت شد",
@@ -191,3 +222,37 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                    duration_ms=int((_perf.perf_counter() - _chat_started) * 1000),
                    metadata={"score": round(float(score or 0), 3)})
     raise HTTPException(status_code=503, detail="AI service unavailable")
+
+
+@router.post("/api/chat-token")
+async def refresh_chat_token(http_request: Request):
+    """Mint a fresh chat token for a visitor who already holds one.
+
+    Without this, a token that expired mid-conversation killed the chat until
+    a manual page reload — which wipes the DOM-only history. The frontend
+    calls this reactively (one silent retry on a 403 from /chat), so the
+    visitor never notices.
+
+    POST, not GET: a same-origin fetch POST always carries an Origin header
+    (a GET often relies on Referer, which referrer-policy can strip), so the
+    origin check below works reliably — and POST is never a cached response.
+
+    Guards, in the same order as /chat:
+      1. origin — as everywhere;
+      2. chat token with CHAT_TOKEN_REFRESH_GRACE seconds of grace — the
+         caller must POSSESS a token this server signed within the grace
+         window. That possession is the only thing keeping this endpoint
+         from being an unauthenticated minting oracle: origin and rate-limit
+         headers alone are client-controlled and never sufficient;
+      3. its own per-IP token-refresh bucket, SEPARATE from the chat bucket,
+         so a refresh+retry pair never eats the visitor's chat budget at a
+         NAT'd booth. (A bare key= would be one global bucket; the explicit
+         IP suffix keeps it per-address.) Defaults (CHAT_RATE_LIMIT per
+         CHAT_RATE_WINDOW) apply — the chat IP backstop from the rate-limit
+         plan already bounds the mint-fresh-identity cycle this enables.
+    """
+    validate_request_origin(http_request)
+    validate_chat_token(http_request, grace_seconds=CHAT_TOKEN_REFRESH_GRACE)
+    ip = client_ip(http_request) or "unknown"
+    security.check_rate_limit(http_request, key=f"token-refresh:{ip}")
+    return {"token": security.generate_chat_token()}

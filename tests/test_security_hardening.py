@@ -5,6 +5,12 @@ Covers, one behaviour per test:
     chat token, rate limit) instead of being an open STT relay;
   * the chat rate limiter is shared through the rate_limit_buckets table
     (no longer N-per-worker in-memory state);
+  * /chat and /api/transcribe limit per visitor identity (the signed
+    token's nonce) with a loose per-IP backstop — a shared-NAT booth is no
+    longer collectively punished, and voice draws from the same budget
+    as text;
+  * OTP endpoints limit per identity (destination / challenge) with a
+    per-IP backstop, and GET / has its own generous render fence;
   * the legacy unsalted-SHA-256 security answer still verifies and is
     upgraded to bcrypt on the next successful login;
   * changing the password revokes every OTHER admin session;
@@ -132,13 +138,19 @@ def test_transcribe_provider_error_is_scrubbed(client, monkeypatch):
 def test_rate_limit_state_lands_in_the_shared_table(client):
     from app.auth.security import generate_chat_token
     from app.db.connection import get_db_connection
+    # One token for both requests: with per-nonce identity buckets the count
+    # must land in BOTH the visitor's tight bucket and the shared IP backstop.
+    token = generate_chat_token()
+    nonce = token.split(".")[1]
     for _ in range(2):
         client.post("/chat", json={"message": "salud"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     conn = get_db_connection()
     rows = conn.execute("SELECT key, ts FROM rate_limit_hits").fetchall()
     conn.close()
-    assert any(r["key"].startswith("rl:testclient") for r in rows)
+    keys = {r["key"] for r in rows}
+    assert f"rl:chat:{nonce}" in keys       # decision D naming
+    assert "rl:chatip:testclient" in keys
 
 
 def test_rate_limit_blocks_in_the_db_not_per_process(client):
@@ -146,11 +158,14 @@ def test_rate_limit_blocks_in_the_db_not_per_process(client):
     worker), which is the whole point of moving it out of the dict."""
     from app.auth.security import generate_chat_token
     limit = _chat_limit()
+    # One token: one visitor spending their whole tight budget (a fresh mint
+    # per request would now be a fresh identity each time).
+    token = generate_chat_token()
     for _ in range(limit):
         client.post("/chat", json={"message": "x"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     r = client.post("/chat", json={"message": "x"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     assert r.status_code == 429
 
 
@@ -161,11 +176,12 @@ def test_rate_limit_window_is_sliding_not_fixed(client):
     matter where the wall-clock window edges fall."""
     from app.auth.security import generate_chat_token
     limit = _chat_limit()
+    token = generate_chat_token()
     # Fill the bucket right up to the limit — nothing here knows or cares
     # where a window boundary sits; a fixed window would reset on one.
     for _ in range(limit):
         client.post("/chat", json={"message": "x"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     # Old hits (well outside the window) must not count: seed them directly
     # so no sleeps are involved, then the very next request is judged only
     # against the fresh ones.
@@ -176,7 +192,7 @@ def test_rate_limit_window_is_sliding_not_fixed(client):
     conn.commit()
     conn.close()
     r = client.post("/chat", json={"message": "x"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     assert r.status_code != 429  # everything expired -> window slid clean
 
 
@@ -187,17 +203,242 @@ def test_blocked_attempts_are_not_recorded(client):
     from app.auth.security import generate_chat_token
     from app.db.connection import get_db_connection
     limit = _chat_limit()
+    token = generate_chat_token()
+    nonce = token.split(".")[1]
     for _ in range(limit):
         client.post("/chat", json={"message": "x"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     for _ in range(3):  # hammer past the limit
         client.post("/chat", json={"message": "x"},
-                    headers={**ORIGIN_HEADERS, "X-Chat-Token": generate_chat_token()})
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": token})
     conn = get_db_connection()
-    n = conn.execute("SELECT COUNT(*) AS n FROM rate_limit_hits"
-                     " WHERE key LIKE 'rl:testclient'").fetchone()["n"]
+    # Decision D naming: the request spends hits in exactly two buckets —
+    # the visitor's identity bucket and the shared IP backstop — and the
+    # blocked attempts wrote into NEITHER.
+    n_tight = conn.execute("SELECT COUNT(*) AS n FROM rate_limit_hits"
+                           " WHERE key = ?", (f"rl:chat:{nonce}",)).fetchone()["n"]
+    n_ip = conn.execute("SELECT COUNT(*) AS n FROM rate_limit_hits"
+                        " WHERE key = 'rl:chatip:testclient'").fetchone()["n"]
     conn.close()
-    assert n == limit  # exactly the admitted requests, not one more
+    assert n_tight == limit  # exactly the admitted requests, not one more
+    assert n_ip == limit
+
+
+# ── per-identity (two-tier) chat limiting ───────────────────────────────
+
+
+def test_booth_visitors_with_distinct_tokens_are_never_collectively_blocked(client):
+    """The NAT-booth case the whole change exists for: ten visitors through
+    ONE testclient IP, each with their own token, all admitted — the tight
+    budget is per identity, and ten identities stay far under the backstop."""
+    from app.auth.security import generate_chat_token
+    for _ in range(10):
+        r = client.post("/chat", json={"message": "salam"},
+                        headers={**ORIGIN_HEADERS,
+                                 "X-Chat-Token": generate_chat_token()})
+        assert r.status_code != 429
+
+
+def test_one_exhausted_identity_does_not_block_its_neighbour(client):
+    """An abuser spends only their own tight bucket; a different visitor at
+    the same address is served immediately after."""
+    from app.auth.security import generate_chat_token
+    abuser = generate_chat_token()
+    for _ in range(_chat_limit()):
+        client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": abuser})
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": abuser})
+    assert r.status_code == 429
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS,
+                             "X-Chat-Token": generate_chat_token()})
+    assert r.status_code != 429
+
+
+def test_ip_backstop_trips_independently_of_identities(client, monkeypatch):
+    """Distinct identities defeat every tight bucket; the loose per-IP
+    backstop is the fence that still trips (the token-mint flood bound)."""
+    from app.auth import security
+    from app.auth.security import generate_chat_token
+    monkeypatch.setattr(security, "CHAT_IP_RATE_LIMIT", 3)
+    for _ in range(3):  # each request carries a FRESH identity
+        r = client.post("/chat", json={"message": "x"},
+                        headers={**ORIGIN_HEADERS,
+                                 "X-Chat-Token": generate_chat_token()})
+        assert r.status_code != 429
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS,
+                             "X-Chat-Token": generate_chat_token()})
+    assert r.status_code == 429  # every identity far under 20; the IP is not
+
+
+def test_legacy_v1_token_still_validates_and_limits_by_ip(client):
+    """A "{ts}.{sig}" token minted before nonces keeps validating for its TTL
+    and, carrying no identity, lands in the IP-keyed tight bucket — exactly
+    the pre-nonce behaviour, so a deploy never strands held tokens."""
+    import time as _time
+    from app.auth import security
+    from app.db.connection import get_db_connection
+    ts = str(int(_time.time()))
+    sig = hashlib.sha256(
+        f"{ts}.{security._get_hmac_key()}".encode()).hexdigest()[:32]
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": f"{ts}.{sig}"})
+    assert r.status_code != 403
+    conn = get_db_connection()
+    keys = {row["key"] for row in
+            conn.execute("SELECT key FROM rate_limit_hits").fetchall()}
+    conn.close()
+    assert "rl:chat:ip:testclient" in keys
+
+
+def test_validate_chat_token_returns_the_nonce_and_empty_for_v1(client):
+    """The pinned contract: validate_chat_token(...) -> str. v2 returns its
+    nonce (the rate-limit identity); v1 returns "" (callers fall back to
+    IP-keyed limiting)."""
+    from app.auth.security import generate_chat_token, validate_chat_token
+
+    class _Req:
+        def __init__(self, token):
+            self.headers = {"X-Chat-Token": token} if token else {}
+
+    v2 = generate_chat_token()
+    assert validate_chat_token(_Req(v2)) == v2.split(".")[1]
+
+    import time as _time
+    from app.auth import security
+    ts = str(int(_time.time()))
+    sig = hashlib.sha256(
+        f"{ts}.{security._get_hmac_key()}".encode()).hexdigest()[:32]
+    assert validate_chat_token(_Req(f"{ts}.{sig}")) == ""
+
+
+def test_tampered_nonce_fails_the_signature(client):
+    """The identity inside a v2 token sits in the signed payload: changing
+    the nonce breaks the signature exactly as changing the timestamp does."""
+    from app.auth.security import generate_chat_token
+    ts, _nonce, sig = generate_chat_token().split(".")
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS,
+                             "X-Chat-Token": f"{ts}.ffffffffffffffff.{sig}"})
+    assert r.status_code == 403
+    # Any well-shaped-but-foreign 3-part token is equally dead.
+    r = client.post("/chat", json={"message": "x"},
+                    headers={**ORIGIN_HEADERS, "X-Chat-Token": "1.2.3"})
+    assert r.status_code == 403
+
+
+def test_voice_and_chat_draw_from_one_budget_per_visitor(client, monkeypatch):
+    """Decision C: /api/transcribe shares /chat's buckets, so alternating
+    surfaces cannot double a visitor's (or an address's) traffic. The tight
+    chat:{nonce} bucket trips on a MIX of chat and transcribe requests."""
+    from app.auth.security import generate_chat_token
+    from app.routers import voice as voice_router
+    monkeypatch.setattr(voice_router, "provider_config", lambda: ("https://x", "k"))
+    monkeypatch.setattr(voice_router, "_transcribe_sync",
+                        lambda data, name: "متن پیام")
+    token = generate_chat_token()
+    headers = {**ORIGIN_HEADERS, "X-Chat-Token": token}
+    for _ in range(_chat_limit() - 1):
+        assert client.post("/chat", json={"message": "x"},
+                           headers=headers).status_code != 429
+    # The LAST tight-budget hit is spent on the VOICE surface.
+    r = client.post("/api/transcribe",
+                    files={"audio": ("r.webm", b"\x1a\x45\xdf\xa3" + b"x" * 32)},
+                    headers=headers)
+    assert r.status_code != 429
+    # Budget exhausted through both surfaces -> the next chat request blocks.
+    r = client.post("/chat", json={"message": "x"}, headers=headers)
+    assert r.status_code == 429
+
+
+# ── OTP identity buckets ────────────────────────────────────────────────
+
+
+@pytest.fixture
+def _no_sms_delivery(monkeypatch):
+    """Capture (never send) delivered codes — same seam test_otp.py uses."""
+    from app.services import otp as otp_service
+    monkeypatch.setattr(otp_service, "_deliver",
+                        lambda dest, code: None)
+
+
+def test_otp_request_buckets_are_per_destination(client, monkeypatch,
+                                                 _no_sms_delivery):
+    """Two phones interleaved from ONE IP: one phone's bucket trips without
+    touching its neighbour's — the booth registration-burst case."""
+    from app.auth import security
+    monkeypatch.setattr(security, "OTP_RATE_LIMIT", 2)
+    dest_a, dest_b = "09120000001", "09120000002"
+    for dest in (dest_a, dest_b, dest_a):
+        r = client.post("/api/auth/otp/request", json={"destination": dest})
+        assert r.status_code == 200, r.text
+    # dest_a's tight bucket is at 2 — the limiter refuses before the service.
+    r = client.post("/api/auth/otp/request", json={"destination": dest_a})
+    assert r.status_code == 429
+    # Its neighbour from the same address is untouched.
+    r = client.post("/api/auth/otp/request", json={"destination": dest_b})
+    assert r.status_code == 200
+
+
+def test_otp_ip_backstop_bounds_rotating_destinations(client, monkeypatch,
+                                                      _no_sms_delivery):
+    """The SMS-relay bound: a fresh destination per request defeats every
+    per-destination bucket, so the per-IP backstop must be what trips."""
+    from app.auth import security
+    monkeypatch.setattr(security, "OTP_IP_RATE_LIMIT", 3)
+    for i in range(3):
+        r = client.post("/api/auth/otp/request",
+                        json={"destination": f"0912000000{i:02d}"})
+        assert r.status_code == 200, r.text
+    r = client.post("/api/auth/otp/request",
+                    json={"destination": "09120000999"})
+    assert r.status_code == 429
+
+
+def test_otp_verify_buckets_are_per_challenge(client, monkeypatch,
+                                              _no_sms_delivery):
+    """One exhausted challenge must not consume its neighbour's retry budget
+    — the same booth logic on the verify surface."""
+    from app.auth import security
+    monkeypatch.setattr(security, "OTP_RATE_LIMIT", 2)
+    challenge_ids = []
+    for i in range(2):
+        r = client.post("/api/auth/otp/request",
+                        json={"destination": f"0912100000{i:02d}"})
+        assert r.status_code == 200, r.text
+        challenge_ids.append(r.json()["challenge_id"])
+    wrong_code = "000000"
+    for _ in range(2):
+        r = client.post("/api/auth/otp/verify",
+                        json={"challenge_id": challenge_ids[0], "code": wrong_code})
+        assert r.status_code == 400  # wrong code — but the bucket admits it
+    r = client.post("/api/auth/otp/verify",
+                    json={"challenge_id": challenge_ids[0], "code": wrong_code})
+    assert r.status_code == 429     # challenge 1's bucket exhausted
+    r = client.post("/api/auth/otp/verify",
+                    json={"challenge_id": challenge_ids[1], "code": wrong_code})
+    assert r.status_code == 400     # the neighbour is still answerable
+
+
+# ── page-render limiter (decision A) ────────────────────────────────────
+
+
+def test_page_render_limit_fences_the_token_mint_path(client, monkeypatch):
+    """GET / mints a fresh identity per render, so it gets its own per-IP
+    bucket. Monkeypatched low so the test need not issue 121 renders."""
+    from app.auth import security
+    from app.db.connection import get_db_connection
+    monkeypatch.setattr(security, "PAGE_RATE_LIMIT", 3)
+    for _ in range(3):
+        assert client.get("/").status_code != 429
+    assert client.get("/").status_code == 429
+    conn = get_db_connection()
+    keys = {row["key"] for row in
+            conn.execute("SELECT key FROM rate_limit_hits").fetchall()}
+    conn.close()
+    assert "rl:page:testclient" in keys
 
 
 # ── security answer: bcrypt upgrade path ────────────────────────────────

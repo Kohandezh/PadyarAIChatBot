@@ -21,8 +21,9 @@ def test_app_boots():
 
 def test_chat_token_has_expected_shape():
     token = generate_chat_token()
-    # Format is "<timestamp>.<signature>".
-    assert token.count(".") == 1
+    # Format is "<timestamp>.<nonce>.<signature>" (v2): the nonce is the
+    # per-visitor rate-limit identity, carried inside the signed payload.
+    assert token.count(".") == 2
 
 
 # ── Unauthenticated endpoints must not 500 ──────────────────────────────

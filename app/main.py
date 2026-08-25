@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE
+from app.config import (logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE,
+                        ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS)
+from app.auth.csrf import PROTECTED_PREFIXES
 from app.db.connection import init_db
 from app.services.search import load_dataset_internal
 from app.modules.registry import load_module_routers
@@ -201,10 +203,17 @@ async def csrf_protection(request, call_next):
     admin mutations across several routers, and any new one added later would
     silently be unprotected if this were opt-in. Here it is opt-OUT, and the
     only opt-out is the login endpoint.
+
+    Which prefixes count as admin surface lives in PROTECTED_PREFIXES
+    (app/auth/csrf.py — one policy file), and the conformance test in
+    tests/test_csrf.py walks every registered route and fails the build if a
+    verify_admin-protected mutation appears outside them. That is what keeps
+    the "no unprotected mutation by accident" promise true even for routers
+    mounted outside /admin/ (the synonyms API is the first such case).
     """
     path = request.url.path
-    if (request.method in ("POST", "PUT", "PATCH", "DELETE")
-            and (path.startswith("/admin/") or path.startswith("/secure-panel-inotex"))):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") \
+            and path.startswith(PROTECTED_PREFIXES):
         from app.auth.csrf import enforce
         from fastapi.responses import JSONResponse
         from fastapi import HTTPException as _HTTPException
@@ -315,6 +324,41 @@ async def security_headers(request, call_next):
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
+    return response
+
+
+@app.middleware("http")
+async def slide_admin_cookie(request, call_next):
+    """Re-issue the admin session cookie whenever its DB row just slid.
+
+    verify_admin slides the `admin_sessions` row on every authenticated
+    request, but a dependency cannot touch the response — so the cookie kept
+    its original 1h max_age and died mid-session while the row stayed valid.
+    The dependency sets request.state.slide_admin_cookie instead (dependencies
+    run INSIDE call_next, so the flag is guaranteed visible here), and this
+    middleware re-issues the cookie with the same attributes login used.
+
+    Deliberately unconditional on every authenticated response (no threshold,
+    no hysteresis): cookie lifetime then tracks the DB slide exactly — no
+    drift, no new column, no migration — and the cost is one Set-Cookie
+    header per response on no-store pages read by a handful of staff.
+
+    Safe against logout by construction: admin_logout never runs verify_admin
+    (it reads the cookie directly), so the flag is never set on a logout
+    request and the middleware cannot resurrect the cookie logout deleted.
+    The status guard keeps renewal off error responses — a 429/500 from an
+    admin API call must not look like activity.
+    """
+    response = await call_next(request)
+    if getattr(request.state, "slide_admin_cookie", False) \
+            and response.status_code < 400:
+        token = request.cookies.get(ADMIN_COOKIE_NAME)
+        if token:
+            response.set_cookie(
+                key=ADMIN_COOKIE_NAME, value=token,
+                httponly=True, secure=COOKIE_SECURE, samesite="lax",
+                max_age=SESSION_TIMEOUT_HOURS * 3600,
+            )
     return response
 
 # --- Static Files ---
