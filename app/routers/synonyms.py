@@ -43,6 +43,8 @@ async def add_synonym(req: SynonymRequest, request: Request, admin: bool = Depen
         conn.commit()
         conn.close()
         load_synonyms_from_db()
+        from app.services.search import bump_index_version
+        bump_index_version()
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -67,6 +69,8 @@ async def delete_synonym(source: str, request: Request,
         conn.commit()
         conn.close()
         load_synonyms_from_db()
+        from app.services.search import bump_index_version
+        bump_index_version()
         return {"status": "success", "deleted": deleted}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

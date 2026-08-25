@@ -1,4 +1,5 @@
 import io
+import asyncio
 import csv
 import secrets
 import datetime
@@ -28,7 +29,6 @@ from app.auth.security import (
 )
 from app.db.connection import get_db_connection
 from app.db.queries import get_setting, set_setting
-from app.services.search import load_dataset_internal
 from app import services as svc
 
 
@@ -85,12 +85,19 @@ async def admin_login(creds: LoginRequest, request: Request):
     password_ok = False
     if user:
         salt = user['salt'] if 'salt' in user.keys() and user['salt'] else ""
-        password_ok = verify_password(creds.password, user['password_hash'], salt)
-        if password_ok and verify_security_answer(creds.sec_answer, user['security_answer_hash']):
+        # bcrypt runs ~0.5s of CPU — off the event loop, or one login stalls
+        # every concurrent visitor routed to this worker. The security answer
+        # verify and every upgrade hash below are bcrypt too (legacy rows are
+        # plain SHA-256, but the cost is decided by the STORED hash).
+        password_ok = await asyncio.to_thread(
+            verify_password, creds.password, user['password_hash'], salt)
+        answer_ok = await asyncio.to_thread(
+            verify_security_answer, creds.sec_answer, user['security_answer_hash'])
+        if password_ok and answer_ok:
             auth_success = True
             # Transparent upgrade: re-hash legacy SHA-256 passwords with bcrypt.
             if is_legacy_hash(user['password_hash']):
-                new_hash = hash_password(creds.password)
+                new_hash = await asyncio.to_thread(hash_password, creds.password)
                 conn = get_db_connection()
                 conn.execute(
                     'UPDATE admins SET password_hash = ?, salt = ? WHERE username = ?',
@@ -101,10 +108,12 @@ async def admin_login(creds: LoginRequest, request: Request):
                 logger.info(f"Upgraded password hash to bcrypt for: {creds.username}")
             # Same upgrade for a legacy unsalted-SHA-256 security answer.
             if is_legacy_answer_hash(user['security_answer_hash']):
+                new_answer_hash = await asyncio.to_thread(
+                    hash_security_answer, creds.sec_answer)
                 conn = get_db_connection()
                 conn.execute(
                     'UPDATE admins SET security_answer_hash = ? WHERE username = ?',
-                    (hash_security_answer(creds.sec_answer), creds.username)
+                    (new_answer_hash, creds.username)
                 )
                 conn.commit()
                 conn.close()
@@ -112,7 +121,7 @@ async def admin_login(creds: LoginRequest, request: Request):
     else:
         # A real username costs a bcrypt verify; an invented one must too, or
         # the response time itself tells an attacker which usernames exist.
-        timing_equalize(creds.password)
+        await asyncio.to_thread(timing_equalize, creds.password)
 
     if not auth_success:
         # The REASON is recorded, never the submitted password or answer.
@@ -482,8 +491,8 @@ async def save_ai_connection(req: AIConnectionRequest):
         # Rebuild the retrieval index in the background so the switch takes
         # effect without a restart (first enable also downloads the model).
         import threading
-        from app.services.search import load_dataset_internal
-        threading.Thread(target=load_dataset_internal, daemon=True).start()
+        from app.services.search import reindex_and_publish
+        threading.Thread(target=reindex_and_publish, daemon=True).start()
     return {"status": "updated"}
 
 
@@ -531,7 +540,9 @@ async def save_assistant_content(req: AssistantContentRequest, username: str = D
         user = conn.execute('SELECT password_hash, salt FROM admins WHERE username = ?', (username,)).fetchone()
         conn.close()
         salt = user['salt'] if user and 'salt' in user.keys() and user['salt'] else ""
-        if not user or not verify_password(req.password, user['password_hash'], salt):
+        ok = user is not None and await asyncio.to_thread(
+            verify_password, req.password, user['password_hash'], salt)
+        if not ok:
             raise HTTPException(status_code=403, detail="رمز عبور نادرست است.")
 
     tone = req.tone if req.tone in TONE_PRESETS else DEFAULT_TONE
@@ -603,7 +614,8 @@ async def export_csv():
 
 @router.post("/admin/api/reload_dataset", dependencies=[Depends(verify_admin)])
 async def reload_dataset_api():
-    load_dataset_internal()
+    from app.services.search import reindex_and_publish
+    reindex_and_publish()
     return {"status": "reloaded", "count": len(svc.search.dataset)}
 
 
@@ -659,11 +671,12 @@ async def change_password(req: ChangePasswordRequest, request: Request, username
 
         # Verify current password (accepts bcrypt or legacy hashes)
         salt = user['salt'] if user['salt'] else ""
-        if not verify_password(req.current_password, user['password_hash'], salt):
+        if not await asyncio.to_thread(verify_password, req.current_password,
+                                       user['password_hash'], salt):
             raise HTTPException(status_code=401, detail="رمز عبور فعلی اشتباه است")
 
         # Store the new password as bcrypt (salt embedded, so the salt column is cleared)
-        new_hash = hash_password(req.new_password)
+        new_hash = await asyncio.to_thread(hash_password, req.new_password)
         conn.execute('UPDATE admins SET password_hash = ?, salt = ? WHERE username = ?', (new_hash, '', username))
         # A password change is a rotation: every OTHER session for this admin
         # dies now, so one stolen cookie cannot outlive the rotation (the
@@ -718,9 +731,10 @@ async def delete_backup_api(name: str):
 
 
 def _reindex_after_restore():
-    """Replace the in-memory search index with the restored data."""
-    from app.services.search import load_dataset_internal
-    load_dataset_internal()
+    """Replace the in-memory search index with the restored data — here and
+    in every other worker."""
+    from app.services.search import reindex_and_publish
+    reindex_and_publish()
 
 
 @router.post("/admin/api/backups/restore/{name}", dependencies=[Depends(verify_admin)])

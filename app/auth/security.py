@@ -156,6 +156,8 @@ def client_ip(request: Request) -> str:
 # when the database itself is unreachable — an unreachable store must degrade
 # the limit, not take the chat endpoint down with it.
 _chat_rate_limits: Dict[str, List[float]] = {}
+_last_bucket_sweep = 0.0
+_SWEEP_INTERVAL = 30.0
 
 
 def _db_rate_limit(bucket: str) -> bool | None:
@@ -224,10 +226,18 @@ def check_rate_limit(http_request: Request, key: str = ""):
 
     # In-memory fallback (store unavailable): the original sliding window.
     now = time.time()
-    # Purge stale IPs to prevent unbounded memory growth
-    stale = [k for k, v in _chat_rate_limits.items() if not v or now - v[-1] > CHAT_RATE_WINDOW]
-    for k in stale:
-        del _chat_rate_limits[k]
+    # Purge stale buckets to prevent unbounded memory growth. Amortised: the
+    # old per-request sweep walked EVERY known IP on EVERY chat call — and if
+    # the store is down under load, this fallback IS the hot path. A bucket
+    # is unreachable for the rest of its window once swept, and per-bucket
+    # filtering below still drops aged timestamps exactly as before.
+    global _last_bucket_sweep
+    if now - _last_bucket_sweep >= _SWEEP_INTERVAL:
+        _last_bucket_sweep = now
+        stale = [k for k, v in _chat_rate_limits.items()
+                 if not v or now - v[-1] > CHAT_RATE_WINDOW]
+        for k in stale:
+            del _chat_rate_limits[k]
     timestamps = _chat_rate_limits.get(bucket, [])
     timestamps = [t for t in timestamps if now - t < CHAT_RATE_WINDOW]
     if len(timestamps) >= CHAT_RATE_LIMIT:

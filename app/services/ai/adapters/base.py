@@ -51,6 +51,42 @@ from ..request import (
     FINISH_STOP, FINISH_TOOL_CALLS, RESPONSE_JSON_OBJECT,
 )
 
+# ── Shared transport client ──────────────────────────────────────────────
+# One AsyncClient for every provider call in this process: connection reuse
+# instead of a TCP+TLS handshake per call. Per-request timeouts are passed to
+# client.request(), so the shared default here only shapes the pool. A test
+# (or shutdown hook) can swap or close it via reset_shared_client().
+_shared_http_client = None
+
+
+def _shared_client() -> httpx.AsyncClient:
+    global _shared_http_client
+    if _shared_http_client is None or _shared_http_client.is_closed:
+        _shared_http_client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=20,
+                                max_connections=200),
+            http2=False,
+            follow_redirects=False,
+        )
+    return _shared_http_client
+
+
+def reset_shared_client(client=None) -> httpx.AsyncClient:
+    """Replace the shared client (tests inject one with a custom transport)."""
+    global _shared_http_client
+    _shared_http_client = client
+    return _shared_http_client
+
+
+async def aclose_shared_client() -> None:
+    global _shared_http_client
+    if _shared_http_client is not None:
+        try:
+            await _shared_http_client.aclose()
+        except Exception:  # noqa: BLE001 — shutdown best-effort
+            pass
+        _shared_http_client = None
+
 # ── Metadata / configuration dataclasses ────────────────────────────────
 
 
@@ -304,30 +340,33 @@ class BaseAdapter:
             # Transport hardening mirrors app/services/openai.py: no retries
             # (retry policy belongs to the routing engine), no HTTP/2, no
             # redirect following (SSRF policy), bounded keepalive.
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout_s, connect=10.0),
-                limits=httpx.Limits(max_keepalive_connections=2),
-                http2=False,
-                follow_redirects=False,
-            ) as client:
-                # Try every validated address, in resolution order — the
-                # fallback httpx would have done itself had it been given the
-                # hostname. `localhost` resolves to ['::1', '127.0.0.1'], and
-                # an Ollama server bound to 127.0.0.1 is unreachable if only
-                # the first is tried. A CONNECT failure moves to the next
-                # candidate; anything else (timeout, TLS, an HTTP status) is
-                # the endpoint answering and is returned as-is.
-                candidates = pinned["connect_urls"]
-                for i, candidate in enumerate(candidates):
-                    try:
-                        resp = await client.request(
-                            method, candidate, headers=req_headers,
-                            json=body if body is not None else None,
-                            extensions={"sni_hostname": pinned["host"]})
-                        break
-                    except httpx.ConnectError:
-                        if i == len(candidates) - 1:
-                            raise
+            #
+            # The client itself is SHARED, not built per call: Tier-2 chat
+            # questions fire up to two external calls each, and a fresh
+            # TCP+TLS handshake per call added latency and descriptor churn
+            # exactly when the provider was slowest. Pooling is per origin —
+            # and because connections are pinned, per validated IP.
+            client = _shared_client()
+            # Try every validated address, in resolution order — the
+            # fallback httpx would have done itself had it been given the
+            # hostname. `localhost` resolves to ['::1', '127.0.0.1'], and
+            # an Ollama server bound to 127.0.0.1 is unreachable if only
+            # the first is tried. A CONNECT failure moves to the next
+            # candidate; anything else (timeout, TLS, an HTTP status) is
+            # the endpoint answering and is returned as-is.
+            candidates = pinned["connect_urls"]
+            resp = None
+            for i, candidate in enumerate(candidates):
+                try:
+                    resp = await client.request(
+                        method, candidate, headers=req_headers,
+                        json=body if body is not None else None,
+                        timeout=httpx.Timeout(timeout_s, connect=10.0),
+                        extensions={"sni_hostname": pinned["host"]})
+                    break
+                except httpx.ConnectError:
+                    if i == len(candidates) - 1:
+                        raise
         except httpx.TimeoutException as e:
             raise AIError(code=TIMEOUT, provider_type=rt.provider_type,
                           provider_instance_id=rt.instance_id,

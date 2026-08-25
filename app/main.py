@@ -60,6 +60,11 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loading dataset...")
     load_dataset_internal()
+    try:
+        from app.services.search import init_index_version
+        init_index_version()
+    except Exception as e:  # noqa: BLE001 — freshness stamping must never block boot
+        logger.error("[search] index version init failed: %s", type(e).__name__)
 
     # AI provider control plane: tables (SQLite path — PG owns its schema via
     # migrations), bootstrap pricing, then the one-time legacy-config import.
@@ -111,6 +116,12 @@ async def lifespan(app: FastAPI):
 
     backup_task.cancel()
     retention_task.cancel()
+
+    try:
+        from app.services.ai.adapters import base as _ai_base
+        await _ai_base.aclose_shared_client()
+    except Exception:  # noqa: BLE001 — shutdown best-effort
+        pass
 
 
 def _mount_themes(app: FastAPI):

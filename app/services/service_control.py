@@ -54,13 +54,10 @@ class ActionRefused(Exception):
 # ── The actions themselves ──────────────────────────────────────────────
 
 def _reindex_search():
-    import time as _t
-    from app.services.search import load_dataset_internal, report_reindex
-    started = _t.perf_counter()
-    load_dataset_internal()
+    from app.services.search import reindex_and_publish
     from app.services import search
+    reindex_and_publish()
     docs = len(getattr(search, "dataset", []) or [])
-    report_reindex(docs, 0, int((_t.perf_counter() - started) * 1000))
     return f"{docs} سند دوباره نمایه شد."
 
 
