@@ -287,8 +287,18 @@ async function loadAIConnection() {
         const d = await res.json();
         document.getElementById('ai-conn-base').value = d.api_base || '';
         document.getElementById('ai-conn-base').placeholder = d.api_base_default || 'https://...';
-        document.getElementById('ai-conn-key-state').textContent =
-            d.has_key ? 'کلید ذخیره شده است.' : 'هنوز کلیدی ذخیره نشده.';
+        // Key presence alone used to read as "AI works" while zero eligible
+        // route targets meant every ambiguous query failed. `routes` carries
+        // the same eligible counts the health probe reports: when a key
+        // exists but either count is zero, say so in plain Persian. The fix
+        // is pressing save on this very form (the server then rebuilds the
+        // missing routing), and the submit handler reloads this state right
+        // after a save — so the warning clears itself the moment it is fixed.
+        const routes = d.routes || {};
+        const unrouted = d.has_key && (!(routes.chat > 0) || !(routes.classify > 0));
+        document.getElementById('ai-conn-key-state').textContent = unrouted
+            ? 'کلید ذخیره شده اما مسیر پاسخ‌گویی هوش مصنوعی فعال نیست — در تنظیمات هوش مصنوعی دوباره ذخیره کنید.'
+            : (d.has_key ? 'کلید ذخیره شده است.' : 'هنوز کلیدی ذخیره نشده.');
         // The chat / classification model inputs were removed from this page:
         // routing owns those now, and writing them here changed nothing at
         // runtime while telling the operator it had saved.

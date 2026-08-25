@@ -153,12 +153,51 @@ def _probe_embeddings():
     return OK, "مدل محلی بارگذاری شده است."
 
 
+def eligible_target_counts() -> dict:
+    """Eligible route-target count per task: enabled route + enabled target
+    + enabled provider + secret present — the exact eligibility the routing
+    engine applies (engine._target_eligible). Shared by the health probe
+    below and the panel's GET /admin/api/ai-connection so the two can never
+    report different realities. Config-only: reads control-plane tables,
+    resolves no adapter, contacts no provider."""
+    from app.services.ai import store
+    counts = {}
+    for task in ("chat", "classify"):
+        # ordered_targets already filters to route-enabled rows and joins in
+        # the eligibility fields; the count applies the remaining checks.
+        targets = store.ordered_targets(task)
+        counts[task] = sum(1 for t in targets
+                           if t["target_enabled"] and t["provider_enabled"]
+                           and t["has_secret"])
+    return counts
+
+
 def _probe_ai_provider():
-    """Config reachability only — a health check must never spend tokens."""
+    """Config + routing reality only — a health check must never spend tokens.
+
+    The probe used to check the legacy key alone, so an install with a saved
+    key but zero eligible route targets reported "healthy" while every
+    ambiguous query died in Tier 2. Now it answers the question the operator
+    actually has: will the AI answer?"""
+    from app.db.queries import get_setting
     from app.services.openai import provider_config
+    # Kill switch first — same key the engine gates on (engine._kill_switch_on).
+    # Owner ruling: an honest "off", not an error; switching AI off is a
+    # deliberate operator choice and must not read as unhealthiness.
+    if (get_setting("openai_enabled", "true") or "true").lower() != "true":
+        return DISABLED, "خاموش است."
     base, key = provider_config()
     if not key:
         return DISABLED, "کلید سرویس هوش مصنوعی تنظیم نشده است."
+    counts = eligible_target_counts()
+    if not counts["chat"] or not counts["classify"]:
+        # Key present but nothing routable — the exact state a panel key
+        # save used to leave behind. Actionable plain Persian: the fix is
+        # one re-save on the Settings → AI page (ensure_panel_provider
+        # rebuilds the missing routing); the operator never needs to know
+        # what an instance or a route target is.
+        return DEGRADED, ("کلید ذخیره شده اما مسیر پاسخ‌گویی هوش مصنوعی فعال نیست — "
+                          "در تنظیمات هوش مصنوعی دوباره ذخیره کنید.")
     host = (base or "").split("//")[-1].split("/")[0]
     return OK, f"پیکربندی‌شده · {host}"
 

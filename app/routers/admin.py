@@ -441,12 +441,18 @@ def _stt_status() -> dict:
 @router.get("/admin/api/ai-connection", dependencies=[Depends(verify_admin)])
 async def get_ai_connection():
     from app.config import OPENAI_API_BASE
+    from app.services.health import eligible_target_counts
     return {
         "api_base": get_setting("ai_api_base", ""),
         "api_base_default": OPENAI_API_BASE,
         # The key itself never leaves the server — only whether one exists.
         # (get_setting transparently decrypts the at-rest form.)
         "has_key": bool((get_setting("ai_api_key", "") or "").strip()),
+        # Routing reality, not just key presence: `has_key` alone used to
+        # read as "AI works" while zero eligible route targets meant every
+        # chat/classify call failed. Same counts the health probe reports,
+        # so the settings page and /admin/health can never disagree.
+        "routes": eligible_target_counts(),
         # `model_chat` / `model_classify` are DEPRECATED and no longer read by
         # the runtime — the AI Control Plane's routes decide those. They are
         # still returned so an older cached admin page does not break on a
@@ -493,6 +499,38 @@ async def save_ai_connection(req: AIConnectionRequest):
         import threading
         from app.services.search import reindex_and_publish
         threading.Thread(target=reindex_and_publish, daemon=True).start()
+
+    # Bridge this save into the AI control plane (the chat/classify engine
+    # routes exclusively off control-plane tables — a save that only wrote
+    # the legacy rows above left Tier 2 dead while this endpoint answered
+    # 200). ensure_panel_provider is idempotent, fills only missing pieces,
+    # never touches hand-built routes or the enabled flags, and rotates the
+    # default instance's secret — see app/services/ai/legacy_import.py.
+    from app.services.ai import legacy_import
+    from app.services.ai.errors import AIError
+    from app.services.openai import provider_config
+    # Empty submit = keep the stored key (same semantics as the write above).
+    # With no submitted AND no stored key, ensure is skipped entirely: there
+    # is nothing routable to build, and create_instance rejects secret-less
+    # providers — a keyless save must not 500 on "provider requires an API
+    # key". With a stored key, ensure still runs so base-url changes and
+    # missing-route repairs work without re-entering the secret.
+    key_for_ensure = req.api_key.strip() or (get_setting("ai_api_key", "") or "").strip()
+    if key_for_ensure:
+        # Base pinned to the submitted value, else the legacy ai_api_base
+        # row / OPENAI_API_BASE — an empty string must never reach
+        # create/update_instance (adapter validation would reject it or
+        # store a broken base_url on an otherwise working instance).
+        base_for_ensure = req.api_base.strip() or provider_config()[0]
+        try:
+            legacy_import.ensure_panel_provider(base_for_ensure, key_for_ensure,
+                                                actor="admin")
+        except AIError as e:
+            # Owner ruling: HTTP 500 with detail — the save did not do what
+            # the screen promised, and a silent partial success is exactly
+            # the bug class this fixes. No 200-with-warning soft mode.
+            # (Unexpected non-AI errors propagate as a plain 500 either way.)
+            raise HTTPException(status_code=500, detail=e.message_fa)
     return {"status": "updated"}
 
 
