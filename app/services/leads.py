@@ -1008,13 +1008,21 @@ def funnel() -> dict:
         pending = conn.execute(
             "SELECT COUNT(*) AS n FROM dataset_edits WHERE status = 'pending'"
         ).fetchone()["n"]
+        # The funnel's `verified` card and the stuck list must be the SAME
+        # number — stuck_leads() promises it. A released registration keeps
+        # `status = 'verified'` for the history but is no longer waiting for
+        # anything, so it is counted here as released and nowhere else.
+        verified = conn.execute(
+            "SELECT COUNT(*) AS n FROM company_leads"
+            " WHERE status = 'verified' AND released_at IS NULL"
+        ).fetchone()["n"]
     finally:
         conn.close()
     by_status = {r["status"]: r["n"] for r in rows}
     return {
         "total": total,
         "unverified": by_status.get("unverified", 0),
-        "verified": by_status.get("verified", 0),
+        "verified": verified,
         "completed": by_status.get("completed", 0),
         "pending_review": pending,
         "overrides": overrides,
