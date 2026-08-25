@@ -161,9 +161,12 @@ async def admin_login(creds: LoginRequest, request: Request):
     # Success - Reset attempts
     clear_login_attempts(client_ip)
 
-    # Generate Token
+    # Generate Token. Expiry is AWARE UTC: the column is TIMESTAMPTZ, and a
+    # naive local "+1 hour" is stored as if it were UTC — on a host behind
+    # UTC the fresh session is born already expired. Same class of bug as the
+    # session slide in app/auth/security.py.
     token = secrets.token_hex(32)
-    expiry = datetime.datetime.now() + datetime.timedelta(hours=SESSION_TIMEOUT_HOURS)
+    expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=SESSION_TIMEOUT_HOURS)
 
     conn = get_db_connection()
     conn.execute('INSERT INTO admin_sessions (token, username, expiry) VALUES (?, ?, ?)', (token, creds.username, expiry.isoformat()))
