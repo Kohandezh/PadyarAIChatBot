@@ -84,6 +84,14 @@ STATUSES = ("unverified", "verified", "completed")
 DEAD_INVITE_MESSAGE = "اینجا چیزی برای نمایش نیست."
 
 MAX_EDIT_CHARS = 4000
+# Same ceiling the dataset editor puts on a title. A company name a visitor
+# has to find in a search box cannot be a paragraph.
+MAX_TITLE_CHARS = 120
+
+# Companies born on this page rather than in the seeded knowledge base. The
+# prefix says where a row came from at a glance, in the admin dataset editor
+# and in the database, forever.
+NEW_COMPANY_ID_PREFIX = "booth-"
 
 # How the invite reaches the contact. `qr` needs no gateway, no permission and
 # no delivery: the visitor shows their own screen. `sms` waits on Asanak
@@ -449,6 +457,40 @@ def rotate_visitor_code(visitor_id: str) -> Optional[str]:
     return code
 
 
+def delete_visitor(visitor_id: str) -> None:
+    """Remove a visitor who never registered anything.
+
+    A visitor with registrations is history, not a login: their name hangs on
+    every lead they captured and on the fraud trail of every override, so they
+    can be deactivated (which already exists) but not deleted. A visitor with
+    zero captures is a typo or a changed mind, and deleting them keeps the
+    roster honest. The row going away ends their session on the next request,
+    because `visitor_by_id` re-reads it every time.
+    """
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        leads_n = conn.execute(
+            "SELECT COUNT(*) AS n FROM company_leads WHERE visitor_id = ?",
+            (visitor_id,),
+        ).fetchone()["n"]
+        if leads_n:
+            raise LeadError(
+                "این همکار ثبت‌هایی دارد و قابل حذف نیست. می‌توانید غیرفعالش کنید.",
+                status=409, code="visitor_has_leads",
+            )
+        cur = conn.execute("DELETE FROM lead_visitors WHERE id = ?", (visitor_id,))
+        conn.commit()
+        deleted = (cur.rowcount or 0) == 1
+    finally:
+        conn.close()
+    if not deleted:
+        raise LeadError("این همکار پیدا نشد.", status=404, code="unknown_visitor")
+    from app.services import applog
+    applog.audit("leads.visitor_deleted", "همکار غرفه حذف شد", target=visitor_id)
+    _audit("visitor_deleted", visitor_id, visitor_id=visitor_id)
+
+
 def visitor_by_code(code: str) -> Optional[dict]:
     ensure_tables()
     conn = get_db_connection()
@@ -479,6 +521,78 @@ def visitor_by_id(visitor_id: str) -> Optional[dict]:
 
 # ── Company search ───────────────────────────────────────────────────────
 
+def _title_taken(normalized: str) -> Optional[str]:
+    """The same company under another spelling, or None.
+
+    Compared on the normalised form, so a half-space or an Arabic ك does not
+    let one company in twice. EVERY row is compared, including the ones search
+    hides because a colleague already registered them: that hidden company is
+    exactly the one a visitor who cannot find it is tempted to re-create.
+    """
+    from app.utils.normalizer import normalize_persian
+    if not normalized:
+        return None
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT title FROM dataset").fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        if normalize_persian(r["title"] or "", expand_synonyms=False) == normalized:
+            return r["title"]
+    return None
+
+
+def admin_add_company(title: str, actor: str = "") -> dict:
+    """Put a company on the list for the visitors to find, with NO answer text.
+
+    The scenario is a booth that is simply missing from the knowledge base: a
+    visitor stands at it and finds nothing to select. The operator types the
+    name HERE, and every visitor's search offers it on their next keystroke.
+
+    `dataset.text` stays empty on purpose — it is the sentence the chatbot
+    says to the public, and nothing an operator types over a queue goes on the
+    chatbot unreviewed. The company's own contact writes the answer through
+    the same review queue as everyone else. Nothing reindexes here either: an
+    empty row has nothing for the retrieval index to find, and the approval
+    that eventually fills the text reindexes.
+    """
+    ensure_tables()
+    from app.utils.normalizer import normalize_persian
+
+    name = (title or "").strip()
+    if not name:
+        raise LeadError("نام شرکت را بنویسید.", code="missing_title")
+    if len(name) > MAX_TITLE_CHARS:
+        raise LeadError(f"نام شرکت نباید از {MAX_TITLE_CHARS} نویسه بیشتر باشد.",
+                        code="title_too_long")
+    normalized = normalize_persian(name, expand_synonyms=False)
+
+    taken = _title_taken(normalized)
+    if taken is not None:
+        raise LeadError(f"«{taken}» از قبل در فهرست است.", status=409,
+                        code="company_exists")
+
+    dataset_id = NEW_COMPANY_ID_PREFIX + secrets.token_urlsafe(8)
+    conn = get_db_connection()
+    try:
+        # End of the display order, same rule as the admin dataset editor.
+        position = conn.execute(
+            "SELECT COALESCE(MAX(position), 0) + 10 AS n FROM dataset"
+        ).fetchone()["n"]
+        conn.execute(
+            "INSERT INTO dataset (id, title, text, video_url, title_en, text_en, position)"
+            " VALUES (?, ?, '', '', '', '', ?)",
+            (dataset_id, name, position),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    from app.services import applog
+    applog.audit("leads.company_added", "شرکت به فهرست اضافه شد",
+                 actor=actor, target=dataset_id)
+    _audit("company_added", name, dataset_id=dataset_id)
+    return {"dataset_id": dataset_id, "title": name}
 def search_companies(query: str, limit: int = 20) -> list:
     """Search the knowledge base by title, minus the companies already taken.
 

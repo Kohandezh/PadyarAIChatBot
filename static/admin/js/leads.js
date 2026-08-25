@@ -96,6 +96,19 @@ async function get(url) {
     return res.json();
 }
 
+// The roster's delete: same refusal path as post(), for a verb post() cannot speak.
+async function del(url) {
+    alertBox('');
+    const res = await fetchAuth(url, { method: 'DELETE' });
+    if (!res.ok) {
+        let data = {};
+        try { data = await res.json(); } catch { /* empty body is fine */ }
+        alertBox(data.detail || 'این کار انجام نشد. دوباره تلاش کنید.');
+        return false;
+    }
+    return true;
+}
+
 // ── Risky content in a proposed answer ──────────────────────────────────
 //
 // An approved edit becomes the answer the chatbot gives every visitor, and the
@@ -314,6 +327,9 @@ async function loadVisitors() {
                     data-active="${v.active ? '0' : '1'}">
               ${v.active ? 'غیرفعال' : 'فعال'}
             </button>
+            ${!Number(v.total)
+                ? '<button class="btn btn-sm btn-outline-danger" data-delete="1">حذف</button>'
+                : ''}
           </td>
         </tr>`).join('');
 }
@@ -404,13 +420,43 @@ function showNewLink(title, data) {
 }
 
 export function initLeads() {
-    document.getElementById('add-visitor').addEventListener('click', async () => {
+    const addVisitor = async () => {
         const input = document.getElementById('visitor-name');
-        const data = await post('/admin/api/leads/visitors', { name: input.value.trim() });
+        const name = input.value.trim();
+        if (!name) {
+            alertBox('اول نام همکار تازه را بنویسید.');
+            input.focus();
+            return;
+        }
+        const data = await post('/admin/api/leads/visitors', { name });
         if (!data) return;
         input.value = '';
         showNewLink('لینک اختصاصی این همکار:', data);
         await refresh();
+    };
+    document.getElementById('add-visitor').addEventListener('click', addVisitor);
+    // The input is not inside a <form>, so Enter would do nothing. An operator
+    // typing a name expects Enter to add the person, same as the button.
+    document.getElementById('visitor-name').addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); addVisitor(); }
+    });
+
+    const addCompany = async () => {
+        const input = document.getElementById('company-title');
+        const title = input.value.trim();
+        if (!title) {
+            alertBox('اول نام شرکت را بنویسید.');
+            input.focus();
+            return;
+        }
+        const data = await post('/admin/api/leads/companies', { title });
+        if (!data) return;
+        input.value = '';
+        await refresh();
+    };
+    document.getElementById('add-company').addEventListener('click', addCompany);
+    document.getElementById('company-title').addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); addCompany(); }
     });
 
     document.getElementById('edits').addEventListener('click', async (ev) => {
@@ -477,6 +523,14 @@ export function initLeads() {
             if (!data) return;
             showNewLink('لینک تازهٔ این همکار (لینک قبلی دیگر کار نمی‌کند):', data);
             await refresh();
+            return;
+        }
+
+        // Delete is only offered on a row with zero captures, so this confirm
+        // is the second door, not the only one.
+        if (ev.target.closest('[data-delete]')) {
+            if (!confirm('این همکار و لینک اختصاصی‌اش برای همیشه حذف می‌شود. ادامه می‌دهید؟')) return;
+            if (await del(`/admin/api/leads/visitors/${encodeURIComponent(id)}`)) await refresh();
             return;
         }
 

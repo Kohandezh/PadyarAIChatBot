@@ -338,7 +338,13 @@ class VisitorBody(BaseModel):
 
 @router.post("/admin/api/leads/visitors", dependencies=[Depends(verify_admin)])
 async def admin_create_visitor(body: VisitorBody, request: Request):
-    visitor = leads_service.create_visitor(body.name)
+    # Refused here rather than by Pydantic so the sentence is one an operator
+    # reads. A nameless visitor renders as «بی‌نام» in the roster and the
+    # operator cannot tell two of them apart, which defeats the roster.
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="نام همکار را بنویسید.")
+    visitor = leads_service.create_visitor(name)
     link = f"{_base_url(request)}/v/{visitor['code']}"
     return {"id": visitor["id"], "name": visitor["name"], "link": link,
             "qr": leads_service.qr_svg(link)}
@@ -365,6 +371,35 @@ async def admin_rotate_visitor(visitor_id: str, request: Request):
         raise HTTPException(status_code=404, detail="این همکار پیدا نشد.")
     link = f"{_base_url(request)}/v/{code}"
     return {"link": link, "qr": leads_service.qr_svg(link)}
+
+
+@router.delete("/admin/api/leads/visitors/{visitor_id}",
+               dependencies=[Depends(verify_admin)])
+async def admin_delete_visitor(visitor_id: str):
+    """Delete a visitor who captured nothing. One with leads is refused:
+    their name is part of every registration's history."""
+    try:
+        leads_service.delete_visitor(visitor_id)
+    except LeadError as e:
+        raise _fail(e)
+    return {"ok": True}
+
+
+class CompanyBody(BaseModel):
+    title: str = Field(default="", max_length=200)
+
+
+@router.post("/admin/api/leads/companies", dependencies=[Depends(verify_admin)])
+async def admin_add_company(body: CompanyBody, admin: str = Depends(verify_admin)):
+    """A booth missing from the list, typed in by the operator.
+
+    The company appears in every visitor's search immediately, with no answer
+    text of its own — its contact writes that through the same review queue.
+    """
+    try:
+        return leads_service.admin_add_company(body.title, actor=admin)
+    except LeadError as e:
+        raise _fail(e)
 
 
 @router.get("/admin/api/leads/edits", dependencies=[Depends(verify_admin)])
