@@ -11,6 +11,9 @@ active_synonyms: List[tuple] = []
 
 # Cache for _expansions(): (the rows it was built from, the result).
 _expansions_cache: tuple = ((), ())
+# Cache for _expansion_pattern(): keyed on the built expansions so a synonym
+# edit invalidates it together with _expansions_cache.
+_expansion_pattern_cache: tuple = ((), None)
 
 
 def load_synonyms_from_db():
@@ -34,10 +37,14 @@ def _expansions():
     so the second row for the same word never fires and which one wins depends
     on table order. Merging is the fix.
 
-    The first target is kept verbatim, because those strings are hand-tuned and
-    measured against the golden set. Later targets contribute only the words the
-    earlier ones did not already supply. Repeating a word would raise its term
-    frequency for TF-IDF and BM25 without adding meaning.
+    The replacement carries ONLY words the source does not already contain.
+    Repeating the source inside its own replacement is not neutral: it raises
+    the source's term frequency for TF-IDF/BM25 without adding meaning, and on
+    the embedding side a word multiplied several times pushed the whole query
+    outside the model's region — measured as dense=0.000 for
+    «هزینه غرفه چقدر است؟» on the 2026-08-26 diagnostic run. A later target
+    contributes only words an earlier one did not already supply; the source
+    itself is present in the query already, so it contributes nothing either.
 
     Cached on the rows themselves. `active_synonyms` is rebound wholesale by
     `load_synonyms_from_db` and by tests, so comparing it is enough.
@@ -53,9 +60,14 @@ def _expansions():
 
     built = []
     for src, targets in grouped.items():
-        seen = set(targets[0].split())
-        parts = [targets[0]]
-        for dst in targets[1:]:
+        # The source stays exactly once (replace() consumes it, so the first
+        # target must put it back for exact-token matches in BM25/title
+        # overlap), and every synonym word appears at most once across all
+        # targets. Doubling either is what pushed queries out of the
+        # embedding model's region (dense=0.000, 2026-08-26 diagnostic).
+        seen = set(src.split())
+        parts = list(seen)
+        for dst in targets:
             fresh = [w for w in dst.split() if w not in seen]
             seen.update(fresh)
             parts.extend(fresh)
@@ -105,6 +117,22 @@ def strip_leading_greeting(text: str):
     return (text if was_only else core.strip()), was_only
 
 
+def _expansion_pattern(built: tuple):
+    """One compiled alternation over all sources, longest-first, cached on
+    the expansion table itself. `(?<!\S)`/`(?!\S)` delimit a source as a whole
+    whitespace-bounded token run — the Persian equivalent of \b, which the
+    regex engine does not apply to non-ASCII word characters.
+    """
+    global _expansion_pattern_cache
+    if _expansion_pattern_cache[0] != built:
+        keys = sorted((src for src, _ in built if src), key=len, reverse=True)
+        pattern = re.compile(
+            "(?<!\\S)(" + "|".join(re.escape(k) for k in keys) + ")(?!\\S)"
+        ) if keys else None
+        _expansion_pattern_cache = (built, pattern)
+    return _expansion_pattern_cache[1]
+
+
 def normalize_persian(text: str, expand_synonyms: bool = True) -> str:
     """نرمالایز پیشرفته متن فارسی برای بهبود جستجو
 
@@ -132,9 +160,21 @@ def normalize_persian(text: str, expand_synonyms: bool = True) -> str:
     if not expand_synonyms:
         return text
 
-    # جایگزینی مترادف‌های پزشکی از دیتابیس
-    for src, dst in _expansions():
-        text = text.replace(src, dst)
+    # جایگزینی مترادف‌ها از دیتابیس — در «یک» پاس.
+    #
+    # The old loop (`for src, dst: text = text.replace(src, dst)`) cascaded:
+    # «هزینه» → «قیمت تعرفه…», then the «قیمت» row fired on the word the
+    # FIRST replacement just inserted and re-inserted «هزینه», and «تعرفه»
+    # fired again after that. One typed word could end up four times in the
+    # expanded query (measured on the live synonym table, 2026-08-26). A
+    # single-pass alternation only ever matches tokens of the ORIGINAL text,
+    # so every source expands exactly once and nothing re-fires.
+    built = _expansions()
+    if built:
+        pattern = _expansion_pattern(built)
+        if pattern is not None:
+            mapping = dict(built)
+            text = pattern.sub(lambda m: mapping[m.group(0)], text)
 
     # Replacement text may itself contain a ZWNJ (the synonym rows are authored
     # by hand), which would leave the "normalised" output un-normalised. Fold

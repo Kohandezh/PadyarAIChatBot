@@ -558,7 +558,17 @@ def chat_client(tmp_path, monkeypatch):
     store._invalidate_runtime()
 
 
-def _ask(client, message="یک پرسش کاملا بی‌ربط زززز"):
+def _ask(client, message="هوا امروز چند درجه است زززز"):
+    """The message must clear EVERY local tier — T0/T1 questions, hybrid
+    retrieval, AND the trained intent classifier (p < INTENT_TRUST_THRESHOLD)
+    — so the ladder tests exercise the AI branch they exist for.
+
+    The previous filler («یک پرسش کاملا بی‌ربط زززز») did that before the
+    2026-08-26 expansion dedup; with healthy queries reaching the classifier,
+    it confidently maps that filler to inotex-targeted-visit at p=0.66 and the
+    tests started asserting against local_intent instead of the ladder. This
+    weather filler is out-of-domain by topic, not just by noise words — the
+    golden set carries a sibling of it under `unsupported`."""
     return client.post("/chat", json={"message": message, "lang": "fa"})
 
 

@@ -139,11 +139,75 @@ def full_ranking(query, search, hybrid):
     return []
 
 
+def diagnose_query(q, search, hybrid):
+    """Everything each tier saw, for ONE query — the per-question evidence.
+
+    Calls the same service objects /chat calls. Exists so a tuning decision can
+    cite a row ("dense was 0.000 on #6, BM25 was 1.000") instead of an
+    aggregate. Emitted by --dump; never a gate.
+    """
+    from app.utils.normalizer import normalize_persian, strip_leading_greeting
+    core, only_greet = strip_leading_greeting(q)
+    mq = q if only_greet else core
+    nq = normalize_persian(mq)
+    cov_q = normalize_persian(mq, expand_synonyms=False)
+
+    def ids(hits):
+        return [[search.dataset[i]["id"], round(float(s), 4)] for i, s in hits[:5]]
+
+    out = {"q": q, "normalized": nq, "coverage_query": cov_q}
+    e0, s0 = search.find_similar_question(mq, exact_only=True)
+    out["t0_exact"] = {"entry": e0["id"] if e0 else None, "score": round(s0, 4)}
+    if hybrid:
+        dense = search.dataset_embedding_index.search_topk(nq, search.RERANK_CANDIDATES) \
+            if search.dataset_embedding_index else []
+        lexical = search.dataset_bm25_index.top_k(nq, search.RERANK_CANDIDATES) \
+            if search.dataset_bm25_index else []
+        out["dense_top5"] = ids(dense)
+        out["bm25_top5"] = ids(lexical)
+        from app.services import rerank as _rr
+        ranked = _rr.rerank(nq, search.normalized_descriptions, dense, lexical,
+                            coverage_query=cov_q)
+        out["rerank_top3"] = [
+            {"id": search.dataset[i]["id"], "final": round(sc, 4), **sig}
+            for i, sc, sig in ranked[:3]
+        ]
+    b, bs = search.find_best_match(mq)
+    out["t1_final"] = {"entry": b["id"] if b else None, "score": round(bs, 4)}
+    qe, qs_ = search.find_similar_question(mq)
+    out["questions_blend"] = {"entry": qe["id"] if qe else None, "score": round(qs_, 4)}
+    ie, ip = search.classify_intent_local(mq)
+    out["t15_intent"] = {"entry": ie["id"] if ie else None, "prob": round(ip, 4)}
+    return out
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the INOTEX retrieval benchmark.")
     p.add_argument("--backend", choices=["embedding", "tfidf"], default="embedding")
     p.add_argument("--out", default=str(DEFAULT_OUT))
+    p.add_argument("--dump", default="",
+                   help="write per-query tier diagnostics to this JSON file")
+    p.add_argument("--weights", default="",
+                   help="reranker weights as dense,bm25,coverage — e.g. 0.50,0.30,0.20. "
+                        "Overrides the module defaults for THIS run only (no writes).")
+    p.add_argument("--cosine-floor", dest="cosine_floor", default="",
+                   help="embedding cosine calibration floor for THIS run (span stays).")
     args = p.parse_args()
+
+    # Experiment overrides: applied to the MODULE GLOBALS the services read at
+    # call time. The embedding matrix is prebuilt and calibration happens on
+    # the query side, so a floor change needs no rebuild — and nothing is
+    # persisted, so a sweep can never leak a config into the product.
+    if args.weights:
+        parts = [float(x) for x in args.weights.split(",")]
+        if len(parts) != 3 or any(p < 0 for p in parts) or sum(parts) <= 0:
+            sys.exit("--weights needs dense,bm25,coverage (three non-negative numbers)")
+        from app.services import rerank as _rr
+        total = sum(parts)
+        _rr.W_DENSE, _rr.W_LEXICAL, _rr.W_COVERAGE = (p / total for p in parts)
+    if args.cosine_floor:
+        from app.services import embeddings as _emb
+        _emb.COSINE_FLOOR = float(args.cosine_floor)
 
     # Create the schema if this is a fresh checkout.
     #
@@ -187,6 +251,7 @@ def main() -> int:
     queries = golden["queries"]
 
     ranks, latencies = [], []
+    diagnostics = []
     hits1 = hits3 = 0
     answerable = 0
     false_confident = {"unsupported": 0, "legacy_contamination": 0, "prompt_injection": 0}
@@ -200,21 +265,37 @@ def main() -> int:
         t0 = time.perf_counter()
         # Mirrors the /chat tier order (app/routers/chat.py).
         xe, xs = search.find_similar_question(q, exact_only=True)
+        tier = "T0"
         if xe and xs >= 0.9:
             entry, score = xe, xs
         else:
             entry, score = search.find_best_match(q)
+            tier = "T1"
             if (not entry) or score < TRUST:
                 qe, qs = search.find_similar_question(q)
                 if qe and qs >= TRUST:
                     entry, score = qe, qs
+                    tier = "T1-questions"
             if (not entry) or score < TRUST:
                 ie, ip = search.classify_intent_local(q)
                 if ie and ip >= 0.6:
                     entry, score = ie, ip
+                    tier = "T1.5"
         latencies.append((time.perf_counter() - t0) * 1000)
 
         served = entry if (entry and score >= 0.6) else None
+        if args.dump:
+            diag = diagnose_query(q, search, hybrid)
+            diag.update({
+                "cat": cat,
+                "expected": expect,
+                "served": served["id"] if served else None,
+                "served_tier": tier if served else "none",
+                "served_score": round(score, 4),
+                "correct": bool(served and expect and served["id"] in
+                                (expect if isinstance(expect, list) else [expect])),
+            })
+            diagnostics.append(diag)
         answer_text = (served or {}).get("text", "") + " " + (served or {}).get("text_en", "")
 
         cstat = per_category.setdefault(cat, {"n": 0, "correct": 0})
@@ -303,9 +384,31 @@ def main() -> int:
         "failures": failures,
     }
 
+    # The tuning experiment's provenance: which weights/calibration produced
+    # these numbers. Without it a sweep's rows are indistinguishable a week
+    # later, and "the best config" becomes an unreproducible memory.
+    if args.weights or args.cosine_floor:
+        from app.services import rerank as _rr, embeddings as _emb
+        report["experiment"] = {
+            "weights": {"dense": _rr.W_DENSE, "bm25": _rr.W_LEXICAL,
+                        "coverage": _rr.W_COVERAGE},
+            "cosine_floor": _emb.COSINE_FLOOR, "cosine_span": _emb.COSINE_SPAN,
+        }
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if args.dump:
+        dump_path = Path(args.dump)
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_path.write_text(json.dumps(
+            {"ran_at": report["ran_at"],
+             "experiment": report.get("experiment", "default"),
+             "totals": report["totals"],
+             "queries": diagnostics},
+            ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"diagnostics → {dump_path}")
 
     # Restore the previous backend setting.
     conn = sqlite3.connect(DB_PATH)

@@ -45,6 +45,31 @@ questions_bm25_index = None
 # How many candidates each first-stage retriever hands to the reranker.
 RERANK_CANDIDATES = 5
 
+
+def _dual_hits(retrieve, original: str, expanded: str, k: int):
+    """One retriever's verdict on BOTH query forms, unioned by document.
+
+    `retrieve(query, k) -> [(index, score)]`. Expansion widens recall — a
+    colloquial word reaches formally-worded entries — but the expanded query
+    can drift off the embedding model's region (dense=0.000 on
+    «هزینه غرفه…» pre-fix) while the original keeps the exact typed
+    vocabulary decisive. A document's score is its MAX over the two forms:
+    two mediocre agreements must not outvote one strong match. The forms are
+    usually near-identical after normalization, and `expanded == original`
+    skips the second call entirely.
+    """
+    first = retrieve(original, k) if original else []
+    if not expanded or expanded == original:
+        return first
+    second = retrieve(expanded, k)
+    if not second:
+        return first
+    by_idx = dict(first)
+    for idx, score in second:
+        if score > by_idx.get(idx, -1.0):
+            by_idx[idx] = score
+    return sorted(by_idx.items(), key=lambda p: -p[1])[:k]
+
 # Trained intent classifier (this installation's own model, retrained on
 # every reindex from the question corpus). None when the semantic backend
 # is off or training data is insufficient.
@@ -352,12 +377,19 @@ def find_best_match(query: str):
     # rather than taking the chatbot down.
     if RERANK_ENABLED and (dataset_embedding_index is not None or dataset_bm25_index is not None):
         try:
+            # Each retriever sees BOTH query forms — original (coverage_query)
+            # and expanded — and the union of their hits goes to the reranker.
+            # Coverage inside rerank stays on the original (see rerank.rerank).
             dense_hits = []
             if dataset_embedding_index is not None:
-                dense_hits = dataset_embedding_index.search_topk(normalized_query, RERANK_CANDIDATES)
+                dense_hits = _dual_hits(
+                    dataset_embedding_index.search_topk,
+                    coverage_query, normalized_query, RERANK_CANDIDATES)
             lexical_hits = []
             if dataset_bm25_index is not None:
-                lexical_hits = dataset_bm25_index.top_k(normalized_query, RERANK_CANDIDATES)
+                lexical_hits = _dual_hits(
+                    dataset_bm25_index.top_k,
+                    coverage_query, normalized_query, RERANK_CANDIDATES)
 
             best_idx, score, signals = rerank.best(
                 normalized_query, normalized_descriptions, dense_hits, lexical_hits, coverage_query=coverage_query)
@@ -436,10 +468,14 @@ def find_similar_question(query: str, exact_only: bool = False):
         try:
             dense_hits = []
             if questions_embedding_index is not None:
-                dense_hits = questions_embedding_index.search_topk(normalized_query, RERANK_CANDIDATES)
+                dense_hits = _dual_hits(
+                    questions_embedding_index.search_topk,
+                    coverage_query, normalized_query, RERANK_CANDIDATES)
             lexical_hits = []
             if questions_bm25_index is not None:
-                lexical_hits = questions_bm25_index.top_k(normalized_query, RERANK_CANDIDATES)
+                lexical_hits = _dual_hits(
+                    questions_bm25_index.top_k,
+                    coverage_query, normalized_query, RERANK_CANDIDATES)
             tfidf_idx, tfidf_score, _ = rerank.best(
                 normalized_query, normalized_questions, dense_hits, lexical_hits, coverage_query=coverage_query)
         except Exception as e:
