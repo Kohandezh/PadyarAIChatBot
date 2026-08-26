@@ -370,6 +370,11 @@ async function loadSettings() {
     // If it is missing, the operator has to read that here, at the moment of
     // choosing, and not afterwards in a log.
     const smsOff = s.sms_available === false;
+    // When it IS available, the same field carries the dev-outbox note: the
+    // channel works, and the operator still deserves to know where the
+    // message really goes on a test install.
+    const smsNote = s.sms_reason && !smsOff
+        ? `<div class="text-muted small mt-1">${esc(s.sms_reason)}</div>` : '';
     const smsReason = smsOff
         ? `<div class="text-danger small mt-1">
              سامانهٔ پیامک این حساب اجازهٔ فرستادن لینک ندارد، پس این گزینه الان کار نمی‌کند.
@@ -392,10 +397,11 @@ async function loadSettings() {
                  ${s.invite_channel === 'sms' ? 'checked' : ''} ${smsOff ? 'disabled' : ''}>
           <label class="form-check-label" for="channel-sms">
             <span class="fw-bold">فرستادن لینک با پیامک</span>
-            <div class="text-muted small">
-              لینک به همان شماره‌ای می‌رود که تأیید شده. مخاطب لازم نیست همان لحظه پای غرفه بماند.
-            </div>
-            ${smsReason}
+             <div class="text-muted small">
+               لینک به همان شماره‌ای می‌رود که تأیید شده. مخاطب لازم نیست همان لحظه پای غرفه بماند.
+             </div>
+             ${smsReason}
+             ${smsNote}
           </label>
         </div>`;
     document.getElementById('consent-script').value = s.consent_script || '';
