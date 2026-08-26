@@ -317,6 +317,34 @@ async def admin_delete_company(dataset_id: str, admin: str = Depends(verify_admi
     return leads_service.delete_company(dataset_id, actor=admin)
 
 
+# ── Company profiles ─────────────────────────────────────────────────────
+# What the organizer already knows about each exhibitor — see
+# app/services/company_profiles.py for why this is a table beside `dataset`
+# and `company_leads`, not a column of either.
+
+@router.get("/admin/api/company-profiles", dependencies=[Depends(verify_admin)])
+async def admin_company_profiles(q: str = ""):
+    from app.services import company_profiles
+    return {"companies": company_profiles.list_companies(q)}
+
+
+@router.get("/admin/api/company-profiles/{dataset_id}",
+            dependencies=[Depends(verify_admin)])
+async def admin_company_profile(dataset_id: str):
+    from app.services import company_profiles
+    return {"profile": company_profiles.get_profile(dataset_id)}
+
+
+@router.put("/admin/api/company-profiles/{dataset_id}")
+async def admin_save_company_profile(dataset_id: str, payload: dict = Body(default={}),
+                                     admin: str = Depends(verify_admin)):
+    from app.services import company_profiles
+    try:
+        return {"profile": company_profiles.upsert_profile(dataset_id, payload)}
+    except company_profiles.ProfileError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
 @router.get("/admin/api/leads/funnel", dependencies=[Depends(verify_admin)])
 async def admin_funnel():
     return leads_service.funnel()
@@ -469,3 +497,15 @@ async def admin_page(request: Request):
     if redirect:
         return redirect
     return _render("admin/leads.html", request=request, active_page="leads")
+
+
+@router.get("/secure-panel-inotex/companies", response_class=HTMLResponse)
+async def admin_companies_page(request: Request):
+    """The organizer's exhibitor book: every company beside what is known
+    about it, editable in place."""
+    from app.routers.public import _render, _require_admin
+
+    redirect = await _require_admin(request)
+    if redirect:
+        return redirect
+    return _render("admin/companies.html", request=request, active_page="companies")

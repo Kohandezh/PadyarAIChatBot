@@ -211,6 +211,32 @@ _TABLES = (
         reviewed_by  TEXT NOT NULL DEFAULT ''
     )
     """,
+    # The SQLite half of migrations/0008_company_profiles.sql. What the
+    # organizer already knows about an exhibitor, keyed on dataset.id — see
+    # that file for why this is neither a wider `dataset` nor a lead.
+    """
+    CREATE TABLE IF NOT EXISTS company_profiles (
+        dataset_id       TEXT PRIMARY KEY,
+        contact_name     TEXT NOT NULL DEFAULT '',
+        contact_position TEXT NOT NULL DEFAULT '',
+        contact_mobile   TEXT NOT NULL DEFAULT '',
+        email            TEXT NOT NULL DEFAULT '',
+        website          TEXT NOT NULL DEFAULT '',
+        company_phone    TEXT NOT NULL DEFAULT '',
+        fax              TEXT NOT NULL DEFAULT '',
+        address          TEXT NOT NULL DEFAULT '',
+        address_en       TEXT NOT NULL DEFAULT '',
+        province         TEXT NOT NULL DEFAULT '',
+        company_type     TEXT NOT NULL DEFAULT '',
+        org_stage        TEXT NOT NULL DEFAULT '',
+        activity_field   TEXT NOT NULL DEFAULT '',
+        participation    TEXT NOT NULL DEFAULT '',
+        notes            TEXT NOT NULL DEFAULT '',
+        source           TEXT NOT NULL DEFAULT 'import',
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+    )
+    """,
 )
 
 _INDEXES = (
