@@ -297,6 +297,26 @@ async def admin_add_contact(body: ContactBody, request: Request,
         raise _fail(e)
 
 
+@router.post("/admin/api/leads/contacts/{dataset_id}/reissue-invite")
+async def admin_reissue_invite(dataset_id: str, request: Request,
+                               admin: str = Depends(verify_admin)):
+    """A fresh one-time link for a company that already owns one. The previous
+    invite dies; the new link + QR is shown once, to be handed over by the
+    operator."""
+    try:
+        return leads_service.reissue_invite(dataset_id, base_url=_base_url(request),
+                                            actor=admin)
+    except LeadError as e:
+        raise _fail(e)
+
+
+@router.delete("/admin/api/leads/companies/{dataset_id}")
+async def admin_delete_company(dataset_id: str, admin: str = Depends(verify_admin)):
+    """Drop a company from the leads feature: leads, invites, pending drafts.
+    The dataset row itself is the dataset page's business."""
+    return leads_service.delete_company(dataset_id, actor=admin)
+
+
 @router.get("/admin/api/leads/funnel", dependencies=[Depends(verify_admin)])
 async def admin_funnel():
     return leads_service.funnel()

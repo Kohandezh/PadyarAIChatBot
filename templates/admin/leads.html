@@ -219,7 +219,8 @@
         </div>
     </div>
 
-    <!-- The raw capture log. -->
+    <!-- The raw capture log, and the per-company acts that need no
+         explanation: a lost link is reissued, a mistaken company removed. -->
     <div class="col-12">
         <div class="content-card">
             <div class="card-header"><span><i class="fas fa-list me-2"></i>آخرین ثبت‌ها</span></div>
@@ -227,7 +228,7 @@
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>
-                            <th class="ps-4">شرکت</th><th>مخاطب</th><th>شماره</th><th>وضعیت</th>
+                            <th class="ps-4">شرکت</th><th>مخاطب</th><th>شماره</th><th>وضعیت</th><th></th>
                         </tr></thead>
                         <tbody id="leads"></tbody>
                     </table>
@@ -237,6 +238,19 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* The company typeahead floats over the page on a light-grey admin body;
+   without a solid background the rows underneath bleed through the list. */
+#contact-company-list .list-group-item { background: #fff; }
+
+/* Brand-tinted badges can drop under 4.5:1 contrast for their label; the
+   leads-page badges are status markers and must stay readable on every
+   install's palette. */
+#leads .badge { color: #fff; }
+</style>
 {% endblock %}
 
 {% block page_js %}

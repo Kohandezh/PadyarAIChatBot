@@ -369,6 +369,14 @@ merge‌شدنی است. نگاشت گروه به فاز و به issue در بخ
   نوشته می‌شود (REQ-059).
 - REQ-078: `GET /admin/api/leads/companies?q=` همان جستجوی REQ-002 را برای
   فرم ادمین برمی‌گرداند؛ شرکت مالک‌دار در نتیجه نیست.
+- REQ-079: `POST /admin/api/leads/contacts/{dataset_id}/reissue-invite` برای
+  شرکتی که مالک زنده دارد، دعوت‌نامهٔ تازه صادر می‌کند؛ دعوت‌نامهٔ قبلی همان
+  لحظه می‌میرد (الگوی REQ-015) و لینک و QR دقیقاً یک بار برگردانده می‌شود.
+  شرکتی که مالک ندارد رد می‌شود (تصمیم مالک، ۲۰۲۶-۰۸-۲۶).
+- REQ-080: `DELETE /admin/api/leads/companies/{dataset_id}` همهٔ ثبت‌ها،
+  دعوت‌نامه‌ها و پیش‌نویس‌های در صفِ آن شرکت را حذف می‌کند؛ سطر `dataset`
+  (پاسخ چت‌بات) دست‌نخورده می‌ماند و با رفتن مالک، شرکت به جستجوی غرفه
+  برمی‌گردد (تصمیم مالک، ۲۰۲۶-۰۸-۲۶).
 - عمل در applog با نام کاربری ادمین ثبت می‌شود (`leads.admin_contact_added`).
 
 ### گروه I: ورود کاربر (فاز ۳)
@@ -1012,6 +1020,7 @@ SEC-013 (قاعدهٔ ۱۵ بخش ۶، F25) نوشتنی نیست: مالکیت�
 | `tests/test_leads_security.py` | integration | SEC-008 تا SEC-036 که به PostgreSQL یا DOM نیاز ندارند |
 | `tests/test_leads_visitors_admin.py` | integration، `TestClient` | REQ-074. حذف ویزیتور از مسیر واقعی ادمین: مرگ لینک، ماندن ثبت‌ها و مالکیت، `401/403` و `404` |
 | `tests/test_leads_contacts_admin.py` | integration، `TestClient` | REQ-075 تا REQ-078. ثبت مسئول شرکت از ادمین تا صف بررسی، شرط مالک‌دار، سؤال شمارهٔ تکراری و override، جستجوی شرکت، رد بی‌نام |
+| `tests/test_leads_company_tools.py` | integration، `TestClient` | REQ-079 و REQ-080. صدور دوبارهٔ لینک با مرگ لینک قبلی، رد شرکت بی‌مالک، حذف شرکت با ماندن سطر dataset، رد بی‌نام |
 | `tests/postgres/test_leads_pg.py` | integration روی PostgreSQL واقعی، opt-in | F5 و F12. توضیح در ۱۲.۲ |
 | `tests/e2e/test_chat_xss.py` | Playwright، DOM واقعی | F2. توضیح در ۱۲.۳ |
 
