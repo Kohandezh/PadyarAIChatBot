@@ -181,12 +181,18 @@ def test_expansion_does_not_repeat_a_word_across_targets(client):
     assert normalize_persian("بلیط").split().count("ورودی") == 1
 
 
-def test_a_single_target_expands_exactly_as_before(client):
-    """The tuned one-row strings must be untouched by the merge, repeats and
-    all: they were measured against the golden set as authored."""
+def test_a_single_target_expands_deduped(client):
+    """The merge keeps every DISTINCT word of the tuned one-row strings.
+
+    The old contract kept the first target verbatim, repeats and all. That is
+    exactly the defect fixed on 2026-08-26: «پارک فناوری پردیس پردیس» doubled
+    the source word, and doubled words pushed expanded queries out of the
+    embedding model's region (dense=0.000 on the diagnostic run). The new
+    contract is: source once, each synonym word once — the union, no repeats.
+    """
     from app.utils.normalizer import load_synonyms_from_db, normalize_persian
 
     client.post("/api/synonyms", json={"source": "پردیس", "target": "پارک فناوری پردیس پردیس"})
     load_synonyms_from_db()
 
-    assert normalize_persian("پردیس") == "پارک فناوری پردیس پردیس"
+    assert normalize_persian("پردیس") == "پردیس پارک فناوری"
