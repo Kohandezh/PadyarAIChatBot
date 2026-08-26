@@ -73,8 +73,9 @@ function note(id, text, tone) {
 }
 
 // Every mutation goes through here so a refused action says why instead of
-// silently doing nothing.
-async function post(url, body) {
+// silently doing nothing. `allow` lists failure statuses the caller wants to
+// answer itself (the duplicate-phone 409 is a question, not a dead end).
+async function post(url, body, allow = []) {
     alertBox('');
     const res = await fetchAuth(url, {
         method: 'POST',
@@ -83,7 +84,7 @@ async function post(url, body) {
     });
     let data = {};
     try { data = await res.json(); } catch { /* empty body is fine */ }
-    if (!res.ok) {
+    if (!res.ok && !allow.includes(res.status)) {
         alertBox(data.detail || 'این کار انجام نشد. دوباره تلاش کنید.');
         return null;
     }
@@ -418,14 +419,92 @@ function refresh() {
 
 // The link and its QR are shown exactly once, right here. Nothing is emailed
 // and nothing is texted, so the operator hands it over face to face.
-function showNewLink(title, data) {
-    document.getElementById('new-visitor-title').textContent = title;
-    document.getElementById('new-visitor-qr').innerHTML = data.qr;
-    document.getElementById('new-visitor-link').textContent = data.link;
-    document.getElementById('new-visitor').classList.remove('d-none');
+function showNewLink(title, data, prefix = 'new-visitor') {
+    document.getElementById(`${prefix}-title`).textContent = title;
+    document.getElementById(`${prefix}-qr`).innerHTML = data.qr;
+    document.getElementById(`${prefix}-link`).textContent = data.link;
+    document.getElementById(prefix).classList.remove('d-none');
+}
+
+// ── Adding a contact met outside the booth ───────────────────────────────
+
+// Typeahead over the same list the booth sees. An owned company never comes
+// back, which is the search telling the operator "this one is taken" before
+// the form is even submitted.
+function initContactForm() {
+    const input = document.getElementById('contact-company');
+    const list = document.getElementById('contact-company-list');
+    const idField = document.getElementById('contact-dataset-id');
+    let timer = null;
+
+    input.addEventListener('input', () => {
+        idField.value = '';
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (q.length < 2) { list.style.display = 'none'; return; }
+        timer = setTimeout(async () => {
+            try {
+                const { companies } = await get(`/admin/api/leads/companies?q=${encodeURIComponent(q)}`);
+                if (!companies.length) {
+                    list.innerHTML = '<button type="button" class="list-group-item list-group-item-action disabled">شرکتی پیدا نشد</button>';
+                } else {
+                    list.innerHTML = companies.map(c => `
+                        <button type="button" class="list-group-item list-group-item-action"
+                                data-id="${esc(c.id)}" data-title="${esc(c.title)}">${esc(c.title)}</button>`).join('');
+                }
+                list.style.display = 'block';
+            } catch { list.style.display = 'none'; }
+        }, 250);
+    });
+
+    list.addEventListener('click', (ev) => {
+        const item = ev.target.closest('[data-id]');
+        if (!item) return;
+        idField.value = item.dataset.id;
+        input.value = item.dataset.title;
+        list.style.display = 'none';
+    });
+
+    document.addEventListener('click', (ev) => {
+        if (!ev.target.closest('#contact-company') && !ev.target.closest('#contact-company-list')) {
+            list.style.display = 'none';
+        }
+    });
+
+    document.getElementById('add-contact').addEventListener('click', async (ev) => {
+        const btn = ev.currentTarget;
+        const datasetId = idField.value;
+        if (!datasetId) { note('contact-msg', 'نام شرکت را از فهرست انتخاب کنید.', 'danger'); return; }
+
+        const body = {
+            dataset_id: datasetId,
+            first_name: document.getElementById('contact-first').value.trim(),
+            last_name: document.getElementById('contact-last').value.trim(),
+            position: document.getElementById('contact-position').value.trim(),
+            phone: document.getElementById('contact-phone').value.trim(),
+        };
+        alertBox('');
+        let data = await post('/admin/api/leads/contacts', body, [409]);
+        // The operator answers the same duplicate warning a visitor reads out
+        // at the booth: confirm once, send again with the override.
+        if (data && data.duplicate) {
+            if (!confirm(data.detail)) { note('contact-msg', 'ثبت انجام نشد.', 'danger'); return; }
+            data = await post('/admin/api/leads/contacts', { ...body, override_duplicate: true }, [409]);
+        }
+        if (!data) { note('contact-msg', 'ثبت انجام نشد.', 'danger'); return; }
+        note('contact-msg', `مسئول «${data.company}» ثبت شد.`, 'success');
+        showNewLink(`لینک اختصاصی مسئول «${data.company}»:`, data, 'new-contact');
+        ['contact-first', 'contact-last', 'contact-position', 'contact-phone'].forEach(
+            id => document.getElementById(id).value = '');
+        input.value = '';
+        idField.value = '';
+        await refresh();
+    });
 }
 
 export function initLeads() {
+    initContactForm();
+
     document.getElementById('add-visitor').addEventListener('click', async () => {
         const input = document.getElementById('visitor-name');
         const data = await post('/admin/api/leads/visitors', { name: input.value.trim() });

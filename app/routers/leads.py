@@ -264,6 +264,39 @@ async def save_edit(token: str, request: Request, payload: dict = Body(default={
 
 # ── Admin ────────────────────────────────────────────────────────────────
 
+class ContactBody(BaseModel):
+    dataset_id: str = Field(min_length=1, max_length=120)
+    first_name: str = Field(default="", max_length=60)
+    last_name: str = Field(default="", max_length=60)
+    position: str = Field(default="", max_length=80)
+    phone: str = Field(min_length=8, max_length=20)
+    override_duplicate: bool = False
+
+
+@router.get("/admin/api/leads/companies", dependencies=[Depends(verify_admin)])
+async def admin_companies(q: str = ""):
+    """Company search for the admin's contact form. Same list the booth sees:
+    companies someone already owns are not offered twice."""
+    return {"companies": leads_service.search_companies(q)}
+
+
+@router.post("/admin/api/leads/contacts")
+async def admin_add_contact(body: ContactBody, request: Request,
+                            admin: str = Depends(verify_admin)):
+    try:
+        return leads_service.admin_add_contact(
+            body.dataset_id, body.first_name, body.last_name, body.position,
+            body.phone, base_url=_base_url(request),
+            override_duplicate=body.override_duplicate,
+            actor=admin, ip=client_ip(request),
+        )
+    except LeadError as e:
+        if e.code == "duplicate_phone":
+            return JSONResponse(status_code=e.status,
+                                content={"detail": str(e), "duplicate": True})
+        raise _fail(e)
+
+
 @router.get("/admin/api/leads/funnel", dependencies=[Depends(verify_admin)])
 async def admin_funnel():
     return leads_service.funnel()
