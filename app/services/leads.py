@@ -428,6 +428,34 @@ def set_visitor_active(visitor_id: str, active: bool) -> bool:
     return changed
 
 
+def delete_visitor(visitor_id: str, actor: str = "") -> bool:
+    """Remove a field visitor from the roster. The personal link dies with
+    the row: `visitor_by_code` and `visitor_by_id` read the row back, and no
+    row means no session, on the very next tap.
+
+    The leads this visitor captured stay exactly where they are. A lead is
+    the record of a company this exhibition reached, owned by its own row
+    and not by whoever was holding the phone; only the attribution falls
+    back to "—" in the lists. A company one of their leads still owns keeps
+    that owner until an admin releases it, so deleting a colleague can
+    never quietly hand a verified company back to the search list.
+    """
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        cur = conn.execute("DELETE FROM lead_visitors WHERE id = ?", (visitor_id,))
+        conn.commit()
+        changed = (cur.rowcount or 0) > 0
+    finally:
+        conn.close()
+    if changed:
+        from app.services import applog
+        applog.audit("leads.visitor_deleted", "همکار غرفه از فهرست حذف شد",
+                     actor=actor, target=visitor_id)
+        _audit("visitor_deleted", visitor_id, visitor_id=visitor_id, actor=actor)
+    return changed
+
+
 def rotate_visitor_code(visitor_id: str) -> Optional[str]:
     """Mint a new personal link and kill the old one in the same statement.
 
