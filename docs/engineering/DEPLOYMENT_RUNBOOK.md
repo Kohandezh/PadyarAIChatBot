@@ -36,7 +36,21 @@ gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 127.0.0.1:8000 app.main:app
 merge پشت‌سرهم همدیگر را له نمی‌کنند.
 
 دستی (بدون GitHub): `sudo /usr/local/bin/padyar-deploy inotex <sha>` — همان
-مراحل، همان بازگشت.
+مراحل، همان بازگشت. deploy دستی و deploy خودکار با یک قفل روی سرور
+(`/run/padyar-deploy-inotex.lock`) پشت‌سرهم می‌شوند، پس صدا زدن دستی وسط یک
+deploy خودکار منتظر می‌ماند (تا ۱۵ دقیقه) و له نمی‌کند.
+
+**«SUPERSEDED» در لاگ خطا نیست:** اگر `main` بعد از تأیید شما جلو رفته باشد،
+deploy آن sha را انجام نمی‌دهد و با پیام SUPERSEDED و کد موفق تمام می‌شود؛
+run بعدی کد جدیدتر را می‌برد. چیزی تغییر نکرده و نیازی به اقدام نیست.
+
+تغییر خودِ اسکریپت deploy: فایل روی سرور root-owned است و از مخزن جدا نصب
+شده؛ بعد از merge، یک بار روی سرور:
+
+```bash
+sudo install -m 0755 -o root -g root \
+  /opt/padyar-inotex/deploy/padyar-deploy.sh /usr/local/bin/padyar-deploy
+```
 
 ## بررسی سلامت
 - Liveness: `GET /api/health` (ارزان، بدون فراخوانی خارجی)
