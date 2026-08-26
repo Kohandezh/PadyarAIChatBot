@@ -82,6 +82,17 @@ as_app_env() {
 [[ -d "$APP_DIR/.git" ]] || die "$APP_DIR is not a git checkout; run deploy/10-install-app.sh first."
 CURRENT_SHA=$(as_app "git -C '$APP_DIR' rev-parse HEAD")
 
+# ── Serialize: one deploy per install at a time ──────────────────────────
+# Two approved deploys raced on 2026-08-26: the older run's health checks and
+# rollback interleaved with the newer run's reset+restart, and both failed.
+# The lock is held for the whole script; a later run WAITS rather than losing,
+# because the later run carries the newer sha (and the sha guard below still
+# refuses anything that is no longer main's tip).
+exec 9>"/run/padyar-deploy-${SLUG}.lock"
+if ! flock -w 900 9; then
+  die "another deploy of ${SLUG} is still running after 15 minutes — not starting this one; investigate with: journalctl -u ${SERVICE} and ps aux | grep padyar-deploy"
+fi
+
 if [[ "$CURRENT_SHA" == "$NEW_SHA" ]]; then
   log "Already at $NEW_SHA — nothing to do."
   exit 0
@@ -112,7 +123,12 @@ FETCHED=$(as_app "git -C '$APP_DIR' rev-parse 'refs/remotes/deploy/main'")
 if [[ "$FETCHED" != "$NEW_SHA" ]]; then
   # The workflow asked for this exact sha; main has moved on since (a newer
   # merge raced us). Deploy the sha that was approved, or nothing.
-  die "origin/main is at $FETCHED, expected $NEW_SHA — a newer commit landed. The next queued deploy will carry it."
+  # Exit 0, not 1: nothing was changed and nothing is wrong — the older run
+  # aborting here used to fail the whole CI job and page someone for a race
+  # that the newer queued run already resolves (2026-08-26). The message is
+  # loud on purpose so a human reading the log cannot mistake it for success.
+  log "SUPERSEDED: origin/main is at $FETCHED, expected $NEW_SHA — a newer commit landed. Nothing was changed; the newer run carries it."
+  exit 0
 fi
 as_app "git -C '$APP_DIR' reset --hard '$NEW_SHA'"
 
