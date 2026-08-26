@@ -655,6 +655,86 @@ def register_contact(visitor_id: str, dataset_id: str, first_name: str,
     }
 
 
+def admin_add_contact(dataset_id: str, first_name: str, last_name: str,
+                      position: str, phone: str, base_url: str = "",
+                      override_duplicate: bool = False,
+                      actor: str = "", ip: str = "") -> dict:
+    """Record a company contact straight from the admin panel, with an invite.
+
+    The scenario: the contact was met OUTSIDE the booth flow — a phone call, a
+    corridor conversation — and the operator wants exactly what the booth
+    produces: the responsible person on file for this `dataset` row, and a
+    one-time link they can hand over (WhatsApp, email, in person) so the
+    company's text still goes through the same human review.
+
+    The admin stands where the OTP stood: `verified` means the operator vouches
+    for the number, and the row owns its company until an explicit release —
+    the same rule every other live owner follows. Every refusal the booth can
+    meet is met here too, with the same codes, so the UI can share its logic.
+    """
+    ensure_tables()
+    company = _dataset_row(dataset_id)
+    if company is None:
+        raise LeadError("این شرکت در فهرست نیست.", status=404, code="unknown_company")
+
+    destination = otp_service.normalize_destination(phone)
+    if destination is None:
+        raise LeadError("شماره واردشده معتبر نیست.", code="bad_phone")
+    if not (first_name or "").strip():
+        raise LeadError("نام مخاطب را وارد کنید.", code="missing_name")
+
+    phone_hash = _digest(destination)
+    lead_id = secrets.token_urlsafe(12)
+    now = _now()
+
+    conn = get_db_connection()
+    try:
+        owner = conn.execute(
+            f"SELECT l.id FROM company_leads l WHERE l.dataset_id = ? AND {_live_owner()}"
+            " LIMIT 1", (dataset_id,),
+        ).fetchone()
+        if owner is not None:
+            raise LeadError("این شرکت قبلاً ثبت شده است.", status=409, code="company_taken")
+
+        prior = conn.execute(
+            "SELECT l.id FROM company_leads l WHERE l.phone_hash = ?"
+            f" AND l.dataset_id <> ? AND {_live_owner()} ORDER BY l.created_at LIMIT 1",
+            (phone_hash, dataset_id),
+        ).fetchone()
+        if prior is not None and not override_duplicate:
+            raise LeadError(
+                "این شماره قبلاً برای شرکت دیگری ثبت شده است. اگر مطمئنید ادامه بدهید.",
+                status=409, code="duplicate_phone",
+            )
+
+        conn.execute(
+            "INSERT INTO company_leads (id, dataset_id, company_name, visitor_id,"
+            " first_name, last_name, position, phone, phone_hash, status,"
+            " duplicate_override_of, duplicate_override_at, consent_script_version,"
+            " created_at, verified_at, ip, user_agent)"
+            " VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'verified', ?, ?, 'admin', ?, ?, ?, '')",
+            (lead_id, dataset_id, company["title"],
+             (first_name or "").strip()[:60], (last_name or "").strip()[:60],
+             (position or "").strip()[:80], destination, phone_hash,
+             prior["id"] if prior is not None else None,
+             now.isoformat() if prior is not None else None,
+             now.isoformat(), now.isoformat(), (ip or "")[:60]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    invite = create_invite(lead_id, dataset_id, base_url)
+    from app.services import applog
+    applog.audit("leads.admin_contact_added", "مسئول شرکت از پنل ادمین ثبت شد",
+                 actor=actor, target=lead_id, ip=ip,
+                 metadata={"dataset_id": dataset_id})
+    _audit("admin_contact_added", company["title"], lead_id=lead_id, actor=actor)
+    return {"lead_id": lead_id, "company": company["title"],
+            "link": invite["invite_url"], "qr": qr_svg(invite["invite_url"]),
+            "expires_at": invite["expires_at"]}
+
+
 def _lead(conn, lead_id: str):
     return conn.execute("SELECT * FROM company_leads WHERE id = ?", (lead_id,)).fetchone()
 

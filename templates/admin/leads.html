@@ -156,6 +156,69 @@
         </div>
     </div>
 
+    <!-- A contact met outside the booth: the operator records the responsible
+         person for a company and hands over the edit link personally. Same
+         table, same ownership rule, same review queue as a booth lead. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-address-card me-2"></i>افزودن مسئول شرکت</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    وقتی مسئول شرکت را جای غیر از غرفه دیدید (تلفن، راهرو، جلسه)،
+                    مشخصاتش را همین‌جا ثبت کنید. لینک ویرایش یک‌بارمصرف ساخته می‌شود
+                    و همان لحظه همین‌جا نشان داده می‌شود تا خودتان به او برسانید.
+                    متن او مثل بقیه به صف بررسی می‌رود.
+                </p>
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-lg-4 position-relative">
+                        <label class="form-label small text-muted" for="contact-company">نام شرکت</label>
+                        <input type="text" class="form-control" id="contact-company"
+                               placeholder="تایپ کنید تا جستجو شود…" autocomplete="off">
+                        <div id="contact-company-list" class="list-group position-absolute w-100"
+                             style="z-index:1050; display:none"></div>
+                        <input type="hidden" id="contact-dataset-id">
+                    </div>
+                    <div class="col-6 col-lg-2">
+                        <label class="form-label small text-muted" for="contact-first">نام</label>
+                        <input type="text" class="form-control" id="contact-first">
+                    </div>
+                    <div class="col-6 col-lg-2">
+                        <label class="form-label small text-muted" for="contact-last">نام خانوادگی</label>
+                        <input type="text" class="form-control" id="contact-last">
+                    </div>
+                    <div class="col-6 col-lg-2">
+                        <label class="form-label small text-muted" for="contact-position">سمت</label>
+                        <input type="text" class="form-control" id="contact-position">
+                    </div>
+                    <div class="col-6 col-lg-2">
+                        <label class="form-label small text-muted" for="contact-phone">شماره موبایل</label>
+                        <input type="text" class="form-control" id="contact-phone" dir="ltr"
+                               placeholder="09121234567">
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="add-contact">
+                    <i class="fas fa-plus me-1"></i>افزودن و ساخت لینک
+                </button>
+                <div id="contact-msg" class="fw-bold mt-2 small"></div>
+
+                <!-- Same one-time rule as a visitor's link: shown here once,
+                     at creation, because there is no way back to it. -->
+                <div id="new-contact" class="alert alert-success d-none">
+                    <p class="mb-1 fw-bold" id="new-contact-title"></p>
+                    <p class="small mb-2">
+                        این لینک فقط همین یک بار نشان داده می‌شود. همین حالا برای
+                        مسئول شرکت بفرستید. اگر گم شد، شرکت را «آزاد» کنید و دوباره
+                        ثبتش کنید.
+                    </p>
+                    <div class="text-center mb-2" id="new-contact-qr" style="max-width:220px;margin:0 auto"></div>
+                    <code class="d-block text-break small" id="new-contact-link" dir="ltr"></code>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- The raw capture log. -->
     <div class="col-12">
         <div class="content-card">
