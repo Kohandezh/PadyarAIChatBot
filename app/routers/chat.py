@@ -19,7 +19,8 @@ import time as _perf
 
 from app.db.queries import get_setting, log_chat
 from app.services import applog
-from app.services.search import find_best_match, find_similar_question, classify_intent_local
+from app.services.search import (find_best_match, find_similar_question,
+                                 classify_intent_local, unknown_salient_tokens)
 from app.services.openai import classify_intent, get_openai_response
 from app.utils.normalizer import strip_leading_greeting
 
@@ -151,10 +152,24 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # It outranks description-level similarity, which on short corpora can be
     # confidently wrong (measured on the golden set).
     exact_match, exact_score = find_similar_question(match_query, exact_only=True)
+    question_match, q_score = find_similar_question(match_query)
+
+    # Unknown-entity gate (the الکامپ incident, 2026-08-26): a query naming
+    # something the WHOLE corpus knows nothing about must not be answered by
+    # any local tier. Lexical retrievers silently drop unknown tokens, so
+    # «تاریخ برگزاری نمایشگاه الکامپ» degraded to its common words and the
+    # questions blend served the INOTEX date at 0.844 — confidently wrong.
+    # Nulling every local candidate walks the ladder to the AI tier, which can
+    # actually judge an out-of-domain entity, and keeps 503 (not a wrong
+    # answer) when the AI tier is unavailable.
+    unknown_tokens = unknown_salient_tokens(match_query)
+    if unknown_tokens:
+        logger.info(f"Unknown salient tokens {unknown_tokens}; deferring local tiers to AI")
+        exact_match = question_match = best_match = None
+        score = q_score = 0.0
+
     if exact_match and exact_score >= 0.9:
         return _answer_from_entry(exact_match, exact_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
-
-    question_match, q_score = find_similar_question(match_query)
 
     # Tier 1 — trust only a near-exact local match.
     if score >= TRUSTED_MATCH_THRESHOLD and best_match:
@@ -168,7 +183,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # confident verdict answers here with zero external calls; anything less
     # falls through to the AI classifier exactly as before.
     intent_entry, intent_prob = classify_intent_local(match_query)
-    if intent_entry and intent_prob >= INTENT_TRUST_THRESHOLD:
+    if not unknown_tokens and intent_entry and intent_prob >= INTENT_TRUST_THRESHOLD:
         logger.info(f"Local intent classifier → {intent_entry.get('id')} (p={intent_prob:.2f})")
         return _answer_from_entry(intent_entry, intent_prob, "local_intent", user_query, lang=lang, visitor=request.visitor)
 
