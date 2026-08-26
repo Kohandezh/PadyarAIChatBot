@@ -1,0 +1,132 @@
+"""Company profiles: the organizer's exhibitor data beside the chatbot's.
+
+The relation under test — three tables, three lifetimes:
+
+    dataset.id ◄── company_profiles.dataset_id  (what we KNOW, 1:1)
+                ◄── company_leads.dataset_id    (a VERIFIED capture event)
+
+The load-bearing rule: profile data never creates a lead and never claims a
+company. If an upsert left a company owned, the booth search would hide all
+169 exhibitors the day the spreadsheet lands — so the scenario test below
+walks list → upsert → list again and asserts the company is still in the
+booth's search list.
+"""
+import datetime
+import secrets
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def admin_client(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "profiles_admin.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    with TestClient(app) as c:
+        from app.db.connection import get_db_connection
+        from app.services import leads as leads_svc
+        leads_svc.ensure_tables()
+        conn = get_db_connection()
+        conn.execute("INSERT INTO dataset (id, title, text)"
+                     " VALUES ('co-a', 'شرکت آ', 'متن آ'), ('co-b', 'شرکت ب', 'متن ب')")
+        token = secrets.token_hex(16)
+        conn.execute("INSERT OR IGNORE INTO admins (username, password_hash, salt,"
+                     " security_question, security_answer_hash)"
+                     " VALUES ('padmin','x','y','q','z')")
+        conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
+                     " VALUES (?,?,?)",
+                     (token, "padmin",
+                      (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()))
+        conn.commit()
+        conn.close()
+        c.cookies.set("admin_session", token)
+        from app.auth.csrf import token_for_session
+        c.headers["X-CSRF-Token"] = token_for_session(token)
+        yield c
+
+
+def test_the_round_trip_and_the_ownership_rule(admin_client):
+    from app.services import leads as svc
+
+    # Empty book: both companies listed, neither with a profile.
+    r = admin_client.get("/admin/api/company-profiles")
+    assert r.status_code == 200
+    rows = r.json()["companies"]
+    assert {c["id"] for c in rows} == {"co-a", "co-b"}
+    assert not any(c["has_profile"] for c in rows)
+
+    # Fill one profile.
+    r = admin_client.put("/admin/api/company-profiles/co-a", json={
+        "contact_name": "بهار حمزه‌ای", "contact_position": "مدیر اجرایی",
+        "contact_mobile": "09124308928", "email": "info@example.com",
+        "website": "example.com", "province": "تهران",
+        "activity_field": "هوش مصنوعی و داده",
+    })
+    assert r.status_code == 200
+    profile = r.json()["profile"]
+    assert profile["contact_name"] == "بهار حمزه‌ای"
+
+    # The row is back in the list, flagged; the other company still has none.
+    rows = admin_client.get("/admin/api/company-profiles").json()["companies"]
+    by_id = {c["id"]: c for c in rows}
+    assert by_id["co-a"]["has_profile"] and not by_id["co-b"]["has_profile"]
+
+    # THE rule: knowing things about a company did not own it. The booth can
+    # still register co-a, because search_companies hides owned companies.
+    assert any(c["id"] == "co-a" for c in svc.search_companies(""))
+
+    # Search reaches into the profile columns, not just the company name.
+    rows = admin_client.get("/admin/api/company-profiles?q=بهار").json()["companies"]
+    assert [c["id"] for c in rows] == ["co-a"]
+    rows = admin_client.get("/admin/api/company-profiles?q=هوش مصنوعی").json()["companies"]
+    assert [c["id"] for c in rows] == ["co-a"]
+
+    # Re-save updates in place — one profile per company, never two.
+    admin_client.put("/admin/api/company-profiles/co-a",
+                     json={"contact_name": "نام تازه"})
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        n = conn.execute("SELECT COUNT(*) c FROM company_profiles").fetchone()["c"]
+        name = conn.execute("SELECT contact_name FROM company_profiles"
+                            " WHERE dataset_id = 'co-a'").fetchone()["contact_name"]
+    finally:
+        conn.close()
+    assert n == 1 and name == "نام تازه"
+
+
+def test_upsert_drops_unknown_fields_and_refuses_unknown_companies(admin_client):
+    r = admin_client.put("/admin/api/company-profiles/co-a", json={
+        "contact_name": "x", "dataset_id": "hacked", "status": "owned"})
+    assert r.status_code == 200
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(company_profiles)")]
+        assert "status" not in cols
+    finally:
+        conn.close()
+
+    assert admin_client.put("/admin/api/company-profiles/nope",
+                            json={"contact_name": "x"}).status_code == 404
+
+
+def test_profile_of_a_company_without_one_is_empty_not_404(admin_client):
+    r = admin_client.get("/admin/api/company-profiles/co-b")
+    assert r.status_code == 200 and r.json()["profile"] == {}
+
+
+def test_the_page_and_apis_require_an_admin(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "profiles_anon.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    with TestClient(app) as anon:
+        assert anon.get("/admin/api/company-profiles").status_code in (401, 403)
+        assert anon.put("/admin/api/company-profiles/co-a",
+                        json={}).status_code in (401, 403)
+        page = anon.get("/secure-panel-inotex/companies",
+                        follow_redirects=False)
+        assert page.status_code in (302, 303, 401, 403)

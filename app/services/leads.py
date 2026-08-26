@@ -211,6 +211,32 @@ _TABLES = (
         reviewed_by  TEXT NOT NULL DEFAULT ''
     )
     """,
+    # The SQLite half of migrations/0008_company_profiles.sql. What the
+    # organizer already knows about an exhibitor, keyed on dataset.id — see
+    # that file for why this is neither a wider `dataset` nor a lead.
+    """
+    CREATE TABLE IF NOT EXISTS company_profiles (
+        dataset_id       TEXT PRIMARY KEY,
+        contact_name     TEXT NOT NULL DEFAULT '',
+        contact_position TEXT NOT NULL DEFAULT '',
+        contact_mobile   TEXT NOT NULL DEFAULT '',
+        email            TEXT NOT NULL DEFAULT '',
+        website          TEXT NOT NULL DEFAULT '',
+        company_phone    TEXT NOT NULL DEFAULT '',
+        fax              TEXT NOT NULL DEFAULT '',
+        address          TEXT NOT NULL DEFAULT '',
+        address_en       TEXT NOT NULL DEFAULT '',
+        province         TEXT NOT NULL DEFAULT '',
+        company_type     TEXT NOT NULL DEFAULT '',
+        org_stage        TEXT NOT NULL DEFAULT '',
+        activity_field   TEXT NOT NULL DEFAULT '',
+        participation    TEXT NOT NULL DEFAULT '',
+        notes            TEXT NOT NULL DEFAULT '',
+        source           TEXT NOT NULL DEFAULT 'import',
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+    )
+    """,
 )
 
 _INDEXES = (
@@ -1205,6 +1231,80 @@ def stuck_leads() -> list:
         since = d.get("verified_at") or d.get("created_at")
         d["waiting_hours"] = round((now - to_naive_utc(since)).total_seconds() / 3600, 1)
     return out
+
+
+def delete_company(dataset_id: str, actor: str = "") -> dict:
+    """Remove a company from the leads feature entirely.
+
+    The scenario: a company was added to the dataset by mistake, or pulled out
+    of the exhibition. Every lead row, every live invite and every pending
+    draft for it goes — the company disappears from the booth search and the
+    contact form, and any link still sitting in a phone dies on its next tap.
+    The `dataset` row itself is NOT touched: whether the company exists in the
+    chatbot's knowledge base is the dataset page's business, not the leads
+    page's.
+
+    Deleting the leads (not the dataset row) is the reversible direction: an
+    operator who deleted the wrong company re-adds a contact and everything is
+    back, with no way to have lost the chatbot's answer.
+    """
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        leads = conn.execute(
+            "SELECT id FROM company_leads WHERE dataset_id = ?", (dataset_id,)
+        ).fetchall()
+        lead_ids = [r["id"] for r in leads]
+        # The edit queue too: an unreviewed draft for a deleted company must
+        # not sit in the reviewer's list as a ghost.
+        conn.execute("DELETE FROM dataset_edits WHERE dataset_id = ?", (dataset_id,))
+        for lead_id in lead_ids:
+            conn.execute("DELETE FROM edit_invites WHERE lead_id = ?", (lead_id,))
+        conn.execute("DELETE FROM company_leads WHERE dataset_id = ?", (dataset_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    from app.services import applog
+    applog.audit("leads.company_deleted", "شرکت از جذب سرنخ حذف شد",
+                 actor=actor, target=dataset_id,
+                 metadata={"leads_removed": len(lead_ids)})
+    _audit("company_deleted", dataset_id, actor=actor, leads=len(lead_ids))
+    return {"ok": True, "leads_removed": len(lead_ids)}
+
+
+def reissue_invite(dataset_id: str, base_url: str = "", actor: str = "") -> dict:
+    """Mint a fresh edit link for a company that already owns one.
+
+    The scenario: the contact lost the link, or it expired before they opened
+    it, and re-verifying their phone from the booth is pointless theatre — the
+    operator already knows who they are. The newest live owner is re-used, its
+    previous invite dies, and a new one is returned with its QR, shown once.
+
+    Companies nobody owns are refused: that is the contact form's flow, and
+    mixing the two would let a link be minted for a company whose contact was
+    never verified by anyone.
+    """
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        owner = conn.execute(
+            f"SELECT l.id, l.company_name FROM company_leads l"
+            f" WHERE l.dataset_id = ? AND {_live_owner()}"
+            " ORDER BY l.verified_at DESC LIMIT 1", (dataset_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if owner is None:
+        raise LeadError("برای این شرکت مسئولی ثبت نشده است. اول «افزودن مسئول شرکت».",
+                        status=404, code="no_owner")
+    invite = create_invite(owner["id"], dataset_id, base_url)
+    from app.services import applog
+    applog.audit("leads.invite_reissued", "لینک ویرایش تازه برای شرکت صادر شد",
+                 actor=actor, target=dataset_id)
+    _audit("invite_reissued", dataset_id, lead_id=owner["id"], actor=actor)
+    return {"lead_id": owner["id"], "company": owner["company_name"],
+            "link": invite["invite_url"], "qr": qr_svg(invite["invite_url"]),
+            "expires_at": invite["expires_at"]}
 
 
 def release_lead(lead_id: str, actor: str = "", ip: str = "") -> dict:

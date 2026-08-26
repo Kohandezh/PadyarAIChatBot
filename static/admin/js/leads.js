@@ -355,12 +355,23 @@ async function loadLeads() {
               (${esc(faDate(l.duplicate_override_at))}).
             </div>` : '';
         const released = l.released_at
-            ? `<span class="badge bg-light text-dark ms-1">آزاد شده</span>` : '';
-        return `<tr data-lead="${esc(l.id)}">
+            ? `<span class="badge bg-secondary ms-1">آزاد شده</span>` : '';
+        // Acts on the COMPANY, not the lead: reissuing replaces the lost link
+        // of whoever owns it now; deleting removes the company from this
+        // feature. Both ride on the row so the operator never hunts for them.
+        const acts = `
+            <button class="btn btn-sm btn-outline-primary" data-reissue="${esc(l.dataset_id)}">
+              <i class="fas fa-link me-1"></i>لینک تازه
+            </button>
+            <button class="btn btn-sm btn-outline-danger" data-remove-company="${esc(l.dataset_id)}">
+              <i class="fas fa-trash me-1"></i>حذف شرکت
+            </button>`;
+        return `<tr data-lead="${esc(l.id)}" data-dataset="${esc(l.dataset_id)}">
             <td class="ps-4">${esc(l.company_name)}${override}</td>
             <td>${esc(fullName(l))}</td>
             <td dir="ltr">${esc(l.phone)}</td>
             <td><span class="badge bg-${tone}">${esc(label)}</span>${released}</td>
+            <td class="text-end text-nowrap">${acts}</td>
           </tr>`;
     }).join('');
 }
@@ -597,6 +608,36 @@ export function initLeads() {
         await post(`/admin/api/leads/visitors/${encodeURIComponent(id)}/active`,
                    { active: !turningOff });
         await refresh();
+    });
+
+    document.getElementById('leads').addEventListener('click', async (ev) => {
+        const reissue = ev.target.closest('[data-reissue]');
+        if (reissue) {
+            if (!confirm('لینک قبلی این شرکت از همین لحظه از کار می‌افتد و یک لینک تازه ساخته می‌شود. ادامه می‌دهید؟')) return;
+            reissue.disabled = true;
+            const data = await post(
+                `/admin/api/leads/contacts/${encodeURIComponent(reissue.dataset.reissue)}/reissue-invite`);
+            if (!data) { reissue.disabled = false; return; }
+            showNewLink(`لینک تازهٔ مسئول «${data.company}» (لینک قبلی دیگر کار نمی‌کند):`,
+                        data, 'new-contact');
+            // The QR block sits inside the contact card; make sure it is in
+            // view, not three sections above the click.
+            document.getElementById('new-contact').scrollIntoView(
+                { block: 'center', behavior: 'smooth' });
+            return;
+        }
+
+        const removeCompany = ev.target.closest('[data-remove-company]');
+        if (removeCompany) {
+            const datasetId = removeCompany.dataset.removeCompany;
+            if (!confirm('این شرکت از جذب سرنخ بیرون می‌رود: ثبت‌ها و لینک‌هایش حذف می‌شوند و از جستجوی غرفه می‌افتد. متنِ خودِ چت‌بات دست‌نخورده می‌ماند. ادامه می‌دهید؟')) return;
+            removeCompany.disabled = true;
+            if (await del(`/admin/api/leads/companies/${encodeURIComponent(datasetId)}`)) {
+                await refresh();
+            } else {
+                removeCompany.disabled = false;
+            }
+        }
     });
 
     document.getElementById('settings-save').addEventListener('click', async () => {
