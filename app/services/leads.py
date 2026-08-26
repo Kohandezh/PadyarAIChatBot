@@ -317,6 +317,12 @@ def sms_capability() -> dict:
     nothing arrived, so the answer belongs on the settings screen rather than in
     a log. Nothing here calls the gateway: it reads the same settings the send
     path reads.
+
+    `dev` counts as AVAILABLE, because its send path genuinely succeeds — the
+    link lands in the gitignored dev outbox instead of a phone. That is what
+    makes the whole invite-by-SMS flow testable before Asanak approves a link
+    template, and the `reason` says where the message really goes so nobody
+    mistakes it for delivery.
     """
     import os
     from app.db.queries import get_setting
@@ -325,8 +331,9 @@ def sms_capability() -> dict:
     provider = (get_setting("sms_provider", "")
                 or os.getenv("OTP_DELIVERY", "dev")).strip().lower()
     if provider == "dev":
-        return {"available": False,
-                "reason": "سرویس پیامک روی حالت آزمایشی است و پیامی به گوشی نمی‌رسد."}
+        return {"available": True, "dev": True,
+                "reason": "پیامک آزمایشی: لینک به جای گوشی در صندوق آزمایشی سرور "
+                          "(data/otp-dev-outbox.log) می‌نشیند."}
     if not sms_service.asanak_configured():
         return {"available": False,
                 "reason": "نام کاربری، رمز عبور و شماره فرستنده را در تنظیمات پیامک وارد کنید."}
