@@ -106,24 +106,73 @@ def upsert_profile(dataset_id: str, values: dict) -> dict:
     return get_profile(dataset_id)
 
 
+def sync_from_lead(lead: dict) -> None:
+    """Fold a verified capture's contact data into the company's profile.
+
+    The spreadsheet's phone was a guess; the booth's phone is OTP-verified.
+    So once a lead verifies, its contact name/position/mobile become the
+    profile's — overwriting whatever the import left there. This is the
+    "profile = best known state" rule, and it only ever flows one way:
+    profile data never becomes a lead (that would fake a consent).
+
+    Failure is swallowed deliberately: the lead flow is mid-transaction and
+    must not roll back because a display table could not be refreshed.
+    """
+    try:
+        ensure_tables()
+        from datetime import datetime, timezone
+        from app.db.connection import get_db_connection
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                "INSERT INTO company_profiles (dataset_id, contact_name,"
+                " contact_position, contact_mobile, source, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, 'booth', ?, ?)"
+                " ON CONFLICT(dataset_id) DO UPDATE SET"
+                " contact_name = excluded.contact_name,"
+                " contact_position = excluded.contact_position,"
+                " contact_mobile = excluded.contact_mobile,"
+                " source = 'booth', updated_at = excluded.updated_at",
+                (lead["dataset_id"],
+                 (lead.get("first_name", "") + " " + lead.get("last_name", "")).strip(),
+                 lead.get("position", ""), lead.get("phone", ""), now, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        from app.config import logger
+        logger.error("[profiles] sync_from_lead failed: %s", type(e).__name__)
+
+
 def list_companies(query: str = "", limit: int = 500) -> list:
-    """Every dataset entry beside its profile, newest-relevant first.
+    """Every dataset entry beside its profile AND its capture state.
 
     All of `dataset`, not only rows with a profile: the operator's job is to
     see which companies still have a hole (no profile) — a list that hides
     them shows a finished page that is not finished.
+
+    `lead_status` is the SALES lens (why this whole feature exists): which
+    companies nobody has approached yet, which are being worked, which are
+    done. It is the live owner's state — verified_and_waiting (a contact
+    confirmed but never sent their text) or completed (text received, in
+    review) — and NULL when the company is still untouched. Released or
+    unverified attempts are history, not a state: the company is back to
+    "not approached", which is exactly what the next visitor needs to see.
     """
     ensure_tables()
     from app.db.connection import get_db_connection
+    from app.services.leads import _live_owner
     term = (query or "").strip()
     conn = get_db_connection()
     try:
         if term:
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            where = (" WHERE d.title LIKE ? ESCAPE '\\'"
+            where = (" WHERE (d.title LIKE ? ESCAPE '\\'"
                      " OR p.contact_name LIKE ? ESCAPE '\\'"
                      " OR p.activity_field LIKE ? ESCAPE '\\'"
-                     " OR p.province LIKE ? ESCAPE '\\'")
+                     " OR p.province LIKE ? ESCAPE '\\')")
             args = [f"%{escaped}%"] * 4
         else:
             where, args = "", []
@@ -132,8 +181,11 @@ def list_companies(query: str = "", limit: int = 500) -> list:
             " p.contact_name, p.contact_position, p.contact_mobile,"
             " p.email, p.website, p.company_phone, p.province,"
             " p.company_type, p.activity_field, p.participation,"
-            " (p.dataset_id IS NOT NULL) AS has_profile"
-            " FROM dataset d LEFT JOIN company_profiles p ON p.dataset_id = d.id"
+            " (p.dataset_id IS NOT NULL) AS has_profile,"
+            " o.status AS lead_status, o.id AS lead_id"
+            " FROM dataset d"
+            " LEFT JOIN company_profiles p ON p.dataset_id = d.id"
+            " LEFT JOIN company_leads o ON o.dataset_id = d.id AND " + _live_owner("o")
             + where + " ORDER BY d.title LIMIT ?", (*args, limit)
         ).fetchall()
     finally:

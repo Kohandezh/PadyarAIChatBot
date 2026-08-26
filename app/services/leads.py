@@ -751,6 +751,14 @@ def admin_add_contact(dataset_id: str, first_name: str, last_name: str,
         conn.close()
 
     invite = create_invite(lead_id, dataset_id, base_url)
+    # Same fold-into-profile rule as a booth verify: the operator-vouched
+    # contact is better data than the spreadsheet's guess.
+    from app.services import company_profiles
+    company_profiles.sync_from_lead({
+        "dataset_id": dataset_id,
+        "first_name": (first_name or "").strip(), "last_name": (last_name or "").strip(),
+        "position": (position or "").strip(), "phone": destination,
+    })
     from app.services import applog
     applog.audit("leads.admin_contact_added", "مسئول شرکت از پنل ادمین ثبت شد",
                  actor=actor, target=lead_id, ip=ip,
@@ -809,6 +817,11 @@ def verify_contact(lead_id: str, code: str, base_url: str,
     if not claimed:
         _audit("claim_refused", lead["company_name"], lead_id=lead_id)
         raise LeadError("این شرکت قبلاً ثبت شده است.", status=409, code="company_taken")
+
+    # The verified contact is now the best data we hold; fold it into the
+    # company's profile (display side). Best-effort, never blocks the flow.
+    from app.services import company_profiles
+    company_profiles.sync_from_lead(dict(lead))
 
     invite = create_invite(lead_id, lead["dataset_id"], base_url,
                            issued_by_session=visitor_session)

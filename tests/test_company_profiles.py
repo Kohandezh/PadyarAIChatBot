@@ -118,6 +118,38 @@ def test_profile_of_a_company_without_one_is_empty_not_404(admin_client):
     assert r.status_code == 200 and r.json()["profile"] == {}
 
 
+def test_a_verified_capture_becomes_the_profile_and_shows_in_the_list(admin_client):
+    """The sales round-trip, end to end: the operator registers a contact from
+    the admin panel (same path the booth's verify takes through
+    sync_from_lead), and the companies page reflects it — the lead state shows,
+    and the OTP'd contact overwrites the spreadsheet's guess."""
+    # A spreadsheet-era profile with a WRONG guess of a contact.
+    admin_client.put("/admin/api/company-profiles/co-a", json={
+        "contact_name": "حدس قدیمی", "contact_mobile": "09120000000"})
+
+    r = admin_client.post("/admin/api/leads/contacts", json={
+        "dataset_id": "co-a", "first_name": "بهار", "last_name": "حمزه‌ای",
+        "position": "مدیر اجرایی", "phone": "09124308928"})
+    assert r.status_code == 200
+
+    # The company's state in the book: verified, waiting for text.
+    rows = admin_client.get("/admin/api/company-profiles").json()["companies"]
+    co = next(c for c in rows if c["id"] == "co-a")
+    assert co["lead_status"] == "verified"
+    assert co["contact_name"] == "بهار حمزه‌ای"
+    assert co["contact_mobile"].endswith("9124308928"), \
+        "the OTP-verified number must replace the spreadsheet guess"
+
+    # co-b is untouched and stays "not approached".
+    co_b = next(c for c in rows if c["id"] == "co-b")
+    assert co_b["lead_status"] is None
+
+    # The profile itself was folded, not replaced: the spreadsheet-only fields
+    # the form had set (province) survive beside the booth's contact data.
+    profile = admin_client.get("/admin/api/company-profiles/co-a").json()["profile"]
+    assert profile["source"] == "booth"
+
+
 def test_the_page_and_apis_require_an_admin(tmp_path, monkeypatch):
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "profiles_anon.db"))

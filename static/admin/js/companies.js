@@ -18,9 +18,18 @@ const FIELDS = [
     'notes',
 ];
 
+// The sales lens: where this company stands in "go find the ones we don't
+// know". Keyed by the API's lead_status; null = untouched. The wording is
+// the operator's day, not the database's vocabulary.
+const LEAD_STATES = {
+    verified:   ['در انتظار متن', 'warning'],
+    completed:  ['متن رسیده', 'success'],
+};
+
 let currentCompany = null;   // {id, title}
 let modal = null;
 let searchTimer = null;
+let onlyMissing = false;
 
 function alertBox(text) {
     const el = document.getElementById('companies-alert');
@@ -43,16 +52,28 @@ async function post(url, options = {}) {
 async function load(q = '') {
     const data = await post(`/admin/api/company-profiles?q=${encodeURIComponent(q)}`) ;
     if (!data) return;
-    const rows = data.companies;
+    let rows = data.companies;
+    // The one filter that answers the day's question: "who is left to find?"
+    // Missing means no verified capture AND no profile — untouched or
+    // spreadsheet-only, either way the booth still has work to do there.
+    if (onlyMissing) {
+        rows = rows.filter(c => !c.has_profile && !c.lead_status);
+    }
     const withProfile = rows.filter(c => c.has_profile).length;
     document.getElementById('profile-count').textContent = fa(withProfile);
     const body = document.getElementById('companies');
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">'
-            + 'شرکتی پیدا نشد.</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">'
+            + (onlyMissing ? 'شرکتِ بی‌اطلاعِ باقی‌مانده‌ای نیست. کار تمام است.'
+                           : 'شرکتی پیدا نشد.') + '</td></tr>';
         return;
     }
-    body.innerHTML = rows.map(c => `
+    body.innerHTML = rows.map(c => {
+        const state = LEAD_STATES[c.lead_status];
+        const stateBadge = state
+            ? `<span class="badge bg-${state[1]}">${esc(state[0])}</span>`
+            : '<span class="text-muted small">نرفته‌ایم</span>';
+        return `
         <tr data-id="${esc(c.id)}">
           <td class="ps-4">${esc(c.title)}</td>
           <td>${orDash(c.contact_name)}${c.contact_position
@@ -60,6 +81,7 @@ async function load(q = '') {
           <td dir="ltr">${orDash(c.contact_mobile || c.email || c.website)}</td>
           <td>${orDash(c.province)}</td>
           <td>${orDash(c.activity_field)}</td>
+          <td>${stateBadge}</td>
           <td>${c.has_profile
               ? '<span class="badge bg-success has-profile">دارد</span>'
               : '<span class="badge bg-secondary has-profile">ندارد</span>'}</td>
@@ -68,7 +90,8 @@ async function load(q = '') {
               <i class="fas fa-folder-open me-1"></i>پرونده
             </button>
           </td>
-        </tr>`).join('');
+        </tr>`;
+    }).join('');
 }
 
 function fillForm(profile) {
@@ -106,6 +129,11 @@ export function initCompanies() {
         clearTimeout(searchTimer);
         const q = ev.target.value.trim();
         searchTimer = setTimeout(() => load(q), 250);
+    });
+
+    document.getElementById('only-missing').addEventListener('change', (ev) => {
+        onlyMissing = ev.target.checked;
+        load(document.getElementById('company-search').value.trim());
     });
 
     document.getElementById('profile-save').addEventListener('click', async (ev) => {
