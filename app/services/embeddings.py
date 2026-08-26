@@ -30,8 +30,18 @@ CACHE_DIR = str(Path(BASE_DIR) / "data" / "models")
 # TRUSTED_MATCH_THRESHOLD (0.70) while the ambiguous cluster lands below it
 # and defers to the later tiers — a confident wrong answer costs more than a
 # deferral.
-COSINE_FLOOR = 0.45
-COSINE_SPAN = 0.35
+#
+# Re-measured 2026-08-26: the band above was tuned on the expansion-bloated
+# queries; with the dedup'd expansion several true matches calibrate to 0.000
+# («کافه سرمایه چیست؟»), i.e. they sit below the 0.45 floor. The values stay
+# as shipped defaults until the Q6 sweep locks a new band, so they are
+# env-overridable (EMBEDDING_COSINE_FLOOR/SPAN) for experiments without
+# touching the product's config file. Calibration is query-side: the stored
+# matrix is raw cosines and _calibrate runs on every search, so changing these
+# needs no reindex.
+import os as _os
+COSINE_FLOOR = float(_os.getenv("EMBEDDING_COSINE_FLOOR", "0.45"))
+COSINE_SPAN = float(_os.getenv("EMBEDDING_COSINE_SPAN", "0.35"))
 
 _model = None
 _model_name = None
