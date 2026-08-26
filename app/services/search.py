@@ -75,6 +75,69 @@ def _dual_hits(retrieve, original: str, expanded: str, k: int):
 # is off or training data is insufficient.
 intent_classifier = None
 
+# Every token the knowledge base KNOWNS, and the same set grouped by length
+# for the edit-distance-1 typo probe. Built in load_dataset_internal from
+# the normalized titles, descriptions, English fields and curated questions,
+# plus the synonym table's own rows: a colloquial word that maps through
+# synonyms is known language even when no document uses it verbatim.
+_corpus_vocab: set = set()
+_vocab_by_len: dict = {}
+
+
+def _within_edit1(a: str, b: str) -> bool:
+    """True when a and b differ by at most one substitution or one
+    insertion/deletion — the tolerance that lets ordinary Persian typos and
+    colloquial spellings (برگذاری/برگزاری، استارتاپا/استارتاپ) keep serving
+    while a genuinely foreign word stays unknown."""
+    if a == b:
+        return True
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+    if la == lb:
+        return sum(x != y for x, y in zip(a, b)) == 1
+    if la > lb:
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:]
+
+
+def unknown_salient_tokens(query: str) -> list:
+    """Content tokens of the ORIGINAL query that the WHOLE corpus does not
+    know — the strongest "asked about something we have nothing on" signal.
+
+    Why this must exist (measured 2026-08-26, live): «تاریخ برگزاری نمایشگاه
+    الکامپ» was served the INOTEX date with 0.844 confidence. الکامپ appears
+    in no document, no curated question and no synonym, and the lexical
+    retrievers simply DROP unknown terms — so the query degraded to its
+    common words («تاریخ برگزاری نمایشگاه») and matched strongly. Coverage
+    could not save it: it is one token among four and only one signal of
+    three on one path, absent entirely from the questions blend.
+
+    A token is KNOWN when it appears verbatim somewhere in the corpus, or is
+    within edit distance 1 of a vocabulary token (typo/colloquial tolerance),
+    or would be replaced by a synonym. Salience: at least 4 characters, and
+    for ASCII (English) tokens at least 5 — measured on the live corpus,
+    4-letter English words are overwhelmingly function words the tiny English
+    fields never contain («book», «tell»), while a 4-letter Persian word is
+    already content («دلار», «جدید», «دکیو»).
+    """
+    if not _corpus_vocab:
+        return []
+    from app.services.rerank import content_tokens
+    out = []
+    for tok in content_tokens(normalize_persian(query, expand_synonyms=False)):
+        if len(tok) < 4 or (tok.isascii() and len(tok) < 5) or tok in _corpus_vocab:
+            continue
+        same_len = _vocab_by_len.get(len(tok), set())
+        near_len = (_vocab_by_len.get(len(tok) - 1, set())
+                    | _vocab_by_len.get(len(tok) + 1, set()))
+        if not any(_within_edit1(tok, v) for v in same_len | near_len):
+            out.append(tok)
+    return out
+
 
 # --- Cross-worker index freshness ---
 # Every retrieval index is process-local, but the app runs several uvicorn
@@ -190,6 +253,7 @@ def load_dataset_internal():
     global dataset_embedding_index, questions_embedding_index
     global dataset_bm25_index, questions_bm25_index
     global intent_classifier
+    global _corpus_vocab, _vocab_by_len
 
     load_synonyms_from_db()
 
@@ -289,6 +353,30 @@ def load_dataset_internal():
     except Exception as e:
         logger.error(f"Embedding backend init failed, using TF-IDF: {e}")
 
+    # --- Unknown-entity vocabulary ------------------------------------
+    # Every token any retriever could legitimately match against: normalized
+    # titles+descriptions (the titles are inside them), the curated
+    # questions, the English fields, and the synonym table's own words. A
+    # salient token outside this set names something the knowledge base has
+    # NO information on — the strongest "do not answer locally" signal there
+    # is (see unknown_salient_tokens for the incident this answers).
+    from app.utils.normalizer import active_synonyms as _active_synonyms
+    _vocab = set()
+    for _text in _normalized_descriptions:
+        _vocab.update(_text.split())
+    for _text in _normalized_questions:
+        _vocab.update(_text.split())
+    for _item in _dataset:
+        _vocab.update(normalize_persian(_item.get("title_en") or "").split())
+        _vocab.update(normalize_persian(_item.get("text_en") or "").split())
+    for _src, _dst in _active_synonyms:
+        _vocab.update(_src.split())
+        _vocab.update((_dst or "").split())
+    _vocab.discard("")
+    _vbl = {}
+    for _tok in _vocab:
+        _vbl.setdefault(len(_tok), set()).add(_tok)
+
     # --- Atomically publish to module-level globals ---
     dataset = _dataset
     descriptions = _descriptions
@@ -306,6 +394,8 @@ def load_dataset_internal():
     questions_embedding_index = _questions_emb
     dataset_bm25_index = bm25.build_index(_normalized_descriptions)
     questions_bm25_index = bm25.build_index(_normalized_questions)
+    _corpus_vocab = _vocab
+    _vocab_by_len = _vbl
     intent_classifier = _intent
 
 

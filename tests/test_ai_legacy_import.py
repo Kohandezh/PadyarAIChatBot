@@ -633,7 +633,10 @@ def test_ladder_ai_failure_falls_back_to_a_strong_local_match(chat_client, monke
     monkeypatch.setattr(chat_router, "find_similar_question",
                         lambda q, exact_only=False: (None, 0.0))
     monkeypatch.setattr(chat_router, "classify_intent_local", lambda q: (None, 0.0))
-    r = _ask(chat_client)
+    # A query made only of vocabulary words: this test is about the FALLBACK
+    # ladder, and the unknown-entity gate (correctly) defers the weather
+    # filler before the fallback could ever serve it.
+    r = _ask(chat_client, "ساعات بازدید نمایشگاه اینوتکس")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local"
     assert r.json()["text"] == "پاسخ محلی"
@@ -658,7 +661,7 @@ def test_ladder_kill_switch_skips_the_ai_branch_entirely(chat_client, monkeypatc
     monkeypatch.setattr(chat_router, "find_similar_question",
                         lambda q, exact_only=False: (None, 0.0))
     monkeypatch.setattr(chat_router, "classify_intent_local", lambda q: (None, 0.0))
-    r = _ask(chat_client)
+    r = _ask(chat_client, "ساعات بازدید نمایشگاه اینوتکس")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local"
     assert reached["n"] == 0
