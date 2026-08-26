@@ -250,6 +250,20 @@ def save_settings(values: dict) -> bool:
     file was updated as well; False means only the database has the new values
     (e.g. a read-only deployment), which the admin panel then reports.
     """
+    from app import prodcheck
+    provider = (values.get("sms_provider") or "").strip().lower()
+    if provider == "dev" and prodcheck.is_production():
+        # This save once took production down (2026-08-26): it wrote
+        # OTP_DELIVERY=dev into .env, and the next restart was refused by
+        # prodcheck's startup gate. The running process kept serving, so the
+        # panel looked healthy until the next deploy. Refuse it HERE, where
+        # both stores are written from, before either one changes.
+        raise SmsError(
+            detail="روی نصبِ در حالت production نمی‌توان سرویس پیامک را روی «حالت "
+                   "آزمایشی» گذاشت: کدهای تأیید به جای گوشی در یک فایل روی سرور "
+                   "می‌نشینند و بعدی‌بار برنامه بالا نمی‌آید. تب «آسانک» را انتخاب "
+                   "و نام کاربری و رمز را وارد کنید.")
+
     from app.db.queries import set_setting
     env_updates = {}
     for key, raw in values.items():

@@ -339,24 +339,29 @@ async def save_sms_settings(req: SmsSettingsRequest):
             detail="سقف روزانه پیامک باید یک عدد باشد. برای برداشتن سقف، ۰ بگذارید.")
 
     set_setting("registration_enabled", "true" if req.enabled else "false")
-    env_written = sms_service.save_settings({
-        "sms_provider": req.provider.strip() or "dev",
-        "sms_asanak_username": req.username,
-        "sms_asanak_password": req.password,
-        "sms_asanak_api_key": req.api_key,
-        "sms_asanak_source": req.source,
-        "sms_asanak_template_id": req.template_id,
-        "sms_asanak_invite_template_id": req.invite_template_id,
-        "sms_asanak_reject_template_id": req.reject_template_id,
-        "sms_daily_budget": budget,
-        "sms_asanak_url": req.url,
-        "sms_asanak_status_url": req.status_url,
-        "sms_asanak_credit_url": req.credit_url,
-        "sms_asanak_template_url": req.template_url,
-        "sms_asanak_trim": "true" if req.trim else "false",
-        "sms_asanak_send_to_blacklist": "1" if req.send_to_blacklist else "0",
-        "otp_sms_host": req.sms_host,
-    })
+    try:
+        env_written = sms_service.save_settings({
+            "sms_provider": req.provider.strip() or "dev",
+            "sms_asanak_username": req.username,
+            "sms_asanak_password": req.password,
+            "sms_asanak_api_key": req.api_key,
+            "sms_asanak_source": req.source,
+            "sms_asanak_template_id": req.template_id,
+            "sms_asanak_invite_template_id": req.invite_template_id,
+            "sms_asanak_reject_template_id": req.reject_template_id,
+            "sms_daily_budget": budget,
+            "sms_asanak_url": req.url,
+            "sms_asanak_status_url": req.status_url,
+            "sms_asanak_credit_url": req.credit_url,
+            "sms_asanak_template_url": req.template_url,
+            "sms_asanak_trim": "true" if req.trim else "false",
+            "sms_asanak_send_to_blacklist": "1" if req.send_to_blacklist else "0",
+            "otp_sms_host": req.sms_host,
+        })
+    except sms_service.SmsError as e:
+        # The one refusal save_settings can raise today is the production
+        # dev-provider block; its detail is the sentence the operator reads.
+        raise HTTPException(status_code=400, detail=e.detail)
     return {"status": "updated", "env_file": env_written}
 
 
