@@ -190,16 +190,41 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         # signal for the logs and the response's confidence field, not a number
         # borrowed from the retriever that just picked the wrong entry.
         ent_score = max(TRUSTED_MATCH_THRESHOLD, entity_coverage(entity_entry, match_query))
+        # Company-field tier (2026-08-27): the visitor named a company AND
+        # asked for one recorded fact about it — «شماره تماس شرکت دکیو چیست؟»
+        # was answered with that company's generic description because nothing
+        # in this pipeline ever read company_profiles. This serves the field
+        # itself when it is on the public allowlist, and refuses when the
+        # request is about a PERSON. Confidence is the same entity coverage
+        # computed above: the answer comes from the entry the anchor resolved.
+        from app.services.company_search import answer_company_field
+        field_answer = answer_company_field(match_query, entity_entry, lang=lang)
+        if field_answer is not None:
+            log_chat(user_query, field_answer["text"], "text",
+                     "local_company_field", ent_score)
+            applog.info("chat", "conversation.answer.served",
+                        "پاسخ به بازدیدکننده داده شد",
+                        subcategory="local_company_field", outcome="ok",
+                        metadata={"tier": "local_company_field",
+                                  "score": round(float(ent_score), 3),
+                                  "response_type": "text",
+                                  "field": field_answer["field"],
+                                  "entry_id": str(entity_entry.get("id", ""))[:60]})
+            return ChatResponse(
+                type="text", text=field_answer["text"], video_url=None,
+                confidence=ent_score, source="local_company_field",
+            )
         return _answer_from_entry(entity_entry, ent_score, "local_entity",
                                   user_query, lang=lang, visitor=request.visitor)
 
     def _names_other_entity(candidate: dict) -> bool:
         # A candidate conflicts when it is a DIFFERENT dataset entry than the
         # one the visitor named AND never even mentions that entity. Privacy
-        # note: the pipeline only ever reads dataset.text (never
-        # company_profiles), so serving the company's own public entry for a
-        # "give me the CEO's number" query is the safe, correct behavior —
-        # the answer describes the company and contains no personal numbers.
+        # note: the entry served here is dataset.text, which is public by
+        # definition. Profile data only ever reaches a visitor through
+        # company_profiles.public_profile() — its allowlist keeps the contact
+        # person's mobile and email out of every answer, so a "give me the
+        # CEO's number" query gets a refusal, never that person's record.
         return (entity_entry is not None
                 and candidate is not None
                 and candidate.get("id") != entity_entry.get("id")
