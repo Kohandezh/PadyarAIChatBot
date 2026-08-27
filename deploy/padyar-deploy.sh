@@ -157,10 +157,21 @@ log "Restarting $SERVICE"
 systemctl restart "$SERVICE"
 
 # ── 6. Health check, with code rollback ──────────────────────────────────
-log "Health check ($HEALTH_URL, 3 tries)"
+# 12 tries × 5s = a full minute. Boot is not instant: dataset load, the
+# embedding index, intent training and the seeded content all run in the
+# lifespan before the first request can be answered. The old 3×5s window
+# was tuned when the corpus was 16 entries — the day it grew past ~30 the
+# deploy rolled back perfectly healthy code (twice, 2026-08-27) and the
+# rollback restart raced the same window, which read as an outage. A
+# minute of patience costs nothing; a rollback of good code costs an
+# incident. The window stays bounded so a genuinely dead deploy still
+# fails inside the job's timeout.
+HEALTH_TRIES=12
+HEALTH_SLEEP=5
+log "Health check ($HEALTH_URL, up to $HEALTH_TRIES tries)"
 ok=1
-for i in 1 2 3; do
-  sleep 5
+for i in $(seq 1 "$HEALTH_TRIES"); do
+  sleep "$HEALTH_SLEEP"
   if curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null 2>&1; then ok=0; break; fi
   log "  try $i: not healthy yet"
 done
@@ -171,9 +182,14 @@ old code ignores tables it does not know. The step-1 backup is untouched.)"
   as_app "git -C '$APP_DIR' reset --hard '$CURRENT_SHA'"
   as_app "cd '$APP_DIR' && .venv/bin/pip install -q -r requirements.txt"
   systemctl restart "$SERVICE"
-  sleep 5
-  curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null 2>&1 \
-    || log "WARNING: rollback also looks unhealthy — see journalctl -u $SERVICE"
+  # The rollback boots the OLD code — give it the same patience, not the
+  # old single 5s shot that reported a healthy rollback as unhealthy.
+  ok=1
+  for i in $(seq 1 "$HEALTH_TRIES"); do
+    sleep "$HEALTH_SLEEP"
+    if curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null 2>&1; then ok=0; break; fi
+  done
+  [[ $ok -ne 0 ]] && log "WARNING: rollback also looks unhealthy — see journalctl -u $SERVICE"
   die "Deploy of $NEW_SHA failed health check; rolled back to $CURRENT_SHA."
 fi
 
