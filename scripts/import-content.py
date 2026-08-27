@@ -14,12 +14,19 @@ FAQ workbook (پرسش/پاسخ): each row → one dataset entry (id faq-<n>) + 
 Exhibitor workbook (20 columns): each row →
   * dataset:            نام/نام(انگلیسی)/درباره/درباره(انگلیسی) (the public
                         answer — the only fields the chatbot may ever serve)
+                        plus video_url when the workbook carries booth numbers
   * company_profiles:   contact/comms/address/classification fields
   * curated anchors:    4 Persian templates + 1 English per company, because
                         measured retrieval on company names is exactly where
                         the corpus without anchors failed
   * NO company_leads:   spreadsheet data is not consent; a profile never
                         owns a company (search_companies must keep showing it)
+
+  The organizer sends this workbook in TWO shapes: the plain 20-column one,
+  and the same file with a booth-video-number column prepended. There is no
+  flag for it — the header row says which shape the file is, so the file
+  itself is the source of truth and a wrong flag can never silently shift
+  every column by one.
 
 SAFETY
 ------
@@ -42,6 +49,12 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DB_BACKEND", "sqlite")
 
 import openpyxl  # noqa: E402
+
+# The one source of truth for how a stored video_url is spelled. The admin
+# upload endpoint builds exactly VIDEO_BASE_URL + "/" + filename
+# (app/routers/dataset.py), and /chat hands the stored string straight back to
+# the player, so an import that spells it differently would break playback.
+from app.config import VIDEO_BASE_URL  # noqa: E402
 
 
 def _cell(v):
@@ -104,16 +117,75 @@ PROFILE_MAP = {  # workbook key → company_profiles column
 }
 
 
-def load_companies(path: str):
-    """[(dataset_id, dataset_fields, profile_fields, anchors)] + report."""
-    rows, errors = [], []
+# The booth videos are delivered as ghorfe-<number>.mp4, zero-padded to two
+# digits below 100. One file in the 2026 batch is named ghorfe88.mp4 with no
+# hyphen, so the pattern is tolerant of the hyphen and of any padding. The
+# number, not the spelling, is the key.
+VIDEO_RE = re.compile(r"ghorfe-?0*(\d+)\.mp4$", re.IGNORECASE)
+
+
+def scan_videos(video_dir: str):
+    """{booth number: filename} for one directory, or None if it is absent.
+
+    None means "existence unknown" — the caller must not invent URLs then.
+    A machine without the 6.5 GB of video must still be able to run the
+    import.
+    """
+    if not video_dir or not os.path.isdir(video_dir):
+        return None
+    found = {}
+    for name in sorted(os.listdir(video_dir)):
+        m = VIDEO_RE.search(name)
+        if m:
+            found[int(m.group(1))] = name
+    return found
+
+
+def _video_number(value) -> int | None:
+    """Booth number from a spreadsheet cell. Numeric cells arrive as floats."""
+    text = _cell(value)
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
+
+
+def has_video_column(header) -> bool:
+    """True when the header row starts with the booth-video-number column.
+
+    Read from the FILE, never from a command-line flag: the organizer sends
+    both shapes of this workbook, and guessing wrong would shift all 20
+    columns by one and import garbage under the right-looking names.
+    """
+    return "video" in _cell(header[0] if header else "").lower()
+
+
+def load_companies(path: str, videos=None):
+    """[(dataset_id, dataset_fields, profile_fields, anchors)] + report.
+
+    `videos` is scan_videos()'s mapping, or None when the video directory was
+    not available. Companies whose file is missing get an empty video_url and
+    a named warning — a URL to a file that does not exist would show the
+    visitor a broken player.
+    """
+    rows, errors, warnings = [], [], []
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
     seen_titles = {}
+    video_col, with_video = False, 0
+    seen_numbers, used_numbers = {}, set()
     for i, row in enumerate(ws.iter_rows(values_only=True)):
         if i == 0:
+            video_col = has_video_column(row)
             continue
-        c = dict(zip(COMPANY_COLS, (_cell(v) for v in row)))
+        if video_col:
+            number = _video_number(row[0])
+            cells = row[1:]
+        else:
+            number, cells = None, row
+        c = dict(zip(COMPANY_COLS, (_cell(v) for v in cells)))
         if not c["name"] and not c["name_en"] and not c["about"]:
             continue
         if not c["name"]:
@@ -125,6 +197,30 @@ def load_companies(path: str):
                           f"(first at row {seen_titles[key]})")
             continue
         seen_titles[key] = i
+
+        video_url = ""
+        if video_col:
+            if number is None:
+                warnings.append(f"{c['name']}: no booth video number in the sheet")
+            elif number in seen_numbers:
+                errors.append(f"company row {i}: booth video number {number} "
+                              f"already taken by row {seen_numbers[number]} — "
+                              f"{c['name']!r} gets no video")
+            elif videos is None:
+                warnings.append(f"{c['name']}: booth video {number} not verified "
+                                f"(no video directory)")
+            elif number in videos:
+                # Exactly the shape app/routers/dataset.py writes on upload:
+                # VIDEO_BASE_URL + "/" + the file's own name.
+                video_url = f"{VIDEO_BASE_URL}/{videos[number]}"
+                used_numbers.add(number)
+                with_video += 1
+            else:
+                warnings.append(f"{c['name']}: booth video {number} has no file "
+                                f"(expected ghorfe-{number:02d}.mp4)")
+            if number is not None:
+                seen_numbers.setdefault(number, i)
+
         cid = _slug(c["name_en"]) or f"co-{i:03d}"
         mobile = c["mobile"] or c["username"]
         mobile = re.sub(r"^(98|0098)", "0", mobile) if mobile else ""
@@ -135,23 +231,48 @@ def load_companies(path: str):
         if c["name_en"]:
             anchors.append(f"What is {c['name_en']}?")
         rows.append((cid, {"id": cid, "title": c["name"], "title_en": c["name_en"],
-                           "text": c["about"], "text_en": c["about_en"]},
+                           "text": c["about"], "text_en": c["about_en"],
+                           "video_url": video_url},
                      profile, anchors))
-    return rows, errors
+
+    report = {
+        "has_column": video_col,
+        "with_video": with_video,
+        "warnings": warnings,
+        "orphans": (sorted(set(videos) - used_numbers)
+                    if video_col and videos is not None else []),
+        "files": videos or {},
+    }
+    return rows, errors, report
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Import FAQ + exhibitor workbooks.")
     p.add_argument("--faq", help="FAQ workbook (پرسش/پاسخ)")
-    p.add_argument("--companies", help="exhibitor workbook (20 columns)")
+    p.add_argument("--companies",
+                   help="exhibitor workbook (20 columns, or 21 with the "
+                        "booth-video-number column first)")
+    p.add_argument("--video-dir", default="media/videos",
+                   help="where the booth videos live — read only, to check "
+                        "which files exist (default: media/videos)")
     p.add_argument("--apply", action="store_true",
                    help="actually write; without it everything is a dry-run")
     args = p.parse_args()
     if not args.faq and not args.companies:
         sys.exit("nothing to do: pass --faq and/or --companies")
 
+    videos = scan_videos(args.video_dir)
+    if videos is None:
+        print(f"NOTE: video directory {args.video_dir!r} not found — "
+              f"skipping the file-existence check. No video will be attached.")
+    else:
+        print(f"Booth video files found:  {len(videos)} in {args.video_dir}")
+
     faq, faq_errors, faq_notes = (load_faq(args.faq) if args.faq else ([], [], []))
-    companies, co_errors = (load_companies(args.companies) if args.companies else ([], []))
+    companies, co_errors, video_report = (
+        load_companies(args.companies, videos) if args.companies
+        else ([], [], {"has_column": False, "with_video": 0, "warnings": [],
+                       "orphans": [], "files": videos}))
 
     os.environ.setdefault("OPENAI_API_KEY", "import")
     from app.db.connection import init_db, get_db_connection
@@ -181,6 +302,21 @@ def main() -> int:
         print(f"   … and {len(companies) - 5} more")
     for e in co_errors:
         print(f"   ERROR {e}")
+
+    if video_report["has_column"]:
+        without = video_report["warnings"]
+        print(f"Companies with a video:  {video_report['with_video']}")
+        print(f"Companies without one:   {len(without)}")
+        for w in without:
+            print(f"   WARNING {w}")
+        print(f"Videos with no company:  {len(video_report['orphans'])}")
+        for n in video_report["orphans"]:
+            print(f"   WARNING booth video {n} "
+                  f"({video_report['files'][n]}) matches no company row")
+    elif args.companies:
+        print("Booth video column:      absent — "
+              "existing video_url values are left untouched")
+
     print(f"Id collisions with DB:   faq={len(faq_clash)} companies={len(co_clash)}")
     if faq_clash or co_clash:
         print(f"   {faq_clash + co_clash}")
@@ -207,17 +343,32 @@ def main() -> int:
             (fid, title, text))
         n_ds += 1
     for cid, ds, profile, anchors in companies:
+        # video_url is updated ONLY when this run actually has one. A re-import
+        # from the plain 20-column workbook (or from a machine without the
+        # video files) must never wipe a video that is already attached.
         conn.execute(
             "INSERT INTO dataset (id, title, text, video_url, title_en, text_en)"
-            " VALUES (?, ?, ?, '', ?, ?)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(id) DO UPDATE SET title=excluded.title, text=excluded.text,"
-            " title_en=excluded.title_en, text_en=excluded.text_en",
-            (cid, ds["title"], ds["text"], ds["title_en"], ds["text_en"]))
+            " title_en=excluded.title_en, text_en=excluded.text_en,"
+            " video_url=CASE WHEN excluded.video_url != ''"
+            " THEN excluded.video_url ELSE dataset.video_url END",
+            (cid, ds["title"], ds["text"], ds["video_url"],
+             ds["title_en"], ds["text_en"]))
         n_ds += 1
     conn.commit()
 
-    # Pass 2 — profiles and curated anchors, now over rows that are visible
-    # to every connection.
+    # Pass 2 — profiles, now over rows that are visible to every connection.
+    # Before ANY question insert: upsert_profile opens its own connection, and
+    # an open write transaction on this one locks it out (SQLite allows a
+    # single writer). Interleaved, the second company waited out the 5s
+    # busy_timeout and died with "database is locked".
+    for cid, ds, profile, anchors in companies:
+        if profile:
+            company_profiles.upsert_profile(cid, profile)
+
+    # Pass 3 — curated anchors and FAQ question variants, one writer, one
+    # transaction.
     for fid, title, text, variants in faq:
         for v in variants:
             if v in existing_q:
@@ -226,8 +377,6 @@ def main() -> int:
                          " VALUES (?, ?, '')", (v, fid))
             n_q += 1
     for cid, ds, profile, anchors in companies:
-        if profile:
-            company_profiles.upsert_profile(cid, profile)
         for a in anchors:
             if a in existing_q:
                 continue
@@ -240,7 +389,8 @@ def main() -> int:
     from app.services.search import reindex_and_publish
     reindex_and_publish()
     print(f"\nAPPLIED: {n_ds} dataset rows, {n_q} curated questions, "
-          f"{len(companies)} profiles. Index rebuilt.")
+          f"{len(companies)} profiles, "
+          f"{video_report['with_video']} booth videos. Index rebuilt.")
     print("Next: .venv/bin/python scripts/run_eval.py   # re-baseline")
     return 0
 
