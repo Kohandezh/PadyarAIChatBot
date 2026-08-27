@@ -324,6 +324,142 @@ def test_public_profile_never_returns_a_withheld_field(client):
     assert "dataset_id" not in profile and "notes" not in profile
 
 
+# ── The shadowing bug: the tier was only reachable from the anchor ───────
+#
+# Measured on inotex.padyar.com one hour after the tier shipped, 2026-08-27.
+# answer_company_field() was called only from inside the named-entity anchor's
+# OVERRIDE and RESCUE paths. «شماره تماس شرکت دکیو» matched a DIFFERENT entry,
+# so the override fired and the phone was served. «سایت شرکت دکیو» matched the
+# دکیو question row ITSELF at 0.99 — nothing conflicted, no anchor path ran,
+# and the visitor got the company's generic description. The field tier was
+# invisible on exactly the queries the company had curated a question for.
+#
+# The corpus below reproduces that: a curated question that belongs to the
+# SAME company and carries the field word.
+
+CURATED_QUESTIONS = [
+    # دکیو's own question row, containing «سایت» — the query that hid the tier.
+    # Jaccard against «سایت شرکت دکیو چیست؟» is 0.75: trusted, but under the
+    # 0.9 Tier 0 bar, so the questions branch (not Tier 0) serves it.
+    ("co-dekio", "سایت شرکت دکیو"),
+    # A near-exact curated hit that is ALSO a field question — Tier 0 territory.
+    ("co-sepehr", "شماره تماس شرکت سپهر چیست؟"),
+    # Same company, no field word in it.
+    ("co-dekio", "شرکت دکیو چه محصولاتی دارد"),
+]
+
+
+def _seed_questions(rows=CURATED_QUESTIONS):
+    """Add curated question rows on top of _seed() and reindex.
+
+    Separate from _seed() on purpose: the tests above prove the tier through
+    the anchor with no questions index at all, and they must keep doing so.
+    """
+    import app.db.connection as dbc
+    conn = dbc.get_db_connection()
+    for dataset_id, question in rows:
+        conn.execute(
+            "INSERT INTO questions (dataset_id, question, video_url)"
+            " VALUES (?, ?, '')", (dataset_id, question))
+    conn.commit()
+    conn.close()
+    from app.services import search
+    search.load_dataset_internal()
+
+
+def test_the_questions_index_matching_the_company_itself_still_yields_the_field(client, monkeypatch):
+    """THE regression for the shadowing bug. The questions index returns
+    شرکت دکیو — the very company the visitor named — at a trusted score, so
+    no entity override fires. The field tier must still answer with the
+    website instead of the company's description."""
+    _seed()
+    _seed_questions()
+    _mock_ai(monkeypatch, forbid=True)
+    query = "سایت شرکت دکیو چیست؟"
+
+    # The precondition that hid the tier: the questions index really does
+    # return this same company, trusted, and below the Tier 0 bar.
+    from app.config import TRUSTED_MATCH_THRESHOLD
+    from app.services import search
+    q_entry, q_score = search.find_similar_question(query)
+    assert q_entry is not None and q_entry["id"] == "co-dekio", q_entry
+    assert TRUSTED_MATCH_THRESHOLD <= q_score < 0.9, q_score
+
+    r = _ask(client, query)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_field", body
+    assert "dekio-example.ir" in body["text"], body["text"]
+    assert body["text"] != DEKIO_TEXT, body["text"]
+
+
+def test_a_trusted_dataset_match_on_the_named_company_still_yields_the_field(client, monkeypatch):
+    """The same gap on the Tier 1 branch. A trusted dataset hit on the company
+    the visitor named leaves nothing for the anchor to override, so that branch
+    has to consult the field tier too.
+
+    find_best_match is stubbed because TF-IDF over these long descriptions
+    tops out near 0.33 on this small corpus and never clears the 0.70 trust
+    bar. The branch CONDITION is what is under test, not the retriever."""
+    _seed()
+    _mock_ai(monkeypatch, forbid=True)
+    query = "سایت شرکت دکیو چیست؟"
+    entry = _entry(query)
+
+    import app.routers.chat as chat
+    monkeypatch.setattr(chat, "find_best_match", lambda q: (entry, 0.95))
+
+    r = _ask(client, query)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_field", body
+    assert "dekio-example.ir" in body["text"], body["text"]
+
+
+def test_a_curated_exact_question_still_wins_over_the_field_tier(client, monkeypatch):
+    """Tier 0 stays authoritative. «شماره تماس شرکت سپهر چیست؟» is word for
+    word a curated question, and شرکت سپهر does have a recorded phone — the
+    hand-mapped answer must still win, exactly as it does over the anchor."""
+    _seed()
+    _seed_questions()
+    _mock_ai(monkeypatch, forbid=True)
+    query = "شماره تماس شرکت سپهر چیست؟"
+
+    from app.services import search
+    _entry_hit, exact_score = search.find_similar_question(query, exact_only=True)
+    assert exact_score >= 0.9, exact_score
+
+    r = _ask(client, query)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_questions", body
+    assert body["text"] == SEPEHR_TEXT, body["text"]
+    assert "03133445566" not in body["text"], body["text"]
+
+
+def test_a_non_field_question_about_the_company_still_gets_the_description(client, monkeypatch):
+    """The other half of the fix: the questions branch may only be diverted
+    when the visitor actually asked for a recorded field. A plain question
+    about the same company keeps returning that company's own entry."""
+    _seed()
+    _seed_questions()
+    _mock_ai(monkeypatch, forbid=True)
+    query = "شرکت دکیو چه محصولاتی دارد بگو"
+
+    from app.config import TRUSTED_MATCH_THRESHOLD
+    from app.services import search
+    q_entry, q_score = search.find_similar_question(query)
+    assert q_entry is not None and q_entry["id"] == "co-dekio", q_entry
+    assert TRUSTED_MATCH_THRESHOLD <= q_score < 0.9, q_score
+
+    r = _ask(client, query)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_questions", body
+    assert body["text"] == DEKIO_TEXT, body["text"]
+    assert DEKIO_WEBSITE not in body["text"], body["text"]
+
+
 # ── The widened list filter ──────────────────────────────────────────────
 
 def test_a_province_question_lists_only_the_companies_in_that_province(client, monkeypatch):

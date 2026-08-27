@@ -184,38 +184,72 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     if not unknown_tokens:
         entity_entry, entity_tokens = resolve_named_entity(match_query)
 
-    def _entity_answer() -> ChatResponse:
-        # The served score is the share of the query's content tokens found in
-        # the entity's own entry, floored at the trust bar — a real, deterministic
-        # signal for the logs and the response's confidence field, not a number
-        # borrowed from the retriever that just picked the wrong entry.
-        ent_score = max(TRUSTED_MATCH_THRESHOLD, entity_coverage(entity_entry, match_query))
-        # Company-field tier (2026-08-27): the visitor named a company AND
-        # asked for one recorded fact about it — «شماره تماس شرکت دکیو چیست؟»
-        # was answered with that company's generic description because nothing
-        # in this pipeline ever read company_profiles. This serves the field
-        # itself when it is on the public allowlist, and refuses when the
-        # request is about a PERSON. Confidence is the same entity coverage
-        # computed above: the answer comes from the entry the anchor resolved.
+    # The score every anchor-backed answer is served with: the share of the
+    # query's content tokens found in the entity's own entry, floored at the
+    # trust bar — a real, deterministic signal for the logs and the response's
+    # confidence field, not a number borrowed from the retriever that just
+    # picked the wrong entry.
+    ent_score = (max(TRUSTED_MATCH_THRESHOLD, entity_coverage(entity_entry, match_query))
+                 if entity_entry is not None else 0.0)
+
+    # Company-field tier (2026-08-27): the visitor named a company AND asked
+    # for one recorded fact about it — «شماره تماس شرکت دکیو چیست؟» was
+    # answered with that company's generic description because nothing in this
+    # pipeline ever read company_profiles. This serves the field itself when it
+    # is on the public allowlist, and refuses when the request is about a
+    # PERSON. Confidence is the entity coverage above: the answer comes from
+    # the entry the anchor resolved.
+    #
+    # Looked up HERE, once, and not inside _entity_answer(): that ran only on
+    # the anchor's OVERRIDE and RESCUE paths, so the tier was invisible
+    # whenever a trusted local candidate already WAS the named company — no
+    # override fired and the generic blurb won. A company whose own curated
+    # question happened to contain the field word shadowed the tier completely
+    # (measured 2026-08-27 on inotex.padyar.com: «سایت شرکت دکیو» matched the
+    # دکیو question row itself at 0.99 and never reached this code, while
+    # «شماره تماس شرکت دکیو» matched a different entry, took the override, and
+    # answered correctly). Now every branch that is about to serve THAT
+    # company consults it. Tier 0 is untouched: a near-exact curated hit
+    # (exact_score >= 0.9) still wins outright, the same rule the anchor
+    # already follows.
+    field_answer = None
+    if entity_entry is not None:
         from app.services.company_search import answer_company_field
         field_answer = answer_company_field(match_query, entity_entry, lang=lang)
+
+    def _serve_field_answer() -> ChatResponse:
+        """Serve (and log) the company-field answer. A helper because three
+        branches reach it — the anchor's two paths and the trusted local
+        branches that are already serving the named company."""
+        log_chat(user_query, field_answer["text"], "text",
+                 "local_company_field", ent_score)
+        applog.info("chat", "conversation.answer.served",
+                    "پاسخ به بازدیدکننده داده شد",
+                    subcategory="local_company_field", outcome="ok",
+                    metadata={"tier": "local_company_field",
+                              "score": round(float(ent_score), 3),
+                              "response_type": "text",
+                              "field": field_answer["field"],
+                              "entry_id": str(entity_entry.get("id", ""))[:60]})
+        return ChatResponse(
+            type="text", text=field_answer["text"], video_url=None,
+            confidence=ent_score, source="local_company_field",
+        )
+
+    def _entity_answer() -> ChatResponse:
         if field_answer is not None:
-            log_chat(user_query, field_answer["text"], "text",
-                     "local_company_field", ent_score)
-            applog.info("chat", "conversation.answer.served",
-                        "پاسخ به بازدیدکننده داده شد",
-                        subcategory="local_company_field", outcome="ok",
-                        metadata={"tier": "local_company_field",
-                                  "score": round(float(ent_score), 3),
-                                  "response_type": "text",
-                                  "field": field_answer["field"],
-                                  "entry_id": str(entity_entry.get("id", ""))[:60]})
-            return ChatResponse(
-                type="text", text=field_answer["text"], video_url=None,
-                confidence=ent_score, source="local_company_field",
-            )
+            return _serve_field_answer()
         return _answer_from_entry(entity_entry, ent_score, "local_entity",
                                   user_query, lang=lang, visitor=request.visitor)
+
+    def _is_named_entity(candidate: dict) -> bool:
+        # The candidate a local tier is about to serve IS the entry the
+        # visitor named. Same identity test as _names_other_entity, other way
+        # round — this is the case where nothing conflicts and the branch would
+        # otherwise return the company's generic description.
+        return (entity_entry is not None
+                and candidate is not None
+                and candidate.get("id") == entity_entry.get("id"))
 
     def _names_other_entity(candidate: dict) -> bool:
         # A candidate conflicts when it is a DIFFERENT dataset entry than the
@@ -279,12 +313,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         if _names_other_entity(best_match):
             logger.info(f"Entity override: {best_match.get('id')} → {entity_entry.get('id')} (named {sorted(entity_tokens)})")
             return _entity_answer()
+        if field_answer is not None and _is_named_entity(best_match):
+            logger.info(f"Company field: {entity_entry.get('id')} → {field_answer['field']}")
+            return _serve_field_answer()
         return _answer_from_entry(best_match, score, "local", user_query, lang=lang, visitor=request.visitor)
 
     if q_trusted:
         if _names_other_entity(question_match):
             logger.info(f"Entity override: {question_match.get('id')} → {entity_entry.get('id')} (named {sorted(entity_tokens)})")
             return _entity_answer()
+        if field_answer is not None and _is_named_entity(question_match):
+            logger.info(f"Company field: {entity_entry.get('id')} → {field_answer['field']}")
+            return _serve_field_answer()
         return _answer_from_entry(question_match, q_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
 
     # Entity rescue (the دکیو case above): no local tier qualified, but the
