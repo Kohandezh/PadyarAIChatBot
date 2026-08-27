@@ -455,21 +455,52 @@ def load_dataset_internal():
         _vbl.setdefault(len(_tok), set()).add(_tok)
 
     # --- Distinctive title tokens (named-entity anchor) ----------------
-    # A token is distinctive for entry i when it appears in exactly one
-    # entry's title across the whole dataset (title document-frequency == 1)
-    # and is long enough to name something: >= 3 chars, >= 4 for pure-ASCII
-    # (short English fragments are too often function words). content_tokens
-    # already drops stopwords. See resolve_named_entity for the incident
-    # this answers (entity confusion between KNOWN entries, 2026-08-27).
-    _title_token_sets = [rerank.content_tokens(_t) for _t in _normalized_titles]
+    # Built from UNexpanded text only (measured 2026-08-27, live, after the
+    # anchor shipped: امسال/حوزه/شماره pollution). A token unique among
+    # titles is not a NAME unless it is unique across the whole knowledge
+    # base, and synonym expansion must never leak into the name map:
+    #   * «امسال» sat in exactly one (question-style) title but in three
+    #     entries' texts — it anchored the stage entry and overrode the
+    #     correct date answer at 0.965.
+    #   * «حوزه» was unique to the faq-08 title yet common in entry texts —
+    #     it resolved faq-08 and gated OFF the company-list tier.
+    #   * a synonym (تماس→شماره) injected «شماره» into the contact entry's
+    #     EXPANDED title, so the query that caused the original incident
+    #     hit two entries and the anchor switched itself off.
+    # A token is distinctive for entry i only when it appears in exactly
+    # one entry's unexpanded title (title df == 1) AND in no other entry's
+    # unexpanded title+text (whole-base df == 1), and is long enough to
+    # name something: >= 3 chars, >= 4 for pure-ASCII (short English
+    # fragments are too often function words). content_tokens already drops
+    # stopwords. `normalized_titles` / `normalized_descriptions` themselves
+    # stay synonym-EXPANDED — retrieval and entry_mentions depend on that;
+    # only this name map must see what the admin actually typed. See
+    # resolve_named_entity for the original incident (entity confusion
+    # between KNOWN entries, 2026-08-27).
+    _plain_title_sets = [
+        rerank.content_tokens(
+            normalize_persian(item.get("title", "").strip(),
+                              expand_synonyms=False))
+        for item in _dataset]
+    _plain_doc_sets = [
+        set(normalize_persian(
+            f"{item.get('title', '').strip()} {item.get('text', '').strip()}",
+            expand_synonyms=False).split())
+        for item in _dataset]
     _title_df = {}
-    for _toks in _title_token_sets:
+    for _toks in _plain_title_sets:
         for _tok in _toks:
             _title_df[_tok] = _title_df.get(_tok, 0) + 1
+    _doc_df = {}
+    for _doc in _plain_doc_sets:
+        for _tok in _doc:
+            _doc_df[_tok] = _doc_df.get(_tok, 0) + 1
     _distinctive = {}
-    for _i, _toks in enumerate(_title_token_sets):
+    for _i, _toks in enumerate(_plain_title_sets):
         for _tok in _toks:
-            if _title_df[_tok] == 1 and len(_tok) >= (4 if _tok.isascii() else 3):
+            if (_title_df[_tok] == 1
+                    and _doc_df.get(_tok, 0) == 1
+                    and len(_tok) >= (4 if _tok.isascii() else 3)):
                 _distinctive[_tok] = _i
     _index_by_id = {item.get("id", ""): _i for _i, item in enumerate(_dataset)
                     if item.get("id", "")}
