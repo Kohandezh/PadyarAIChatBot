@@ -45,6 +45,30 @@ PROFILE_FIELDS = (
     "notes",
 )
 
+# What a VISITOR may be told. This is an ALLOWLIST on purpose: a column added
+# to company_profiles later is withheld until someone deliberately adds it
+# here. A denylist would publish every new column by default, and the one
+# time that is wrong it is wrong about somebody's personal data.
+#
+# Read against the workbook mapping (PROFILE_MAP in scripts/import-content.py)
+# these are the COMPANY's own coordinates: the workbook `phone` column lands in
+# `company_phone` — the company landline printed on its own letterhead — plus
+# its website, fax, address, province, type, stage, field and participation.
+PUBLIC_PROFILE_FIELDS = (
+    "website", "company_phone", "fax",
+    "address", "address_en", "province",
+    "company_type", "org_stage", "activity_field", "participation",
+)
+
+# WITHHELD, and why: contact_name, contact_position, contact_mobile and email
+# are not the company's — they are ONE named person's details. The workbook
+# gives their name, their job title, their personal mobile (`mobile`, falling
+# back to the login `username` when the sheet left it blank) and their email
+# address. That person handed those to the organizer so the organizer could
+# reach them, never so the chatbot could read them out to any visitor who
+# asks. `notes` is the organizer's private remark about the company. None of
+# these five may ever leave this module.
+
 
 def ensure_tables() -> None:
     # The DDL lives with the leads module's tables (this table is part of the
@@ -64,6 +88,37 @@ def get_profile(dataset_id: str) -> dict:
     finally:
         conn.close()
     return dict(row) if row else {}
+
+
+def public_profile(dataset_id: str) -> dict:
+    """The allowlisted, non-empty fields of one company — the ONLY way profile
+    data reaches a visitor.
+
+    Everything that answers a visitor goes through here rather than reading the
+    table itself, so the allowlist is one gate and not a rule each caller has
+    to remember. The SELECT names the public columns explicitly: a withheld
+    column is never even loaded into memory on a visitor's request path.
+
+    Deliberately no ensure_tables() call, same as the company-list tier: an
+    install without the leads module has no company_profiles table, and that
+    absence just means there is nothing public to say — it is not a reason to
+    grow schema the install never ordered. The caller catches the DB error.
+    """
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT " + ", ".join(PUBLIC_PROFILE_FIELDS)
+            + " FROM company_profiles WHERE dataset_id = ?", (dataset_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {}
+    # Empty columns are dropped, not returned blank: "" is not an answer, and
+    # the caller decides to stay quiet by finding the key missing.
+    return {k: str(v).strip() for k, v in dict(row).items()
+            if v is not None and str(v).strip()}
 
 
 def upsert_profile(dataset_id: str, values: dict) -> dict:

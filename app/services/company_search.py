@@ -40,6 +40,11 @@ _MACHINERY = _ATTACHED_PLURALS | _PLURAL_SUFFIXES | _LIST_TRIGGERS | {
     "شرکت", "حوزه", "زمینه", "فعال", "فعالیت", "نمایشگاه", "اینوتکس",
     "کن", "کنید", "بگو", "بگویید", "بده", "بدهید", "نام",
     "داریم", "دارید", "دارند", "دارد", "هست", "هستند", "حضور",
+    # «شرکت‌های استان اصفهان» names the province the same way «حوزه» names the
+    # field: the word is how the visitor points at the column, not a value to
+    # match. Left in, «استان» matched no company's text and the tier returned
+    # None for a question the database could answer exactly.
+    "استان", "شهر",
 }
 
 # Answer-length cap: a wall of 169 names is not an answer a visitor can use.
@@ -72,7 +77,8 @@ def _load_companies() -> list:
     conn = get_db_connection()
     try:
         rows = conn.execute(
-            "SELECT d.id, d.title, d.title_en, d.text, p.activity_field"
+            "SELECT d.id, d.title, d.title_en, d.text,"
+            " p.activity_field, p.province, p.company_type"
             " FROM dataset d JOIN company_profiles p ON p.dataset_id = d.id"
         ).fetchall()
     finally:
@@ -142,8 +148,14 @@ def answer_company_list(query: str, lang: str = "fa"):
 
     matched = []
     for c in companies:
+        # Province and company type join the haystack for the same reason
+        # activity_field is in it: «شرکت‌های استان اصفهان» filters on a column
+        # the database holds, and the company's own description rarely repeats
+        # its province.
         hay = set(normalize_persian(
-            f"{c.get('activity_field') or ''} {c.get('title') or ''} {c.get('text') or ''}",
+            f"{c.get('activity_field') or ''} {c.get('province') or ''}"
+            f" {c.get('company_type') or ''}"
+            f" {c.get('title') or ''} {c.get('text') or ''}",
             expand_synonyms=False,
         ).split())
         # ALL keywords must be present: «هوش مصنوعی» must not list every
@@ -163,3 +175,139 @@ def answer_company_list(query: str, lang: str = "fa"):
         "count": len(matched),
         "matched_ids": [c["id"] for c in matched],
     }
+
+
+# ── The company-field tier ───────────────────────────────────────────────
+#
+# Why this exists (measured 2026-08-27): «شماره تماس شرکت دکیو چیست؟» names
+# ONE company and asks for ONE recorded fact, and the pipeline answered with
+# that company's generic description — nothing in the chat path had ever read
+# company_profiles, so the phone the organizer already holds was unreachable.
+#
+# Person-scoped request words. These must be tested BEFORE the public map,
+# because «شماره مدیرعامل شرکت دکیو» contains «شماره», which maps to the
+# PUBLIC company_phone. Without this precedence the collision answers a
+# question about a PERSON out of that person's own record. «مدیر» covers the
+# spaced spelling «مدیر عامل» too (normalize_persian folds the ZWNJ in
+# «مدیر‌عامل» to a space, so both arrive as separate tokens).
+_WITHHELD_WORDS = {
+    "مدیرعامل", "مدیر", "رئیس", "موبایل", "همراه", "ایمیل",
+    "مسئول", "نماینده",
+}
+
+# Request word → public column, in priority order. First match wins, so a
+# query carrying two of them («استان ... کجاست») answers the more specific
+# one. «وب‌سایت» normalizes to the two tokens «وب سایت», so «سایت» catches
+# every spelling of it.
+_FIELD_WORDS = (
+    ("company_phone", {"تلفن", "شماره", "تماس"}),
+    ("website", {"سایت", "وبسایت"}),
+    ("province", {"استان", "شهر"}),
+    ("address", {"آدرس", "نشانی", "کجاست"}),
+    ("activity_field", {"حوزه"}),
+)
+
+_FIELD_LABELS_FA = {
+    "company_phone": "شماره تماس",
+    "website": "وب‌سایت",
+    "address": "نشانی",
+    "address_en": "نشانی",
+    "province": "استان",
+    "activity_field": "زمینه فعالیت",
+}
+_FIELD_LABELS_EN = {
+    "company_phone": "Phone",
+    "website": "Website",
+    "address": "Address",
+    "address_en": "Address",
+    "province": "Province",
+    "activity_field": "Field of work",
+}
+
+
+def _requested_field(tokens: list):
+    """The public column this query asks for, or None. Deterministic word
+    lookup on the UNexpanded normalized tokens — same approach as the list
+    tier and the entity guards: field detection must see what the visitor
+    actually typed, not what a synonym row added."""
+    for field, words in _FIELD_WORDS:
+        if any(t in words for t in tokens):
+            return field
+    # «زمینه فعالیت» only as the pair: «زمینه» alone is too general a word to
+    # read as a request for the activity column.
+    for i, t in enumerate(tokens[:-1]):
+        if t == "زمینه" and tokens[i + 1] == "فعالیت":
+            return "activity_field"
+    return None
+
+
+def answer_company_field(query: str, entry: dict, lang: str = "fa"):
+    """The one recorded fact this query asks about a named company, or None.
+
+    `entry` is the dataset row resolve_named_entity() already produced, so the
+    company is settled before this runs and this only has to decide WHICH
+    field. None means "not mine" — not a field question, no profile row, the
+    requested field empty for this company, or any DB fault (an install
+    without the leads module has no company_profiles table). This tier
+    degrades, it never raises.
+    """
+    if not entry:
+        return None
+    norm = normalize_persian(query or "", expand_synonyms=False)
+    tokens = norm.split()
+
+    withheld = any(t in _WITHHELD_WORDS for t in tokens)
+    field = _requested_field(tokens)
+    if not withheld and field is None:
+        return None
+
+    try:
+        # Never read a withheld column: the allowlist is the only door.
+        from app.services.company_profiles import public_profile
+        profile = public_profile(entry.get("id", ""))
+    except Exception as e:  # noqa: BLE001 — missing table or any DB fault: tier off
+        logger.info(f"[company-field] tier unavailable: {type(e).__name__}: {e}")
+        return None
+    if not profile:
+        return None
+
+    title = ((entry.get("title_en") or "").strip() if lang == "en" else "") \
+        or (entry.get("title") or "").strip()
+    phone = profile.get("company_phone", "")
+    website = profile.get("website", "")
+
+    if withheld:
+        # Say plainly what is not shared, then hand over what is. No mention
+        # of a record or a database: the visitor asked a person's number, and
+        # the honest short answer is "we do not give those out".
+        if lang == "en":
+            lines = ["We do not share the personal contact details of individuals."]
+            if phone or website:
+                lines.append(f"Here is the public contact information for {title}:")
+            if phone:
+                lines.append(f"Phone: {phone}")
+            if website:
+                lines.append(f"Website: {website}")
+        else:
+            lines = ["شماره و اطلاعات تماس شخصی افراد را در اختیار کسی نمی‌گذاریم."]
+            if phone or website:
+                lines.append(f"اطلاعات تماس عمومی {title} این است:")
+            if phone:
+                lines.append(f"شماره تماس: {phone}")
+            if website:
+                lines.append(f"وب‌سایت: {website}")
+        return {"text": "\n".join(lines), "field": "withheld"}
+
+    # English address when we have one and the visitor is reading English.
+    if field == "address" and lang == "en" and profile.get("address_en"):
+        field = "address_en"
+    value = profile.get(field, "")
+    if not value:
+        # Nothing recorded for this company — decline so the visitor still
+        # gets the company's own entry instead of a blank line.
+        return None
+
+    if lang == "en":
+        return {"text": f"{_FIELD_LABELS_EN[field]} for {title}: {value}",
+                "field": field}
+    return {"text": f"{_FIELD_LABELS_FA[field]} {title}: {value}", "field": field}
