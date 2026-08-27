@@ -633,6 +633,10 @@ def test_ladder_ai_failure_falls_back_to_a_strong_local_match(chat_client, monke
     monkeypatch.setattr(chat_router, "find_similar_question",
                         lambda q, exact_only=False: (None, 0.0))
     monkeypatch.setattr(chat_router, "classify_intent_local", lambda q: (None, 0.0))
+    # The named-entity anchor reads the real index and would (correctly)
+    # rescue this query before the AI tier; neutralize it so this test keeps
+    # exercising the AI-failure fallback it is about.
+    monkeypatch.setattr(chat_router, "resolve_named_entity", lambda q: (None, set()))
     # A query made only of vocabulary words: this test is about the FALLBACK
     # ladder, and the unknown-entity gate (correctly) defers the weather
     # filler before the fallback could ever serve it.
@@ -661,6 +665,10 @@ def test_ladder_kill_switch_skips_the_ai_branch_entirely(chat_client, monkeypatc
     monkeypatch.setattr(chat_router, "find_similar_question",
                         lambda q, exact_only=False: (None, 0.0))
     monkeypatch.setattr(chat_router, "classify_intent_local", lambda q: (None, 0.0))
+    # Neutralize the named-entity anchor for the same reason as the previous
+    # test: it reads the real index, and its rescue would answer before the
+    # kill-switch branch this test is about.
+    monkeypatch.setattr(chat_router, "resolve_named_entity", lambda q: (None, set()))
     r = _ask(chat_client, "ساعات بازدید نمایشگاه اینوتکس")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local"

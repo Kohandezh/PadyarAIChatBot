@@ -144,3 +144,99 @@ def test_branch_address_synonym_disambiguates(tmp_path, monkeypatch):
     fixed, score = search.find_best_match(query)
     assert fixed["id"] == "vid_reyAddress"
     assert score >= cfg.TRUSTED_MATCH_THRESHOLD
+
+
+# ── Trusted-tier ordering (the اینوتکس-date incident, 2026-08-27) ─────────
+#
+# «اینوتکس امسال چه زمانی برگزار می‌شود؟» was served by Tier 1 (dataset
+# retrieval, "programs" FAQ entry, 0.95) while the questions blend held the
+# CORRECT entry (inotex-date) at 0.965 — Tier 1 answered unconditionally
+# before the questions score was ever compared. These tests pin the rule:
+# when both local signals clear TRUSTED_MATCH_THRESHOLD, the higher score
+# wins (questions win an exact tie).
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def chat_client(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "routing.db"))
+    from app.main import app
+    from app.auth import security
+    security._chat_rate_limits.clear()
+    with TestClient(app) as c:
+        from app.auth.security import generate_chat_token
+        c.headers.update({"Origin": "http://localhost",
+                          "X-Chat-Token": generate_chat_token()})
+        yield c
+    security._chat_rate_limits.clear()
+
+
+def _stub_local_tiers(monkeypatch, dataset_score, questions_score):
+    """Stub the two local retrievers the way chat.py imports them (by name,
+    on the router). exact_only=True must stay empty so Tier 0 never fires —
+    these tests are about the two *trusted* (non-exact) signals."""
+    from app.routers import chat as chat_router
+
+    dataset_entry = {"id": "faq-programs", "title": "برنامه‌ها",
+                     "text": "پاسخ دیتاست", "video_url": ""}
+    questions_entry = {"id": "inotex-date", "title": "تاریخ اینوتکس",
+                       "text": "پاسخ پرسش‌ها", "video_url": ""}
+
+    monkeypatch.setattr(chat_router, "find_best_match",
+                        lambda q: (dataset_entry, dataset_score))
+    monkeypatch.setattr(
+        chat_router, "find_similar_question",
+        lambda q, exact_only=False: (None, 0.0) if exact_only
+        else (questions_entry, questions_score))
+    # The unknown-entity gate and the named-entity anchor read the real index;
+    # neutralize both so these tests exercise only the trusted-tier ordering.
+    monkeypatch.setattr(chat_router, "unknown_salient_tokens", lambda q: [])
+    monkeypatch.setattr(chat_router, "resolve_named_entity", lambda q: (None, set()))
+    return dataset_entry, questions_entry
+
+
+def _ask(client, message="اینوتکس امسال چه زمانی برگزار می‌شود؟"):
+    return client.post("/chat", json={"message": message, "lang": "fa"})
+
+
+def test_when_both_local_signals_are_trusted_the_higher_questions_score_wins(chat_client, monkeypatch):
+    # The measured incident: dataset 0.95 vs questions 0.965 — the questions
+    # blend held the correct entry and must be the one served.
+    _stub_local_tiers(monkeypatch, dataset_score=0.95, questions_score=0.965)
+    r = _ask(chat_client)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_questions"
+    assert body["text"] == "پاسخ پرسش‌ها"
+
+
+def test_when_both_local_signals_are_trusted_the_higher_dataset_score_wins(chat_client, monkeypatch):
+    _stub_local_tiers(monkeypatch, dataset_score=0.97, questions_score=0.85)
+    r = _ask(chat_client)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local"
+    assert body["text"] == "پاسخ دیتاست"
+
+
+def test_a_lone_trusted_dataset_match_is_served_exactly_as_before(chat_client, monkeypatch):
+    # Only Tier 1 clears the threshold — the ordering rule must not change
+    # single-signal behavior.
+    _stub_local_tiers(monkeypatch, dataset_score=0.80, questions_score=0.30)
+    r = _ask(chat_client)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local"
+    assert body["text"] == "پاسخ دیتاست"
+
+
+def test_an_exact_tie_between_trusted_signals_prefers_the_questions_match(chat_client, monkeypatch):
+    # Curated question→answer rows are hand-made and more precise than
+    # description-level similarity, so a tie goes to the questions index.
+    _stub_local_tiers(monkeypatch, dataset_score=0.90, questions_score=0.90)
+    r = _ask(chat_client)
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] == "local_questions"

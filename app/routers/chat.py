@@ -20,7 +20,9 @@ import time as _perf
 from app.db.queries import get_setting, log_chat
 from app.services import applog
 from app.services.search import (find_best_match, find_similar_question,
-                                 classify_intent_local, unknown_salient_tokens)
+                                 classify_intent_local, unknown_salient_tokens,
+                                 resolve_named_entity, entry_mentions,
+                                 entity_coverage)
 from app.services.openai import classify_intent, get_openai_response
 from app.utils.normalizer import strip_leading_greeting
 
@@ -168,15 +170,105 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         exact_match = question_match = best_match = None
         score = q_score = 0.0
 
+    # Named-entity anchor (measured 2026-08-27): the guard above covers
+    # entities the corpus does NOT know; this covers confusion BETWEEN known
+    # entries. «شماره مدیرعامل دوندگان لبه علم» anchored on «شماره/تلفن» and
+    # served the دبیرخانه phone FAQ at 0.87 — wrong entity, high confidence —
+    # and «درباره دکیو بهم بگو» reached only 0.691 and paid for an LLM refusal
+    # although the دکیو entry existed. Principle: no similarity score may
+    # override the entity the visitor actually named, and a query naming
+    # exactly one known entity is answered from that entity's own entry.
+    # NOT resolved when unknown_tokens fired: an unknown salient token means
+    # the AI tier must judge the query, entity token or not.
+    entity_entry, entity_tokens = (None, set())
+    if not unknown_tokens:
+        entity_entry, entity_tokens = resolve_named_entity(match_query)
+
+    def _entity_answer() -> ChatResponse:
+        # The served score is the share of the query's content tokens found in
+        # the entity's own entry, floored at the trust bar — a real, deterministic
+        # signal for the logs and the response's confidence field, not a number
+        # borrowed from the retriever that just picked the wrong entry.
+        ent_score = max(TRUSTED_MATCH_THRESHOLD, entity_coverage(entity_entry, match_query))
+        return _answer_from_entry(entity_entry, ent_score, "local_entity",
+                                  user_query, lang=lang, visitor=request.visitor)
+
+    def _names_other_entity(candidate: dict) -> bool:
+        # A candidate conflicts when it is a DIFFERENT dataset entry than the
+        # one the visitor named AND never even mentions that entity. Privacy
+        # note: the pipeline only ever reads dataset.text (never
+        # company_profiles), so serving the company's own public entry for a
+        # "give me the CEO's number" query is the safe, correct behavior —
+        # the answer describes the company and contains no personal numbers.
+        return (entity_entry is not None
+                and candidate is not None
+                and candidate.get("id") != entity_entry.get("id")
+                and not entry_mentions(candidate, entity_tokens))
+
     if exact_match and exact_score >= 0.9:
+        # Tier 0 stays authoritative: a near-exact hit on a hand-curated
+        # question is a deliberate mapping, never overridden by the anchor.
         return _answer_from_entry(exact_match, exact_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
 
-    # Tier 1 — trust only a near-exact local match.
-    if score >= TRUSTED_MATCH_THRESHOLD and best_match:
+    # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
+    # معرفی کن» is a LIST question, but single-document retrieval can only pick
+    # one entry — Tier 1 served faq-20, the out-of-scope REFUSAL text, at 0.81
+    # because it contains «هوش مصنوعی اینوتکس» and is a token magnet. The real
+    # answer was a list built from the ~169 company rows. This tier answers
+    # such questions straight from dataset × company_profiles, so it must run
+    # BEFORE the trusted T1/questions block. Gated on the two guards above:
+    # an unknown salient token still defers to AI, and a query naming ONE
+    # specific company («شرکت دکیو چیست؟») is about that company, not a list.
+    if not unknown_tokens and entity_entry is None:
+        from app.services.company_search import answer_company_list
+        company_list = answer_company_list(match_query, lang=lang)
+        if company_list is not None:
+            # 0.9 is nominal: the answer is a deterministic database listing,
+            # not a similarity estimate — there is no score to report.
+            list_score = 0.9
+            log_chat(user_query, company_list["text"], "text",
+                     "local_company_search", list_score)
+            applog.info("chat", "conversation.answer.served",
+                        "پاسخ به بازدیدکننده داده شد",
+                        subcategory="local_company_search", outcome="ok",
+                        metadata={"tier": "local_company_search",
+                                  "score": list_score,
+                                  "response_type": "text",
+                                  "companies": company_list["count"]})
+            return ChatResponse(
+                type="text", text=company_list["text"], video_url=None,
+                confidence=list_score, source="local_company_search",
+            )
+
+    # Tier 1 — trust only a near-exact local match. When BOTH local signals
+    # clear the trust bar, the higher score wins: sibling FAQ entries can
+    # overlap the query's common tokens, so serving the dataset match first
+    # unconditionally picked the wrong entry (measured 2026-08-27, «اینوتکس
+    # امسال چه زمانی» — dataset "programs" at 0.95 beat the correct
+    # questions-blend inotex-date at 0.965). On an exact tie the questions
+    # match wins: those rows are hand-mapped query→answer pairs, more precise
+    # than description-level similarity.
+    t1_trusted = best_match and score >= TRUSTED_MATCH_THRESHOLD
+    q_trusted = question_match and q_score >= TRUSTED_MATCH_THRESHOLD
+    if t1_trusted and (not q_trusted or score > q_score):
+        if _names_other_entity(best_match):
+            logger.info(f"Entity override: {best_match.get('id')} → {entity_entry.get('id')} (named {sorted(entity_tokens)})")
+            return _entity_answer()
         return _answer_from_entry(best_match, score, "local", user_query, lang=lang, visitor=request.visitor)
 
-    if question_match and q_score >= TRUSTED_MATCH_THRESHOLD:
+    if q_trusted:
+        if _names_other_entity(question_match):
+            logger.info(f"Entity override: {question_match.get('id')} → {entity_entry.get('id')} (named {sorted(entity_tokens)})")
+            return _entity_answer()
         return _answer_from_entry(question_match, q_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
+
+    # Entity rescue (the دکیو case above): no local tier qualified, but the
+    # visitor named exactly one known entity — answer from that entity's own
+    # entry instead of paying for an LLM call just because generic similarity
+    # was mediocre.
+    if entity_entry is not None:
+        logger.info(f"Entity rescue → {entity_entry.get('id')} (named {sorted(entity_tokens)})")
+        return _entity_answer()
 
     # Tier 1.5 — this installation's own trained intent classifier (logistic
     # regression over local embeddings, retrained on every dataset edit). A
