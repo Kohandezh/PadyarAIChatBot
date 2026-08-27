@@ -193,6 +193,12 @@ def main() -> int:
     from app.services import company_profiles
     conn = get_db_connection()
     n_ds = n_q = 0
+
+    # Pass 1 — every dataset row first, committed. upsert_profile opens its
+    # OWN connection, and a second connection cannot see rows this one has
+    # not committed yet (the first --apply died exactly there: profile upsert
+    # said «این شرکت در دانش‌نامه نیست» for a row sitting uncommitted one
+    # connection over).
     for fid, title, text, variants in faq:
         conn.execute(
             "INSERT INTO dataset (id, title, text, video_url, title_en, text_en)"
@@ -200,12 +206,6 @@ def main() -> int:
             " ON CONFLICT(id) DO UPDATE SET title=excluded.title, text=excluded.text",
             (fid, title, text))
         n_ds += 1
-        for v in variants:
-            if v in existing_q:
-                continue
-            conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
-                         " VALUES (?, ?, '')", (v, fid))
-            n_q += 1
     for cid, ds, profile, anchors in companies:
         conn.execute(
             "INSERT INTO dataset (id, title, text, video_url, title_en, text_en)"
@@ -214,6 +214,18 @@ def main() -> int:
             " title_en=excluded.title_en, text_en=excluded.text_en",
             (cid, ds["title"], ds["text"], ds["title_en"], ds["text_en"]))
         n_ds += 1
+    conn.commit()
+
+    # Pass 2 — profiles and curated anchors, now over rows that are visible
+    # to every connection.
+    for fid, title, text, variants in faq:
+        for v in variants:
+            if v in existing_q:
+                continue
+            conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
+                         " VALUES (?, ?, '')", (v, fid))
+            n_q += 1
+    for cid, ds, profile, anchors in companies:
         if profile:
             company_profiles.upsert_profile(cid, profile)
         for a in anchors:
