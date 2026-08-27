@@ -9,6 +9,7 @@ under a second at this corpus size; inference is one matrix product.
 Every training run holds out a stratified sample and logs its accuracy, so
 the quality of the deployed classifier is measured, never assumed.
 """
+import math
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -51,15 +52,20 @@ def train(vectors: np.ndarray, dataset_ids: List[str],
             return None
 
         holdout_accuracy = None
-        # Stratified holdout needs every class at least twice; measure when
-        # possible, then refit on the full corpus for deployment.
+        # Stratified holdout needs every class at least twice AND at least
+        # one test sample per class — with many short intents (e.g. the 2026
+        # program block: 31 intents / ~193 questions) 0.15*n can undershoot
+        # the class count and the split raises. Bump the holdout just enough
+        # to stay stratifiable; measure when possible, then refit on all.
         if counts.min() >= 2:
-            X_tr, X_te, y_tr, y_te = train_test_split(
-                vectors, y, test_size=0.15, stratify=y, random_state=7
-            )
-            probe = LogisticRegression(C=50, max_iter=3000)
-            probe.fit(X_tr, y_tr)
-            holdout_accuracy = float(probe.score(X_te, y_te))
+            n_holdout = max(math.ceil(0.15 * len(y)), len(classes))
+            if n_holdout <= len(y) - len(classes):
+                X_tr, X_te, y_tr, y_te = train_test_split(
+                    vectors, y, test_size=n_holdout, stratify=y, random_state=7
+                )
+                probe = LogisticRegression(C=50, max_iter=3000)
+                probe.fit(X_tr, y_tr)
+                holdout_accuracy = float(probe.score(X_te, y_te))
 
         # C=50: with 60 classes over 256-dim static embeddings the default
         # regularization flattens the softmax so far that no prediction can

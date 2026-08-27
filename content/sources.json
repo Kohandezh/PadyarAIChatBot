@@ -2,8 +2,8 @@
   "manifest_version": "1.0",
   "project_instance": "inotex",
   "primary_source_of_truth": "https://inotex.com/",
-  "knowledge_version": "inotex-kb-2026-08-14.1",
-  "retrieved_at": "2026-08-14",
+  "knowledge_version": "inotex-kb-2026-08-27.1",
+  "retrieved_at": "2026-08-27",
   "policy": {
     "robots_txt": "checked 2026-08-14 — no restrictions returned",
     "no_authentication_bypass": true,
@@ -65,15 +65,216 @@
       "approval_status": "approved"
     },
     {
+      "source_id": "inotex-programs-timetable",
+      "url": "https://inotex.com/programs",
+      "title": "زمان‌بندی رویدادهای اینوتکس ۲۰۲۶ (برنامه زمانی)",
+      "language": "fa",
+      "content_type": "timetable",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "four event days; stages/halls: استیج اصلی، استیج جانبی، سالن فن‌بازار، سالن سراج، اینونایت، میت‌آپ، هاب رسانه",
+        "opening ceremony 15:30–17:30; closing ceremony 18:00–20:00; INOTEX Pitch & Battle 14:00–18:00",
+        "INOTEX Stage one-day program 14:00–20:25",
+        "روز انتخاب product showcases 14:10–20:10 (AI content, mobile game, Majooris builder, standards platform, real-estate AI, SYNAPSE, ریزدونه, trading robots, waste-sorting robotics, AI film)",
+        "AI & IoT conference days 1–3 panels: fintech/smart health; IoT security/smart industry/smart mining; AI-in-innovation/AI-IoT/cognitive science (14:00–20:00 blocks)",
+        "Reverse Pitch needs sessions: health & medical equipment; mining & natural bitumen; water & power (وزارت نیرو); mining productivity; oil/gas/petrochemicals; Hamrah-e Aval",
+        "Capital Café workshops 14:00–20:00 (startup legal autopsy; Iran/Europe marketing; financing roadmap)",
+        "26th national FanBazar gathering 08:00–16:00; FanBazar training workshop 08:00–12:00",
+        "InoNight 20:00–23:59; four numbered meetups; Media Hub 10:00–18:00; Esteghlal–Persepolis screening 19:30–21:30; product launch space 14:00–19:00",
+        "footer on this page lists secretariat as Seraj Building Unit 121 (conflicts with Unit 125 elsewhere)"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
       "source_id": "inotex-news",
       "url": "https://inotex.com/fa/allnews",
       "title": "اخبار اینوتکس",
       "language": "fa",
       "content_type": "news_index",
-      "retrieved_at": "2026-08-14",
-      "facts_supplied": ["news index location only — individual articles not ingested yet"],
-      "freshness_status": "reference",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "news index location; pages 1–6 scanned 2026-08-27 (current-edition 1405 news)",
+        "program-related articles ingested individually — see sources inotex-news-### below"
+      ],
+      "freshness_status": "current",
       "approval_status": "approved_as_pointer"
+    },
+    {
+      "source_id": "inotex-news-605",
+      "url": "https://inotex.com/fa/news?id=605",
+      "title": "با رقابت ۱۴ فینالیست اینوتکس‌پیچ ۲۰۲۶ به خط پایان می‌رسد (1405/6/3)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "INOTEX Pitch 2026: provincial rounds in 7 provinces (Ilam, Sistan-Baluchestan, Kerman, Golestan, Bushehr, East Azerbaijan, Tehran), 450+ registered teams",
+        "14 teams in the final on 14 Shahrivar; 6-minute pitch + 4-minute jury Q&A",
+        "prizes: 1st 100M tomans, 2nd 50M tomans; free booth counter and investor meetings for top teams",
+        "Battle: knockout, ~3 min challenge + 1 min defense; winner 50M tomans + championship belt"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-604",
+      "url": "https://inotex.com/fa/news?id=604",
+      "title": "از ورشکستگی تا بقا؛ استیج اینوتکس امسال (1405/6/1)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "INOTEX Stage Express: one-day compressed stage, 30+ figures from private sector/government/diaspora",
+        "themes: آتش و ابتکار (war-year failure/bankruptcy/survival), جریان‌های پنهان (trends, capital market, governance), منطق دوام (economic/social survival analysis), وطن‌های متصل (diaspora ecosystem)",
+        "future-technology film segments alongside talks"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-602",
+      "url": "https://inotex.com/fa/news?id=602",
+      "title": "اینوتکس؛ فرصتی برای اتصال مستقیم کارجویان به شرکت‌های فناور (1405/6/1)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "Work Station (ایستگاه کار) by Pardis HR Development Center: jobs/internships, resumes, direct company contact, interviews",
+        "components: کافه کار, career coaching, human-capital panel, jobs booklet",
+        "specialized HR-managers meeting; student technology tours (companies, park phases, Aviation Museum)"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-601",
+      "url": "https://inotex.com/fa/news?id=601",
+      "title": "اینوتکس ۲۰۲۶ سکوی پرتاب شتاب‌دهنده‌ها / برگزاری همزمان پردیس سامیت (1405/5/28)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "10th Pardis Summit held hybrid on INOTEX day 2 — annual gathering of Innovation Acceleration Center members (accelerators, coworking spaces, event organizers)",
+        "nearly 20 member accelerators exhibit at INOTEX and connect with investors"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-599",
+      "url": "https://inotex.com/fa/news?id=599",
+      "title": "فن‌بازار ملی ایران با ۴ برنامه ویژه به اینوتکس ۱۴۰۵ می‌آید (1405/5/25)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "National FanBazar network: 4 programs — national tech-trade managers gathering, broker empowerment course, 10+ technology tours from provinces, trade events around technology needs",
+        "needs events in six priority areas incl. ICT, oil/gas/petrochemicals, mining, medical"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-597",
+      "url": "https://inotex.com/fa/news?id=597",
+      "title": "پاویون سرمایه‌گذاران اینوتکس (1405/5/18)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "Investors Pavilion hosts VC funds, research & tech funds, angels, CVC arms, holdings",
+        "services: private negotiation space, targeted meetings, selected-startups database, Capital Café presence, Pitch-final jury, Demo Day",
+        "registration: https://inotex.com/fa/event/?id=2117"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-596",
+      "url": "https://inotex.com/fa/news?id=596",
+      "title": "کافه سرمایه در اینوتکس ۲۰۲۶ میزبان مذاکرات سرمایه‌گذاری (1405/5/11)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "Capital Café: B2B matchmaking between startups and investors (funds, VCs, angels)",
+        "process: register → submit plan & funding need → evaluation → plans sent to matching investors → first meetings during the exhibition"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-594",
+      "url": "https://inotex.com/fa/news?id=594",
+      "title": "اینوتکس ۲۰۲۶ عصرها برگزار می‌شود (1405/5/24)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "exhibition explicitly runs evenings 14:00–20:00 (corroborates FAQ hours)",
+        "INOTEX Express branding: networking, investment, market, resilience focus",
+        "welfare/transport packages announced later"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-593",
+      "url": "https://inotex.com/fa/news?id=593",
+      "title": "اینوتکس اکسپرس؛ نسخه چابک نوآوری ایران (1405/5/17)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "edition postponed from Ordibehesht to 11–14 Shahrivar due to war conditions",
+        "200+ exhibitors: ~100 startups, 65 tech/knowledge-based companies, 20 investment groups, 15 accelerators/innovation centers",
+        "pre-event Pitch rounds: Bushehr 67, Tehran 136, Tabriz 175 teams; mentorship: 13 mentors, 6 areas, 118 sessions",
+        "Capital Café with VC Association, slogan 'هر استارتاپ، ۵ سرمایه‌گذار'; Work Station connects job seekers and recruiters"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-580",
+      "url": "https://inotex.com/fa/news?id=580",
+      "title": "پاویون مشاوران و منتورهای اینوتکس (1405/1/31)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "Consultants & Mentors Pavilion: crisis strategy, resources/liquidity, business-model redesign, digital transformation, team management in crisis",
+        "registration: mentorship.inotex.com, phone 09931877317"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-news-578",
+      "url": "https://inotex.com/fa/news?id=578",
+      "title": "معرفی رویدادهای محتوایی و سرمایه‌گذاری اینوتکس ۲۰۲۶ (1404/12/2)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "program lineup: INOTEX Stage, Governance Forum, INOTEX Pitch provincial rounds, Reverse Pitch, Capital Café, crowdfunding, investor tours, Consultants Pavilion",
+        "used as corroborating background; headline facts served from newer sources"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved_as_background"
+    },
+    {
+      "source_id": "inotex-news-576",
+      "url": "https://inotex.com/fa/news?id=576",
+      "title": "اعلام جزئیات اجرایی و زمان‌بندی اینوتکس ۲۰۲۶ (1404/12/2)",
+      "language": "fa",
+      "content_type": "news_article",
+      "retrieved_at": "2026-08-27",
+      "facts_supplied": [
+        "announced the ORIGINAL dates 30 Ordibehesht–2 Khordad 1405 and a 70% knowledge-based support via the Innovation and Prosperity Fund",
+        "SUPERSEDED: dates moved to 11–14 Shahrivar per news 593/594 and the FAQ; never served as a current fact (see conflict dates-supersede-1)"
+      ],
+      "freshness_status": "historical_superseded",
+      "approval_status": "excluded_from_answers"
     },
     {
       "source_id": "inotex-blog",
@@ -92,14 +293,33 @@
       "fact": "11–14 Shahrivar 1405 = 2–5 September 2026",
       "method": "calendar conversion computed locally",
       "status": "derived_not_quoted"
+    },
+    {
+      "fact": "14 Shahrivar = fourth/final exhibition day (INOTEX Pitch final day)",
+      "method": "derived from FAQ dates + news 605",
+      "status": "derived_not_quoted"
     }
   ],
   "conflicts": [
     {
       "conflict_id": "hours-conflict-1",
-      "description": "FAQ page states visiting hours 14:00–20:00; the home-page fetch summary indicated 10:00–18:00. The FAQ statement is explicit and quoted; the home-page figure could not be verified verbatim.",
-      "resolution": "answers follow the FAQ (14–20) with an inline advisory to confirm on the official site",
+      "description": "FAQ page states visiting hours 14:00–20:00; a 2026-08-14 home-page fetch summary indicated 10:00–18:00 but could not be verified verbatim. News id=594 (1405/5/24) now explicitly quotes the secretary general: the show runs evenings 14:00–20:00.",
+      "resolution": "answers follow the FAQ (14–20), now corroborated by news 594, with an inline advisory to confirm on the official site",
+      "status": "resolved_with_evidence",
+      "logged_in": "content/review-queue.md"
+    },
+    {
+      "conflict_id": "secretary-unit-conflict-1",
+      "description": "The /programs timetable footer lists the secretariat as Seraj Building Unit 121; the news pages, FAQ-era footers and sources.json use Unit 125.",
+      "resolution": "answers keep Unit 125 (majority of current official footers); flagged for human confirmation with the secretariat",
       "status": "pending_human_review",
+      "logged_in": "content/review-queue.md"
+    },
+    {
+      "conflict_id": "dates-supersede-1",
+      "description": "News id=576 (1404/12/2) announced INOTEX 2026 for 30 Ordibehesht–2 Khordad 1405; the exhibition was later moved to 11–14 Shahrivar 1405 (news 593/594, FAQ).",
+      "resolution": "current answers use 11–14 Shahrivar only; id=576 marked historical_superseded and excluded from answers",
+      "status": "resolved_superseded",
       "logged_in": "content/review-queue.md"
     }
   ]
