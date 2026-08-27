@@ -202,6 +202,156 @@ def test_tier0_exact_curated_hit_is_not_overridden(client, monkeypatch):
     assert body["text"] == _text_of("phone-faq")
 
 
+# ── The 2026-08-27 pollution shapes: generic tokens must not become names ─
+#
+# Measured live AFTER the anchor shipped: three kinds of generic tokens got
+# into the distinctive map because it was built from synonym-EXPANDED titles
+# and only checked title document-frequency. The map must be built from
+# UNexpanded text, and a token unique among titles is only a NAME when it is
+# unique across the whole knowledge base (titles + texts).
+
+
+def _reseed(dataset_rows, questions=(), synonyms=(), profiles=None):
+    """Replace the seeded corpus (and optionally synonyms/company profiles),
+    then reindex — for the tests whose shape needs its own corpus."""
+    import app.db.connection as dbc
+    conn = dbc.get_db_connection()
+    conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM questions")
+    conn.execute("DELETE FROM synonyms")
+    conn.executemany(
+        "INSERT INTO dataset (id, title, text, video_url) VALUES (?, ?, ?, '')",
+        list(dataset_rows))
+    conn.executemany(
+        "INSERT INTO questions (id, question, dataset_id, video_url)"
+        " VALUES (?, ?, ?, '')", list(questions))
+    conn.executemany(
+        "INSERT INTO synonyms (source, target) VALUES (?, ?)", list(synonyms))
+    conn.commit()
+    conn.close()
+
+    if profiles is not None:
+        from app.services import leads
+        leads.ensure_tables()
+        conn = dbc.get_db_connection()
+        for dataset_id, field in profiles:
+            conn.execute(
+                "INSERT INTO company_profiles (dataset_id, activity_field,"
+                " created_at, updated_at) VALUES (?, ?, '2026-08-27', '2026-08-27')",
+                (dataset_id, field))
+        conn.commit()
+        conn.close()
+
+    from app.services import search
+    search.load_dataset_internal()
+
+
+# The امسال shape: «امسال» sits in exactly one (question-style) title but in
+# other entries' TEXTS — a generic word, not a name.
+EMSAL_DATASET = [
+    ("stage", "استیج اینوتکس امسال چه برنامه ای دارد",
+     "برنامه استیج شامل سخنرانی و رویداد است و امسال بخش تازه ای دارد."),
+    ("inotex-date", "تاریخ برگزاری نمایشگاه اینوتکس",
+     "زمان برگزاری نمایشگاه اینوتکس خرداد است و نمایشگاه در همان زمان برگزار می شود."),
+    ("workshop", "کارگاه های آموزشی",
+     "کارگاه های آموزشی امسال در سالن دوم برگزار می شود."),
+]
+
+
+def test_a_token_unique_in_one_title_but_common_in_texts_does_not_anchor(client, monkeypatch):
+    """The امسال shape (live 2026-08-27): «امسال» has title-df 1 (the stage
+    entry's question-style title) but lives in a second entry's text. It must
+    not be a name — the date question flows through the normal pipeline
+    instead of being anchored to the stage programme."""
+    _reseed(EMSAL_DATASET)
+    from app.services import search
+    assert "امسال" not in search._distinctive_title_tokens
+    entry, tokens = search.resolve_named_entity("اینوتکس امسال چه زمانی برگزار می شود")
+    assert entry is None and tokens == set()
+
+    _mock_ai(monkeypatch)
+    r = _ask(client, "اینوتکس امسال چه زمانی برگزار می شود")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] != "local_entity", body
+    stage_text = next(x for i, _t, x in EMSAL_DATASET if i == "stage")
+    assert body["text"] != stage_text, body
+
+
+# The شماره shape: a synonym (تماس→شماره) injects «شماره» into the contact
+# entry's EXPANDED title. Same corpus as DATASET, but the phone FAQ's title
+# contains تماس so the expansion has something to pollute.
+SYN_DATASET = [
+    ("edgerunners", "شرکت دوندگان لبه علم",
+     "شرکت دوندگان لبه علم یک شرکت دانش بنیان است. "
+     "مدیرعامل شرکت در غرفه حضور دارد و راه ارتباط با شرکت از طریق غرفه است."),
+    ("contact-faq", "تماس با دبیرخانه نمایشگاه",
+     "شماره تلفن دبیرخانه نمایشگاه ۰۲۱۱۲۳۴۵۶۷۸ است "
+     "و راه ارتباط و تماس همین شماره است."),
+    ("inotex-date", "تاریخ برگزاری نمایشگاه",
+     "نمایشگاه اینوتکس در خرداد برگزار می شود."),
+]
+
+
+def test_a_synonym_expanded_token_does_not_enter_the_name_map(client, monkeypatch):
+    """The شماره shape (live 2026-08-27, the original incident query again):
+    with تماس→شماره in the synonym table, the EXPANDED contact title contains
+    «شماره» — the old map made it distinctive, the query hit TWO entries and
+    the anchor switched itself off. Built from unexpanded titles, «شماره» is
+    no name: the company alone resolves and the phone FAQ is overridden."""
+    _reseed(SYN_DATASET,
+            questions=[(1, "شماره تلفن و راه ارتباط", "contact-faq")],
+            synonyms=[("تماس", "شماره")])
+    from app.services import search
+    assert "شماره" not in search._distinctive_title_tokens
+    entry, tokens = search.resolve_named_entity("شماره تلفن و راه ارتباط با دوندگان لبه علم")
+    assert entry is not None and entry["id"] == "edgerunners"
+    assert tokens == {"دوندگان", "لبه", "علم"}
+
+    _mock_ai(monkeypatch, forbid=True)
+    r = _ask(client, "شماره تلفن و راه ارتباط با دوندگان لبه علم")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_entity", body
+    assert body["text"] == next(x for i, _t, x in SYN_DATASET if i == "edgerunners")
+
+
+# The حوزه shape: «حوزه» unique to one FAQ title but present in another
+# entry's text, plus real companies with profiles — the list tier must not be
+# gated off by a polluted anchor.
+LIST_DATASET = [
+    ("faq-08", "فعالیت در حوزه هوش مصنوعی",
+     "در نمایشگاه شرکت های فعال در هوش مصنوعی حضور دارند."),
+    ("faq-20", "سوال خارج از موضوع",
+     "این سوال خارج از حوزه نمایشگاه است. ما فقط درباره نمایشگاه پاسخ داریم "
+     "و معرفی شرکت های حاضر از طریق همین گفتگو انجام می شود."),
+    ("co-ava", "شرکت آوا", "معرفی شرکت آوا: فعال در هوش مصنوعی و پردازش تصویر."),
+    ("co-rayan", "شرکت رایان", "شرکت رایان سامانه های هوش مصنوعی می سازد."),
+    ("co-negar", "شرکت نگار", "شرکت نگار در زمینه هوش مصنوعی گفتاری کار می کند."),
+]
+
+
+def test_a_polluted_anchor_does_not_gate_off_the_company_list_tier(client, monkeypatch):
+    """The حوزه shape (live 2026-08-27): «حوزه» is unique to the faq-08 title
+    but common in entry texts. The old map resolved faq-08, which gated OFF
+    the company-list tier (it only runs when no entity resolved) — one random
+    company was served at 0.98. The count question must reach the list tier."""
+    _reseed(LIST_DATASET,
+            profiles=[("co-ava", "هوش مصنوعی"), ("co-rayan", "هوش مصنوعی"),
+                      ("co-negar", "هوش مصنوعی")])
+    from app.services import search
+    assert "حوزه" not in search._distinctive_title_tokens
+    entry, tokens = search.resolve_named_entity("چند شرکت در حوزه هوش مصنوعی داریم؟")
+    assert entry is None and tokens == set()
+
+    _mock_ai(monkeypatch, forbid=True)
+    r = _ask(client, "چند شرکت در حوزه هوش مصنوعی داریم؟")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_search", body
+    assert "3 شرکت" in body["text"], body["text"]
+
+
 def test_unknown_entity_guard_still_wins_over_the_entity_rescue(client, monkeypatch):
     """A query with an unknown salient token (the الکامپ shape) defers to AI
     even when it ALSO contains a known entity token — the guard nulls
