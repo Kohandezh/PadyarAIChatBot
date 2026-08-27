@@ -191,9 +191,10 @@ def _stub_local_tiers(monkeypatch, dataset_score, questions_score):
         chat_router, "find_similar_question",
         lambda q, exact_only=False: (None, 0.0) if exact_only
         else (questions_entry, questions_score))
-    # The unknown-entity gate reads the real index; neutralize it so these
-    # tests exercise only the trusted-tier ordering.
+    # The unknown-entity gate and the named-entity anchor read the real index;
+    # neutralize both so these tests exercise only the trusted-tier ordering.
     monkeypatch.setattr(chat_router, "unknown_salient_tokens", lambda q: [])
+    monkeypatch.setattr(chat_router, "resolve_named_entity", lambda q: (None, set()))
     return dataset_entry, questions_entry
 
 

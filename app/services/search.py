@@ -83,6 +83,19 @@ intent_classifier = None
 _corpus_vocab: set = set()
 _vocab_by_len: dict = {}
 
+# Distinctive title tokens: token -> dataset index, for tokens that appear in
+# exactly ONE entry's title across the whole dataset. This is how a query that
+# NAMES a known entity gets anchored to that entity's own entry, no matter
+# what the similarity scores say. The 2026-08-26 الکامپ guard above covers
+# entities the corpus does NOT know; this covers confusion BETWEEN known
+# entries (measured 2026-08-27: «شماره مدیرعامل دوندگان لبه علم» was served
+# the دبیرخانه phone FAQ at 0.87, and «درباره دکیو بهم بگو» fell through to
+# the paid AI tier at 0.691 — both entities exist in the dataset).
+_distinctive_title_tokens: dict = {}
+# id -> dataset index, so entry_mentions/entity_coverage can reuse the
+# already-normalized descriptions instead of re-normalizing per call.
+_dataset_index_by_id: dict = {}
+
 
 def _within_edit1(a: str, b: str) -> bool:
     """True when a and b differ by at most one substitution or one
@@ -137,6 +150,69 @@ def unknown_salient_tokens(query: str) -> list:
         if not any(_within_edit1(tok, v) for v in same_len | near_len):
             out.append(tok)
     return out
+
+
+def resolve_named_entity(query: str):
+    """The single dataset entry the query NAMES, or (None, set()).
+
+    Tokenizes the UNexpanded normalized query (same approach as
+    unknown_salient_tokens: the anchor must see what the visitor actually
+    typed, not what synonym expansion added) and looks each content token up
+    in the distinctive-title-token map. Exactly ONE entry hit -> that entry
+    plus the tokens that named it. Zero or more than one -> (None, set()):
+    ambiguity must never guess.
+
+    Why this exists (measured 2026-08-27): the الکامپ guard only protects
+    against entities the corpus does NOT know. When a query names a KNOWN
+    entity but retrieval anchors on the query's other tokens, nothing stopped
+    a confident wrong answer — «شماره مدیرعامل دوندگان لبه علم» matched the
+    دبیرخانه phone FAQ at 0.87 through «شماره/تلفن», wrong entity. The
+    principle: no similarity score may override the entity the visitor
+    actually named.
+    """
+    if not _distinctive_title_tokens:
+        return None, set()
+    from app.services.rerank import content_tokens
+    hits = {}
+    for tok in content_tokens(normalize_persian(query, expand_synonyms=False)):
+        idx = _distinctive_title_tokens.get(tok)
+        if idx is not None and 0 <= idx < len(dataset):
+            hits.setdefault(idx, set()).add(tok)
+    if len(hits) != 1:
+        return None, set()
+    idx, matched = next(iter(hits.items()))
+    return dataset[idx], matched
+
+
+def _entry_normalized_text(entry: dict) -> str:
+    """Normalized title+text of an entry, via the prebuilt index when the
+    entry is resolvable by id, else normalized on the fly."""
+    idx = _dataset_index_by_id.get(entry.get("id", ""), -1)
+    if 0 <= idx < len(normalized_descriptions):
+        return normalized_descriptions[idx]
+    return normalize_persian(f"{entry.get('title', '')} {entry.get('text', '')}")
+
+
+def entry_mentions(entry: dict, tokens: set) -> bool:
+    """True when the entry's normalized title+text contains ANY of the given
+    tokens — i.e. the candidate at least talks about the named entity, so
+    serving it is not an entity mix-up."""
+    if not entry or not tokens:
+        return False
+    return bool(set(_entry_normalized_text(entry).split()) & tokens)
+
+
+def entity_coverage(entry: dict, query: str) -> float:
+    """Share of the query's content tokens present in the entry (title+text).
+
+    The honest signal a "the visitor named this entity" answer actually has:
+    deterministic, 0..1, no similarity model involved.
+    """
+    from app.services.rerank import content_tokens
+    q = content_tokens(normalize_persian(query, expand_synonyms=False))
+    if not q:
+        return 0.0
+    return len(q & set(_entry_normalized_text(entry).split())) / len(q)
 
 
 # --- Cross-worker index freshness ---
@@ -254,6 +330,7 @@ def load_dataset_internal():
     global dataset_bm25_index, questions_bm25_index
     global intent_classifier
     global _corpus_vocab, _vocab_by_len
+    global _distinctive_title_tokens, _dataset_index_by_id
 
     load_synonyms_from_db()
 
@@ -377,6 +454,26 @@ def load_dataset_internal():
     for _tok in _vocab:
         _vbl.setdefault(len(_tok), set()).add(_tok)
 
+    # --- Distinctive title tokens (named-entity anchor) ----------------
+    # A token is distinctive for entry i when it appears in exactly one
+    # entry's title across the whole dataset (title document-frequency == 1)
+    # and is long enough to name something: >= 3 chars, >= 4 for pure-ASCII
+    # (short English fragments are too often function words). content_tokens
+    # already drops stopwords. See resolve_named_entity for the incident
+    # this answers (entity confusion between KNOWN entries, 2026-08-27).
+    _title_token_sets = [rerank.content_tokens(_t) for _t in _normalized_titles]
+    _title_df = {}
+    for _toks in _title_token_sets:
+        for _tok in _toks:
+            _title_df[_tok] = _title_df.get(_tok, 0) + 1
+    _distinctive = {}
+    for _i, _toks in enumerate(_title_token_sets):
+        for _tok in _toks:
+            if _title_df[_tok] == 1 and len(_tok) >= (4 if _tok.isascii() else 3):
+                _distinctive[_tok] = _i
+    _index_by_id = {item.get("id", ""): _i for _i, item in enumerate(_dataset)
+                    if item.get("id", "")}
+
     # --- Atomically publish to module-level globals ---
     dataset = _dataset
     descriptions = _descriptions
@@ -396,6 +493,8 @@ def load_dataset_internal():
     questions_bm25_index = bm25.build_index(_normalized_questions)
     _corpus_vocab = _vocab
     _vocab_by_len = _vbl
+    _distinctive_title_tokens = _distinctive
+    _dataset_index_by_id = _index_by_id
     intent_classifier = _intent
 
 
