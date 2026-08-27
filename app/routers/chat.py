@@ -171,11 +171,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     if exact_match and exact_score >= 0.9:
         return _answer_from_entry(exact_match, exact_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
 
-    # Tier 1 — trust only a near-exact local match.
-    if score >= TRUSTED_MATCH_THRESHOLD and best_match:
+    # Tier 1 — trust only a near-exact local match. When BOTH local signals
+    # clear the trust bar, the higher score wins: sibling FAQ entries can
+    # overlap the query's common tokens, so serving the dataset match first
+    # unconditionally picked the wrong entry (measured 2026-08-27, «اینوتکس
+    # امسال چه زمانی» — dataset "programs" at 0.95 beat the correct
+    # questions-blend inotex-date at 0.965). On an exact tie the questions
+    # match wins: those rows are hand-mapped query→answer pairs, more precise
+    # than description-level similarity.
+    t1_trusted = best_match and score >= TRUSTED_MATCH_THRESHOLD
+    q_trusted = question_match and q_score >= TRUSTED_MATCH_THRESHOLD
+    if t1_trusted and (not q_trusted or score > q_score):
         return _answer_from_entry(best_match, score, "local", user_query, lang=lang, visitor=request.visitor)
 
-    if question_match and q_score >= TRUSTED_MATCH_THRESHOLD:
+    if q_trusted:
         return _answer_from_entry(question_match, q_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
 
     # Tier 1.5 — this installation's own trained intent classifier (logistic
