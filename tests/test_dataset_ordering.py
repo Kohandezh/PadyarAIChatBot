@@ -20,13 +20,21 @@ from fastapi.testclient import TestClient
 
 # The curated reading order, as served before the PostgreSQL migration.
 # Taken from the rowid sequence of the pre-migration SQLite database, which
-# was the only surviving record of it.
+# was the only surviving record of it. Extended 2026-08-27 with the crawled
+# 2026 program block (app/default_content.py, same seed order).
 CURATED = [
     "inotex-overview", "inotex-date", "inotex-venue", "inotex-hours",
     "inotex-booth", "inotex-programs", "inotex-pitch", "inotex-contact",
     "inotex-exhibitors", "inotex-visitors", "inotex-stats", "inotex-app",
     "inotex-volunteer", "inotex-organizers", "inotex-targeted-visit",
     "inotex-news",
+    "inotex-schedule-2026", "inotex-express-2026", "inotex-pitch-2026-final",
+    "inotex-stage-2026", "inotex-capital-cafe-2026",
+    "inotex-investors-pavilion-2026", "inotex-reverse-pitch-2026",
+    "inotex-fanbazar-2026", "inotex-ai-iot-conf-2026", "inotex-work-station-2026",
+    "inotex-mentors-2026", "inotex-inonight-meetups-2026",
+    "inotex-governance-forum-2026", "inotex-pardis-summit-2026",
+    "inotex-selection-day-2026",
 ]
 
 
