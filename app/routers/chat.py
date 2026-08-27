@@ -210,6 +210,36 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         # question is a deliberate mapping, never overridden by the anchor.
         return _answer_from_entry(exact_match, exact_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
 
+    # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
+    # معرفی کن» is a LIST question, but single-document retrieval can only pick
+    # one entry — Tier 1 served faq-20, the out-of-scope REFUSAL text, at 0.81
+    # because it contains «هوش مصنوعی اینوتکس» and is a token magnet. The real
+    # answer was a list built from the ~169 company rows. This tier answers
+    # such questions straight from dataset × company_profiles, so it must run
+    # BEFORE the trusted T1/questions block. Gated on the two guards above:
+    # an unknown salient token still defers to AI, and a query naming ONE
+    # specific company («شرکت دکیو چیست؟») is about that company, not a list.
+    if not unknown_tokens and entity_entry is None:
+        from app.services.company_search import answer_company_list
+        company_list = answer_company_list(match_query, lang=lang)
+        if company_list is not None:
+            # 0.9 is nominal: the answer is a deterministic database listing,
+            # not a similarity estimate — there is no score to report.
+            list_score = 0.9
+            log_chat(user_query, company_list["text"], "text",
+                     "local_company_search", list_score)
+            applog.info("chat", "conversation.answer.served",
+                        "پاسخ به بازدیدکننده داده شد",
+                        subcategory="local_company_search", outcome="ok",
+                        metadata={"tier": "local_company_search",
+                                  "score": list_score,
+                                  "response_type": "text",
+                                  "companies": company_list["count"]})
+            return ChatResponse(
+                type="text", text=company_list["text"], video_url=None,
+                confidence=list_score, source="local_company_search",
+            )
+
     # Tier 1 — trust only a near-exact local match. When BOTH local signals
     # clear the trust bar, the higher score wins: sibling FAQ entries can
     # overlap the query's common tokens, so serving the dataset match first
