@@ -494,7 +494,6 @@ async def get_ai_connection():
         "stt": _stt_status(),
         "feature_tts": get_setting("tts_enabled", "true") == "true",
         "feature_stt": get_setting("voice_enabled", "true") == "true",
-        "search_backend": get_setting("search_backend", "tfidf"),
         "embedding_available": embeddings_service.available(),
         "default_lang": get_setting("default_chat_lang", "fa"),
     }
@@ -517,16 +516,6 @@ async def save_ai_connection(req: AIConnectionRequest):
     set_setting("tts_enabled", "true" if req.feature_tts else "false")
     set_setting("voice_enabled", "true" if req.feature_stt else "false")
     set_setting("default_chat_lang", req.default_lang if req.default_lang in ("fa", "en") else "fa")
-    backend = req.search_backend if req.search_backend in ("tfidf", "embedding") else "tfidf"
-    backend_changed = get_setting("search_backend", "tfidf") != backend
-    set_setting("search_backend", backend)
-    if backend_changed:
-        # Rebuild the retrieval index in the background so the switch takes
-        # effect without a restart (first enable also downloads the model).
-        import threading
-        from app.services.search import reindex_and_publish
-        threading.Thread(target=reindex_and_publish, daemon=True).start()
-
     # Bridge this save into the AI control plane (the chat/classify engine
     # routes exclusively off control-plane tables — a save that only wrote
     # the legacy rows above left Tier 2 dead while this endpoint answered

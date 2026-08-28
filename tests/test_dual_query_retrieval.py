@@ -58,8 +58,6 @@ def hybrid_index(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "dataset", [{"id": "x", "title": "t", "text": "b"}])
     monkeypatch.setattr(S, "normalized_titles", ["t"])
     monkeypatch.setattr(S, "normalized_descriptions", ["t b"])
-    monkeypatch.setattr(S, "vectorizer", None)
-    monkeypatch.setattr(S, "tfidf_matrix", None)
     monkeypatch.setattr(S, "questions_data", [])
     monkeypatch.setattr(S, "normalized_questions", [])
     seen = []

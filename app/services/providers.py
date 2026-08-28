@@ -61,7 +61,7 @@ class LocalRetrievalProvider:
             ok = bool(search.dataset)
             detail = (
                 f"dataset={len(search.dataset)} entries, "
-                f"backend={'embedding' if search.dataset_embedding_index is not None else 'tfidf'}, "
+                f"backend={'embedding+bm25' if search.dataset_embedding_index is not None else 'bm25'}, "
                 f"intent={'trained' if search.intent_classifier is not None else 'off'}"
             )
             return ProviderStatus(self.name, self.kind, ok, detail,

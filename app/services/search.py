@@ -2,13 +2,9 @@ import asyncio
 import os
 import threading
 import time
-from typing import List, Optional, Dict
+from typing import List, Dict
 
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-from app.config import logger, SIMILARITY_THRESHOLD, RERANK_ENABLED
+from app.config import logger, RERANK_ENABLED
 from app.db.connection import get_db_connection
 from app.services import bm25, embeddings, rerank
 from app.utils.normalizer import normalize_persian, load_synonyms_from_db
@@ -17,8 +13,6 @@ from app.utils.normalizer import normalize_persian, load_synonyms_from_db
 # --- Global State ---
 dataset: List[dict] = []
 descriptions: List[str] = []
-vectorizer: Optional[TfidfVectorizer] = None
-tfidf_matrix = None
 
 normalized_titles: List[str] = []
 normalized_descriptions: List[str] = []
@@ -28,17 +22,20 @@ questions_data: List[dict] = []
 normalized_questions: List[str] = []
 dataset_lookup: Dict[str, dict] = {}
 
-questions_vectorizer: Optional[TfidfVectorizer] = None
-questions_tfidf_matrix = None
-
-# Semantic backend (admin setting `search_backend`: "tfidf" | "embedding").
-# Indexes rebuild on every reindex — dataset edits in the panel refresh them.
+# Semantic indexes (local model2vec embeddings, no external API). Rebuilt on
+# every reindex, so dataset edits in the panel refresh them. None when
+# model2vec is not installed on this host — retrieval then runs on BM25 alone.
+#
+# There is no backend CHOICE any more. TF-IDF used to sit here as a second,
+# selectable engine behind the `search_backend` setting; it was removed
+# 2026-08-28 because two engines meant two rankings to reason about and the
+# operator had no way to tell which one was better for their content.
 dataset_embedding_index = None
 questions_embedding_index = None
 
 # Lexical BM25 indexes. Always built (they are pure Python and cost
-# milliseconds), so the reranker has a lexical signal even when the semantic
-# backend is off or its model is unavailable.
+# milliseconds), so the reranker has a lexical signal even when the embedding
+# model is unavailable.
 dataset_bm25_index = None
 questions_bm25_index = None
 
@@ -69,6 +66,100 @@ def _dual_hits(retrieve, original: str, expanded: str, k: int):
         if score > by_idx.get(idx, -1.0):
             by_idx[idx] = score
     return sorted(by_idx.items(), key=lambda p: -p[1])[:k]
+
+
+def _bm25_only(index, normalized_query: str, k: int):
+    """Raw BM25 order as `(index, score, signals)` triples, or an empty list.
+
+    The last resort for the CANDIDATE LIST when the fused ranking is
+    unavailable — the reranker raised, or the embedding index did. TF-IDF used
+    to hold this job; BM25 inherits it because it is pure Python, always built,
+    and never needs a model file.
+
+    It is deliberately NOT used by find_best_match. `BM25Index.top_k`
+    normalizes each score against the best hit for that query, so the top
+    result is always exactly 1.0. Handing that to the trust gate would serve a
+    degraded guess as a certainty, which is the failure this codebase spends
+    most of its guards preventing. The selection tier reads the records
+    themselves, so a relative score there costs ranking quality, not truth.
+    """
+    if index is None:
+        return []
+    try:
+        return [(idx, float(score), {"bm25": round(float(score), 3)})
+                for idx, score in index.top_k(normalized_query, k)]
+    except Exception as e:  # noqa: BLE001 — a broken last resort is still a last resort
+        logger.error(f"BM25 fallback failed: {e}")
+        return []
+
+
+def _company_dataset_ids() -> set:
+    """Dataset ids that are exhibitor companies, or an empty set.
+
+    Authoritative definition, copied from company_search._load_companies():
+    a dataset row is a company when company_profiles holds a row keyed by its
+    id. An install without the leads module has no such table, and the empty
+    set that comes back is the correct answer for it — nothing is a company.
+    """
+    try:
+        conn = get_db_connection()
+    except Exception as e:  # noqa: BLE001 — reindex must survive a DB fault
+        logger.error(f"[intent] cannot read company_profiles: {e}")
+        return set()
+    try:
+        rows = conn.execute("SELECT dataset_id FROM company_profiles").fetchall()
+        return {r[0] for r in rows if r[0]}
+    except Exception:
+        # No company_profiles table on this install. Not an error.
+        return set()
+    finally:
+        conn.close()
+
+
+def _intent_training_set(matrix, questions):
+    """(vectors, labels) for intent.train, with company rows dropped.
+
+    WHY. The classifier's labels are dataset ids. This install holds 222
+    dataset rows and 168 of them are exhibitor companies, so "which record is
+    this?" was being modelled as a 222-way problem with a handful of examples
+    per class. The head came out noisy and overconfident: «شرکتای فین تک هم
+    دارین؟» (any fintech companies?) returned one unrelated company about
+    deaf-accessibility content, because a near-singleton class won a softmax
+    that should never have been asked the question.
+
+    Companies are not found this way. app/services/company_search.py finds
+    them by matching facets (activity_field, province, company_type) over the
+    controlled vocabulary in the data. The classifier's only useful job is
+    routing an FAQ question to its FAQ answer, so that is all it is trained on.
+
+    An install with no company_profiles rows keeps every label, unchanged.
+
+    The vectors and the labels are filtered TOGETHER by index. Dropping a
+    label without its vector silently mislabels the whole corpus, so the
+    lengths are asserted before this returns.
+    """
+    labels = [q.get('dataset_id', '') for q in questions]
+    companies = _company_dataset_ids()
+    if not companies:
+        return matrix, labels
+
+    keep = [i for i, lab in enumerate(labels) if lab not in companies]
+    if not keep:
+        # Every question belongs to a company. Nothing left to route, so the
+        # classifier is skipped rather than trained on an empty corpus.
+        logger.warning("[intent] every question maps to a company; no classifier")
+        return matrix[:0], []
+
+    vecs = matrix[keep]
+    kept = [labels[i] for i in keep]
+    assert len(vecs) == len(kept), "intent vectors and labels fell out of step"
+    dropped = len(labels) - len(kept)
+    if dropped:
+        logger.info(f"[intent] excluded {dropped} company question(s) from training; "
+                    f"{len(kept)} FAQ question(s) over "
+                    f"{len(set(kept))} intent(s) remain")
+    return vecs, kept
+
 
 # Trained intent classifier (this installation's own model, retrained on
 # every reindex from the question corpus). None when the semantic backend
@@ -170,18 +261,34 @@ def resolve_named_entity(query: str):
     principle: no similarity score may override the entity the visitor
     actually named.
     """
-    if not _distinctive_title_tokens:
+    hits = named_entity_hits(query)
+    if len(hits) != 1:
         return None, set()
+    idx, matched = next(iter(hits.items()))
+    return dataset[idx], matched
+
+
+def named_entity_hits(query: str) -> dict:
+    """{dataset index: the query tokens that named it} for every NAMED entry.
+
+    Split out of resolve_named_entity so the caller can tell "named nothing"
+    from "named two things". Both used to come back as (None, set()), so the
+    pipeline treated them identically and the local tiers went on to answer.
+
+    That is a guess. «دوندگان لبه علم یا دکیو» names two companies; serving
+    one of them at 0.98 is the same wrong-entity failure the anchor exists to
+    prevent, just arriving through the questions index instead of the anchor.
+    Ambiguity must never guess — see the caller in app/routers/chat.py.
+    """
+    if not _distinctive_title_tokens:
+        return {}
     from app.services.rerank import content_tokens
     hits = {}
     for tok in content_tokens(normalize_persian(query, expand_synonyms=False)):
         idx = _distinctive_title_tokens.get(tok)
         if idx is not None and 0 <= idx < len(dataset):
             hits.setdefault(idx, set()).add(tok)
-    if len(hits) != 1:
-        return None, set()
-    idx, matched = next(iter(hits.items()))
-    return dataset[idx], matched
+    return hits
 
 
 def _entry_normalized_text(entry: dict) -> str:
@@ -315,17 +422,16 @@ def _maybe_refresh() -> None:
 
 
 def load_dataset_internal():
-    """Load dataset and questions from DB, build TF-IDF index.
+    """Load dataset and questions from the DB and build every retrieval index.
 
     Uses local variables during loading to avoid a race condition where
     the global state is cleared (e.g. ``questions_data = []``) while a
     concurrent API request reads the half-loaded state.
     Globals are only reassigned once everything is ready.
     """
-    global dataset, descriptions, vectorizer, tfidf_matrix
+    global dataset, descriptions
     global normalized_titles, normalized_descriptions
     global questions_data, normalized_questions, dataset_lookup
-    global questions_vectorizer, questions_tfidf_matrix
     global dataset_embedding_index, questions_embedding_index
     global dataset_bm25_index, questions_bm25_index
     global intent_classifier
@@ -340,13 +446,9 @@ def load_dataset_internal():
     _normalized_titles = []
     _normalized_descriptions = []
     _dataset_lookup = {}
-    _vectorizer = None
-    _tfidf_matrix = None
 
     _questions_data = []
     _normalized_questions = []
-    _questions_vectorizer = None
-    _questions_tfidf_matrix = None
 
     try:
         conn = get_db_connection()
@@ -368,15 +470,8 @@ def load_dataset_internal():
                 _normalized_titles.append(normalize_persian(title))
                 _normalized_descriptions.append(normalize_persian(f"{title} {text}"))
 
-            # آموزش وکتورایزر روی متن نرمالایز شده
-            _vectorizer = TfidfVectorizer(
-                ngram_range=(1, 3),
-                sublinear_tf=True,
-                token_pattern=r'(?u)\b\w+\b'  # بهتر برای فارسی
-            )
             if _normalized_descriptions:
-                _tfidf_matrix = _vectorizer.fit_transform(_normalized_descriptions)
-                logger.info(f"Vectorized {len(_normalized_descriptions)} documents (normalized).")
+                logger.info(f"Normalized {len(_normalized_descriptions)} documents.")
             else:
                 logger.warning("Dataset is empty or has no text fields.")
         else:
@@ -393,42 +488,30 @@ def load_dataset_internal():
         for q in _questions_data:
             _normalized_questions.append(normalize_persian(q.get("question", "")))
         logger.info(f"Loaded {len(_questions_data)} questions from database")
-
-        _questions_vectorizer = TfidfVectorizer(
-            ngram_range=(1, 3),
-            sublinear_tf=True,
-            token_pattern=r'(?u)\b\w+\b'
-        )
-        if _normalized_questions:
-            _questions_tfidf_matrix = _questions_vectorizer.fit_transform(_normalized_questions)
-        else:
-            _questions_tfidf_matrix = None
     except Exception as e:
         logger.error(f"Error loading questions: {e}")
 
-    # Semantic backend: build embedding indexes only when enabled, and never
-    # let a failure here take the retriever down — TF-IDF stays the safety net.
+    # Semantic indexes. A failure here must never take the retriever down:
+    # BM25 is always built and the reranker runs on it alone.
     _dataset_emb = None
     _questions_emb = None
     _intent = None
     try:
         from app.db.queries import get_setting
-        if get_setting('search_backend', 'embedding') == 'embedding':
-            if embeddings.available():
-                model = get_setting('ai_embedding_model', '') or embeddings.DEFAULT_MODEL
-                _dataset_emb = embeddings.build_index(_normalized_descriptions, model)
-                _questions_emb = embeddings.build_index(_normalized_questions, model)
-                if _questions_emb is not None:
-                    from app.services import intent
-                    _intent = intent.train(
-                        _questions_emb.matrix,
-                        [q.get('dataset_id', '') for q in _questions_data],
-                        model,
-                    )
-            else:
-                logger.warning("search_backend=embedding but model2vec is not installed; using TF-IDF")
+        if embeddings.available():
+            model = get_setting('ai_embedding_model', '') or embeddings.DEFAULT_MODEL
+            _dataset_emb = embeddings.build_index(_normalized_descriptions, model)
+            _questions_emb = embeddings.build_index(_normalized_questions, model)
+            if _questions_emb is not None:
+                from app.services import intent
+                # Companies are NOT intent classes. See _intent_training_set.
+                vecs, labels = _intent_training_set(
+                    _questions_emb.matrix, _questions_data)
+                _intent = intent.train(vecs, labels, model)
+        else:
+            logger.warning("model2vec is not installed; retrieval runs on BM25 alone")
     except Exception as e:
-        logger.error(f"Embedding backend init failed, using TF-IDF: {e}")
+        logger.error(f"Embedding index build failed, retrieval runs on BM25: {e}")
 
     # --- Unknown-entity vocabulary ------------------------------------
     # Every token any retriever could legitimately match against: normalized
@@ -511,13 +594,9 @@ def load_dataset_internal():
     normalized_titles = _normalized_titles
     normalized_descriptions = _normalized_descriptions
     dataset_lookup = _dataset_lookup
-    vectorizer = _vectorizer
-    tfidf_matrix = _tfidf_matrix
 
     questions_data = _questions_data
     normalized_questions = _normalized_questions
-    questions_vectorizer = _questions_vectorizer
-    questions_tfidf_matrix = _questions_tfidf_matrix
     dataset_embedding_index = _dataset_emb
     questions_embedding_index = _questions_emb
     dataset_bm25_index = bm25.build_index(_normalized_descriptions)
@@ -593,8 +672,8 @@ def find_best_match(query: str):
 
     # Hybrid retrieval + reranking: the dense and lexical retrievers each
     # propose candidates, the reranker rescores their union on the same 0..1
-    # scale the thresholds already use. Any failure degrades to TF-IDF below
-    # rather than taking the chatbot down.
+    # scale the thresholds already use. Any failure returns NO match rather
+    # than taking the chatbot down — see the comment on the return below.
     if RERANK_ENABLED and (dataset_embedding_index is not None or dataset_bm25_index is not None):
         try:
             # Each retriever sees BOTH query forms — original (coverage_query)
@@ -617,7 +696,7 @@ def find_best_match(query: str):
                 logger.debug(f"Hybrid rerank → item {best_idx} score={score:.3f} {signals}")
                 return dataset[best_idx], score
         except Exception as e:
-            logger.error(f"Hybrid retrieval failed, falling back to TF-IDF: {e}")
+            logger.error(f"Hybrid retrieval failed, no match from this tier: {e}")
     elif dataset_embedding_index is not None:
         # Reranking disabled — plain dense argmax (the pre-hybrid behavior).
         try:
@@ -625,23 +704,20 @@ def find_best_match(query: str):
             if best_idx >= 0:
                 return dataset[best_idx], score
         except Exception as e:
-            logger.error(f"Embedding search failed, falling back to TF-IDF: {e}")
+            logger.error(f"Embedding search failed, no match from this tier: {e}")
 
-    if not vectorizer or tfidf_matrix is None:
-        return None, 0.0
-
-    try:
-        # تبدیل سوال نرمالایز شده به وکتور
-        query_vec = vectorizer.transform([normalized_query])
-        cosine_similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
-        best_idx = int(np.argmax(cosine_similarities))
-        best_score = float(cosine_similarities[best_idx])
-
-        logger.debug(f"TF-IDF best match score: {best_score:.3f} for item {best_idx}")
-        return dataset[best_idx], best_score
-    except Exception as e:
-        logger.error(f"Error in similarity calculation: {e}")
-        return None, 0.0
+    # NO last-resort ranking here, on purpose. TF-IDF used to sit at this
+    # point and hand back a real 0..1 cosine score. BM25 cannot take that job:
+    # BM25Index.top_k normalizes every query against its own best hit, so the
+    # top result always scores exactly 1.0. Returning that would clear
+    # TRUSTED_MATCH_THRESHOLD on EVERY query, including the ones we have no
+    # answer for — a degraded guess served as a certainty.
+    #
+    # So when both retrievers are unavailable this tier says nothing and the
+    # pipeline moves on to the tiers that read records rather than scores.
+    # find_top_matches DOES fall back to BM25 (see _bm25_only): a candidate
+    # LIST only needs an order, and the selection tier reads the records.
+    return None, 0.0
 
 
 def find_top_matches(query: str, k: int = 8):
@@ -713,18 +789,11 @@ def find_top_matches(query: str, k: int = 8):
                 normalized_query, normalized_descriptions, dense_hits,
                 lexical_hits, coverage_query=coverage_query)
         except Exception as e:  # noqa: BLE001 — same soft-fail contract as find_best_match
-            logger.error(f"Hybrid retrieval failed for top-k, falling back to TF-IDF: {e}")
+            logger.error(f"Hybrid retrieval failed for top-k, falling back to BM25: {e}")
             ranked = []
 
-    if not ranked and vectorizer is not None and tfidf_matrix is not None:
-        try:
-            query_vec = vectorizer.transform([normalized_query])
-            sims = cosine_similarity(query_vec, tfidf_matrix).flatten()
-            ranked = [(int(i), float(sims[i]), {"tfidf": round(float(sims[i]), 3)})
-                      for i in np.argsort(-sims)[:k]]
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"TF-IDF top-k failed: {e}")
-            ranked = []
+    if not ranked:
+        ranked = _bm25_only(dataset_bm25_index, normalized_query, k)
 
     taken = {entry.get("id") for entry, _s, _sig in head}
     out = list(head)
@@ -761,7 +830,8 @@ def find_similar_question(query: str, exact_only: bool = False):
 
     ``exact_only=True`` restricts scoring to the token-Jaccard overlap with
     the hand-curated questions — the near-exact signal Tier 0 of the chat
-    pipeline trusts. The default blends in the semantic/TF-IDF ranking for
+    pipeline trusts. The default blends in the reranked semantic/lexical
+    ranking for
     the later fallback tiers.
     """
     if not questions_data or not normalized_questions:
@@ -791,9 +861,11 @@ def find_similar_question(query: str, exact_only: bool = False):
             best_score = overlap
             best_idx = idx
 
-    # Check the ranking backend (hybrid rerank when available, else TF-IDF)
-    tfidf_score = 0.0
-    tfidf_idx = -1
+    # The ranked signal, when a retriever is available. Jaccard overlap above
+    # is the floor: it is a real 0..1 number computed from the query itself, so
+    # an install with no embedding model still answers its questions index.
+    rank_score = 0.0
+    rank_idx = -1
     if exact_only:
         pass
     elif RERANK_ENABLED and (questions_embedding_index is not None or questions_bm25_index is not None):
@@ -808,22 +880,14 @@ def find_similar_question(query: str, exact_only: bool = False):
                 lexical_hits = _dual_hits(
                     questions_bm25_index.top_k,
                     coverage_query, normalized_query, RERANK_CANDIDATES)
-            tfidf_idx, tfidf_score, _ = rerank.best(
+            rank_idx, rank_score, _ = rerank.best(
                 normalized_query, normalized_questions, dense_hits, lexical_hits, coverage_query=coverage_query)
         except Exception as e:
             logger.error(f"Questions hybrid retrieval failed: {e}")
-            tfidf_idx, tfidf_score = -1, 0.0
-    elif questions_vectorizer and questions_tfidf_matrix is not None:
-        try:
-            query_vec = questions_vectorizer.transform([normalized_query])
-            cosine_sims = cosine_similarity(query_vec, questions_tfidf_matrix).flatten()
-            tfidf_idx = int(np.argmax(cosine_sims))
-            tfidf_score = float(cosine_sims[tfidf_idx])
-        except Exception as e:
-            logger.error(f"Error in questions TF-IDF: {e}")
+            rank_idx, rank_score = -1, 0.0
 
-    final_score = max(best_score, tfidf_score)
-    final_idx = best_idx if best_score >= tfidf_score else tfidf_idx
+    final_score = max(best_score, rank_score)
+    final_idx = best_idx if best_score >= rank_score else rank_idx
 
     # threshold پایین‌تر چون سوالات کوتاه‌تر و دقیق‌تر هستند
     if final_score >= 0.5 and final_idx != -1:
@@ -831,7 +895,7 @@ def find_similar_question(query: str, exact_only: bool = False):
         dataset_id = question_entry.get("dataset_id", "")
         dataset_entry = dataset_lookup.get(dataset_id)
         if dataset_entry:
-            logger.info(f"Question match (Jaccard: {best_score:.2f}, TF-IDF: {tfidf_score:.2f}): {question_entry.get('question')} → {dataset_id}")
+            logger.info(f"Question match (Jaccard: {best_score:.2f}, ranked: {rank_score:.2f}): {question_entry.get('question')} → {dataset_id}")
             return dataset_entry, final_score
 
     return None, 0.0

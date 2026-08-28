@@ -351,15 +351,6 @@ async function loadAIConnection() {
         document.getElementById('ai-conn-tts').checked = !!d.feature_tts;
         const langSel = document.getElementById('ai-conn-lang');
         if (langSel) langSel.value = d.default_lang || 'fa';
-        const search = document.getElementById('ai-conn-search');
-        if (search) {
-            search.value = d.search_backend || 'tfidf';
-            if (!d.embedding_available) {
-                search.querySelector('option[value="embedding"]').disabled = true;
-                document.getElementById('ai-conn-search-note').textContent =
-                    'برای موتور معنایی، بسته‌ی model2vec باید روی سرور نصب باشد (pip install model2vec).';
-            }
-        }
     } catch (e) { /* form keeps placeholders */ }
 }
 
@@ -378,7 +369,6 @@ function initAIConnection() {
                 model_stt: document.getElementById('ai-conn-model-stt').value.trim(),
                 feature_stt: document.getElementById('ai-conn-stt').checked,
                 feature_tts: document.getElementById('ai-conn-tts').checked,
-                search_backend: (document.getElementById('ai-conn-search') || {}).value || 'tfidf',
                 default_lang: (document.getElementById('ai-conn-lang') || {}).value || 'fa',
             })
         });

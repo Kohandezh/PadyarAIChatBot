@@ -25,7 +25,8 @@ from app.db.queries import (get_setting, log_chat, recent_turns,
 from app.services import applog, scope
 from app.services.search import (find_best_match, find_similar_question,
                                  classify_intent_local, unknown_salient_tokens,
-                                 resolve_named_entity, entry_mentions,
+                                 resolve_named_entity, named_entity_hits,
+                                 entry_mentions,
                                  entity_coverage, find_top_matches, get_entry)
 from app.services.answer import (select_records, render_options, resolve_pick,
                                  resolve_more, parse_offer, dump_offer,
@@ -321,6 +322,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     entity_entry, entity_tokens = (None, set())
     if not unknown_tokens:
         entity_entry, entity_tokens = resolve_named_entity(match_query)
+
+        # Naming TWO known entities is not a low-confidence query, it is an
+        # ambiguous one. resolve_named_entity already refuses to pick between
+        # them, but that only silenced the anchor: retrieval still ran and
+        # «دوندگان لبه علم یا دکیو» came back as one of the two at 0.98 through
+        # the questions index. Same wrong-entity failure, different door. So
+        # the local tiers are cleared here too and the query goes on to the
+        # tiers that can ASK which one was meant.
+        if len(named_entity_hits(match_query)) > 1:
+            logger.info("Query names more than one known entity; deferring local tiers")
+            exact_match = question_match = best_match = None
+            score = q_score = 0.0
 
     # The score every anchor-backed answer is served with: the share of the
     # query's content tokens found in the entity's own entry, floored at the
