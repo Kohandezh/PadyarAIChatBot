@@ -57,7 +57,9 @@ def test_added_dataset_item_appears_in_list_immediately(client):
     assert any(d["id"] == "vid1" for d in items)
 
     # The public chat-facing endpoint must agree (it already read from the DB).
-    assert any(d["id"] == "vid1" for d in client.get("/api/dataset").json())
+    # It serves titles only now — row ids and answer bodies leaked the whole
+    # knowledge base — so the new entry is matched by the label a visitor sees.
+    assert any(d["title"] == "تست" for d in client.get("/api/suggestions").json())
 
 
 def test_added_synonym_appears_in_list_immediately(client):

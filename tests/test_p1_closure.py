@@ -72,7 +72,10 @@ def test_a_duplicate_does_not_overwrite_the_existing_row(client):
     """No upsert. The first writer's content must survive the second attempt."""
     _post(client, "/admin/api/dataset", {"id": "alpha", "title": "First", "text": "ORIGINAL"})
     _post(client, "/admin/api/dataset", {"id": "alpha", "title": "Second", "text": "OVERWRITTEN"})
-    rows = {d["id"]: d for d in client.get("/api/dataset").json()}
+    # Read back through the ADMIN list: the public endpoint no longer serves
+    # row ids or answer bodies (it leaked the whole knowledge base), so it can
+    # no longer show whose text survived.
+    rows = {d["id"]: d for d in client.get("/admin/api/dataset").json()}
     assert rows["alpha"]["text"] == "ORIGINAL"
     assert rows["alpha"]["title"] == "First"
 
@@ -95,7 +98,7 @@ def test_the_connection_still_works_after_a_duplicate_was_refused(client):
     _post(client, "/admin/api/dataset", {"id": "alpha", "title": "T", "text": "X"})  # 409
     assert _post(client, "/admin/api/dataset",
                  {"id": "beta", "title": "T", "text": "X"}).status_code == 200
-    assert client.get("/api/dataset").status_code == 200
+    assert client.get("/admin/api/dataset").status_code == 200
 
 
 # ── the helper itself ───────────────────────────────────────────────────

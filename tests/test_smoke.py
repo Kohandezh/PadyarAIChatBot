@@ -30,7 +30,9 @@ def test_chat_token_has_expected_shape():
 # These are the endpoints an orchestrator, load balancer or visitor's browser
 # hits without credentials. They had NO coverage, and it cost us twice:
 #
-#   * `/api/dataset` 500'd on PostgreSQL for weeks (`ORDER BY rowid`), and
+#   * `/api/dataset` 500'd on PostgreSQL for weeks (`ORDER BY rowid`) — that
+#     endpoint is gone now, and its replacement `/api/suggestions` inherited
+#     the same ORDER BY, so it inherits the guard too — and
 #   * `/api/ready` 500'd with a NameError after a class rename, because the
 #     symbol was only referenced at module scope and nothing imported it.
 #
@@ -46,8 +48,7 @@ import pytest
     "/api/health",
     "/api/ready",
     "/api/ready?deep=true",     # the deep branch is a SEPARATE code path
-    "/api/dataset",
-    "/api/questions",
+    "/api/suggestions",
     "/api/voice-status",
     "/api/auth/registration-status",
 ])

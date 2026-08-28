@@ -76,7 +76,7 @@ def test_the_api_still_works_after_a_refused_duplicate(client):
     assert _create(client, "pg-dup3").status_code == 409
     assert client.get("/admin/api/dataset").status_code == 200
     assert _create(client, "pg-after-dup").status_code == 200
-    assert client.get("/api/dataset").status_code == 200
+    assert client.get("/api/suggestions").status_code == 200
 
 
 # ── Update / delete ─────────────────────────────────────────────────────
@@ -118,12 +118,19 @@ def test_delete_then_recreate_the_same_id_succeeds(client):
 # ── Ordering ────────────────────────────────────────────────────────────
 
 def test_new_entries_keep_creation_order_on_the_public_endpoint(client):
-    """`/api/dataset` used to `ORDER BY rowid` — a SQLite pseudo-column, so a
-    hard 500 here. It now orders by `position`, which must reflect creation
-    order rather than the alphabetical order of the ids."""
+    """The endpoint behind `/api/suggestions` used to `ORDER BY rowid` — a
+    SQLite pseudo-column, so a hard 500 here. It now orders by `position`,
+    which must reflect creation order rather than the alphabetical order of
+    the ids.
+
+    Matched on TITLE, not id: the public endpoint serves the chip labels only
+    (it used to dump the whole knowledge base), so the titles are what a
+    visitor could ever see. Each row is given its id as its title so the
+    served order is still readable.
+    """
     for item_id in ("zz-first", "mm-second", "aa-third"):
-        assert _create(client, item_id).status_code == 200
-    served = [r["id"] for r in client.get("/api/dataset").json()]
+        assert _create(client, item_id, title=item_id).status_code == 200
+    served = [r["title"] for r in client.get("/api/suggestions").json()]
     assert served == ["zz-first", "mm-second", "aa-third"]
 
 
@@ -137,21 +144,21 @@ def test_positions_are_spaced_so_an_entry_can_be_slotted_between(client, conn):
 
 
 def test_an_explicitly_positioned_row_sorts_where_it_is_put(client, conn):
-    _create(client, "ord-1")
-    _create(client, "ord-2")
+    _create(client, "ord-1", title="ord-1")
+    _create(client, "ord-2", title="ord-2")
     conn.execute("UPDATE dataset SET position = ? WHERE id = ?", (1, "ord-2"))
     conn.commit()
-    served = [r["id"] for r in client.get("/api/dataset").json()]
+    served = [r["title"] for r in client.get("/api/suggestions").json()]
     assert served == ["ord-2", "ord-1"]
 
 
 def test_a_row_with_no_position_sorts_last(client, conn):
-    _create(client, "ord-a")
+    _create(client, "ord-a", title="ord-a")
     conn.execute("INSERT INTO dataset (id, title, text) VALUES (?,?,?)",
                  ("ord-null", "بدون جایگاه", "x"))
     conn.commit()
-    served = [r["id"] for r in client.get("/api/dataset").json()]
-    assert served[-1] == "ord-null"
+    served = [r["title"] for r in client.get("/api/suggestions").json()]
+    assert served[-1] == "بدون جایگاه"
 
 
 @pytest.mark.parametrize("bad_body", [{}, {"id": "   "}])

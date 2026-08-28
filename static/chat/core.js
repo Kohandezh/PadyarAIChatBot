@@ -28,14 +28,19 @@ const ChatConfig = {
 
 
 // ── Constants ─────────────────────────────────────────────────────────
-const DATASET_URL = "/api/dataset";
-const QUESTIONS_URL = "/api/questions";
+// The chip labels, and nothing else. This used to be two endpoints that served
+// the whole knowledge base — every answer body, every company write-up — to
+// anyone who asked. The page only ever printed the titles, so that is all the
+// server sends now; the answers arrive one at a time from /chat, in reply to
+// the question the visitor actually asked.
+const SUGGESTIONS_URL = "/api/suggestions";
 const CHAT_HISTORY_KEY = 'inotex_chat_history';
 const LANG_KEY = 'inotex_lang';
 const QUESTIONS_PER_PAGE = 5;
 
-// English suggested questions (map to the seeded INOTEX dataset IDs). The
-// Persian suggestions come from the dataset titles via /api/dataset.
+// English suggested questions for the seeded INOTEX install. Superseded by the
+// title_en column, which getDisplayQuestions() reads, so nothing in the page
+// uses this list any more.
 const EN_SUGGESTED = [
     { question: "What is INOTEX?", dataset_id: "inotex-overview" },
     { question: "When is INOTEX 2026?", dataset_id: "inotex-date" },
@@ -138,8 +143,6 @@ let isRecording = false;
 let mediaRecorder = null;
 let audioChunks = [];
 
-let questionsData = [];
-let questionsLoaded = false;
 let displayQuestions = [];
 let currentFontSize = 100;
 
@@ -184,29 +187,17 @@ function setLang(lang) {
 
 
 // ── Data Loading ───────────────────────────────────────────────────────
-const questionsPromise = fetch(QUESTIONS_URL)
-    .then(res => res.json())
-    .then(data => { questionsData = data; questionsLoaded = true; return data; })
-    .catch(err => console.error("Failed to load questions:", err));
-
-const displayQuestionsPromise = fetch(DATASET_URL)
+// One request, one page load. The response carries a title per chip and its
+// English twin, which is everything the menu draws in either language.
+const displayQuestionsPromise = fetch(SUGGESTIONS_URL)
     .then(res => res.json())
     .then(data => {
         displayQuestions = data.map(item => ({
             question: item.title,
-            question_en: item.title_en || item.title,
-            video_url: item.video_url,
-            dataset_id: item.id
+            question_en: item.title_en || item.title
         }));
     })
-    .catch(err => console.error("Failed to load display questions:", err));
-
-const datasetPromise = fetch(DATASET_URL)
-    .then(response => {
-        if (!response.ok) throw new Error("Failed to load dataset");
-        return response.json();
-    })
-    .catch(error => { console.error("Failed to fetch dataset:", error); return []; });
+    .catch(err => console.error("Failed to load suggestions:", err));
 
 
 // ── Utility Functions ──────────────────────────────────────────────────
@@ -602,7 +593,7 @@ async function showQuestions() {
             li.setAttribute('data-index', i);
             li.tabIndex = 0;
             li.setAttribute('role', 'button');
-            li.onclick = function () { playQuestionVideo(parseInt(this.getAttribute('data-index'))); };
+            li.onclick = function () { askSuggestedQuestion(parseInt(this.getAttribute('data-index'))); };
             li.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
             });
@@ -634,8 +625,8 @@ async function showQuestions() {
 }
 
 // Returns the suggested-questions list in the active language. Both titles come
-// from the same dataset rows, so the menu keeps its curated order and its
-// dataset_id links in either language — no hand-maintained English list.
+// from the same dataset rows, so the menu keeps its curated order in either
+// language — no hand-maintained English list.
 async function getDisplayQuestions() {
     await displayQuestionsPromise;
     if (currentLang === 'en') {
@@ -660,45 +651,20 @@ async function rebuildQuestionsIfVisible() {
     showQuestions();
 }
 
-async function playQuestionVideo(index) {
+// Tapping a chip asks the question, in either language.
+//
+// The Persian half used to answer itself: the page held the entire dataset in
+// memory and looked the answer up locally. That is why the page downloaded the
+// whole knowledge base, and it is what leaked it. The answer now comes from
+// /chat, the same way a typed question and the English chips already worked.
+// The visitor sees the same three things — their question, the answer, and the
+// entry's video — because /chat matches the title against the same rows and
+// returns that entry's video_url with it.
+async function askSuggestedQuestion(index) {
     const list = await getDisplayQuestions();
     const q = list[index];
     if (!q) return;
-
-    // English suggested questions route through the full chat pipeline so the
-    // AI answers in English (the seeded dataset is Persian). Persian questions
-    // resolve directly to the dataset entry for a fast, free, offline answer.
-    if (currentLang === 'en') {
-        userInput.value = q.question;
-        sendMessage(true);
-        return;
-    }
-
-    addMessage(q.question, 'user');
-    loadingBubble.style.opacity = '1';
-    chatContent.scrollTop = chatContent.scrollHeight;
-
-    try {
-        const dataset = await datasetPromise;
-        const entry = dataset.find(item => item.id === q.dataset_id);
-        const textResponse = entry ? entry.text : q.question;
-
-        loadingBubble.style.opacity = '0';
-
-        const hasVideoElement = !!avatarVideo;
-        if (hasVideoElement && q.video_url && await checkVideoUrl(q.video_url)) {
-            switchTab('video');
-            playVideoWithTransition(q.video_url);
-        } else {
-            switchTab('text');
-        }
-        addMessage(textResponse, 'bot');
-    } catch (error) {
-        console.error("Question answer error:", error);
-        loadingBubble.style.opacity = '0';
-        addMessage(t().genericError, 'bot');
-        switchTab('text');
-    }
+    sendPreset(q.question);
 }
 
 
