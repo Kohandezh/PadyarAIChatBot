@@ -10,6 +10,9 @@ from app.config import (
     COOKIE_SECURE,
     CHAT_TOKEN_REFRESH_GRACE,
     CONV_COOKIE_MAX_AGE,
+    ANSWER_TOPK,
+    HISTORY_TURNS,
+    PICK_WINDOW_MINUTES,
 )
 from app.auth import security
 from app.auth.security import (
@@ -17,12 +20,16 @@ from app.auth.security import (
 )
 import time as _perf
 
-from app.db.queries import get_setting, log_chat
-from app.services import applog
+from app.db.queries import (get_setting, log_chat, recent_turns,
+                            last_offer_state)
+from app.services import applog, scope
 from app.services.search import (find_best_match, find_similar_question,
                                  classify_intent_local, unknown_salient_tokens,
                                  resolve_named_entity, entry_mentions,
-                                 entity_coverage)
+                                 entity_coverage, find_top_matches, get_entry)
+from app.services.answer import (select_records, render_options, resolve_pick,
+                                 resolve_more, parse_offer, dump_offer,
+                                 is_followup, generated_prose_is_grounded)
 from app.services.openai import classify_intent, get_openai_response
 from app.utils.normalizer import strip_leading_greeting
 
@@ -54,8 +61,17 @@ def _targeted_visit_suffix(entry: dict, visitor, lang: str) -> str:
 
 def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
                        tokens: int = 0, cost: float = 0.0, lang: str = "fa",
-                       visitor=None) -> ChatResponse:
-    """Build (and log) a chat response from a dataset entry."""
+                       visitor=None, conversation_id: str = "",
+                       offer_state: str = "") -> ChatResponse:
+    """Build (and log) a chat response from a dataset entry.
+
+    The ONLY place in the app that emits a video, and it derives the clip from
+    the RECORD. Any tier that knows WHICH record it used gets the booth clip
+    for free — which is why the pick tier lands here.
+
+    `offer_state` is re-stored on a pick turn so the same list stays pickable
+    for a following "4" and the freshness clock restarts: visitors compare.
+    """
     # `or ""` (not .get(k, "")) so a NULL column -> None is coerced to "" —
     # .get's default only fires when the key is *absent*, not when it's None.
     video_url = (entry.get("video_url") or "").strip()
@@ -68,7 +84,18 @@ def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
     if not response_text:
         response_text = entry.get("text") or ""
     response_text += _targeted_visit_suffix(entry, visitor, lang)
-    log_chat(user_query, response_text, response_type, source, score, tokens, cost)
+    # The three memory fields travel together, and only when this turn actually
+    # belongs to a conversation — which is also the only time anything can read
+    # them back. A caller outside the request path (the legacy-import test
+    # exercises _answer_from_entry directly) then still sees the original
+    # seven-argument call it wraps.
+    memory = {}
+    if conversation_id:
+        memory = {"conversation_id": conversation_id,
+                  "entry_id": str(entry.get("id", "")),
+                  "offer_state": offer_state}
+    log_chat(user_query, response_text, response_type, source, score, tokens, cost,
+             **memory)
     applog.info("chat", "conversation.answer.served", "پاسخ به بازدیدکننده داده شد",
                 subcategory=source, outcome="ok",
                 tokens_in=tokens or None, cost=cost or None,
@@ -132,13 +159,124 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         httponly=True, secure=COOKIE_SECURE, samesite="lax",
         max_age=CONV_COOKIE_MAX_AGE,
     )
-    applog.set_request_context(correlation_id=applog.current_request_id() or applog.new_id())
+    # conversation_id goes into the logging context, not only onto the one row
+    # below. Before this, every conversation.answer.served row carried an empty
+    # string and the log explorer's conversation filter was dead.
+    applog.set_request_context(
+        correlation_id=applog.current_request_id() or applog.new_id(),
+        conversation_id=conversation_id)
     _chat_started = _perf.perf_counter()
     applog.info("chat", "conversation.message.received", "پیام بازدیدکننده دریافت شد",
                 conversation_id=conversation_id, actor_type="visitor",
                 subcategory=lang,
                 metadata={"query": applog.apply_content_policy(user_query),
                           "chars": len(user_query)})
+
+    # Conversation memory. Both readers return their empty default on ANY
+    # problem — including a chat_logs table that predates migration 0009 — so
+    # an unmigrated install simply behaves like today's chatbot.
+    history = recent_turns(conversation_id, limit=HISTORY_TURNS)
+    offer = parse_offer(last_offer_state(conversation_id,
+                                         within_minutes=PICK_WINDOW_MINUTES))
+
+    # Pick tier — the answer to the product owner's complaint, and it costs
+    # ZERO network calls. The visitor typed "3", tapped a chip, or wrote
+    # «دومی»; we look the record up by the id we stored last turn and serve it
+    # through the unchanged _answer_from_entry, so that company's booth clip
+    # plays. Runs BEFORE retrieval on purpose: a bare "3" means nothing to a
+    # retriever, and this way the whole list → pick → video path works with the
+    # AI provider switched off.
+    if offer is not None:
+        picked_id = resolve_pick(user_query, offer, lang)
+        if picked_id:
+            picked = get_entry(picked_id)
+            if picked is not None:
+                logger.info(f"Pick → {picked_id}")
+                # Re-store the SAME offer: visitors compare, so a following "4"
+                # must still resolve and the 15-minute clock restarts.
+                return _answer_from_entry(
+                    picked, 0.9, "local_pick", user_query, lang=lang,
+                    visitor=request.visitor, conversation_id=conversation_id,
+                    offer_state=dump_offer(offer))
+            # The record was edited or deleted between the two turns — staff
+            # correct content WHILE visitors ask. Fall through quietly rather
+            # than raising or serving a stale dict.
+            logger.info(f"Pick {picked_id} no longer exists; falling through")
+
+        # The pager. Without it, capping the list at five names is a straight
+        # loss for the visitor who wanted the sixth.
+        if resolve_more(user_query, offer) and offer["shown"] < offer["total"]:
+            # The shown prefix and the unshown tail are resolved SEPARATELY.
+            # A record an admin deleted mid-conversation is dropped rather than
+            # printed as a gap in the numbering, and render_options stores the
+            # compacted list — so the names printed and the ids stored still
+            # agree, which is the invariant a pick depends on. But compacting a
+            # list and then slicing it at the ABSOLUTE position `shown` are two
+            # different things: delete one of the five names already on screen
+            # and everything after it shifts left, so the sixth company is
+            # stepped over and never printed on any page. The next page starts
+            # after whatever is LEFT of what the visitor saw, not after five.
+            prefix = [e for e in (get_entry(i)
+                                  for i in offer["ids"][:offer["shown"]]) if e]
+            tail = [e for e in (get_entry(i)
+                                for i in offer["ids"][offer["shown"]:]) if e]
+            page_entries = prefix + tail
+            next_start = len(prefix) + 1
+            page_total, page_filter = offer["total"], offer["filter"]
+            # offer_state keeps at most OFFER_IDS_MAX ids, so a long match is
+            # only partly in there. Measured 2026-08-28 with 70 AI companies:
+            # page 1 said «۷۰ شرکت در زمینه «هوش مصنوعی»» and every «بیشتر»
+            # after it said «۵۰ شرکت» with no filter words, and companies
+            # 51..70 were unreachable. Re-running the deterministic list tier
+            # on the query that produced the list brings the whole set back.
+            if offer["query"] and len(offer["ids"]) < offer["total"]:
+                from app.services.company_search import answer_company_list
+                again = answer_company_list(offer["query"], lang=lang)
+                # Only when the list still STARTS the same way. Staff correct
+                # content while visitors read it, and a set that shifted under
+                # the numbering would make "7" a different company on the two
+                # turns. On a mismatch we page through the stored ids, exactly
+                # as before.
+                if again is not None and (again["matched_ids"][:offer["shown"]]
+                                          == offer["ids"][:offer["shown"]]):
+                    page_entries = [e for e in (get_entry(i)
+                                                for i in again["matched_ids"]) if e]
+                    # The prefix matched id for id against a set the database
+                    # just produced, so all `shown` of them still exist and the
+                    # absolute position is the right one again.
+                    next_start = offer["shown"] + 1
+                    page_total = again["count"]
+                    page_filter = again["filter_label"]
+            # Never announce more names than this page set can print. A record
+            # deleted mid-conversation, or a re-derivation that did not come
+            # back, must shrink the count rather than advertise a name «بیشتر»
+            # can never reach.
+            page_total = min(page_total, len(page_entries))
+            # ...but the guard above counted the ids we STORED, and a bulk
+            # edit or a reindex between two turns is what takes those away.
+            # With every record gone the pager still ran and printed «۰ شرکت:»
+            # followed by "which one would you like?" — a count of nothing and
+            # a question about nothing. Count what SURVIVED instead: the page
+            # render_options is about to slice starts at `shown`, so anything
+            # at or below that leaves it empty. An empty page is not a page —
+            # fall through to normal retrieval, exactly like a list with no
+            # next page.
+            if len(page_entries) >= next_start:
+                more_text, more_options, more_offer = render_options(
+                    page_entries, "", lang, start_index=next_start,
+                    total=page_total, filter_label=page_filter,
+                    source_query=offer["query"])
+                log_chat(user_query, more_text, "text", "local_company_search", 0.9,
+                         conversation_id=conversation_id, offer_state=more_offer)
+                applog.info("chat", "conversation.answer.served",
+                            "پاسخ به بازدیدکننده داده شد",
+                            subcategory="local_company_search", outcome="ok",
+                            metadata={"tier": "local_company_search", "score": 0.9,
+                                      "response_type": "text", "page": "more"})
+                return ChatResponse(type="text", text=more_text, video_url=None,
+                                    confidence=0.9, source="local_company_search",
+                                    options=more_options)
+            logger.info("Nothing left of the offered list to page to; falling through")
 
     # A polite opener ("سلام، ...") must not hijack the real question. Match on the
     # message with the greeting removed — unless the message is *only* a greeting,
@@ -222,7 +360,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         branches reach it — the anchor's two paths and the trusted local
         branches that are already serving the named company."""
         log_chat(user_query, field_answer["text"], "text",
-                 "local_company_field", ent_score)
+                 "local_company_field", ent_score,
+                 conversation_id=conversation_id,
+                 entry_id=str(entity_entry.get("id", "")))
         applog.info("chat", "conversation.answer.served",
                     "پاسخ به بازدیدکننده داده شد",
                     subcategory="local_company_field", outcome="ok",
@@ -240,7 +380,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         if field_answer is not None:
             return _serve_field_answer()
         return _answer_from_entry(entity_entry, ent_score, "local_entity",
-                                  user_query, lang=lang, visitor=request.visitor)
+                                  user_query, lang=lang, visitor=request.visitor,
+                                  conversation_id=conversation_id)
 
     def _is_named_entity(candidate: dict) -> bool:
         # The candidate a local tier is about to serve IS the entry the
@@ -267,7 +408,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     if exact_match and exact_score >= 0.9:
         # Tier 0 stays authoritative: a near-exact hit on a hand-curated
         # question is a deliberate mapping, never overridden by the anchor.
-        return _answer_from_entry(exact_match, exact_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
+        return _answer_from_entry(exact_match, exact_score, "local_questions", user_query,
+                                  lang=lang, visitor=request.visitor,
+                                  conversation_id=conversation_id)
 
     # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
     # معرفی کن» is a LIST question, but single-document retrieval can only pick
@@ -285,18 +428,26 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             # 0.9 is nominal: the answer is a deterministic database listing,
             # not a similarity estimate — there is no score to report.
             list_score = 0.9
+            # offer_state is what makes the next turn's "3" resolvable. It is
+            # produced by the same function that rendered the list, so the
+            # names printed and the ids stored can never disagree.
             log_chat(user_query, company_list["text"], "text",
-                     "local_company_search", list_score)
+                     "local_company_search", list_score,
+                     conversation_id=conversation_id,
+                     offer_state=company_list["offer_state"])
             applog.info("chat", "conversation.answer.served",
                         "پاسخ به بازدیدکننده داده شد",
                         subcategory="local_company_search", outcome="ok",
                         metadata={"tier": "local_company_search",
                                   "score": list_score,
                                   "response_type": "text",
-                                  "companies": company_list["count"]})
+                                  "companies": company_list["count"],
+                                  "shown": len(company_list["displayed_ids"]),
+                                  "filter": company_list["keywords"]})
             return ChatResponse(
                 type="text", text=company_list["text"], video_url=None,
                 confidence=list_score, source="local_company_search",
+                options=company_list["options"],
             )
 
     # Tier 1 — trust only a near-exact local match. When BOTH local signals
@@ -316,7 +467,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         if field_answer is not None and _is_named_entity(best_match):
             logger.info(f"Company field: {entity_entry.get('id')} → {field_answer['field']}")
             return _serve_field_answer()
-        return _answer_from_entry(best_match, score, "local", user_query, lang=lang, visitor=request.visitor)
+        return _answer_from_entry(best_match, score, "local", user_query, lang=lang,
+                                  visitor=request.visitor,
+                                  conversation_id=conversation_id)
 
     if q_trusted:
         if _names_other_entity(question_match):
@@ -325,7 +478,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         if field_answer is not None and _is_named_entity(question_match):
             logger.info(f"Company field: {entity_entry.get('id')} → {field_answer['field']}")
             return _serve_field_answer()
-        return _answer_from_entry(question_match, q_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
+        return _answer_from_entry(question_match, q_score, "local_questions", user_query,
+                                  lang=lang, visitor=request.visitor,
+                                  conversation_id=conversation_id)
 
     # Entity rescue (the دکیو case above): no local tier qualified, but the
     # visitor named exactly one known entity — answer from that entity's own
@@ -342,7 +497,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     intent_entry, intent_prob = classify_intent_local(match_query)
     if not unknown_tokens and intent_entry and intent_prob >= INTENT_TRUST_THRESHOLD:
         logger.info(f"Local intent classifier → {intent_entry.get('id')} (p={intent_prob:.2f})")
-        return _answer_from_entry(intent_entry, intent_prob, "local_intent", user_query, lang=lang, visitor=request.visitor)
+        return _answer_from_entry(intent_entry, intent_prob, "local_intent", user_query,
+                                  lang=lang, visitor=request.visitor,
+                                  conversation_id=conversation_id)
 
     # Tier 2 — below the trust bar, the AI classifier decides intent. We do NOT
     # serve the low-confidence local match here: that is exactly what produced
@@ -351,20 +508,158 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     if is_openai_enabled:
         logger.info(f"Low confidence local match (tfidf={score:.2f}, questions={q_score:.2f}), asking GPT to classify intent...")
         try:
-            classified_entry, cls_tokens, cls_cost = await classify_intent(match_query)
+            # Selection tier — the missing last box of the RAG diagram. Instead
+            # of an LLM GUESS from a title list (which is what classify_intent
+            # is), the model is shown the records retrieval actually found and
+            # must answer with their ids. It CHOOSES; the renderer below writes
+            # every visitor-visible string out of the database.
+            decision, candidates = None, []
+            if unknown_tokens:
+                # «تاریخ برگزاری نمایشگاه الکامپ»: a query naming something the
+                # whole corpus has never heard of must not be shown candidates
+                # at all, or the 2026-08-26 incident reopens through the model
+                # instead of through retrieval.
+                logger.info("Unknown salient tokens; skipping the selection tier")
+            else:
+                candidates = [
+                    {**entry, "score": float(cand_score)}
+                    for entry, cand_score, _signals
+                    in find_top_matches(match_query, k=ANSWER_TOPK)
+                ]
+                # Follow-up gate. «و آن یکی؟» after a list is ABOUT the list, so
+                # what was just offered goes in front of the model. Prepending
+                # unconditionally would put stale companies at the top on every
+                # turn inside the window, including the turn where the visitor
+                # changed the subject — so it takes a word that points back at
+                # the list. The old test was the message's token COUNT, which
+                # 58 of the 60 golden queries pass; see answer.is_followup for
+                # the measurement and the rules that replaced it.
+                if is_followup(match_query, offer):
+                    known = {c["id"] for c in candidates}
+                    prior = []
+                    for offered_id in offer["ids"][:offer["shown"]]:
+                        entry = get_entry(offered_id)
+                        if entry is not None and offered_id not in known:
+                            known.add(offered_id)
+                            prior.append({**entry, "score": 0.0})
+                    candidates = (prior + candidates)[:13]
 
-            if classified_entry:
-                logger.info(f"GPT classified → {classified_entry.get('id')}")
-                return _answer_from_entry(
-                    classified_entry, score, "openai_classified", user_query, cls_tokens, cls_cost,
-                    lang=lang, visitor=request.visitor,
-                )
+                decision = await select_records(user_query, candidates,
+                                                history, lang)
+                if decision is not None:
+                    # WITHOUT THIS ROW THE TIER IS UNDIAGNOSABLE: the first
+                    # wrong answer at the booth has to be explainable from the
+                    # log explorer alone.
+                    applog.info("retrieval", "conversation.selection.decided",
+                                "مدل از میان رکوردهای بازیابی‌شده انتخاب کرد",
+                                subcategory=decision["mode"], outcome="ok",
+                                provider=decision["provider"],
+                                model=decision["model"],
+                                tokens_in=decision["tokens"] or None,
+                                cost=decision["cost"] or None,
+                                metadata={
+                                    "candidates": [
+                                        [c["id"], round(float(c["score"]), 3)]
+                                        for c in candidates],
+                                    "mode": decision["mode"],
+                                    "chosen": decision["ids"],
+                                    "reason": decision["reason"],
+                                })
 
-            # GPT says out_of_domain → trust it and give a real AI answer instead
-            # of falling back to a weak local match it just rejected.
+            # The provider billed for the selection call whatever it decided,
+            # so every exit below has to carry it into chat_logs. Two of them
+            # used to drop it — mode "none", and the fall-through where the
+            # named record could not be resolved — and the admin dashboard
+            # sums these columns, so it under-reported the day's real spend.
+            sel_tokens = decision["tokens"] if decision is not None else 0
+            sel_cost = decision["cost"] if decision is not None else 0.0
+
+            if decision is not None and decision["mode"] == "answer":
+                chosen = get_entry(decision["ids"][0])
+                if chosen is not None:
+                    chosen_score = next(
+                        (float(c["score"]) for c in candidates
+                         if c["id"] == decision["ids"][0]), 0.0)
+                    return _answer_from_entry(
+                        chosen, chosen_score, "ai_selected", user_query,
+                        decision["tokens"], decision["cost"],
+                        lang=lang, visitor=request.visitor,
+                        conversation_id=conversation_id)
+
+            if decision is not None and decision["mode"] == "options":
+                chosen_entries = [e for e in (get_entry(i) for i in decision["ids"]) if e]
+                if len(chosen_entries) >= 2:
+                    opt_text, opt_list, opt_offer = render_options(
+                        chosen_entries, decision["lead"], lang,
+                        start_index=1, total=len(chosen_entries),
+                        filter_label="")
+                    top_score = max((float(c["score"]) for c in candidates), default=0.0)
+                    log_chat(user_query, opt_text, "text", "ai_options", top_score,
+                             decision["tokens"], decision["cost"],
+                             conversation_id=conversation_id,
+                             offer_state=opt_offer)
+                    applog.info("chat", "conversation.answer.served",
+                                "پاسخ به بازدیدکننده داده شد",
+                                subcategory="ai_options", outcome="ok",
+                                tokens_in=decision["tokens"] or None,
+                                cost=decision["cost"] or None,
+                                metadata={"tier": "ai_options",
+                                          "score": round(top_score, 3),
+                                          "response_type": "text",
+                                          "shown": len(opt_list)})
+                    # No video on an options turn: playing one booth clip while
+                    # offering five companies shows the visitor a company they
+                    # did not choose. The clip plays one turn later, on the pick.
+                    return ChatResponse(
+                        type="text", text=opt_text, video_url=None,
+                        confidence=top_score, source="ai_options",
+                        options=opt_list)
+
+            cls_tokens = cls_cost = 0
+            if decision is None or decision["mode"] != "none":
+                # No usable decision — the provider was down, answered in prose,
+                # truncated, or named nothing we proposed. Fall through to
+                # today's untouched classifier path.
+                classified_entry, cls_tokens, cls_cost = await classify_intent(match_query)
+
+                if classified_entry:
+                    logger.info(f"GPT classified → {classified_entry.get('id')}")
+                    return _answer_from_entry(
+                        classified_entry, score, "openai_classified", user_query,
+                        sel_tokens + cls_tokens, sel_cost + cls_cost,
+                        lang=lang, visitor=request.visitor,
+                        conversation_id=conversation_id,
+                    )
+            # mode "none" skips classify_intent entirely: a model that just read
+            # eight candidates and said "none of these" has already answered
+            # that question, and a third sequential provider call per visitor
+            # message is a queue every other visitor waits behind.
+
+            # Out of domain → a real generated answer instead of a weak local
+            # match that was just rejected. This is the ONE place the model
+            # still writes what a visitor reads, so it is verified.
             gpt_response, tokens, cost = await get_openai_response(user_query, lang=lang)
+            grounded, why = generated_prose_is_grounded(gpt_response, lang)
+            if not grounded:
+                refusal = scope.refusal_text(lang)
+                logger.warning(f"[prose] generated answer rejected: {why}")
+                applog.warning("llm", "generation.prose.rejected",
+                               "پاسخ تولیدشده به‌دلیل اطلاعات تأییدنشده جایگزین شد",
+                               subcategory="chat", outcome="rejected",
+                               metadata={"reason": why, "lang": lang})
+                log_chat(user_query, refusal, "text", "refuse", score,
+                         sel_tokens + cls_tokens + tokens,
+                         sel_cost + cls_cost + cost,
+                         conversation_id=conversation_id)
+                # 200, not 503: we DID answer — we said we cannot answer this.
+                return ChatResponse(
+                    type="text", text=refusal, video_url=None,
+                    confidence=score, source="refuse",
+                )
             log_chat(user_query, gpt_response, "text", "openai", score,
-                     cls_tokens + tokens, cls_cost + cost)
+                     sel_tokens + cls_tokens + tokens,
+                     sel_cost + cls_cost + cost,
+                     conversation_id=conversation_id)
             return ChatResponse(
                 type="text", text=gpt_response, video_url=None,
                 confidence=score, source="openai",
@@ -373,19 +668,29 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             logger.error(f"Error in classification flow: {type(e).__name__}: {e}")
             # AI unavailable — fall back to a *strong* local match only, else 503.
             if score >= LOCAL_FALLBACK_THRESHOLD and best_match:
-                return _answer_from_entry(best_match, score, "local", user_query, lang=lang, visitor=request.visitor)
+                return _answer_from_entry(best_match, score, "local", user_query, lang=lang,
+                                  visitor=request.visitor,
+                                  conversation_id=conversation_id)
             if question_match and q_score >= QUESTIONS_FALLBACK_THRESHOLD:
-                return _answer_from_entry(question_match, q_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
-            log_chat(user_query, "ai_unavailable_no_strong_match", "text", "system", score)
+                return _answer_from_entry(question_match, q_score, "local_questions", user_query,
+                                  lang=lang, visitor=request.visitor,
+                                  conversation_id=conversation_id)
+            log_chat(user_query, "ai_unavailable_no_strong_match", "text", "system",
+                     score, conversation_id=conversation_id)
             raise HTTPException(status_code=503, detail="AI service unavailable")
 
     # OpenAI disabled — answer only from a reasonably strong local match.
     if score >= LOCAL_FALLBACK_THRESHOLD and best_match:
-        return _answer_from_entry(best_match, score, "local", user_query, lang=lang, visitor=request.visitor)
+        return _answer_from_entry(best_match, score, "local", user_query, lang=lang,
+                                  visitor=request.visitor,
+                                  conversation_id=conversation_id)
     if question_match and q_score >= QUESTIONS_FALLBACK_THRESHOLD:
-        return _answer_from_entry(question_match, q_score, "local_questions", user_query, lang=lang, visitor=request.visitor)
+        return _answer_from_entry(question_match, q_score, "local_questions", user_query,
+                                  lang=lang, visitor=request.visitor,
+                                  conversation_id=conversation_id)
 
-    log_chat(user_query, "no_confident_match", "text", "system", score)
+    log_chat(user_query, "no_confident_match", "text", "system", score,
+             conversation_id=conversation_id)
     from app.services.search import report_empty_retrieval
     report_empty_retrieval(user_query, score)
     applog.warning("chat", "conversation.answer.failed",
@@ -394,6 +699,24 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                    duration_ms=int((_perf.perf_counter() - _chat_started) * 1000),
                    metadata={"score": round(float(score or 0), 3)})
     raise HTTPException(status_code=503, detail="AI service unavailable")
+
+
+@router.post("/api/chat/new-conversation")
+async def new_conversation(http_request: Request, response: Response):
+    """Forget this browser's conversation. One tap, one plain label.
+
+    A booth kiosk is ONE browser and ONE cookie shared by many people. The
+    15-minute offer window SHRINKS that problem; this button CLOSES it — the
+    next person's "1" cannot land on the previous person's list.
+
+    Same guards as a chat turn: it is a state-changing visitor endpoint on the
+    public surface, so origin and the signed chat token both apply.
+    """
+    validate_request_origin(http_request)
+    validate_chat_token(http_request)
+    response.delete_cookie(key="padyar_conv", httponly=True,
+                           secure=COOKIE_SECURE, samesite="lax")
+    return {"ok": True}
 
 
 @router.post("/api/chat-token")

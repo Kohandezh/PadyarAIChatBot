@@ -105,6 +105,18 @@ async def test_provider(instance_id: str, request: Request):
     return result
 
 
+@router.post("/admin/api/ai/providers/{instance_id}/test-json")
+async def test_provider_json_mode(instance_id: str, request: Request):
+    """Does this provider actually return JSON when asked?
+
+    Separate from /test because it SENDS one paid request. Multi-choice
+    answers are dead on a provider that drops the field, and without this
+    button that failure is invisible: the reply arrives as prose with HTTP 200
+    and the chatbot silently behaves as it did before the feature shipped.
+    """
+    return await health.test_json_mode(instance_id, actor=_actor(request))
+
+
 @router.post("/admin/api/ai/providers/{instance_id}/reset-circuit")
 async def reset_circuit(instance_id: str, request: Request):
     circuit.reset(instance_id)

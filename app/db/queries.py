@@ -2,7 +2,7 @@ import asyncio
 import os
 import time
 
-from app.config import logger
+from app.config import HISTORY_WINDOW_MINUTES, logger
 from app.db.connection import get_db_connection
 
 
@@ -43,18 +43,155 @@ def _read_setting_uncached(key: str):
         return None
 
 
-def log_chat(query, response, r_type, source, confidence, tokens=0, cost=0.0):
+def log_chat(query, response, r_type, source, confidence, tokens=0, cost=0.0,
+             *, conversation_id="", entry_id="", offer_state=""):
+    """Record one answered turn.
+
+    The three memory fields are KEYWORD-ONLY on purpose, not style: an existing
+    test spy (tests/test_ai_legacy_import.py) wraps this function with a fixed
+    seven-positional-argument signature, and a positional eighth parameter
+    would break it silently.
+
+    The wide INSERT is tried first and the original seven-column INSERT is the
+    fallback, so an install whose migration 0009 has not run yet keeps logging
+    exactly as it does today. Every failure is still swallowed: a logging fault
+    has never been allowed to cost a visitor their answer.
+    """
     try:
         conn = get_db_connection()
-        conn.execute(
-            'INSERT INTO chat_logs (query, response, response_type, source, confidence, tokens, cost) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (query, response, r_type, source, confidence, tokens, cost)
-        )
+        try:
+            conn.execute(
+                'INSERT INTO chat_logs (query, response, response_type, source,'
+                ' confidence, tokens, cost, conversation_id, entry_id, offer_state) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (query, response, r_type, source, confidence, tokens, cost,
+                 conversation_id or "", entry_id or "", offer_state or "")
+            )
+        except Exception:  # noqa: BLE001 — unmigrated table: log the turn anyway
+            conn.rollback()
+            conn.execute(
+                'INSERT INTO chat_logs (query, response, response_type, source, confidence, tokens, cost) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (query, response, r_type, source, confidence, tokens, cost)
+            )
         conn.commit()
         conn.close()
     except Exception as e:
         logger.error(f"Failed to log chat: {e}")
+
+
+def recent_turns(conversation_id: str, limit: int = 5) -> list:
+    """The last few answered turns of ONE conversation, newest first.
+
+    Returns [] on ANY problem, including a chat_logs table that predates
+    migration 0009 and has no conversation_id column. With no history the
+    selection tier still works — it just sees no prior turns — so an
+    unmigrated install degrades to today's chatbot instead of failing.
+
+    ORDER BY id, not created_at: SQLite's CURRENT_TIMESTAMP has one-second
+    resolution, so two turns in the same second tie and the order becomes
+    whatever the planner felt like. `id` is monotonic on both backends.
+
+    `source <> 'system'` drops the two sentinel strings `no_confident_match`
+    and `ai_unavailable_no_strong_match`, which are stored in the RESPONSE
+    column. Replaying them to the model as prior assistant answers teaches it
+    to emit them.
+
+    The cutoff is HISTORY_WINDOW_MINUTES, a conversation's length — NOT the
+    lifetime of the padyar_conv cookie. A booth kiosk is one browser shared by
+    strangers and the cookie slides on every answer, so keying history to the
+    cookie made each visitor's first question carry the previous visitors' raw
+    words to the AI provider. See the constant's comment in app/config.py.
+
+    The interval is int-clamped and INLINED into the SQL string for the same
+    reason as last_offer_state() below: app/db/pg.py rewrites
+    `datetime('now', '-N minutes')` into the PostgreSQL form only when it can
+    see the literal.
+    """
+    if not conversation_id:
+        return []
+    minutes = max(1, int(HISTORY_WINDOW_MINUTES))
+    try:
+        conn = get_db_connection()
+        try:
+            rows = conn.execute(
+                "SELECT query, response, source, entry_id, created_at"
+                " FROM chat_logs"
+                " WHERE conversation_id = ? AND source <> 'system'"
+                f"   AND created_at >= datetime('now','-{minutes} minutes')"
+                " ORDER BY id DESC LIMIT ?",
+                (conversation_id, max(1, int(limit)))).fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:  # noqa: BLE001 — memory is optional, answers are not
+        logger.info(f"[memory] recent_turns unavailable: {type(e).__name__}: {e}")
+        return []
+
+
+def last_offer_state(conversation_id: str, within_minutes: int) -> str:
+    """The newest still-fresh offer JSON for this conversation, or ''.
+
+    A booth kiosk is ONE browser and ONE cookie shared by many people, so an
+    offer goes stale on purpose: a bare "3" typed twenty minutes after
+    somebody else's list must not resolve against that stranger's list.
+
+    The interval is int-clamped and INLINED into the SQL string, not bound as
+    a parameter — app/db/pg.py rewrites `datetime('now', '-N minutes')` into
+    the PostgreSQL form only when it can see the literal, and a bound
+    parameter would stay untranslated and fail there. Same idiom as
+    app/services/ai/health.py.
+    """
+    if not conversation_id:
+        return ""
+    minutes = max(1, int(within_minutes))
+    try:
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                "SELECT offer_state FROM chat_logs"
+                " WHERE conversation_id = ? AND offer_state <> ''"
+                f"   AND created_at >= datetime('now','-{minutes} minutes')"
+                " ORDER BY id DESC LIMIT 1",
+                (conversation_id,)).fetchone()
+        finally:
+            conn.close()
+        return (row["offer_state"] or "") if row else ""
+    except Exception as e:  # noqa: BLE001 — no offer is a valid answer
+        logger.info(f"[memory] last_offer_state unavailable: {type(e).__name__}: {e}")
+        return ""
+
+
+def purge_chat_logs() -> int:
+    """Delete chat turns older than `chat_log_retention_days`. Returns the count.
+
+    `chat_logs` is the UNREDACTED store — log_chat writes the raw visitor query
+    with no content policy applied, unlike applog which scrubs — and until now
+    nothing pruned it. The selection tier reads it back and ships up to five
+    turns to the AI provider, so an operator needs a dial.
+
+    Default 0 = keep forever, so no existing install loses data by upgrading.
+    """
+    try:
+        days = int(get_setting("chat_log_retention_days", "0") or "0")
+    except (TypeError, ValueError):
+        days = 0
+    if days <= 0:
+        return 0
+    try:
+        conn = get_db_connection()
+        try:
+            cur = conn.execute(
+                "DELETE FROM chat_logs"
+                f" WHERE created_at < datetime('now','-{days} days')")
+            deleted = cur.rowcount or 0
+            conn.commit()
+        finally:
+            conn.close()
+        return max(0, deleted)
+    except Exception as e:  # noqa: BLE001 — retention must never break a request
+        logger.error(f"[retention] chat_logs purge failed: {type(e).__name__}: {e}")
+        return 0
 
 
 def get_setting(key, default=None, fresh: bool = False):

@@ -161,6 +161,8 @@ PadyarAIChatbot/
       themes.py                  # Theme listing and activation
 
     services/                    # Business logic
+      answer.py                  # Selection tier: the model picks record ids, we render
+      scope.py                   # What this assistant is about, and its refusal wording
       search.py                  # Retrieval orchestration, dataset loading, reindex
       bm25.py                    # Okapi BM25 lexical retriever (pure Python)
       embeddings.py              # Local sentence embeddings (model2vec), no external API
@@ -226,7 +228,9 @@ PadyarAIChatbot/
 
   data/                          # Runtime data files
     visit-taxonomy.json          # Jobs/interests/flags/sections for registration + planner
+    frame-vocabulary.json        # Connector words a model-written lead sentence may use
     eval/golden-inotex.json      # Golden set for the retrieval evaluation harness
+    eval/smoke-options.json      # Live-install smoke set for the selection tier
     models/                      # Cached local embedding model (first download)
     otp-dev-outbox.log           # Dev-only OTP outbox (gitignored)
 
@@ -259,7 +263,8 @@ PadyarAIChatbot/
     reset-admin-password.py      # Reset the admin password non-interactively
     reset-content-to-defaults.py # Restore the bundled knowledge base
     debug_similarity.py          # Debug similarity matching
-    run_eval.py                  # Retrieval evaluation harness (data/eval/golden-inotex.json)
+    run_eval.py                  # Retrieval evaluation harness (--recall-k for the recall@K table)
+    smoke_options.py             # Selection-tier smoke run against a RUNNING install
     refresh-inotex-context.py    # Refresh content/ snapshots from sources.json
     migrate_json_to_db.py        # One-off JSON → SQLite content migration
     export-otp-module.py         # Package the registration module for another install
@@ -281,6 +286,16 @@ The tier gates live in `app/routers/chat.py`; the thresholds are in `app/config.
 User Query
     │
     ▼
+┌─────────────────────────────┐
+│  Pick tier (zero AI calls)  │
+│  A bare number, an ordinal  │
+│  word, or an offered title, │
+│  resolved against the ids   │
+│  stored on the LAST turn.   │
+│  "more" pages the same list.│
+└────────────┬────────────────┘
+             │ not a pick
+             ▼
 ┌─────────────────────────────┐
 │  Tier 0: Questions index    │
 │  (Almost) exact hit in the  │
@@ -317,12 +332,27 @@ User Query
         No ──┤
              ▼
 ┌─────────────────────────────┐
-│  Tier 2: AI Fallback        │
-│  GPT-5 Nano: classify intent│
-│  If dataset intent found →  │
-│    Return that entry        │
-│  If out_of_domain →         │
-│    GPT-4.1 generates answer │
+│  Tier 2: Selection          │
+│  The model is shown the top │
+│  ANSWER_TOPK records + the  │
+│  last 5 turns and returns   │
+│  JSON naming record IDS:    │
+│    answer  → serve that row │
+│    options → numbered list, │
+│              "which one?"   │
+│    none    → written answer │
+│  It CHOOSES; our renderer   │
+│  writes every fact string   │
+│  back out of the database.  │
+└────────────┬────────────────┘
+             │ no usable decision
+             ▼
+┌─────────────────────────────┐
+│  Tier 2 (legacy, untouched) │
+│  classify intent → entry,   │
+│  else a written answer —    │
+│  now verified before it is  │
+│  served (see answer.py)     │
 └────────────┬────────────────┘
              │ AI disabled or errored
              ▼
@@ -467,7 +497,7 @@ Core `app` tables:
 
 | Table             | Created by                       | Purpose                                                     |
 | ----------------- | -------------------------------- | ----------------------------------------------------------- |
-| `chat_logs`       | `app/db/connection.py`           | All chat interactions with confidence, tokens, cost         |
+| `chat_logs`       | `app/db/connection.py`           | All chat interactions with confidence, tokens, cost, plus `conversation_id` / `entry_id` / `offer_state` (migration 0009) |
 | `settings`        | `app/db/connection.py`           | Key-value runtime settings (includes `whitelabel_*` keys)   |
 | `dataset`         | `app/db/connection.py`           | Knowledge base entries (title, text, video_url, `*_en`)     |
 | `questions`       | `app/db/connection.py`           | Question-to-dataset mappings                                |
@@ -517,6 +547,8 @@ Active theme is stored in the `settings` table (key `active_theme`) and switchab
 | ------------------------- | --------------------------------------------------------------- |
 | `app/config.py`           | All configuration — read this first when looking for a setting  |
 | `app/routers/chat.py`     | Core chatbot endpoint — the main pipeline                       |
+| `app/services/answer.py`  | Selection tier + the two grounding firewalls + the list renderer |
+| `app/services/scope.py`   | Domain and refusal wording — read this before changing a refusal |
 | `app/services/search.py`  | Retrieval orchestration — dataset loading, reindex, scoring      |
 | `app/services/rerank.py`  | Feature reranker — how hybrid candidates are fused and scored    |
 | `app/services/providers.py` | Model-provider seam — swap AI vendors without touching logic   |
@@ -617,13 +649,21 @@ The project uses **pytest**. Test-only dependencies (`pytest`, `pytest-asyncio`,
 .venv/bin/python -m playwright install chromium   # only needed for browser e2e tests
 ```
 
-Tests live under `tests/` (config in `pytest.ini`, asyncio auto-mode) — **858 passing + 14 opt-in live-provider skips as of 2026-08-19**. The suite is growing, so treat that number as a snapshot and let the command be the source of truth:
+Tests live under `tests/` (config in `pytest.ini`, asyncio auto-mode) — **1860 collected, 1702 passing, 143 skipped as of 2026-08-28**. The 15 remaining failures all need a live PostgreSQL or network and fail the same way on a clean checkout: `test_company_profiles` (4), `test_leads_company_tools` (3), `test_leads_contacts_admin` (4), `test_leads_sms_channel` (1), `test_sms_production_guard` (3). The suite is growing, so treat those numbers as a snapshot and let the command be the source of truth:
 
 ```bash
 .venv/bin/python -m pytest --collect-only -q | tail -2
 ```
 
 Write unit tests for services/utils/auth and integration tests via FastAPI's `TestClient` (see the `write-tests` and `api-test` skills); browser e2e tests go under `tests/e2e/` with pytest-playwright (see the `playwright-cli` and `e2e-test-gen` skills).
+
+**Every browser test uses Playwright's ASYNC API.** This is not a style choice. `pytest.ini` sets `asyncio_mode = auto`, and the sync API refuses to start inside a running event loop; worse, `pytest-playwright`'s sync fixtures are session-scoped, so one sync browser test keeps a loop alive for the whole run and every later test that calls `asyncio.run()` fails. Measured 2026-08-28: a single sync browser test turned 15 failures into 141. So write `async def test_...(page: Page)` with `async_playwright()`, never the `page`/`browser`/`context` sync fixtures. `tests/test_suite_isolation.py` bans them with an AST check and separately asserts that `tests/e2e/` is still collected by the default run, so nobody can quietly re-hide the browser tests instead of fixing one.
+
+Browser tests need the binary:
+
+```bash
+.venv/bin/python -m playwright install chromium
+```
 
 ---
 
@@ -644,6 +684,20 @@ All config lives in `app/config.py`. Key thresholds:
 | `CHAT_RATE_LIMIT`       | 20      | Max chat requests per window per IP (env-overridable) |
 | `CHAT_RATE_WINDOW`      | 60      | Rate limit window in seconds (env-overridable) |
 | `CHAT_TOKEN_TTL`        | 3600    | HMAC chat token lifetime (seconds) |
+| `ANSWER_TOPK`           | 8       | Records shown to the selection tier (recall@8 = 0.952, measured) |
+| `HISTORY_TURNS`         | 5       | Prior turns handed to the model as context |
+| `HISTORY_WINDOW_MINUTES` | 15     | How far back those turns are read (shared-kiosk bound) |
+| `OPTIONS_MAX`           | 5       | Most records offered as a numbered choice on one turn |
+| `OPTIONS_MARGIN`        | 0.15    | Top-vs-second gap that collapses "options" back to one answer |
+| `PICK_WINDOW_MINUTES`   | 15      | How long a stored list stays pickable (shared-kiosk bound) |
+| `OFFER_IDS_MAX`         | 50      | Ids kept in one offer for paging |
+| `LEAD_MAX_CHARS`        | 160     | Longest model-written lead above a numbered list |
+
+Settings rows (admin panel, no deploy) that the selection tier reads:
+`options_shown` (1..15, the list-length kill switch), `collection_noun_fa` /
+`collection_noun_en`, `assistant_domain` / `assistant_domain_en`,
+`refusal_text_fa` / `refusal_text_en` (password-gated), and
+`chat_log_retention_days` (0 = keep forever).
 
 ---
 

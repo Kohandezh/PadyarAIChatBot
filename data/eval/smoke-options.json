@@ -1,0 +1,37 @@
+{
+  "dataset_version": "smoke-options-1.0",
+  "created_at": "2026-08-28",
+  "purpose": "The ONLY regression net the selection tier gets against a running install. scripts/run_eval.py deliberately never calls the AI, so nothing else in the repo exercises mode answer / options / none end to end, and nothing else proves that a refusal still refuses once a model is in the loop.",
+  "how_to_run": "Start the app, then: .venv/bin/python scripts/smoke_options.py --base http://127.0.0.1:8000",
+  "expectations": {
+    "options": "the answer offers a numbered choice — source ai_options or local_company_search, and the options array is non-empty",
+    "pick": "the answer is one record chosen from the offer printed by the PREVIOUS query — source local_pick",
+    "answer": "one record answers it outright — any of the single-record tiers",
+    "refuse": "out of scope: source refuse, or HTTP 503, never a confident record"
+  },
+  "queries": [
+    {"q": "شرکت‌های هوش مصنوعی را معرفی کن", "expect": "options", "cat": "list"},
+    {"q": "چه شرکت‌هایی در زمینه نرم افزار هستند؟", "expect": "options", "cat": "list"},
+    {"q": "شرکت‌های استان تهران کدام‌اند؟", "expect": "options", "cat": "list"},
+    {"q": "چند شرکت در حوزه هوش مصنوعی داریم؟", "expect": "options", "cat": "list"},
+    {"q": "لیست شرکت‌های دانش بنیان را بده", "expect": "options", "cat": "list"},
+
+    {"q": "1", "expect": "pick", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
+    {"q": "۳", "expect": "pick", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
+    {"q": "2.", "expect": "pick", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
+    {"q": "دومی", "expect": "pick", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
+    {"q": "بیشتر", "expect": "options", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
+
+    {"q": "تاریخ برگزاری نمایشگاه الکامپ کی است؟", "expect": "refuse", "cat": "out_of_scope"},
+    {"q": "قیمت دلار امروز چند است؟", "expect": "refuse", "cat": "out_of_scope"},
+    {"q": "بهترین رستوران تهران کجاست؟", "expect": "refuse", "cat": "out_of_scope"},
+    {"q": "نتیجه بازی دیشب چه شد؟", "expect": "refuse", "cat": "out_of_scope"},
+    {"q": "برای سردرد چه قرصی بخورم؟", "expect": "refuse", "cat": "out_of_scope"},
+
+    {"q": "اینوتکس چیست؟", "expect": "answer", "cat": "named"},
+    {"q": "ساعت بازدید نمایشگاه چند است؟", "expect": "answer", "cat": "named"},
+    {"q": "محل برگزاری اینوتکس کجاست؟", "expect": "answer", "cat": "named"},
+    {"q": "شماره تماس دبیرخانه چیست؟", "expect": "answer", "cat": "named"},
+    {"q": "چطور غرفه رزرو کنم؟", "expect": "answer", "cat": "named"}
+  ]
+}

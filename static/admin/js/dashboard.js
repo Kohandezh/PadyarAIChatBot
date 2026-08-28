@@ -14,6 +14,42 @@ async function loadStats() {
     document.getElementById('total-msgs').innerText = data.total_messages.toLocaleString();
 
     renderCharts(data.daily_stats);
+    renderSourceBreakdown(data.by_source || []);
+}
+
+// Plain Persian for every tier name. An operator who cannot read the code must
+// still be able to tell "answered from the list" from "asked the visitor to
+// choose"; an unknown key falls back to its raw name rather than disappearing.
+const SOURCE_FA = {
+    local_pick: 'انتخاب بازدیدکننده از فهرست',
+    local_company_search: 'فهرست شرکت‌ها',
+    local_company_field: 'یک اطلاعات ثبت‌شده شرکت',
+    local_entity: 'شرکت یا موضوعی که نامش برده شد',
+    local_questions: 'سوال آماده',
+    local: 'جستجوی محلی',
+    local_intent: 'تشخیص موضوع محلی',
+    ai_selected: 'انتخاب هوش مصنوعی از میان نتایج',
+    ai_options: 'ارائه چند گزینه به بازدیدکننده',
+    openai_classified: 'تشخیص موضوع با هوش مصنوعی',
+    openai: 'پاسخ نوشته‌شده با هوش مصنوعی',
+    refuse: 'رد سوال خارج از موضوع',
+    system: 'بدون پاسخ مطمئن',
+};
+
+function renderSourceBreakdown(rows) {
+    const body = document.getElementById('source-breakdown-body');
+    if (!body) return;
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-3">'
+            + 'در ۲۴ ساعت گذشته پیامی نبوده است.</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map(r => {
+        const name = SOURCE_FA[r.source] || r.source || '—';
+        const label = document.createElement('span');
+        label.textContent = name;
+        return `<tr><td>${label.innerHTML}</td><td>${Number(r.count).toLocaleString()}</td></tr>`;
+    }).join('');
 }
 
 function renderCharts(dailyStats) {

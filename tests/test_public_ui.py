@@ -217,6 +217,23 @@ def test_core_js_has_fa_en_i18n_and_switch():
     assert "What is INOTEX?" in js
 
 
+def test_every_theme_localises_the_new_chat_button():
+    """The button shipped with its Persian label, title and aria-label baked
+    into all four headers while I18N.en.newChat existed and was never read. An
+    English visitor read Persian and an English screen reader announced
+    Persian. `data-i18n` / `data-i18n-title` are the same hooks setLang()
+    already uses for every other static control.
+
+    Checked in ALL FOUR headers, not just the active theme: the four files are
+    copies of one another, so a theme left behind is the way this comes back.
+    """
+    for theme in ("base", "inotex", "liquid-glass", "haj"):
+        header = read(ROOT / "themes" / theme / "partials" / "header.html")
+        button = header.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
+        assert 'data-i18n="newChat"' in button, theme
+        assert 'data-i18n-title="newChat"' in button, theme
+
+
 def test_core_js_keeps_video_and_chat_with_null_guards_avatar():
     js = read(CORE_JS)
     # No remote/Noor media anywhere.
