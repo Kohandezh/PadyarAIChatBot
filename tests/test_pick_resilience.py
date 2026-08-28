@@ -486,3 +486,48 @@ def test_paging_after_some_of_the_list_was_deleted_counts_only_what_survived(
         f"the headline must count what survived, not what was stored: {headline!r}"
     assert "دیگر" not in body["text"], \
         "nothing is left to page to, so nothing may be promised: " + body["text"]
+
+
+# ── A pick inside a sentence ─────────────────────────────────────────────
+#
+# Found by scripts/persona_probe.py on the live install, 2026-08-28. A list was
+# offered, the visitor answered «دومی رو توضیح بده», and the model came back
+# with "which one do you mean?". The ordinal rule required the message to be
+# EXACTLY one token, so «دومی» resolved and «دومی رو توضیح بده» did not — and
+# nobody answers a numbered list with a bare word.
+
+def test_an_ordinal_inside_a_short_request_still_picks():
+    from app.services.answer import resolve_pick
+    offer = {"ids": ["co-1", "co-2", "co-3", "co-4", "co-5"], "shown": 5}
+    for message, want in [
+        ("دومی رو توضیح بده", "co-2"),
+        ("اولی رو بیشتر بگو", "co-1"),
+        ("سومی چیه؟", "co-3"),
+        ("لطفا چهارمی را معرفی کن", "co-4"),
+    ]:
+        assert resolve_pick(message, offer) == want, message
+
+
+def test_a_number_inside_a_short_request_still_picks():
+    from app.services.answer import resolve_pick
+    offer = {"ids": ["co-1", "co-2", "co-3", "co-4", "co-5"], "shown": 5}
+    for message, want in [
+        ("شماره ۳ چیکار میکنه؟", "co-3"),
+        ("۲ رو بگو", "co-2"),
+        ("مورد 5 را توضیح بده", "co-5"),
+    ]:
+        assert resolve_pick(message, offer) == want, message
+
+
+def test_a_sentence_that_merely_contains_a_number_is_not_a_pick():
+    """The guard the one-token rule was protecting, and it must survive.
+    «سوم اسفند چه خبر است» opens with an ordinal and is a date question;
+    «ساعت ۲ باز است؟» carries a number and is about opening time. Answering
+    either with a company would be confidently wrong."""
+    from app.services.answer import resolve_pick
+    offer = {"ids": ["co-1", "co-2", "co-3", "co-4", "co-5"], "shown": 5}
+    for message in ("سوم اسفند چه خبر است",
+                    "ساعت ۲ باز است؟",
+                    "۳ روز طول می کشد؟",
+                    "دومین روز نمایشگاه چه خبر است"):
+        assert resolve_pick(message, offer) is None, message

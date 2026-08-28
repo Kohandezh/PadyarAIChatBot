@@ -68,6 +68,22 @@ ORDINAL_WORDS = {
     "پنجم": 5, "پنجمی": 5, "fifth": 5,
 }
 
+# The words a person wraps around their choice. Nobody answers a numbered list
+# with a bare word: «دومی رو توضیح بده» is the real shape, and the one-token
+# rule below used to reject it (found live with scripts/persona_probe.py,
+# 2026-08-28 — the model replied "which one do you mean?").
+#
+# This stays a closed list on purpose, and a SHORT one. It is what keeps «سوم
+# اسفند چه خبر است» a date question: that sentence carries «اسفند», which is
+# not here, so it is not a pick.
+_PICK_MACHINERY = {
+    "رو", "را", "لطفا", "لطفاً", "به", "از", "تر",
+    "بگو", "بگویید", "بگید", "توضیح", "بده", "بدید", "بدهید",
+    "بیشتر", "درباره", "راجع", "معرفی", "کن", "کنید",
+    "چیه", "چیست", "کیه", "کیست", "چیکار", "میکنه", "میکند", "کند",
+    "شماره", "مورد", "گزینه", "اطلاعات",
+}
+
 # "Show me more of that list."
 _MORE_WORDS = {"بیشتر", "بیشتر بگو", "ادامه", "more", "show more"}
 
@@ -279,6 +295,25 @@ def _pick_from(message: str, ids: list):
     if len(tokens) == 1 and tokens[0] in ORDINAL_WORDS:
         n = ORDINAL_WORDS[tokens[0]]
         return ids[n - 1] if 1 <= n <= len(ids) else None
+
+    # 2b. An ordinal or a lone number inside a SHORT request, where every other
+    #     word is pick machinery. «دومی رو توضیح بده» is how people actually
+    #     answer a numbered list. The length bound and the closed machinery set
+    #     are together what keep rule 2's guarantee: «سوم اسفند چه خبر است» has
+    #     a word outside the set, so it is still a date question.
+    if 2 <= len(tokens) <= 6:
+        chosen, rest = [], []
+        for t in tokens:
+            folded = fold_digits(t)
+            if t in ORDINAL_WORDS:
+                chosen.append(ORDINAL_WORDS[t])
+            elif folded.isdecimal() and len(folded) <= 4:
+                chosen.append(int(folded))
+            else:
+                rest.append(t)
+        if len(chosen) == 1 and all(t in _PICK_MACHINERY for t in rest):
+            n = chosen[0]
+            return ids[n - 1] if 1 <= n <= len(ids) else None
 
     # 3. The exact offered title. Unexpanded normalization on both sides —
     #    synonym expansion would blur two similar company names together.

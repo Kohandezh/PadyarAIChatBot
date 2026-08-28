@@ -28,7 +28,9 @@ from app.utils.normalizer import normalize_persian
 # plural «شرکت‌های» arrives as the two tokens «شرکت های»; the fully attached
 # spelling «شرکتهای» survives as one token. Both spellings must trigger.
 _PLURAL_SUFFIXES = {"ها", "های", "هایی"}
-_ATTACHED_PLURALS = {"شرکتها", "شرکتهای", "شرکتهایی"}
+# «شرکتای» is the colloquial spelling of «شرکت‌های» and half the visitors type
+# it. Found live, 2026-08-28.
+_ATTACHED_PLURALS = {"شرکتها", "شرکتهای", "شرکتهایی", "شرکتای", "شرکتا"}
 # Question words that turn a singular «شرکت» into a list request. «چند» and
 # «کدام» are also rerank STOPWORDS, which is fine: intent detection runs on
 # the raw token list, not on content_tokens.
@@ -245,8 +247,6 @@ def answer_company_list(query: str, lang: str = "fa"):
     # must see what the visitor actually typed, not what synonym rows added.
     norm = normalize_persian(query or "", expand_synonyms=False)
     tokens = norm.split()
-    if not _wants_company_list(tokens):
-        return None
 
     try:
         companies = _load_companies()
@@ -257,6 +257,20 @@ def answer_company_list(query: str, lang: str = "fa"):
         return None
 
     selected = _select_facets(tokens, companies)
+
+    # NAMING A FIELD IS ASKING FOR ITS COMPANIES, whether or not the visitor
+    # says the word «شرکت». Measured with scripts/persona_probe.py against the
+    # live install on 2026-08-28: only ONE of 28 conversation turns reached
+    # this tier, because the intent check needed that word. «من به رباتیک
+    # علاقه دارم چیزی هست؟» and «بازی سازی هم دارین؟» are both requests for
+    # exhibitors and neither contains it.
+    #
+    # A facet match is a safe trigger precisely because the facet vocabulary is
+    # the organizer's own: the visitor used a word from a list the customer
+    # filled in, about the only thing that list describes. A question that
+    # names no field («تا کی بازه؟») still needs the explicit word.
+    if not (selected or _wants_company_list(tokens)):
+        return None
 
     if selected is None:
         # No facet matched. Two very different questions land here.

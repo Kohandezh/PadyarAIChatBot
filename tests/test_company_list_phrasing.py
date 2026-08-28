@@ -252,3 +252,38 @@ def test_province_filtering_still_works(client):
     conn.close()
     r = _ask("شرکت های استان اصفهان")
     assert r is not None and _titles(r) == {"شرکت صبا"}, r
+
+
+# ── Naming a field IS asking for its companies ───────────────────────────
+#
+# Found by scripts/persona_probe.py against the live install, 2026-08-28: only
+# ONE of 28 conversation turns reached this tier. Nine went to the old
+# single-document path. The trigger required the word «شرکت» (or an attached
+# plural of it), and a visitor who names a FIELD is asking for its companies
+# whether or not they happen to say that word.
+
+def test_naming_a_field_without_the_word_sherkat_is_a_list_question(client):
+    """A school student's actual phrasing. There is no «شرکت» anywhere in it,
+    and it is unmistakably a request for the robotics exhibitors."""
+    _seed(COMPANIES)
+    r = _ask("من به رباتیک علاقه دارم چیزی هست؟")
+    assert r is not None, "naming a field was not read as asking for it"
+    assert _titles(r) == {"شرکت نگار"}, r
+
+
+def test_the_colloquial_plural_sherketaye_is_a_list_question(client):
+    """«شرکتای» is how people type «شرکت‌های». The intent check knew three
+    spellings and not this one."""
+    _seed(COMPANIES)
+    r = _ask("شرکتای هوش مصنوعی کیا هستن؟")
+    assert r is not None, r
+    assert _titles(r) == AI_TITLES, r
+
+
+def test_a_question_that_names_no_field_is_still_not_a_list(client):
+    """The guard. Reading a facet match as list intent must not turn every
+    question into a list: «ورودی پول میخواد؟» and «تا کی بازه؟» name no field
+    and are ordinary FAQ questions."""
+    _seed(COMPANIES)
+    for q in ("ورودی پول میخواد؟", "تا کی بازه؟", "اینجا چه خبره؟"):
+        assert _ask(q) is None, q
