@@ -445,7 +445,11 @@ def test_a_provider_outage_returns_no_decision_and_logs_only_redacted_detail(cli
     _seed()
     from app.services.ai.errors import AIError
 
-    secret_ish = "Bearer sk-live-THIS-IS-A-KEY-0000000000"
+    # "deadbeef" is a canonical not-real marker the repo's secret scanner
+    # knows (PLACEHOLDER_WORDS in scripts/make-handover-zip.py). The value
+    # has to stay key-SHAPED for the test to mean anything, and without the
+    # marker CI refuses the branch on its own fixture.
+    secret_ish = "Bearer sk-livedeadbeefcafe-notreal-0000"
     err = AIError(code="all_routes_failed", provider_detail=secret_ish)
     _stub_provider(monkeypatch, raises=err)
 

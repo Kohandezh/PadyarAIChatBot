@@ -190,7 +190,9 @@ def test_the_probe_never_echoes_raw_provider_text(ai_db, monkeypatch):
     from app.services.ai import health
     from app.services.ai.errors import AIError
     iid = _provider()
-    leaked = "Authorization: Bearer sk-live-LEAKED-KEY-000000000000"
+    # Key-shaped on purpose, with the scanner's not-real marker in it. See
+    # PLACEHOLDER_WORDS in scripts/make-handover-zip.py.
+    leaked = "Authorization: Bearer sk-livedeadbeefcafe-notreal-0000"
 
     class _Leaky:
         def supports_json_object(self, model_id):
