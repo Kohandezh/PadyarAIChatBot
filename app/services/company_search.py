@@ -18,6 +18,8 @@ dataset × company_profiles, and an all-keywords filter. When anything is off
 None and the existing pipeline proceeds unchanged.
 """
 
+from difflib import SequenceMatcher
+
 from app.config import logger
 from app.services.rerank import content_tokens
 from app.utils.normalizer import normalize_persian
@@ -26,7 +28,9 @@ from app.utils.normalizer import normalize_persian
 # plural «شرکت‌های» arrives as the two tokens «شرکت های»; the fully attached
 # spelling «شرکتهای» survives as one token. Both spellings must trigger.
 _PLURAL_SUFFIXES = {"ها", "های", "هایی"}
-_ATTACHED_PLURALS = {"شرکتها", "شرکتهای", "شرکتهایی"}
+# «شرکتای» is the colloquial spelling of «شرکت‌های» and half the visitors type
+# it. Found live, 2026-08-28.
+_ATTACHED_PLURALS = {"شرکتها", "شرکتهای", "شرکتهایی", "شرکتای", "شرکتا"}
 # Question words that turn a singular «شرکت» into a list request. «چند» and
 # «کدام» are also rerank STOPWORDS, which is fine: intent detection runs on
 # the raw token list, not on content_tokens.
@@ -64,6 +68,150 @@ def _wants_company_list(tokens: list) -> bool:
     return False
 
 
+# ── Topic matching ───────────────────────────────────────────────────────
+#
+# WHY THIS IS NOT A WORD LIST (measured live, 2026-08-28). Topic keywords used
+# to be "every content token not on the _MACHINERY blocklist", and every one of
+# them had to appear in a company's row. That works for «شرکت های حوزه هوش
+# مصنوعی» and breaks the moment a visitor writes a sentence:
+#
+#   ...رو اطلاعات شون رو میخوام  ->  needs «میخوام», «شون», «رو» in a company row
+#   دیگه چه شرکت هایی داریم؟      ->  needs «دیگه» in a company row
+#   حوضه (one wrong letter)       ->  needs «حوضه» in a company row
+#
+# None of those exist in any company record, so the tier returned None and the
+# question fell through to a path that cannot see the company table. A
+# blocklist of "words that are not topics" can never be finished: it has to
+# anticipate every word a person might say around the topic.
+#
+# So the vocabulary comes from the DATA instead. activity_field, province and
+# company_type are controlled vocabularies the organizer fills in, each value a
+# FACET. A word is a topic only if a facet uses it, and the facet with the most
+# overlap wins. Everything else the visitor said is, by construction, ignored.
+
+# «the rest of them». A closed, meaningful category — not an open-ended list of
+# things people say — and the ONLY leftover words that still mean "no filter".
+_REST_WORDS = {"دیگه", "دیگر", "دیگری", "بقیه", "باقی", "سایر", "بیشتر"}
+
+# «حوضه» is «حوزه» misspelled, and it is common enough to have broken a live
+# query. It belongs with the machinery it is a misspelling OF.
+_MACHINERY_EXTRA = {"حوضه", "فن", "آوری"}
+
+# Alef, ye and kaf variants folded so two spellings of one word compare equal.
+# «فن آوری» joined is «فنآوری», and the facet spells it «فناوری» — one alef
+# apart. normalize_persian does not fold these, and it should not: they are
+# distinct letters in general text.
+_FOLD = str.maketrans({"آ": "ا", "أ": "ا", "إ": "ا", "ي": "ی", "ك": "ک", "ۀ": "ه"})
+
+
+def _fold(token: str) -> str:
+    return (token or "").translate(_FOLD)
+
+
+def _query_forms(tokens: list) -> set:
+    """Every shape a facet word could take in what the visitor typed.
+
+    Adjacent tokens are also compared JOINED. «فن آوری» is two tokens here and
+    one word («فناوری») in the facet, and plain equality can never join them.
+    Joining only NEIGHBOURS, never arbitrary pairs, keeps this from inventing
+    words out of a long sentence.
+    """
+    forms = {_fold(t) for t in tokens}
+    forms |= {_fold(tokens[i] + tokens[i + 1]) for i in range(len(tokens) - 1)}
+    return forms
+
+
+def _facets(companies: list) -> dict:
+    """{facet value -> its folded content tokens}, read off the rows.
+
+    activity_field is pipe-separated («هوش مصنوعی و داده | اتوماسیون، رباتیک و
+    هوشمندسازی»), so it is split first: a company sits in up to three fields at
+    once and must be findable under any of them.
+    """
+    out = {}
+    for c in companies:
+        for value in _company_facets(c):
+            if value not in out:
+                out[value] = {_fold(t) for t in
+                              content_tokens(normalize_persian(
+                                  value, expand_synonyms=False))}
+    return out
+
+
+def _company_facets(c: dict) -> set:
+    values = set()
+    for column in ("activity_field", "province", "company_type"):
+        for part in str(c.get(column) or "").split("|"):
+            part = part.strip()
+            if part:
+                values.add(part)
+    return values
+
+
+# Fuzzy matching is allowed only from here up. Below it, one edit is most of
+# the word: «موش» and «هوش» are one letter apart and mean mouse and mind.
+_FUZZY_MIN_LEN = 4
+# 0.82 accepts one edit in a 5-letter word and two in a 9-letter one, and
+# rejects «موش»/«هوش» (0.67) even before the length gate.
+_FUZZY_CUTOFF = 0.82
+
+
+def _fuzzy_hit(facet_token: str, forms: set) -> bool:
+    """Did the visitor write this facet word, allowing for a slip?
+
+    THE POINT OF THIS FUNCTION. Ignoring an unknown word already survives a
+    typo in the MACHINERY («حوضه» for «حوزه»), because machinery words are not
+    topics. It does nothing when the TOPIC itself is misspelled: «هوش مصنوی»
+    names a field and matches none of its tokens.
+
+    Fixing that one report and waiting for the next is not a plan. What makes
+    the general fix cheap is that the vocabulary is CLOSED — around thirty
+    field names, a handful of provinces — so every query word can be compared
+    against all of them. On a known, tiny set of right answers, edit distance
+    is more dependable than asking a model, and it costs nothing.
+    """
+    if len(facet_token) < _FUZZY_MIN_LEN:
+        return False
+    for form in forms:
+        if len(form) < _FUZZY_MIN_LEN:
+            continue
+        if SequenceMatcher(None, facet_token, form).ratio() >= _FUZZY_CUTOFF:
+            return True
+    return False
+
+
+def _select_facets(tokens: list, companies: list):
+    """The facets this query filters by, or None when it names none.
+
+    A facet is a candidate when the visitor said at least TWO of its words, or
+    exactly one word that no other facet uses. Two words is what «فناوری
+    اطلاعات» gives; the distinctive single word is what «رباتیک» gives. A
+    shared single word is not enough — «فناوری» alone sits in three different
+    facets and picking one of them would be a guess.
+    """
+    facets = _facets(companies)
+    if not facets:
+        return None
+    forms = _query_forms(tokens)
+    shared = {}
+    for toks in facets.values():
+        for t in toks:
+            shared[t] = shared.get(t, 0) + 1
+
+    scored = {}
+    for value, toks in facets.items():
+        hit = toks & forms
+        # Exact first, fuzzy only for the words it did not already find. An
+        # exact match must never be displaced by an approximate one.
+        hit = hit | {t for t in toks - hit if _fuzzy_hit(t, forms)}
+        if len(hit) >= 2 or (len(hit) == 1 and shared[next(iter(hit))] == 1):
+            scored[value] = len(hit)
+    if not scored:
+        return None
+    best = max(scored.values())
+    return {v for v, n in scored.items() if n == best}
+
+
 def _load_companies() -> list:
     """Every dataset row that IS a company (has a company_profiles row).
 
@@ -99,8 +247,6 @@ def answer_company_list(query: str, lang: str = "fa"):
     # must see what the visitor actually typed, not what synonym rows added.
     norm = normalize_persian(query or "", expand_synonyms=False)
     tokens = norm.split()
-    if not _wants_company_list(tokens):
-        return None
 
     try:
         companies = _load_companies()
@@ -110,33 +256,48 @@ def answer_company_list(query: str, lang: str = "fa"):
     if not companies:
         return None
 
-    # Topic keywords = the query's content tokens minus the list machinery.
-    # What remains (e.g. «هوش», «مصنوعی») is what the visitor filtered by.
-    keywords = content_tokens(norm) - _MACHINERY
+    selected = _select_facets(tokens, companies)
 
-    matched = []
-    for c in companies:
-        # Province and company type join the haystack for the same reason
-        # activity_field is in it: «شرکت‌های استان اصفهان» filters on a column
-        # the database holds, and the company's own description rarely repeats
-        # its province.
-        hay = set(normalize_persian(
-            f"{c.get('activity_field') or ''} {c.get('province') or ''}"
-            f" {c.get('company_type') or ''}"
-            f" {c.get('title') or ''} {c.get('text') or ''}",
-            expand_synonyms=False,
-        ).split())
-        # ALL keywords must be present: «هوش مصنوعی» must not list every
-        # company that merely says «هوش» somewhere.
-        if keywords <= hay:
-            matched.append(c)
-
-    if keywords and not matched:
-        # A topic we cannot confirm locally — the AI tier can actually judge
-        # it; listing zero companies would be a confident non-answer.
+    # NAMING A FIELD IS ASKING FOR ITS COMPANIES, whether or not the visitor
+    # says the word «شرکت». Measured with scripts/persona_probe.py against the
+    # live install on 2026-08-28: only ONE of 28 conversation turns reached
+    # this tier, because the intent check needed that word. «من به رباتیک
+    # علاقه دارم چیزی هست؟» and «بازی سازی هم دارین؟» are both requests for
+    # exhibitors and neither contains it.
+    #
+    # A facet match is a safe trigger precisely because the facet vocabulary is
+    # the organizer's own: the visitor used a word from a list the customer
+    # filled in, about the only thing that list describes. A question that
+    # names no field («تا کی بازه؟») still needs the explicit word.
+    if not (selected or _wants_company_list(tokens)):
         return None
 
-    # No keywords left («چه شرکت‌هایی در نمایشگاه هستند؟») → all companies.
+    if selected is None:
+        # No facet matched. Two very different questions land here.
+        #
+        #   دیگه چه شرکت هایی هستند؟          -> all of them. A real answer.
+        #   شرکت‌های زیست فناوری را معرفی کن  -> a field we do not have. Defer.
+        #
+        # What separates them is whether anything TOPIC-SHAPED is left after
+        # the list machinery. _MACHINERY is still a hand-written list, but its
+        # job here is much smaller than it used to be: it no longer decides
+        # what the topic IS (the data does that now), only whether one was
+        # named at all. A word missing from it now causes a DEFER, which is
+        # safe, instead of an empty match that looked like an answer.
+        leftover = (content_tokens(norm) - _MACHINERY - _MACHINERY_EXTRA
+                    - _REST_WORDS)
+        if leftover:
+            return None
+        matched, filter_label = list(companies), ""
+    else:
+        matched = [c for c in companies if _company_facets(c) & selected]
+        if not matched:
+            return None
+        # The facet's OWN name, not the words the visitor typed around it. The
+        # headline has to say which zemine, and «۶۹ شرکت در زمینه «اطلاعات شون
+        # رو میخوام»» is worse than no headline at all.
+        filter_label = "، ".join(sorted(selected))
+
     matched.sort(key=lambda c: c.get("title") or "")
 
     # The RENDERING is delegated, the SELECTION above is not. answer.render_options
@@ -147,10 +308,6 @@ def answer_company_list(query: str, lang: str = "fa"):
     # The filter words are printed in the headline on purpose: «۶۹ شرکت در این
     # زمینه» hides WHICH zemine, so a wrong SET looked confidently right.
     from app.services.answer import render_options
-    # Printed in the visitor's own word order, not sorted: «هوش مصنوعی» reads
-    # as a field name, «مصنوعی هوش» reads as a bug.
-    ordered = [t for t in dict.fromkeys(tokens) if t in keywords]
-    filter_label = " ".join(ordered)
     # The query travels into offer_state so «بیشتر» can rebuild this same
     # matched set on the next turn. offer_state caps its ids, and with 70 AI
     # companies that cap made page 2 report «۵۰ شرکت» and left 51..70
@@ -165,7 +322,7 @@ def answer_company_list(query: str, lang: str = "fa"):
         "displayed_ids": [o["id"] for o in options],
         "options": options,
         "offer_state": offer_state,
-        "keywords": sorted(keywords),
+        "keywords": sorted(selected) if selected else [],
         # The filter words in the visitor's own order — the headline reads as
         # a field name, and the pager needs the same string on every page.
         "filter_label": filter_label,

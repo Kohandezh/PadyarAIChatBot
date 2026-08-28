@@ -1,0 +1,67 @@
+{
+  "dataset_version": "personas-1.0",
+  "created_at": "2026-08-28",
+  "purpose": "Multi-turn conversations from the four kinds of person who actually walk up to the kiosk. Single-query test sets miss everything that only breaks on the SECOND turn: a follow-up that needs the previous list, a pronoun with no antecedent, a pick after a topic change. They also miss how people really type — colloquial verb endings, dropped ZWNJ, one wrong letter.",
+  "how_to_run": ".venv/bin/python scripts/persona_probe.py --base http://127.0.0.1:8001",
+  "expectations": {
+    "list": "a numbered choice: source local_company_search or ai_options, with options[]",
+    "answer": "one recorded answer served from the knowledge base",
+    "pick": "the visitor chose from the previous list: source local_pick",
+    "refuse": "out of scope, or a withheld personal field — must NOT be answered",
+    "any": "not asserted; recorded so a human can read what happened"
+  },
+  "personas": [
+    {
+      "name": "school-student",
+      "who": "دانش‌آموز ۱۶ ساله، با معلمش آمده، به رباتیک و بازی علاقه دارد. کوتاه و محاوره‌ای می‌نویسد.",
+      "turns": [
+        {"say": "سلام", "expect": "any"},
+        {"say": "اینجا چه خبره؟", "expect": "any"},
+        {"say": "من به رباتیک علاقه دارم چیزی هست؟", "expect": "list"},
+        {"say": "اولی رو بیشتر بگو", "expect": "pick"},
+        {"say": "ورودی پول میخواد؟", "expect": "answer"},
+        {"say": "تا کی بازه؟", "expect": "answer"},
+        {"say": "بازی سازی هم دارین؟", "expect": "list"}
+      ]
+    },
+    {
+      "name": "programming-student",
+      "who": "دانشجوی مهندسی کامپیوتر، دنبال کارآموزی و شرکت‌های هوش مصنوعی. سریع تایپ می‌کند و «ی» را جا می‌اندازد.",
+      "turns": [
+        {"say": "سلام من دانشجوی کامپیوترم", "expect": "any"},
+        {"say": "شرکتای هوش مصنوعی کیا هستن؟", "expect": "list"},
+        {"say": "بیشتر", "expect": "list"},
+        {"say": "شماره ۳ چیکار میکنه؟", "expect": "pick"},
+        {"say": "سایتشون چیه؟", "expect": "any"},
+        {"say": "کارآموزی میگیرن؟", "expect": "any"},
+        {"say": "شرکتای فین تک هم دارین؟", "expect": "list"}
+      ]
+    },
+    {
+      "name": "business-manager",
+      "who": "مدیر یک کسب‌وکار کوچک، دنبال سرمایه‌گذار و شریک. رسمی می‌نویسد و جمله‌های بلند می‌سازد.",
+      "turns": [
+        {"say": "سلام", "expect": "any"},
+        {"say": "من دنبال سرمایه گذار میگردم چه بخشی باید برم؟", "expect": "answer"},
+        {"say": "جلسات B2B چطوری برگزار میشه؟", "expect": "answer"},
+        {"say": "شرکت های فعال در حوزه سلامت دیجیتال را معرفی کنید", "expect": "list"},
+        {"say": "دومی رو توضیح بده", "expect": "pick"},
+        {"say": "ایمیل مدیرعاملشون رو میخوام", "expect": "refuse"},
+        {"say": "کافه سرمایه چیست؟", "expect": "answer"}
+      ]
+    },
+    {
+      "name": "tech-professional",
+      "who": "فعال حوزه فناوری، سوال‌های دقیق و مقایسه‌ای می‌پرسد، گاهی غلط املایی دارد.",
+      "turns": [
+        {"say": "شرکت های فعال در حوضه امنیت سایبری", "expect": "list"},
+        {"say": "شرکت های فعال در حوضه فن آوری اطلاعات چی؟", "expect": "list"},
+        {"say": "دیگه چه شرکت هایی هستند؟", "expect": "list"},
+        {"say": "من شرکت های فعال در حوزه هوش مصنوعی که در اینوتکس شرکت کرده اند رو اطلاعات شون رو میخوام", "expect": "list"},
+        {"say": "کدومشون استارتاپن؟", "expect": "any"},
+        {"say": "برنامه استیج امروز چیه؟", "expect": "answer"},
+        {"say": "قیمت دلار چنده؟", "expect": "refuse"}
+      ]
+    }
+  ]
+}
