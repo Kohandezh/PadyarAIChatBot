@@ -108,6 +108,10 @@ def _fold(token: str) -> str:
     return (token or "").translate(_FOLD)
 
 
+# Defined here and not beside _MACHINERY because it needs _fold above.
+_MACHINERY_FOLDED = {_fold(t) for t in _MACHINERY | _MACHINERY_EXTRA}
+
+
 def _query_forms(tokens: list) -> set:
     """Every shape a facet word could take in what the visitor typed.
 
@@ -121,6 +125,21 @@ def _query_forms(tokens: list) -> set:
     return forms
 
 
+# A category label is short by nature: «هوش مصنوعی و داده» is four words. Two
+# of the organizer's 170 rows have the company's whole DESCRIPTION pasted into
+# the field column, and a paragraph contains «فناوری», «هوش», «سلامت», «برق»
+# and «آموزش» — so it matched almost every question and «تا کی بازه؟» came back
+# as a list of one company. Reading the vocabulary from the data means the data
+# can poison it, and a length bound is what stops one bad cell from doing it.
+_FACET_MAX_TOKENS = 8
+_FACET_MAX_CHARS = 70
+
+
+def _is_category_label(value: str) -> bool:
+    return (len(value) <= _FACET_MAX_CHARS
+            and len(value.split()) <= _FACET_MAX_TOKENS)
+
+
 def _facets(companies: list) -> dict:
     """{facet value -> its folded content tokens}, read off the rows.
 
@@ -131,10 +150,22 @@ def _facets(companies: list) -> dict:
     out = {}
     for c in companies:
         for value in _company_facets(c):
-            if value not in out:
-                out[value] = {_fold(t) for t in
-                              content_tokens(normalize_persian(
-                                  value, expand_synonyms=False))}
+            if value in out or not _is_category_label(value):
+                continue
+            # A facet word that is also list machinery is not a topic. «نوع
+            # مجموعه» holds «صندوق سرمایه‌گذاری خطرپذیر شرکتی», and «شرکت» is
+            # how a visitor asks for companies at all — counting it made
+            # «دیگه چه شرکت هایی هستند؟» filter down to the rows that spell it.
+            toks = {_fold(t) for t in content_tokens(normalize_persian(
+                value, expand_synonyms=False))}
+            # Fuzzy, not just exact: the value is «...خطرپذیر شرکتی» and the
+            # machinery word is «شرکت». Exact removal leaves «شرکتی», which the
+            # fuzzy matcher then happily connects back to the «شرکت» in the
+            # visitor's question — so «دیگه چه شرکت هایی هستند؟» filtered down
+            # to the one row that spells it.
+            out[value] = {t for t in toks
+                          if t not in _MACHINERY_FOLDED
+                          and not _fuzzy_hit(t, _MACHINERY_FOLDED)}
     return out
 
 
@@ -154,6 +185,30 @@ _FUZZY_MIN_LEN = 4
 # 0.82 accepts one edit in a 5-letter word and two in a 9-letter one, and
 # rejects «موش»/«هوش» (0.67) even before the length gate.
 _FUZZY_CUTOFF = 0.82
+
+
+def _unknown_forms(forms: set) -> set:
+    """The query words the corpus has never seen — the only ones worth correcting.
+
+    «سلام» and «سلامت» are one letter apart, and «تجهیزات پزشکی و سلامت دیجیتال»
+    is a real facet, so a greeting came back as a list of 16 health companies
+    (measured on a copy of the production content, 2026-08-28). The difference
+    between that and «اصفحان» is not the edit distance, it is that «سلام» is a
+    real word this install already holds and «اصفحان» is not a word at all.
+
+    So: a word the corpus knows is taken at face value. Only a word it has
+    never seen is a candidate for correction. Same source of truth as the
+    unknown-entity guard in app/services/search.py, which is the other place
+    that has to tell a typo from a word.
+    """
+    from app.services import search
+    known = getattr(search, "_corpus_vocab", None) or set()
+    if not known:
+        # Not indexed yet. Correcting nothing is the safe half of the trade:
+        # an exact match still works, and no greeting becomes a list.
+        return set()
+    folded_known = {_fold(t) for t in known}
+    return {f for f in forms if f not in folded_known}
 
 
 def _fuzzy_hit(facet_token: str, forms: set) -> bool:
@@ -193,6 +248,7 @@ def _select_facets(tokens: list, companies: list):
     if not facets:
         return None
     forms = _query_forms(tokens)
+    correctable = _unknown_forms(forms)
     shared = {}
     for toks in facets.values():
         for t in toks:
@@ -201,9 +257,10 @@ def _select_facets(tokens: list, companies: list):
     scored = {}
     for value, toks in facets.items():
         hit = toks & forms
-        # Exact first, fuzzy only for the words it did not already find. An
-        # exact match must never be displaced by an approximate one.
-        hit = hit | {t for t in toks - hit if _fuzzy_hit(t, forms)}
+        # Exact first, fuzzy only for the words it did not already find, and
+        # only FROM query words the corpus does not know. An exact match must
+        # never be displaced by an approximate one.
+        hit = hit | {t for t in toks - hit if _fuzzy_hit(t, correctable)}
         if len(hit) >= 2 or (len(hit) == 1 and shared[next(iter(hit))] == 1):
             scored[value] = len(hit)
     if not scored:

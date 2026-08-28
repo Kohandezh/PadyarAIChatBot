@@ -287,3 +287,66 @@ def test_a_question_that_names_no_field_is_still_not_a_list(client):
     _seed(COMPANIES)
     for q in ("ورودی پول میخواد؟", "تا کی بازه؟", "اینجا چه خبره؟"):
         assert _ask(q) is None, q
+
+
+# ── When the DATA is wrong ───────────────────────────────────────────────
+#
+# Found by replaying the personas against a copy of the production content,
+# 2026-08-28. Two of the organizer's 170 rows have the company's whole
+# DESCRIPTION pasted into the «حوزه فعالیت» column instead of a category. Those
+# became facets, and a paragraph contains «فناوری», «هوش», «سلامت», «برق» and
+# «آموزش», so it matched almost every question: «تا کی بازه؟» came back as a
+# list of one company.
+#
+# Reading the vocabulary from the data means the data can poison it. A category
+# label is SHORT by nature, so a value the length of a paragraph is not one.
+
+PROSE_IN_THE_FIELD_COLUMN = (
+    "شرکت آکادمی روبوآموز در زمینه آموزش برنامه نویسی و هوش مصنوعی به کودکان "
+    "و نوجوانان فعالیت می کند. این مجموعه با ارائه دوره های آموزشی اسکرچ، "
+    "پایتون، هوش مصنوعی و ساخت بازی و پروژه های دیجیتال به کودکان کمک می کند "
+    "تا ضمن یادگیری فناوری، مهارت های حل مسئله و تفکر الگوریتمی خود را تقویت "
+    "کنند. جهت کسب اطلاعات بیشتر به وب سایت شرکت مراجعه کنید."
+)
+
+
+def test_a_paragraph_in_the_field_column_is_not_a_facet(client):
+    _seed(COMPANIES + [("co-bad", "شرکت بدداده",
+                        "معرفی شرکت بدداده.", PROSE_IN_THE_FIELD_COLUMN)])
+    # A plain FAQ question must not become a company list just because one row
+    # has a paragraph where its category should be.
+    assert _ask("تا کی بازه؟") is None
+    assert _ask("برنامه استیج امروز چیه؟") is None
+    # And a real field question must still return the real field, not the row
+    # whose paragraph happens to contain the same words.
+    r = _ask("شرکت های حوزه هوش مصنوعی")
+    assert r is not None and _titles(r) == AI_TITLES, r
+
+
+def test_the_word_sherkat_inside_a_facet_value_is_not_a_topic(client):
+    """«نوع مجموعه» holds values like «صندوق سرمایه‌گذاری خطرپذیر شرکتی». The
+    word «شرکت» is how a visitor asks for companies AT ALL, so counting it as a
+    topic made «دیگه چه شرکت هایی هستند؟» filter down to the three rows whose
+    company_type happens to spell it."""
+    import app.db.connection as dbc
+    _seed(COMPANIES)
+    conn = dbc.get_db_connection()
+    conn.execute("UPDATE company_profiles SET company_type ="
+                 " 'صندوق سرمایه گذاری خطرپذیر شرکتی' WHERE dataset_id = 'co-ava'")
+    conn.commit(); conn.close()
+    r = _ask("دیگه چه شرکت هایی هستند؟")
+    assert r is not None and r["count"] == len(COMPANIES), r
+
+
+def test_a_greeting_is_not_fuzzed_into_a_field(client):
+    """«سلام» and «سلامت» are one letter apart, and «تجهیزات پزشکی و سلامت
+    دیجیتال» is a real facet. Measured against a copy of the production content
+    on 2026-08-28: «سلام» came back as a list of 16 health companies.
+
+    The rule that stops it: only correct a word the corpus does not already
+    know. «سلام» is a real word and a real FAQ title here, so it is taken at
+    face value; «اصفحان» is not a word at all, so it is corrected."""
+    _seed(COMPANIES, extra_dataset=[
+        ("faq-hello", "سلام", "سلام! خوشحالم که اینجا همراه شما هستم.")])
+    assert _ask("سلام") is None
+    assert _ask("سلام من دانشجوی کامپیوترم") is None
