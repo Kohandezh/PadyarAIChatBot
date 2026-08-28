@@ -311,17 +311,19 @@ def test_a_topic_no_company_matches_still_declines_the_tier(client, monkeypatch)
     assert body["options"] == [], body
 
 
-def test_the_all_keywords_subset_rule_is_unchanged(client, monkeypatch):
-    """REGRESSION with one new assertion. The strict subset test — every topic
-    keyword must be present — is what keeps «هوش مصنوعی» from listing every
-    company that merely says «هوش» somewhere. The keywords are now RETURNED so
-    the renderer can print them."""
+def test_the_matched_facet_is_reported_and_narrows_the_list(client, monkeypatch):
+    """REGRESSION, updated for the facet rule (2026-08-28). What keeps «هوش
+    مصنوعی» from listing every company that merely says «هوش» somewhere is no
+    longer an all-tokens subset test over the free text; it is a match against
+    the activity_field values themselves. So `keywords` now carries the FACET
+    that was matched, not the visitor's individual words, and that is what the
+    renderer prints in the headline."""
     _seed()
     from app.services.company_search import answer_company_list
     res = answer_company_list(LIST_QUESTION)
     assert res is not None
     assert res["count"] == 18, res
-    assert set(res["keywords"]) == {"هوش", "مصنوعی"}, res
+    assert set(res["keywords"]) == {"هوش مصنوعی"}, res
     assert len(res["displayed_ids"]) == 5, res
     assert len(res["matched_ids"]) == 18, res
 
