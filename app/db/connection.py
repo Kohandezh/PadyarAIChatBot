@@ -258,10 +258,97 @@ def _create_sqlite_schema(cursor):
     )
     ''')
 
+    _create_conversation_tables(cursor)
+
     try:
         cursor.execute('SELECT salt FROM admins LIMIT 1')
     except sqlite3.OperationalError:
         cursor.execute('ALTER TABLE admins ADD COLUMN salt TEXT')
+
+
+def _create_conversation_tables(cursor):
+    """The SQLite half of migrations/0010_conversations.sql.
+
+    Read that file for WHY these three tables exist, why `chat_logs` stays,
+    why `answers` is one JSON bag, and why `visitor_id` is '' rather than NULL.
+    This is only the type mapping: TIMESTAMPTZ -> TIMESTAMP, JSONB -> TEXT
+    holding the same JSON, NUMERIC/DOUBLE PRECISION -> REAL, IDENTITY ->
+    AUTOINCREMENT.
+
+    No ALTER pass is needed the way `ensure_chat_log_columns()` needs one.
+    That helper exists because CREATE TABLE IF NOT EXISTS does nothing to an
+    EXISTING table, so new COLUMNS never landed. A whole new TABLE does land:
+    an install that has been running for a year gets these three on its next
+    boot.
+
+    `created_at` is TIMESTAMP DEFAULT CURRENT_TIMESTAMP, not an ISO string
+    written by Python, so retention can compare it with
+    `datetime('now','-N days')` exactly as it already does for chat_logs.
+    CURRENT_TIMESTAMP writes 'YYYY-MM-DD HH:MM:SS'; an isoformat() string
+    sorts differently ('T' > ' ') and would silently break that comparison.
+
+    SQLite-only helper: PostgreSQL never runs this, migrations/ owns it there.
+    """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS visitors (
+        id TEXT PRIMARY KEY,
+        first_name TEXT NOT NULL DEFAULT '',
+        last_name TEXT NOT NULL DEFAULT '',
+        phone TEXT NOT NULL DEFAULT '',
+        phone_hash TEXT NOT NULL DEFAULT '',
+        job TEXT NOT NULL DEFAULT '',
+        position TEXT NOT NULL DEFAULT '',
+        interests TEXT NOT NULL DEFAULT '',
+        answers TEXT NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    # Partial, so the many visitors captured without a phone do not all
+    # collide on ''.
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_visitors_phone_hash"
+                   " ON visitors(phone_hash) WHERE phone_hash <> ''")
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_visitors_created'
+                   ' ON visitors(created_at DESC)')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        visitor_id TEXT NOT NULL DEFAULT '',
+        started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_message_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        lang TEXT NOT NULL DEFAULT 'fa',
+        ip TEXT NOT NULL DEFAULT '',
+        user_agent TEXT NOT NULL DEFAULT ''
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_conversations_started'
+                   ' ON conversations(started_at DESC)')
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_conversations_visitor"
+                   " ON conversations(visitor_id) WHERE visitor_id <> ''")
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'visitor',
+        text TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT '',
+        confidence REAL,
+        entry_id TEXT NOT NULL DEFAULT '',
+        video_url TEXT NOT NULL DEFAULT '',
+        tokens INTEGER NOT NULL DEFAULT 0,
+        cost REAL NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_messages_conversation'
+                   ' ON messages(conversation_id, id)')
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_messages_weak"
+                   " ON messages(created_at DESC, confidence)"
+                   " WHERE role = 'assistant'")
 
 
 def _seed_defaults(cursor):
@@ -273,10 +360,6 @@ def _seed_defaults(cursor):
     """
     cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('openai_enabled', 'true'))
     cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('active_theme', 'inotex'))
-    # Hybrid retrieval by default: the local multilingual embedding backend
-    # ranks semantically; TF-IDF stays the automatic safety net when the
-    # model is unavailable (see app/services/search.py).
-    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('search_backend', 'embedding'))
     # The knowledge version travels with health/ready responses and logs so
     # any answer can be traced back to the content release that produced it.
     # Bump it whenever content/sources.json publishes a new verified state.
@@ -315,10 +398,9 @@ def init_db():
     This used to call `sqlite3.connect(DB_PATH)` unconditionally. On a
     PostgreSQL install that quietly created a stray `chat_history.db` and
     seeded THAT — leaving PostgreSQL with no admin row (so nobody could log
-    into the panel at all), an empty knowledge base, and no
-    `search_backend=embedding` setting, which silently demoted retrieval to
-    TF-IDF. Nothing errored: `/api/health` reported "ok" and the seed had
-    simply gone into a different database.
+    into the panel at all) and an empty knowledge base. Nothing errored:
+    `/api/health` reported "ok" and the seed had simply gone into a different
+    database.
 
     The seeding SQL itself is backend-neutral — `?` placeholders and
     `INSERT OR IGNORE`, both of which `app/db/pg.py` translates — so only the
