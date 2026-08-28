@@ -1,10 +1,10 @@
 """The public knowledge base has an explicit display order.
 
-`/api/dataset` is what the visitor-facing chat UI loads its knowledge base
-from, and it used to order by `rowid` — SQLite's implicit insertion counter.
-PostgreSQL has no such column, so once PostgreSQL became the production
-backend the endpoint returned a hard 500 in production while every test here
-stayed green, because the suite pins `DB_BACKEND=sqlite`.
+The visitor-facing chat UI draws its one-click question menu from the head of
+that order, and the endpoint that serves it used to order by `rowid` — SQLite's
+implicit insertion counter. PostgreSQL has no such column, so once PostgreSQL
+became the production backend the endpoint returned a hard 500 in production
+while every test here stayed green, because the suite pins `DB_BACKEND=sqlite`.
 
 Two things therefore need holding down, and the second is the one that would
 go unnoticed:
@@ -14,9 +14,20 @@ go unnoticed:
      "just order by id" fix sorts alphabetically and would quietly float
      `inotex-app` above `inotex-overview` — a silent content regression
      that no error log would ever report.
+
+The public endpoint is now `/api/suggestions`, and it serves only the first
+`SUGGESTION_LIMIT` rows, titles only — `/api/dataset`, which returned every
+row of the customer's knowledge base to anyone who asked, is gone (see
+tests/test_public_data_api.py). So the order is checked in two places that
+must agree: the full sequence is read straight from the database, and the
+endpoint is checked to serve the HEAD of exactly that sequence. Point 1 and
+the alphabetical-fix trap are unchanged — the same `ORDER BY` moved into the
+new endpoint.
 """
 import pytest
 from fastapi.testclient import TestClient
+
+from app.routers.public import SUGGESTION_LIMIT
 
 # The curated reading order, as served before the PostgreSQL migration.
 # Taken from the rowid sequence of the pre-migration SQLite database, which
@@ -50,18 +61,53 @@ def client(tmp_path, monkeypatch):
 
 
 def _ids(client):
-    res = client.get("/api/dataset")
-    assert res.status_code == 200, res.text
-    return [row["id"] for row in res.json()]
+    """The full display order, read from the database.
+
+    Not from the endpoint any more: it serves ten titles, so it cannot show
+    where row 31 landed. The `ORDER BY` here is a copy of the endpoint's, and
+    `test_the_endpoint_serves_the_head_of_the_curated_order` is what stops the
+    copy from drifting away from the original.
+    """
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id FROM dataset"
+            " ORDER BY COALESCE(position, 2147483647), id").fetchall()
+    finally:
+        conn.close()
+    return [row["id"] for row in rows]
 
 
-def test_the_dataset_endpoint_does_not_error(client):
-    """The regression itself: this returned 500 on PostgreSQL."""
-    assert client.get("/api/dataset").status_code == 200
+def _titles_by_id(client):
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT id, title FROM dataset").fetchall()
+    finally:
+        conn.close()
+    return {row["id"]: row["title"] for row in rows}
+
+
+def test_the_suggestions_endpoint_does_not_error(client):
+    """The regression itself: the endpoint this replaced returned 500 on
+    PostgreSQL, and it kept the same `ORDER BY`."""
+    assert client.get("/api/suggestions").status_code == 200
 
 
 def test_a_seeded_install_serves_the_curated_order(client):
     assert _ids(client) == CURATED
+
+
+def test_the_endpoint_serves_the_head_of_the_curated_order(client):
+    """Ties the served chips back to the curated ids. Without this, `_ids`
+    could go on passing against a database order the endpoint no longer
+    follows, and the visitor's menu would silently reshuffle."""
+    res = client.get("/api/suggestions")
+    assert res.status_code == 200, res.text
+    served = [row["title"] for row in res.json()]
+    titles = _titles_by_id(client)
+    assert served == [titles[i] for i in CURATED[:SUGGESTION_LIMIT]]
 
 
 def test_the_order_is_not_alphabetical(client):
@@ -126,3 +172,5 @@ def test_an_unpositioned_row_still_sorts_last_and_does_not_break_the_page(client
     assert "zz-no-position" in ids
     assert ids[-1] == "zz-no-position"
     assert ids[0] == "inotex-overview"
+    # The NULL is what could crash the sort, so the endpoint gets asked too.
+    assert client.get("/api/suggestions").status_code == 200

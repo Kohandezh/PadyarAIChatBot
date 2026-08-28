@@ -92,7 +92,9 @@ class AIConnectionRequest(BaseModel):
     model_stt: str = ""
     feature_tts: bool = True
     feature_stt: bool = True
-    search_backend: str = "tfidf"   # "tfidf" | "embedding" (local semantic)
+    # `search_backend` was removed 2026-08-28 (TF-IDF is gone; there is one
+    # engine). An older admin page may still POST it — Pydantic ignores an
+    # unknown field here, so an out-of-date browser tab keeps working.
     default_lang: str = "fa"        # first-visit chat language: "fa" | "en"
 
 

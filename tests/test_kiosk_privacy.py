@@ -212,11 +212,12 @@ FRESH_TOKEN = "FRESH"
 # Two entries, so the FAQ block the handler shows after a successful reset is
 # a REAL list. With an empty dataset it renders a plain "no questions" message
 # instead and a test could pass for the wrong reason.
-DATASET_STUB = [
-    {"id": "faq-hours", "title": "ساعت کاری", "title_en": "Opening hours",
-     "video_url": ""},
-    {"id": "faq-venue", "title": "محل برگزاری", "title_en": "Venue",
-     "video_url": ""},
+# Titles only: /api/suggestions serves the chip labels and nothing else, so a
+# stub that still carried ids, bodies or video paths would let the page pass a
+# test against data the real server no longer sends.
+SUGGESTIONS_STUB = [
+    {"title": "ساعت کاری", "title_en": "Opening hours"},
+    {"title": "محل برگزاری", "title_en": "Venue"},
 ]
 
 PLAIN_ANSWER = {"type": "text", "text": "پاسخ نخست"}
@@ -333,10 +334,8 @@ async def open_kiosk(browser, tmp_path, monkeypatch):
             if path == "/":
                 return await route.fulfill(status=200,
                                            content_type="text/html", body=html)
-            if path == "/api/dataset":
-                return await send(DATASET_STUB)
-            if path == "/api/questions":
-                return await send([])
+            if path == "/api/suggestions":
+                return await send(SUGGESTIONS_STUB)
             if path == "/api/voice-status":
                 return await send({"voice_enabled": False, "tts_enabled": False})
             if path == "/api/auth/registration-status":

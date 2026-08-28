@@ -211,7 +211,7 @@ def test_the_head_agrees_with_find_best_match_on_an_ordinary_query(client):
 
 # ── It degrades exactly like find_best_match ─────────────────────────────
 
-def test_it_falls_back_to_tfidf_when_the_hybrid_stack_raises(client, monkeypatch):
+def test_it_falls_back_to_bm25_when_the_hybrid_stack_raises(client, monkeypatch):
     """Same soft-fail contract as `find_best_match`: embeddings or the
     reranker failing must cost ranking quality, never the answer. The
     selection tier still gets candidates."""

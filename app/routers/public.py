@@ -162,40 +162,58 @@ async def read_root(request: Request):
 
 
 # --- Public Data API (DB is the single source of truth) ---
-# The chat frontend reads these endpoints for its suggested-question list.
-# Dataset/questions live in the database only — there are no JSON data files.
+#
+# ONE endpoint, and it serves exactly what the visitor's page draws: the labels
+# printed on the suggested-question chips. Nothing else.
+#
+# It replaces /api/dataset and /api/questions, which were unauthenticated and
+# returned every row of the knowledge base — on the INOTEX install, 222 dataset
+# rows of which 168 are exhibitor company records with their full write-ups.
+# That is the customer's commercial content, and anyone who typed the URL could
+# download the lot. The chips only ever printed a title, so the answer bodies,
+# the row ids, the video paths and the whole long tail of rows the chips never
+# showed were handed out for nothing.
+#
+# From the visitor's side nothing changed. Tapping a chip sends its title to
+# /chat, which resolves it against the same knowledge base and returns the
+# answer and its video. The knowledge itself never leaves the server; only the
+# answer to the question that was actually asked does.
+#
+# The full rows stay reachable, behind admin auth, at /admin/api/dataset and
+# /admin/api/questions in app/routers/dataset.py.
 
-# Defined as sync `def` (not `async def`): they run blocking database queries,
-# so FastAPI runs them in a threadpool instead of blocking the event loop —
-# important since the chat frontend hits these frequently.
-@router.get("/api/dataset")
-def api_dataset():
+# How many chips a page may be offered. The chat draws five at a time behind a
+# "show more" button, the liquid-glass menu eight, the companion panel four —
+# ten covers every surface with a page of "more" left over. A constant, not a
+# setting: nobody needs to tune this, and "the whole table" must never be a
+# reachable value again.
+SUGGESTION_LIMIT = 10
+
+
+# Defined as sync `def` (not `async def`): it runs a blocking database query,
+# so FastAPI runs it in a threadpool instead of blocking the event loop —
+# important since every chat page load hits it.
+@router.get("/api/suggestions")
+def api_suggestions():
+    """The suggested-question chips, in the install's curated display order."""
     from app.db.connection import get_db_connection
-    conn = get_db_connection()
-    # Insertion order, not alphabetical: the chat renders the first entries as
-    # its one-click question menu, so the curated order is what users see.
-    rows = conn.execute(
-        # `position`, not `rowid`. rowid is a SQLite pseudo-column and does not
-        # exist in PostgreSQL, so this endpoint — the one the public chat UI
-        # loads its knowledge base from — returned a hard 500 in production.
-        # COALESCE keeps the two backends agreeing on where an unpositioned row
-        # lands: PostgreSQL sorts NULL last on ASC, SQLite sorts it first.
-        # `id` is the tiebreak so the order is total, never arbitrary.
-        'SELECT id, title, text, video_url, title_en, text_en FROM dataset'
-        ' ORDER BY COALESCE(position, 2147483647), id'
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-@router.get("/api/questions")
-def api_questions():
-    from app.db.connection import get_db_connection
-    conn = get_db_connection()
-    rows = conn.execute(
-        'SELECT id, question, dataset_id, video_url FROM questions ORDER BY id'
-    ).fetchall()
-    conn.close()
+    with closing(get_db_connection()) as conn:
+        rows = conn.execute(
+            # Insertion order, not alphabetical: the curated order decides which
+            # entries become the one-click menu, so the head of it is the
+            # install's real FAQ and not whichever company sorts first.
+            #
+            # `position`, not `rowid`. rowid is a SQLite pseudo-column and does
+            # not exist in PostgreSQL, so the endpoint this replaces returned a
+            # hard 500 in production. COALESCE keeps the two backends agreeing
+            # on where an unpositioned row lands: PostgreSQL sorts NULL last on
+            # ASC, SQLite sorts it first. `id` is the tiebreak so the order is
+            # total, never arbitrary.
+            'SELECT title, title_en FROM dataset'
+            ' ORDER BY COALESCE(position, 2147483647), id'
+            ' LIMIT ?',
+            (SUGGESTION_LIMIT,),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 

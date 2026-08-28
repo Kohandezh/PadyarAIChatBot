@@ -170,8 +170,13 @@ def test_known_entity_below_threshold_is_served_locally_without_an_llm(client, m
 
 
 def test_query_naming_two_entities_gets_no_override(client, monkeypatch):
-    """Ambiguity never guesses: two named entities → the normal pipeline
-    (here: the AI tier, since no local tier qualifies)."""
+    """Ambiguity never guesses: two named entities → no local tier may answer.
+
+    The anchor alone was not enough. resolve_named_entity refuses to pick
+    between them, but retrieval still ran and served one of the two at 0.98
+    through the questions index. chat.py now clears the local tiers when
+    named_entity_hits finds more than one, so the query reaches a tier that
+    can ask which company was meant."""
     _mock_ai(monkeypatch)
     r = _ask(client, "دوندگان لبه علم یا دکیو")
     assert r.status_code == 200, r.text
@@ -181,13 +186,15 @@ def test_query_naming_two_entities_gets_no_override(client, monkeypatch):
 
 
 def test_query_with_no_named_entity_conflict_keeps_its_trusted_local_answer(client, monkeypatch):
-    """Regression: the trusted local tier still serves as before — the anchor
-    resolves to the same entry that wins retrieval, so nothing changes."""
+    """Regression: a query naming ONE entity is still answered locally, with
+    no AI call. Which local tier serves it is not the point and is not
+    asserted: the wording here is a curated question verbatim, so Tier 0
+    matches it exactly (Jaccard 1.0) and answers before Tier 1 is reached."""
     _mock_ai(monkeypatch, forbid=True)
     r = _ask(client, "تاریخ برگزاری نمایشگاه")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["source"] == "local", body
+    assert body["source"] in ("local", "local_questions"), body
     assert body["text"] == _text_of("inotex-date")
 
 

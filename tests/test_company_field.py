@@ -383,7 +383,11 @@ def test_the_questions_index_matching_the_company_itself_still_yields_the_field(
     from app.services import search
     q_entry, q_score = search.find_similar_question(query)
     assert q_entry is not None and q_entry["id"] == "co-dekio", q_entry
-    assert TRUSTED_MATCH_THRESHOLD <= q_score < 0.9, q_score
+    # Only the floor is asserted. The upper bound used to be 0.9, which held
+    # because the test ran with the semantic index OFF — a configuration
+    # production never used. What this test is about is WHICH entry the
+    # questions index picks, not how confident it is.
+    assert q_score >= TRUSTED_MATCH_THRESHOLD, q_score
 
     r = _ask(client, query)
     assert r.status_code == 200, r.text
@@ -450,7 +454,11 @@ def test_a_non_field_question_about_the_company_still_gets_the_description(clien
     from app.services import search
     q_entry, q_score = search.find_similar_question(query)
     assert q_entry is not None and q_entry["id"] == "co-dekio", q_entry
-    assert TRUSTED_MATCH_THRESHOLD <= q_score < 0.9, q_score
+    # Only the floor is asserted. The upper bound used to be 0.9, which held
+    # because the test ran with the semantic index OFF — a configuration
+    # production never used. What this test is about is WHICH entry the
+    # questions index picks, not how confident it is.
+    assert q_score >= TRUSTED_MATCH_THRESHOLD, q_score
 
     r = _ask(client, query)
     assert r.status_code == 200, r.text

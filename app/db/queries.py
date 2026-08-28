@@ -171,6 +171,12 @@ def purge_chat_logs() -> int:
     turns to the AI provider, so an operator needs a dial.
 
     Default 0 = keep forever, so no existing install loses data by upgrading.
+
+    The return value stays the number of CHAT_LOGS rows deleted. The durable
+    transcript (`conversations`, `messages`) is pruned here too, on the same
+    setting and in the same cycle, but its counts are logged rather than
+    returned: an existing test and app/main.py's retention loop both read this
+    number as "chat_logs rows removed".
     """
     try:
         days = int(get_setting("chat_log_retention_days", "0") or "0")
@@ -178,6 +184,19 @@ def purge_chat_logs() -> int:
         days = 0
     if days <= 0:
         return 0
+    # One dial, one cycle. Two purges on two schedules drift apart, and the
+    # half that stops running is the half nobody notices. Failures here must
+    # not stop chat_logs from being pruned, hence the separate try.
+    try:
+        from app.services import conversations
+        removed = conversations.purge_expired()
+        if removed["messages"] or removed["conversations"]:
+            logger.info("[retention] transcript purge removed %s messages,"
+                        " %s conversations",
+                        removed["messages"], removed["conversations"])
+    except Exception as e:  # noqa: BLE001 — retention must never break a request
+        logger.error("[retention] transcript purge failed: %s: %s",
+                     type(e).__name__, e)
     try:
         conn = get_db_connection()
         try:

@@ -42,11 +42,12 @@ ORIGIN = "http://padyar.test"
 # Two suggested questions, so `showQuestions()` renders a REAL FAQ block. With
 # an empty list it renders a plain message instead and the test could pass for
 # the wrong reason.
-DATASET_STUB = [
-    {"id": "faq-hours", "title": "ساعت کاری", "title_en": "Opening hours",
-     "video_url": ""},
-    {"id": "faq-venue", "title": "محل برگزاری", "title_en": "Venue",
-     "video_url": ""},
+# Titles only: /api/suggestions serves the chip labels and nothing else, so a
+# stub that still carried ids, bodies or video paths would let the page pass a
+# test against data the real server no longer sends.
+SUGGESTIONS_STUB = [
+    {"title": "ساعت کاری", "title_en": "Opening hours"},
+    {"title": "محل برگزاری", "title_en": "Venue"},
 ]
 
 OPTION_TITLES = ["شرکت آلفا", "شرکت بتا"]
@@ -109,14 +110,10 @@ async def chat_page(browser, tmp_path, monkeypatch):
         if path == "/":
             return await route.fulfill(status=200, content_type="text/html",
                                        body=html)
-        if path == "/api/dataset":
+        if path == "/api/suggestions":
             return await route.fulfill(status=200,
                                        content_type="application/json",
-                                       body=json.dumps(DATASET_STUB))
-        if path == "/api/questions":
-            return await route.fulfill(status=200,
-                                       content_type="application/json",
-                                       body="[]")
+                                       body=json.dumps(SUGGESTIONS_STUB))
         disk = _disk_path(path)
         if disk is not None:
             ctype = mimetypes.guess_type(disk.name)[0] or "application/octet-stream"
