@@ -257,3 +257,66 @@ logger.info(f"Enabled modules: {', '.join(ENABLED_MODULES)}")
 def is_module_enabled(module_name: str) -> bool:
     """Check if a specific module is enabled."""
     return module_enabled(module_name, ENABLED_MODULES)
+
+
+# --- The selection tier and conversation memory (2026-08-28) ---
+# Plain constants, not env flags: every one of them is a product decision an
+# operator should not have to reason about, and the two that a customer really
+# does tune (how many names a list shows, how long chat logs are kept) are
+# settings rows in the admin panel instead.
+
+# How many retrieved records the model is shown before it chooses one.
+# Measured on data/eval/golden-inotex.json (2026-08-28, embedding + rerank):
+# recall@1=0.786, @3=0.857, @5=0.929, @8=0.952, @13=0.952. The curve is flat
+# after 8, so eight records buy the whole ceiling and nothing beyond it.
+ANSWER_TOPK = 8
+
+# Prior turns handed to the model as context. Five covers the follow-ups
+# visitors actually ask ("and the second one?") without turning every question
+# into a transcript upload.
+HISTORY_TURNS = 5
+
+# How far back those turns may be read. This is a PRIVACY bound, not a
+# correlation one, so it is set by what a conversation needs and not by the
+# padyar_conv cookie: app/routers/chat.py re-sets that cookie with a fresh
+# max_age on every answered turn, so at a busy booth it never expires and one
+# conversation_id covers everyone who touches the kiosk that day. Reading 24h
+# of history meant each new visitor's first question shipped the previous
+# visitors' RAW messages (chat_logs is the unredacted store) to the AI
+# provider — including messages a local tier had answered, which had never
+# left the machine at all.
+# Fifteen minutes is one visit: five turns with a video watched between them
+# fits inside it comfortably. It is also the same bound as PICK_WINDOW_MINUTES
+# below, on purpose — the visitor's own words must not outlive the list of
+# public record ids that goes stale for exactly the same reason.
+HISTORY_WINDOW_MINUTES = 15
+
+# Most records ever offered as a numbered choice on one turn. More than five
+# is a wall of text on a booth screen; the pager gives the next five.
+OPTIONS_MAX = 5
+
+# When the top candidate beats the second by this much, retrieval had already
+# decided and a model asking "which one did you mean?" is overridden. Asking
+# about a question we could have answered is the failure a visitor minds most.
+OPTIONS_MARGIN = 0.15
+
+# How long a stored list stays pickable. A booth kiosk is ONE browser shared
+# by many people: a bare "3" typed an hour after somebody else's list must not
+# resolve. Fifteen minutes is short enough to bound that and long enough for a
+# visitor who reads slowly.
+PICK_WINDOW_MINUTES = 15
+
+# Ids kept in one offer for paging. Caps the column so a 169-company match
+# cannot write a kilobyte into every chat_logs row.
+OFFER_IDS_MAX = 50
+
+# Longest lead sentence the model may put above a numbered list. A paragraph
+# there buries the list the visitor actually has to read.
+LEAD_MAX_CHARS = 160
+
+# Per-turn truncation for the history block, and its total budget. The answer
+# side is longer because a list answer is longer than the question that asked
+# for it.
+HISTORY_QUERY_CHARS = 300
+HISTORY_ANSWER_CHARS = 400
+HISTORY_BLOCK_CHARS = 2000

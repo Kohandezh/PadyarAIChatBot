@@ -81,6 +81,9 @@ const I18N = {
         askAi: "از دستیار بپرس",
         noQuestions: "سوالی یافت نشد.",
         questionsTitle: "سوالات پرتکرار:",
+        newChat: "گفتگوی جدید",
+        newChatDone: "گفتگوی تازه شروع شد.",
+        newChatFailed: "الان نشد. لطفاً صفحه را رفرش کنید و دوباره امتحان کنید.",
         showMore: function (n) { return 'نمایش بیشتر (' + n + ' سوال دیگر)'; },
         langLabel: 'EN',       // button shows the language you can switch TO
         langTitle: 'Switch to English',
@@ -109,6 +112,9 @@ const I18N = {
         askAi: "Ask AI",
         noQuestions: "No questions found.",
         questionsTitle: "Frequently asked questions:",
+        newChat: "New chat",
+        newChatDone: "Started a new chat.",
+        newChatFailed: "That didn't work. Please refresh the page and try again.",
         showMore: function (n) { return 'Show more (' + n + ' more)'; },
         langLabel: 'فا',
         langTitle: 'تغییر به فارسی',
@@ -485,6 +491,7 @@ async function sendMessage(fromPreset = false) {
         }
 
         addMessage(data.text, 'bot');
+        renderOptions(data.options);
 
     } catch (error) {
         console.error('Error:', error);
@@ -507,6 +514,60 @@ async function sendPreset(text) {
     userInput.value = text;
     sendMessage(true);
 }
+
+function renderOptions(options) {
+    // The numbered choices the answer just listed, as tappable chips.
+    //
+    // This deliberately reuses the EXACT markup showQuestions builds —
+    // div.message.bot.questions-msg > div.bubble > ul.questions-list >
+    // li[role=button][tabindex=0]. That is not a style preference: .questions-list
+    // li is styled in static/chat/base.css AND in all four themes, and
+    // showQuestions builds its own DOM without going through addMessage, so the
+    // ChatConfig.addMessageFn overrides in inotex, liquid-glass and haj cannot
+    // interfere with it.
+    //
+    // A tap sends the option's title, which the next turn resolves through the
+    // same pick tier a typed number goes through — so no new endpoint, and the
+    // company's booth video plays either way.
+    //
+    // The EXTRA `options-msg` class is what keeps rebuildQuestionsIfVisible()
+    // off this block. Nothing shows the FAQ list on page load, so on a fresh
+    // session these chips are the FIRST .questions-msg in the document: with
+    // one shared class the language switch found them, removed them, and the
+    // visitor lost the five companies they had just been offered.
+    if (!options || !options.length || !chatContent) return;
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message bot questions-msg options-msg';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    const ul = document.createElement('ul');
+    ul.className = 'questions-list';
+    bubble.appendChild(ul);
+
+    options.forEach(function (o) {
+        const li = document.createElement('li');
+        li.textContent = o.n + '. ' + o.title;
+        li.tabIndex = 0;
+        li.setAttribute('role', 'button');
+        li.onclick = function () { sendPreset(o.title); };
+        li.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+        });
+        ul.appendChild(li);
+    });
+
+    msgDiv.appendChild(bubble);
+    // BEFORE the loading bubble, exactly like addMessage. appendChild put the
+    // chips AFTER it, which is the bottom of the transcript forever: a second
+    // question pushed its answer above the first list's chips, so the visitor
+    // read answer 2 and then five still-tappable names belonging to a
+    // question they had already left behind.
+    if (loadingBubble) chatContent.insertBefore(msgDiv, loadingBubble);
+    else chatContent.appendChild(msgDiv);
+    chatContent.scrollTop = chatContent.scrollHeight;
+}
+
 
 async function showQuestions() {
     const list = await getDisplayQuestions();
@@ -587,8 +648,10 @@ async function getDisplayQuestions() {
 }
 
 // Rebuild the questions list inside the last .questions-msg bubble, if present.
+// `:not(.options-msg)` skips the numbered choices renderOptions builds: they
+// are an ANSWER, not the FAQ menu, and rebuilding cannot recreate them.
 async function rebuildQuestionsIfVisible() {
-    const msgBubble = document.querySelector('.questions-msg > .bubble');
+    const msgBubble = document.querySelector('.questions-msg:not(.options-msg) > .bubble');
     if (!msgBubble) return;
     // Easiest correct approach: clear and re-render via showQuestions by
     // removing the old node and re-showing.
@@ -860,6 +923,72 @@ function initChat() {
         });
     }
     if (micBtn) micBtn.addEventListener('click', toggleRecording);
+    // A booth kiosk is ONE browser shared by many people. This button is the
+    // only thing that fully closes that window: it forgets the conversation, so
+    // the next person's "1" cannot land on the previous person's list. Optional
+    // chaining because a theme without the button must be unaffected.
+    document.getElementById('new-chat-btn')?.addEventListener('click', async () => {
+        // The SERVER decides whether the conversation was forgotten, so the
+        // HTTP status has to be read. /api/chat/new-conversation validates the
+        // signed chat token with no grace, and a kiosk page open since 09:00
+        // has an expired token by 10:00 — the normal state at an exhibition,
+        // not an edge case. `fetch` does not reject on 403, so the old
+        // try/catch saw only network errors: the request was refused, the
+        // padyar_conv cookie stayed, and the screen still said the chat was
+        // new. That is this control failing open, silently and invisibly.
+        //
+        // The token is read INSIDE the send fn (fresh from the meta each
+        // attempt) so the post-refresh retry picks up the new value — same
+        // shape as the 403 path in sendMessage(), one silent refresh and ONE
+        // retry, no loops.
+        const doPost = () => {
+            const chatToken = document.querySelector('meta[name="chat-token"]')?.content || '';
+            return fetch('/api/chat/new-conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Chat-Token': chatToken },
+                body: '{}'
+            });
+        };
+        let cleared = false;
+        try {
+            let response = await doPost();
+            if (response.status === 403) {
+                const refreshed = await refreshChatToken();
+                if (refreshed) response = await doPost();
+            }
+            cleared = response.ok;
+        } catch (e) { console.error('new conversation failed:', e); }
+
+        if (!cleared) {
+            // Say so plainly and leave the screen alone. Wiping it here would
+            // look exactly like success while the previous visitor's
+            // conversation is still live on the server.
+            switchTab('text');
+            addMessage(t().newChatFailed, 'bot', true, true);
+            return;
+        }
+
+        // The transcript is stored in TWO places and forgetting either one
+        // hands the next stranger the previous one's words. The cookie is the
+        // server's copy; this is the browser's, and loadHistory() replays it
+        // on the next page load — which at a kiosk is the next visitor.
+        try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch (e) { /* private mode */ }
+
+        if (chatContent) {
+            // NOT every .message. #welcome-message and #loading-bubble are
+            // part of the theme's static markup and carry that same class, and
+            // addMessage() inserts before #loading-bubble — so removing it
+            // made the very next addMessage() throw NotFoundError and the chat
+            // was dead until someone reloaded the page. The reset button
+            // bricked the thing it was there to reset.
+            chatContent
+                .querySelectorAll('.message:not(#welcome-message):not(#loading-bubble)')
+                .forEach(m => m.remove());
+        }
+        switchTab('text');
+        addMessage(t().newChatDone, 'bot');
+        showQuestions();
+    });
     if (langBtn) langBtn.addEventListener('click', () => {
         setLang(currentLang === 'fa' ? 'en' : 'fa');
     });

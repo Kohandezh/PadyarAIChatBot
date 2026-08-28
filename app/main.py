@@ -23,10 +23,18 @@ async def _retention_loop():
     silently stop retention forever.
     """
     from app.services import applog
+    from app.db import queries
     while True:
         try:
             await asyncio.sleep(6 * 3600)
             applog.purge_expired()
+            # chat_logs is the UNREDACTED store — log_chat writes the raw
+            # visitor query with no content policy applied — and until the
+            # selection tier shipped nothing pruned it. Now that up to five
+            # stored turns travel to the AI provider, an operator needs the
+            # same dial applog has always had. Default 0 = keep forever, so no
+            # existing install loses data by upgrading.
+            queries.purge_chat_logs()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001

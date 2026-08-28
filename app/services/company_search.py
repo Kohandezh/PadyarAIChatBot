@@ -47,8 +47,6 @@ _MACHINERY = _ATTACHED_PLURALS | _PLURAL_SUFFIXES | _LIST_TRIGGERS | {
     "استان", "شهر",
 }
 
-# Answer-length cap: a wall of 169 names is not an answer a visitor can use.
-_MAX_NAMES = 15
 
 
 def _wants_company_list(tokens: list) -> bool:
@@ -77,46 +75,16 @@ def _load_companies() -> list:
     conn = get_db_connection()
     try:
         rows = conn.execute(
-            "SELECT d.id, d.title, d.title_en, d.text,"
+            # video_url comes along because a listed company is a PICKABLE
+            # company: the chip the visitor taps carries its booth clip, and a
+            # title and its clip must never be looked up separately.
+            "SELECT d.id, d.title, d.title_en, d.text, d.video_url,"
             " p.activity_field, p.province, p.company_type"
             " FROM dataset d JOIN company_profiles p ON p.dataset_id = d.id"
         ).fetchall()
     finally:
         conn.close()
     return [dict(r) for r in rows]
-
-
-def _render(matched: list, keywords: set, lang: str) -> str:
-    """Count + bulleted names + one invitation line. Short lines, no jargon,
-    no markdown headers — a first-time visitor must read it in one glance."""
-    names = []
-    for c in matched[:_MAX_NAMES]:
-        if lang == "en":
-            name = (c.get("title_en") or "").strip() or (c.get("title") or "")
-        else:
-            name = c.get("title") or ""
-        names.append(f"• {name.strip()}")
-    extra = len(matched) - _MAX_NAMES
-
-    if lang == "en":
-        if keywords:
-            head = f"{len(matched)} companies work in this field:"
-        else:
-            head = f"{len(matched)} companies are at the exhibition:"
-        lines = [head, *names]
-        if extra > 0:
-            lines.append(f"... and {extra} more companies.")
-        lines.append("Ask about any company by name to learn more about it.")
-    else:
-        if keywords:
-            head = f"{len(matched)} شرکت در این زمینه در نمایشگاه حضور دارند:"
-        else:
-            head = f"{len(matched)} شرکت در نمایشگاه حضور دارند:"
-        lines = [head, *names]
-        if extra > 0:
-            lines.append(f"و {extra} شرکت دیگر")
-        lines.append("برای آشنایی بیشتر، نام هر شرکت را بپرسید.")
-    return "\n".join(lines)
 
 
 def answer_company_list(query: str, lang: str = "fa"):
@@ -170,10 +138,37 @@ def answer_company_list(query: str, lang: str = "fa"):
 
     # No keywords left («چه شرکت‌هایی در نمایشگاه هستند؟») → all companies.
     matched.sort(key=lambda c: c.get("title") or "")
+
+    # The RENDERING is delegated, the SELECTION above is not. answer.render_options
+    # is the single writer of the displayed slice and the single producer of
+    # offer_state, so the numbered list a visitor reads and the ids stored for
+    # their next turn come from the same place and cannot disagree.
+    #
+    # The filter words are printed in the headline on purpose: «۶۹ شرکت در این
+    # زمینه» hides WHICH zemine, so a wrong SET looked confidently right.
+    from app.services.answer import render_options
+    # Printed in the visitor's own word order, not sorted: «هوش مصنوعی» reads
+    # as a field name, «مصنوعی هوش» reads as a bug.
+    ordered = [t for t in dict.fromkeys(tokens) if t in keywords]
+    filter_label = " ".join(ordered)
+    # The query travels into offer_state so «بیشتر» can rebuild this same
+    # matched set on the next turn. offer_state caps its ids, and with 70 AI
+    # companies that cap made page 2 report «۵۰ شرکت» and left 51..70
+    # unreachable (measured 2026-08-28).
+    text, options, offer_state = render_options(
+        matched, "", lang, start_index=1, total=len(matched),
+        filter_label=filter_label, source_query=query or "")
     return {
-        "text": _render(matched, keywords, lang),
+        "text": text,
         "count": len(matched),
         "matched_ids": [c["id"] for c in matched],
+        "displayed_ids": [o["id"] for o in options],
+        "options": options,
+        "offer_state": offer_state,
+        "keywords": sorted(keywords),
+        # The filter words in the visitor's own order — the headline reads as
+        # a field name, and the pager needs the same string on every page.
+        "filter_label": filter_label,
     }
 
 
@@ -296,7 +291,10 @@ def answer_company_field(query: str, entry: dict, lang: str = "fa"):
                 lines.append(f"شماره تماس: {phone}")
             if website:
                 lines.append(f"وب‌سایت: {website}")
-        return {"text": "\n".join(lines), "field": "withheld"}
+        # `label`/`value` alongside the prose: the answer is DATA the caller may
+        # need (a log row, a future chip), not only a sentence.
+        return {"text": "\n".join(lines), "field": "withheld",
+                "label": "", "value": phone or website or ""}
 
     # English address when we have one and the visitor is reading English.
     if field == "address" and lang == "en" and profile.get("address_en"):
@@ -308,6 +306,9 @@ def answer_company_field(query: str, entry: dict, lang: str = "fa"):
         return None
 
     if lang == "en":
-        return {"text": f"{_FIELD_LABELS_EN[field]} for {title}: {value}",
-                "field": field}
-    return {"text": f"{_FIELD_LABELS_FA[field]} {title}: {value}", "field": field}
+        label = _FIELD_LABELS_EN[field]
+        return {"text": f"{label} for {title}: {value}", "field": field,
+                "label": label, "value": value}
+    label = _FIELD_LABELS_FA[field]
+    return {"text": f"{label} {title}: {value}", "field": field,
+            "label": label, "value": value}

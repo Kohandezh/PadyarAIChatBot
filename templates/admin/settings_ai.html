@@ -64,6 +64,47 @@
                             </div>
                         </div>
 
+                        <div class="col-md-6">
+                            <label class="form-label">موضوع دستیار (فارسی)</label>
+                            <input type="text" id="assistant-domain" class="form-control" dir="rtl" placeholder="مثلا: نمایشگاه اینوتکس">
+                            <small class="text-muted">دستیار فقط درباره همین موضوع پاسخ می‌دهد.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">موضوع دستیار (انگلیسی)</label>
+                            <input type="text" id="assistant-domain-en" class="form-control" dir="ltr" placeholder="e.g. the INOTEX exhibition">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">جمله رد سوال خارج از موضوع (فارسی)</label>
+                            <input type="text" id="refusal-fa" class="form-control" dir="rtl" placeholder="مثلا: من فقط درباره این رویداد پاسخ می‌دهم.">
+                            <small class="text-muted">برای تغییر این جمله باید رمز مدیر را وارد کنید.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">جمله رد سوال خارج از موضوع (انگلیسی)</label>
+                            <input type="text" id="refusal-en" class="form-control" dir="ltr" placeholder="e.g. I only answer about this event.">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">اسم چیزهای فهرست (فارسی)</label>
+                            <input type="text" id="collection-noun-fa" class="form-control" dir="rtl" placeholder="مثلا: شرکت">
+                            <small class="text-muted">در فهرست‌ها به کار می‌رود: «۶۹ شرکت در زمینه …».</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">اسم چیزهای فهرست (انگلیسی)</label>
+                            <input type="text" id="collection-noun-en" class="form-control" dir="ltr" placeholder="e.g. companies">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">تعداد گزینه در هر فهرست</label>
+                            <input type="number" id="options-shown" class="form-control" dir="ltr" min="1" max="15">
+                            <small class="text-muted">بازدیدکننده این تعداد اسم شماره‌دار می‌بیند و بقیه را با «بیشتر» می‌گیرد.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">نگهداری تاریخچه گفتگو (روز)</label>
+                            <input type="number" id="chat-log-retention" class="form-control" dir="ltr" min="0">
+                            <small class="text-muted">۰ یعنی همیشه نگه‌دار. متن کامل سوال بازدیدکننده اینجا ذخیره می‌شود.</small>
+                        </div>
+
                         <div class="col-12">
                             <label class="form-label">دانش و اطلاعات تخصصی</label>
                             <textarea id="assistant-knowledge" class="form-control" dir="rtl" rows="12" placeholder="آدرس، ساعت کاری، خدمات، و هر دانش تخصصی که دستیار باید بداند..."></textarea>

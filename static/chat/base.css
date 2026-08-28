@@ -446,3 +446,26 @@ button:disabled {
         width: 108px;
     }
 }
+
+/* New chat — the shared-kiosk escape hatch.
+   Styled here, in the file every theme loads, instead of four times in four
+   theme stylesheets: it is a plain text label, it must be readable in all of
+   them, and currentColor makes it take each theme's own header colour. */
+#new-chat-btn {
+    background: transparent;
+    color: currentColor;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font: inherit;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    cursor: pointer;
+    opacity: 0.85;
+    white-space: nowrap;
+}
+
+#new-chat-btn:hover,
+#new-chat-btn:focus-visible {
+    opacity: 1;
+}

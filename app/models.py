@@ -23,12 +23,28 @@ class ChatRequest(BaseModel):
     visitor: Optional[VisitorProfile] = None
 
 
+class ChatOption(BaseModel):
+    """One tappable choice in a numbered list.
+
+    `video_url` rides along even though the frontend does not need it today —
+    a chip tap round-trips through /chat and the pick tier attaches the clip —
+    so a title and its booth video can never drift apart.
+    """
+    n: int
+    id: str
+    title: str
+    video_url: Optional[str] = None
+
+
 class ChatResponse(BaseModel):
     type: str
     text: str
     video_url: Optional[str] = None
     confidence: float
     source: str
+    # Additive: defaults to an empty list, so every answer the chatbot gives
+    # today keeps its exact shape.
+    options: list[ChatOption] = []
 
 
 class LoginRequest(BaseModel):
@@ -105,6 +121,17 @@ class AssistantContentRequest(BaseModel):
     tone: str
     medical_safety: str
     password: Optional[str] = None  # required only when medical_safety changes
+    # The keys that make a deployment in a different category a DATA job.
+    # Optional so an older admin page (or a scripted POST written before these
+    # existed) keeps working and simply leaves them unchanged.
+    domain: Optional[str] = None          # what this assistant is about, fa
+    domain_en: Optional[str] = None       # ... and en
+    refusal_fa: Optional[str] = None      # what it says when a question is not
+    refusal_en: Optional[str] = None
+    collection_noun_fa: Optional[str] = None   # «شرکت» / "companies" in lists
+    collection_noun_en: Optional[str] = None
+    options_shown: Optional[int] = None        # names per numbered list (1..15)
+    chat_log_retention_days: Optional[int] = None  # 0 = keep forever
 
 
 class WhitelabelBrandingRequest(BaseModel):

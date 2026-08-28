@@ -168,6 +168,7 @@ async function loadProviders() {
         <td dir="ltr" class="small text-muted">${escapeHtml(p.last_success_at || '—')}</td>
         <td class="text-end text-nowrap">
           <button class="btn btn-sm btn-outline-primary" data-act="test" data-id="${escapeHtml(p.id)}">آزمون</button>
+          <button class="btn btn-sm btn-outline-primary" data-act="test-json" data-id="${escapeHtml(p.id)}" title="آزمون پاسخ JSON">آزمون JSON</button>
           <button class="btn btn-sm btn-outline-secondary" data-act="edit" data-id="${escapeHtml(p.id)}">ویرایش</button>
           <button class="btn btn-sm ${p.enabled ? 'btn-outline-warning' : 'btn-outline-success'}" data-act="toggle" data-id="${escapeHtml(p.id)}" data-enabled="${p.enabled}">${p.enabled ? 'غیرفعال' : 'فعال'}</button>
           <button class="btn btn-sm btn-outline-info" data-act="circuit" data-id="${escapeHtml(p.id)}" title="بازنشانی مدار">مدار</button>
@@ -191,6 +192,19 @@ async function handleAction(act, id, enabled) {
         document.getElementById('test-detail').textContent = `${data.detail || ''} (${data.latency_ms || 0}ms)`;
         new bootstrap.Modal('#test-modal').show();
         loadProviders();
+    } else if (act === 'test-json') {
+        // Does this provider actually return JSON when it is asked to?
+        // It can fail SILENTLY: some routes drop the request field, the model
+        // answers in prose with HTTP 200, and multi-choice answers are then
+        // permanently off on this install with no error anywhere. This button
+        // sends one real (paid) request so that failure becomes visible.
+        const res = await fetchAuth(`/admin/api/ai/providers/${enc}/test-json`, { method: 'POST', body: '{}' });
+        const data = await res.json();
+        document.getElementById('test-result').innerHTML = data.parsed
+            ? '<span class="badge bg-success-lt p-2">پاسخ JSON درست است</span>'
+            : '<span class="badge bg-danger-lt p-2">این سرویس‌دهنده پاسخ JSON نمی‌دهد. پاسخ‌های چندگزینه‌ای روی این مسیر کار نمی‌کنند.</span>';
+        document.getElementById('test-detail').textContent = `${data.detail || ''} (${data.latency_ms || 0}ms)`;
+        new bootstrap.Modal('#test-modal').show();
     } else if (act === 'edit') {
         const res = await fetchAuth(`/admin/api/ai/providers/${enc}`);
         if (res.ok) openEdit((await res.json()).provider);

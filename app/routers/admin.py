@@ -239,6 +239,20 @@ async def get_stats():
         ORDER BY date_label ASC
     '''
     daily_rows = conn.execute(daily_query).fetchall()
+
+    # Which tier answered, over the last day. Until this existed the endpoint
+    # reported only totals, so "read the ai_options rows on day one" meant
+    # opening a psql shell during an exhibition — and today's tier
+    # distribution was invisible too. A bot that asks "which one?" about
+    # questions it could have answered now shows up as a number an operator
+    # can watch during the first hour of an opening.
+    source_rows = conn.execute('''
+        SELECT source, COUNT(*) as answer_count
+        FROM chat_logs
+        WHERE created_at >= datetime('now', '-24 hours')
+        GROUP BY source
+        ORDER BY answer_count DESC
+    ''').fetchall()
     conn.close()
 
     daily_stats = []
@@ -249,11 +263,15 @@ async def get_stats():
             "cost": row['total_cost'] or 0.0
         })
 
+    by_source = [{"source": row['source'] or "", "count": row['answer_count']}
+                 for row in source_rows]
+
     return {
         "total_tokens": total_tokens,
         "total_cost": total_cost,
         "total_messages": total_messages,
-        "daily_stats": daily_stats
+        "daily_stats": daily_stats,
+        "by_source": by_source
     }
 
 
@@ -553,6 +571,7 @@ async def get_assistant_content():
         DEFAULT_PERSONALITY, DEFAULT_MEDICAL_SAFETY, DEFAULT_TONE,
         TONE_PRESETS, MEDICAL_PRESETS,
     )
+    from app.services import scope
     return {
         "name": get_setting("assistant_name", DEFAULT_ASSISTANT_NAME),
         "org": get_setting("assistant_org", DEFAULT_ASSISTANT_ORG),
@@ -564,6 +583,17 @@ async def get_assistant_content():
         "tone": get_setting("assistant_tone", DEFAULT_TONE),
         "tone_presets": [{"key": k, "label": v["label"]} for k, v in TONE_PRESETS.items()],
         "medical_presets": MEDICAL_PRESETS,
+        # The keys a new customer in a different category changes instead of
+        # editing Python. Defaults come from app/services/scope.py, so an
+        # install that never touched them keeps today's exact wording.
+        "domain": scope.domain("fa"),
+        "domain_en": scope.domain("en"),
+        "refusal_fa": scope.refusal_text("fa"),
+        "refusal_en": scope.refusal_text("en"),
+        "collection_noun_fa": get_setting("collection_noun_fa", "شرکت"),
+        "collection_noun_en": get_setting("collection_noun_en", "companies"),
+        "options_shown": int(get_setting("options_shown", "5") or 5),
+        "chat_log_retention_days": int(get_setting("chat_log_retention_days", "0") or 0),
     }
 
 
@@ -578,11 +608,19 @@ async def save_assistant_content(req: AssistantContentRequest, username: str = D
     # Changing the medical-safety rules is sensitive (it can weaken safety), so
     # it requires re-entering the admin password. Only gated when it changes —
     # editing the name/tone/etc. needs no extra confirmation.
+    # The refusal wording rides the SAME gate: it is the out-of-scope safety
+    # sentence the bot says when a question is not ours, and weakening it is
+    # exactly as sensitive as weakening the red lines above it.
+    from app.services import scope
     new_medical = req.medical_safety.strip()
     current_medical = get_setting("assistant_medical_safety", DEFAULT_MEDICAL_SAFETY)
-    if new_medical != current_medical:
+    refusal_changed = (
+        (req.refusal_fa is not None and req.refusal_fa.strip() != scope.refusal_text("fa"))
+        or (req.refusal_en is not None and req.refusal_en.strip() != scope.refusal_text("en"))
+    )
+    if new_medical != current_medical or refusal_changed:
         if not req.password:
-            raise HTTPException(status_code=403, detail="برای تغییر «خط‌قرمزها و محدودیت‌ها» باید رمز عبور مدیر را وارد کنید.")
+            raise HTTPException(status_code=403, detail="برای تغییر «خط‌قرمزها و محدودیت‌ها» یا «جملهٔ رد سوال خارج از موضوع» باید رمز عبور مدیر را وارد کنید.")
         conn = get_db_connection()
         user = conn.execute('SELECT password_hash, salt FROM admins WHERE username = ?', (username,)).fetchone()
         conn.close()
@@ -601,6 +639,24 @@ async def save_assistant_content(req: AssistantContentRequest, username: str = D
     set_setting("assistant_personality", req.personality.strip())
     set_setting("assistant_medical_safety", req.medical_safety.strip())
     set_setting("assistant_tone", tone)
+
+    # Only written when the form actually sent them, so an older admin page
+    # cannot blank a value it does not know about.
+    for field, key in (("domain", "assistant_domain"),
+                       ("domain_en", "assistant_domain_en"),
+                       ("refusal_fa", "refusal_text_fa"),
+                       ("refusal_en", "refusal_text_en"),
+                       ("collection_noun_fa", "collection_noun_fa"),
+                       ("collection_noun_en", "collection_noun_en")):
+        value = getattr(req, field)
+        if value is not None:
+            set_setting(key, value.strip())
+    if req.options_shown is not None:
+        # Clamped, not validated-and-rejected: a typo must make the list a
+        # sensible length, never break the tier for every visitor.
+        set_setting("options_shown", max(1, min(15, int(req.options_shown))))
+    if req.chat_log_retention_days is not None:
+        set_setting("chat_log_retention_days", max(0, int(req.chat_log_retention_days)))
     return {"status": "updated"}
 
 

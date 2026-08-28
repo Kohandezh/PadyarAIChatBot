@@ -133,3 +133,87 @@ async def test_instance(instance_id: str, actor: str = "") -> dict:
                            "detail": result["detail"][:300],
                            "latency_ms": result["latency_ms"]})
     return result
+
+
+async def test_json_mode(instance_id: str, actor: str = "") -> dict:
+    """Ask this provider for one tiny JSON object, and report whether it obeyed.
+
+    WHY THIS EXISTS. JSON mode can be silently dead on a live install. The
+    sakoo adapter reports `supports_json_object() == False`, so the field is
+    dropped from the request body; the Anthropic adapter never reads
+    `req.response_format` at all while inheriting base.py's `return True`. On
+    either route the model answers in PROSE with HTTP 200, the selection tier
+    discards every reply, and the chatbot quietly behaves exactly as it did
+    before the feature shipped — no error, no log line, nobody knows.
+
+    This probe is the difference between "the feature is off" and "nobody knows
+    it is off", so it is a deliberate operator action with a red banner behind
+    it in Admin -> AI.
+
+    Kept SEPARATE from `test_instance` on purpose: that one is documented as
+    never sending paid inference, and this one does send exactly one request.
+    """
+    from app.services import applog
+    from .request import AIRequest, AIMessage, RESPONSE_JSON_OBJECT
+    from . import errors as ai_errors
+    import json as _json
+    import time as _time
+
+    def _fail(detail: str) -> dict:
+        return {"ok": False, "parsed": False, "detail": detail, "latency_ms": 0}
+
+    inst = store.get_instance(instance_id)
+    rt = store.runtime_for(instance_id) if inst else None
+    if not inst or rt is None:
+        return _fail("not found")
+
+    # Whatever model this instance actually serves chat with — probing a model
+    # the routes never use would answer a question nobody asked.
+    model_id = next((t["model_id"] for t in store.list_routes()["targets"]
+                     if t["provider_instance_id"] == instance_id and t["task"] == "chat"),
+                    "")
+    if not model_id:
+        models = store.list_models(instance_id)
+        model_id = models[0]["model_id"] if models else ""
+    if not model_id:
+        return _fail("no model configured")
+
+    req = AIRequest(
+        task="chat",
+        messages=[AIMessage(role="user", content='Reply with {"ok": true}')],
+        system_prompt="Answer with exactly one JSON object and nothing else.",
+        max_output_tokens=64,
+        temperature=0.0,
+        response_format=RESPONSE_JSON_OBJECT,
+        timeout_s=30.0,
+    )
+
+    started = _time.perf_counter()
+    parsed, ok, detail = False, False, ""
+    try:
+        resp = await adapter_for(inst["provider_type"]).invoke(rt, model_id, req)
+        ok = True
+        content = (resp.content or "").strip()
+        try:
+            parsed = isinstance(_json.loads(content), dict)
+        except Exception:  # noqa: BLE001 — prose is the whole point of the probe
+            parsed = False
+        detail = content[:200] if not parsed else "ok"
+    except ai_errors.AIError as e:
+        detail = f"{e.code}: {e.redacted_detail()}"
+    except Exception as e:  # noqa: BLE001 — this runs from an admin page
+        detail = f"{type(e).__name__}"
+    latency_ms = int((_time.perf_counter() - started) * 1000)
+
+    # Scrubbed HERE as well as centrally: `detail` reaches an admin page, and
+    # providers have been observed echoing the Authorization header back inside
+    # an error body.
+    detail = applog.scrub_text(detail)[:300]
+    applog.audit("admin.ai_provider.json_mode_tested",
+                 "آزمون پاسخ JSON سرویس‌دهنده",
+                 actor=actor or "admin", target=instance_id,
+                 outcome="ok" if parsed else "failed",
+                 metadata={"model": model_id, "parsed": parsed,
+                           "detail": detail, "latency_ms": latency_ms})
+    return {"ok": ok, "parsed": parsed, "detail": detail,
+            "latency_ms": latency_ms}

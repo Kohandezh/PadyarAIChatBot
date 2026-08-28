@@ -91,6 +91,43 @@ def _rebuild_synonyms_pk(cursor) -> None:
     logger.info("[db] synonyms rebuilt with PRIMARY KEY (source, target)")
 
 
+def ensure_chat_log_columns(cursor) -> None:
+    """Add the conversation-memory columns to an older `chat_logs` table.
+
+    The SQLite mirror of migrations/0009_conversation_memory.sql. Installs
+    created before conversation memory have only the eight original columns,
+    and `CREATE TABLE IF NOT EXISTS` does nothing on an existing table — so
+    without this the readers would find no columns, degrade to their empty
+    default, and the whole pick tier would be quietly off on every install
+    that has been running for more than a day.
+
+    Empty is a valid state for all three: a row logged before this ran simply
+    belongs to no conversation. Safe to run on every boot.
+
+    SQLite-only helper: the caller passes a `sqlite3` cursor.
+    """
+    for column in ("conversation_id", "entry_id", "offer_state"):
+        try:
+            cursor.execute(
+                f"ALTER TABLE chat_logs ADD COLUMN {column} TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already present
+    # Same two indexes as the migration: the readers filter on
+    # conversation_id and take the newest row by id.
+    for name, ddl in (
+        ("ix_chat_logs_conversation",
+         "CREATE INDEX IF NOT EXISTS ix_chat_logs_conversation"
+         " ON chat_logs(conversation_id, id DESC)"),
+        ("ix_chat_logs_offer",
+         "CREATE INDEX IF NOT EXISTS ix_chat_logs_offer"
+         " ON chat_logs(conversation_id, id DESC) WHERE offer_state <> ''"),
+    ):
+        try:
+            cursor.execute(ddl)
+        except sqlite3.OperationalError:
+            logger.debug(f"[db] index {name} not created")
+
+
 def _create_sqlite_schema(cursor):
     """Create and migrate the SQLite schema.
 
@@ -108,9 +145,19 @@ def _create_sqlite_schema(cursor):
         confidence REAL,
         tokens INTEGER DEFAULT 0,
         cost REAL DEFAULT 0.0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        conversation_id TEXT DEFAULT '',
+        entry_id TEXT DEFAULT '',
+        offer_state TEXT DEFAULT ''
     )
     ''')
+
+    # CREATE TABLE IF NOT EXISTS never reaches an EXISTING chat_history.db, so
+    # the three columns above land only on a brand-new database. Without the
+    # ALTER pass below, conversation memory would be silently dead on every dev
+    # box and every SQLite install that already had a chat_logs table, while
+    # the tests (which always start from a fresh file) passed.
+    ensure_chat_log_columns(cursor)
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS settings (

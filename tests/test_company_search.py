@@ -192,16 +192,51 @@ def test_without_a_company_profiles_table_the_list_query_still_answers(client, m
     assert body["source"] != "local_company_search", body
 
 
-def test_a_long_list_is_capped_at_fifteen_names_and_mentions_the_rest(client, monkeypatch):
-    many = [(f"co-{n}", f"شرکت نمونه {n}",
-             f"معرفی شرکت نمونه {n}: فعال در هوش مصنوعی.", "هوش مصنوعی")
-            for n in range(1, 19)]
-    _seed(many, extra_dataset=[("faq-20", "سوال خارج از موضوع", REFUSAL_TEXT)])
+def _numbered_lines(text):
+    """The "N. name" lines only — the count headline also starts with a digit."""
+    import re
+    return [ln for ln in text.splitlines() if re.match(r"^\d+\.\s", ln)]
+
+
+_MANY = [(f"co-{n}", f"شرکت نمونه {n}",
+          f"معرفی شرکت نمونه {n}: فعال در هوش مصنوعی.", "هوش مصنوعی")
+         for n in range(1, 19)]
+
+
+def test_a_long_list_shows_five_numbered_names_and_mentions_the_rest(client, monkeypatch):
+    """PRODUCT DECISION (the owner, 2026-08-28): "the bot always retrieves the
+    FIRST option. Instead it should give several options as a numbered list and
+    then ask which one the visitor wants to know more about."
+
+    This tier used to print up to FIFTEEN bullet points and say "ask about any
+    company by name" — a wall of text a visitor at a booth, on a touch screen,
+    with no keyboard, cannot act on. It now prints `options_shown` NUMBERED
+    names (default five) and ends with a question, and the numbers are
+    pickable on the next turn. The SELECTION above the renderer is unchanged;
+    only the rendering moved.
+    """
+    _seed(_MANY, extra_dataset=[("faq-20", "سوال خارج از موضوع", REFUSAL_TEXT)])
     _mock_ai(monkeypatch, forbid=True)
     r = _ask(client, "شرکت‌های هوش مصنوعی را معرفی کن")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] == "local_company_search", body
-    assert body["text"].count("•") == 15, body["text"]
-    assert "و 3 شرکت دیگر" in body["text"], body["text"]
+    assert "•" not in body["text"], body["text"]
+    numbered = _numbered_lines(body["text"])
+    assert len(numbered) == 5, body["text"]
+    assert "و 13 شرکت دیگر" in body["text"], body["text"]
     assert "18 شرکت" in body["text"], body["text"]
+
+
+def test_setting_options_shown_to_fifteen_restores_the_old_answer_length(client, monkeypatch):
+    """THE KILL SWITCH. The rendering change ships whether or not a provider is
+    configured, so an operator needs a way back that is not a deploy. Fifteen
+    was the cap this tier shipped with on 2026-08-27."""
+    _seed(_MANY, extra_dataset=[("faq-20", "سوال خارج از موضوع", REFUSAL_TEXT)])
+    from app.db.queries import set_setting
+    set_setting("options_shown", "15")
+    _mock_ai(monkeypatch, forbid=True)
+    body = _ask(client, "شرکت‌های هوش مصنوعی را معرفی کن").json()
+    numbered = _numbered_lines(body["text"])
+    assert len(numbered) == 15, body["text"]
+    assert "و 3 شرکت دیگر" in body["text"], body["text"]

@@ -209,6 +209,7 @@ export function initBackup() {
 let selectedTone = 'professional';
 let medicalPresets = [];
 let originalMedical = '';      // last-saved medical text, to detect changes
+let originalRefusal = '';
 let medicalModal = null;
 let pendingBody = null;        // form data awaiting password confirmation
 
@@ -234,6 +235,16 @@ function renderMedicalPresets(presets) {
     ).join('');
 }
 
+function setIfPresent(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = (value === null || value === undefined) ? '' : value;
+}
+
+function valueOf(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : null;
+}
+
 async function loadAssistant() {
     try {
         const res = await fetchAuth('/admin/api/assistant');
@@ -246,7 +257,19 @@ async function loadAssistant() {
         document.getElementById('assistant-personality').value = d.personality || '';
         document.getElementById('assistant-medical').value = d.medical_safety || '';
         document.getElementById('assistant-knowledge').value = d.knowledge || '';
+        // The keys that make a new deployment in a different category a data
+        // job instead of a Python edit. Guarded, so an older cached page that
+        // lacks the inputs still loads the rest of the form.
+        setIfPresent('assistant-domain', d.domain);
+        setIfPresent('assistant-domain-en', d.domain_en);
+        setIfPresent('refusal-fa', d.refusal_fa);
+        setIfPresent('refusal-en', d.refusal_en);
+        setIfPresent('collection-noun-fa', d.collection_noun_fa);
+        setIfPresent('collection-noun-en', d.collection_noun_en);
+        setIfPresent('options-shown', d.options_shown);
+        setIfPresent('chat-log-retention', d.chat_log_retention_days);
         originalMedical = (d.medical_safety || '').trim();
+        originalRefusal = [(d.refusal_fa || '').trim(), (d.refusal_en || '').trim()].join('\u0000');
         renderTone(d.tone_presets, d.tone || 'professional');
         renderMedicalPresets(d.medical_presets);
     } catch { /* page still usable */ }
@@ -262,7 +285,22 @@ function collectAssistant() {
         medical_safety: document.getElementById('assistant-medical').value.trim(),
         tone: selectedTone,
         knowledge: document.getElementById('assistant-knowledge').value.trim(),
+        domain: valueOf('assistant-domain'),
+        domain_en: valueOf('assistant-domain-en'),
+        refusal_fa: valueOf('refusal-fa'),
+        refusal_en: valueOf('refusal-en'),
+        collection_noun_fa: valueOf('collection-noun-fa'),
+        collection_noun_en: valueOf('collection-noun-en'),
+        options_shown: numberOf('options-shown'),
+        chat_log_retention_days: numberOf('chat-log-retention'),
     };
+}
+
+function numberOf(id) {
+    const raw = valueOf(id);
+    if (raw === null || raw === '') return null;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? null : n;
 }
 
 async function postAssistant(body) {
@@ -386,8 +424,11 @@ export function initAi() {
             showMsg('assistant-msg', 'نام دستیار و نام سازمان الزامی است', 'danger');
             return;
         }
-        // Changing the medical-safety rules requires admin password confirmation.
-        if (body.medical_safety !== originalMedical) {
+        // Changing the red lines OR the out-of-scope refusal sentence requires
+        // the admin password: both are safety wording, and the server enforces
+        // the same rule.
+        const refusalNow = [(body.refusal_fa || ''), (body.refusal_en || '')].join('\u0000');
+        if (body.medical_safety !== originalMedical || refusalNow !== originalRefusal) {
             pendingBody = body;
             document.getElementById('medical-confirm-password').value = '';
             document.getElementById('medical-confirm-msg').textContent = '';
@@ -397,6 +438,7 @@ export function initAi() {
         const r = await postAssistant(body);
         if (r.ok) {
             originalMedical = body.medical_safety;
+            originalRefusal = refusalNow;
             showMsg('assistant-msg', 'محتوای دستیار ذخیره شد', 'success');
         } else {
             showMsg('assistant-msg', r.detail || 'خطا در ذخیره', 'danger');
@@ -413,6 +455,8 @@ export function initAi() {
         if (r.ok) {
             medicalModal.hide();
             originalMedical = pendingBody.medical_safety;
+            originalRefusal = [(pendingBody.refusal_fa || ''),
+                               (pendingBody.refusal_en || '')].join('\u0000');
             pendingBody = null;
             showMsg('assistant-msg', 'محتوای دستیار ذخیره شد', 'success');
         } else {

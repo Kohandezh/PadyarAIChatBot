@@ -13,6 +13,7 @@ Central tracking for all features.
 | exhibition-lead-capture | Draft | Not started | leads | 2026-08-22 | 2026-08-23 |
 | exhibition-perf-hardening | Implemented | Ready | infrastructure | 2026-08-24 | 2026-08-24 |
 | rate-limit-identity | Implemented | Ready | infrastructure | 2026-08-25 | 2026-08-25 |
+| grounded-selection | Implemented | Ready | chat | 2026-08-28 | 2026-08-28 |
 
 ## Quick Features
 

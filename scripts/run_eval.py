@@ -192,7 +192,22 @@ def main() -> int:
                         "Overrides the module defaults for THIS run only (no writes).")
     p.add_argument("--cosine-floor", dest="cosine_floor", default="",
                    help="embedding cosine calibration floor for THIS run (span stays).")
+    # WHY recall@K and not only recall@1: the selection tier shows the model K
+    # retrieved records and lets it choose. Its ceiling is the chance the right
+    # record is anywhere in those K, so ANSWER_TOPK has to be picked from a
+    # measured curve, not guessed (measured 2026-08-28 before the tier was
+    # written; the numbers are in docs/engineering/DECISIONS.md).
+    p.add_argument("--recall-k", dest="recall_k", default="1,3,5,8,13",
+                   help="comma-separated K values for the recall@K table "
+                        "(default 1,3,5,8,13)")
     args = p.parse_args()
+
+    try:
+        recall_ks = sorted({int(x) for x in args.recall_k.split(",") if x.strip()})
+    except ValueError:
+        sys.exit("--recall-k needs whole numbers, e.g. 1,3,5,8,13")
+    if not recall_ks or any(k < 1 for k in recall_ks):
+        sys.exit("--recall-k needs at least one K of 1 or more")
 
     # Experiment overrides: applied to the MODULE GLOBALS the services read at
     # call time. The embedding matrix is prebuilt and calibration happens on
@@ -253,6 +268,7 @@ def main() -> int:
     ranks, latencies = [], []
     diagnostics = []
     hits1 = hits3 = 0
+    hits_at_k = {k: 0 for k in recall_ks}
     answerable = 0
     false_confident = {"unsupported": 0, "legacy_contamination": 0, "prompt_injection": 0}
     contaminated = 0
@@ -329,6 +345,9 @@ def main() -> int:
                 failures.append({"q": q, "expected": accepted, "got": top, "score": round(score, 3)})
             if rank and rank <= 3:
                 hits3 += 1
+            for k in recall_ks:
+                if rank and rank <= k:
+                    hits_at_k[k] += 1
         else:
             has_contamination = False
             for tok in LEGACY_TOKENS:
@@ -380,6 +399,9 @@ def main() -> int:
             "latency_ms_p50": round(statistics.median(lat_sorted), 1),
             "latency_ms_p95": round(lat_sorted[int(len(lat_sorted) * 0.95) - 1], 1),
         },
+        "recall_at_k": {str(k): (round(hits_at_k[k] / answerable, 3)
+                                  if answerable else None)
+                        for k in recall_ks},
         "per_category": per_category,
         "failures": failures,
     }
@@ -423,6 +445,8 @@ def main() -> int:
     print(f"false-confident: unsupported={t['false_confident_unsupported']} "
           f"legacy={t['false_confident_legacy']} injection={t['false_confident_injection']}")
     print(f"contaminated answers={t['legacy_contamination_answers']}  secret leaks={t['secret_leaks']}")
+    print("recall@K: " + "  ".join(
+        f"@{k}={report['recall_at_k'][str(k)]}" for k in recall_ks))
     print(f"latency p50={t['latency_ms_p50']}ms  p95={t['latency_ms_p95']}ms")
     print(f"report → {out}")
     if failures:

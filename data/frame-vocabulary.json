@@ -1,0 +1,31 @@
+{
+  "_why": "Connector and courtesy words the model may use in the one sentence it writes above a numbered list. Every OTHER word in that sentence must already appear in the visitor's question or in the list itself. This file therefore decides what a fabricated sentence CANNOT be built from, so it carries no negation word and no evaluative word: with 'not' in here, 'this company is not active in this field' would be legal (every other token comes from the list), and with 'best' in here, 'company X is the best choice' would be. Language-level, not category-level: it ships once and does not change per customer. A test pins the ban list.",
+  "fa": [
+    "سلام", "درود", "بله", "آری", "البته", "حتما", "بفرمایید", "لطفا",
+    "ممنون", "متشکرم", "سپاس", "خواهش",
+    "اینها", "اینا", "آنها", "اونا", "همین", "همینها", "همان",
+    "هستند", "بودند", "باشد", "باشند", "شده", "بوده",
+    "دارد", "دارند", "داریم", "دارید",
+    "ها", "های", "هایی",
+    "یا", "هم", "تا", "هر", "دیگر", "بیشتر", "ادامه",
+    "کدام", "کدامیک", "کدوم",
+    "مورد", "موارد", "فهرست", "لیست", "معرفی", "نام", "اسم",
+    "درباره", "راجع", "پیدا", "کردم", "کنند", "کنیم",
+    "بگو", "بگویید", "بپرس", "بپرسید", "بنویسید", "بزنید", "ببینید",
+    "بشناسید", "بدانید", "بخواهید", "خواهید",
+    "اینجا", "زیر", "پایین", "بالا",
+    "پس", "سپس", "همچنین", "نیز"
+  ],
+  "en": [
+    "hello", "hi", "welcome", "yes", "sure", "certainly", "please",
+    "thanks", "thank", "here", "there", "below", "above",
+    "these", "those", "them", "this", "that",
+    "and", "or", "also", "too", "more", "further",
+    "which", "who", "whose", "about", "regarding",
+    "are", "were", "be", "been", "being", "can", "could", "would",
+    "will", "may", "might", "let", "know", "learn", "find", "found",
+    "ask", "tell", "send", "type", "pick", "choose", "select", "see",
+    "list", "option", "options", "item", "items", "name", "names",
+    "your", "our", "we", "you", "us", "they", "it", "its"
+  ]
+}

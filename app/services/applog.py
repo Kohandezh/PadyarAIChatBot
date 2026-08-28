@@ -54,6 +54,11 @@ from app.config import logger
 # does not leak one visitor's id into another's log rows.
 _request_id: ContextVar[str] = ContextVar("padyar_request_id", default="")
 _correlation_id: ContextVar[str] = ContextVar("padyar_correlation_id", default="")
+# The visitor's padyar_conv cookie for this request. Before this existed the
+# ONLY call site that passed conversation_id was the "message received" row, so
+# every conversation.answer.served row carried an empty string and the log
+# explorer's conversation filter — and the index behind it — were both dead.
+_conversation_id: ContextVar[str] = ContextVar("padyar_conversation_id", default="")
 _actor: ContextVar[str] = ContextVar("padyar_actor", default="")
 _actor_ip: ContextVar[str] = ContextVar("padyar_actor_ip", default="")
 # Live credential VALUES in play on this task, so `scrub_text` can remove them
@@ -71,11 +76,14 @@ def new_id() -> str:
 
 
 def set_request_context(request_id: str = "", correlation_id: str = "",
-                       actor: str = "", ip: str = "") -> None:
+                       actor: str = "", ip: str = "",
+                       conversation_id: str = "") -> None:
     if request_id:
         _request_id.set(request_id)
     if correlation_id:
         _correlation_id.set(correlation_id)
+    if conversation_id:
+        _conversation_id.set(conversation_id)
     if actor:
         _actor.set(actor)
     if ip:
@@ -454,7 +462,8 @@ def record(category: str, event_name: str, level: str = "info", message: str = "
             "request_id": scrub_text(fields.get("request_id") or _request_id.get())[:64],
             "correlation_id": scrub_text(
                 fields.get("correlation_id") or _correlation_id.get())[:64],
-            "conversation_id": scrub_text(fields.get("conversation_id", ""))[:64],
+            "conversation_id": scrub_text(
+                fields.get("conversation_id") or _conversation_id.get())[:64],
             "metadata": meta_json,
         }
 

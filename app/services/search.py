@@ -644,6 +644,118 @@ def find_best_match(query: str):
         return None, 0.0
 
 
+def find_top_matches(query: str, k: int = 8):
+    """The same ranking as find_best_match, k results deep.
+
+    Returns [(entry, score, signals)] best-first — the triple
+    scripts/run_eval.py already consumes from full_ranking(), so the evaluation
+    harness and the runtime read one shape.
+
+    WHY A NEW FUNCTION AND NOT A PARAMETER ON find_best_match: RERANK_CANDIDATES
+    tunes what the first-stage retrievers propose on today's path, and the
+    measured recall@1 = 0.786 in the evidence pack depends on it. This takes
+    its OWN k, so asking for thirteen candidates cannot move a number that is
+    already published.
+
+    THE HEAD MUST AGREE WITH find_best_match. The title-overlap branch above is
+    a branch EXIT with a synthetic 0.95+ score, so when it fires that entry is
+    PREPENDED here and removed from the reranked tail. Without that, the
+    candidate list and Tier 1 would rank the same corpus differently and the
+    eagerness margin would compare scores from a ranking nobody serves.
+    """
+    k = max(1, int(k))
+    if not dataset or not normalized_titles:
+        _maybe_refresh()
+        return []
+
+    _maybe_refresh()
+    normalized_query = normalize_persian(query)
+    # Same query, synonyms NOT expanded — the coverage signal must see what the
+    # visitor actually typed. Dropping this argument while copying
+    # find_best_match is a one-word mistake that reopens the «قیمت دلار»
+    # hallucination hole, and nothing else in the system would notice.
+    coverage_query = normalize_persian(query, expand_synonyms=False)
+
+    query_tokens = set(normalized_query.split())
+    best_title_score = 0.0
+    best_title_idx = -1
+    for idx, norm_title in enumerate(normalized_titles):
+        title_tokens = set(norm_title.split())
+        shared = len(query_tokens & title_tokens)
+        if query_tokens and title_tokens and (shared >= 3 or shared == len(query_tokens) == len(title_tokens)):
+            overlap = shared / len(query_tokens | title_tokens)
+            if overlap >= 0.6 and overlap > best_title_score:
+                best_title_score = overlap
+                best_title_idx = idx
+
+    head = []
+    if best_title_score >= 0.6 and best_title_idx != -1:
+        head = [(dataset[best_title_idx],
+                 min(0.95 + (best_title_score - 0.6) * 0.5, 1.0),
+                 {"title_overlap": round(best_title_score, 3)})]
+        if len(head) >= k:
+            return head[:k]
+
+    ranked = []
+    if RERANK_ENABLED and (dataset_embedding_index is not None or dataset_bm25_index is not None):
+        try:
+            dense_hits = []
+            if dataset_embedding_index is not None:
+                dense_hits = _dual_hits(
+                    dataset_embedding_index.search_topk,
+                    coverage_query, normalized_query, k)
+            lexical_hits = []
+            if dataset_bm25_index is not None:
+                lexical_hits = _dual_hits(
+                    dataset_bm25_index.top_k,
+                    coverage_query, normalized_query, k)
+            ranked = rerank.rerank(
+                normalized_query, normalized_descriptions, dense_hits,
+                lexical_hits, coverage_query=coverage_query)
+        except Exception as e:  # noqa: BLE001 — same soft-fail contract as find_best_match
+            logger.error(f"Hybrid retrieval failed for top-k, falling back to TF-IDF: {e}")
+            ranked = []
+
+    if not ranked and vectorizer is not None and tfidf_matrix is not None:
+        try:
+            query_vec = vectorizer.transform([normalized_query])
+            sims = cosine_similarity(query_vec, tfidf_matrix).flatten()
+            ranked = [(int(i), float(sims[i]), {"tfidf": round(float(sims[i]), 3)})
+                      for i in np.argsort(-sims)[:k]]
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"TF-IDF top-k failed: {e}")
+            ranked = []
+
+    taken = {entry.get("id") for entry, _s, _sig in head}
+    out = list(head)
+    for idx, score, signals in ranked:
+        if not (0 <= idx < len(dataset)):
+            continue
+        entry = dataset[idx]
+        if entry.get("id") in taken:
+            continue
+        taken.add(entry.get("id"))
+        out.append((entry, float(score), dict(signals)))
+        if len(out) >= k:
+            break
+    return out[:k]
+
+
+def get_entry(entry_id: str):
+    """One dataset record by id, or None.
+
+    The pick tier stores IDS, not text, so this is the lookup that turns a
+    stored offer back into an answer with its video_url intact. None is the
+    honest answer for an id an admin deleted between the turn that offered it
+    and the turn that picked it — the caller then falls through to normal
+    retrieval instead of serving a stale dict.
+    """
+    if not entry_id:
+        return None
+    _maybe_refresh()
+    return dataset_lookup.get(entry_id)
+
+
 def find_similar_question(query: str, exact_only: bool = False):
     """جستجوی سوال مشابه در questions و بازگشت جواب dataset
 
