@@ -1,6 +1,6 @@
 ---
 name: software-architecture
-description: Use when writing code, designing architecture, or making architectural decisions in the PadyarAIChatbot. Covers the two-tier intelligence pipeline, the module registry system, FastAPI router/service/db/auth layering, Jinja2 admin + vanilla-JS chat + theme partials, white-label settings, and the project's simplicity-first principles.
+description: Use when writing code, designing architecture, or making architectural decisions in the PadyarAIChatbot. Covers the tiered intelligence pipeline, the module registry system, FastAPI router/service/db/auth layering, Jinja2 admin + vanilla-JS chat + theme partials, white-label settings, and the project's simplicity-first principles.
 ---
 
 # Software Architecture for PadyarAIChatbot
@@ -9,7 +9,7 @@ Guidance for building in the PadyarAIChatbot — a **per-customer CMS** for an A
 
 ## Stack
 
-Python 3.10+ · FastAPI + Uvicorn · Jinja2 (admin templates) · vanilla HTML/CSS/JS (chat UI) · Bootstrap 5 RTL (admin) · SQLite (`chat_history.db`) · scikit-learn (TF-IDF) · OpenAI via the GapGPT proxy. Persian/RTL, Vazirmatn font.
+Python 3.10+ · FastAPI + Uvicorn · Jinja2 (admin templates) · vanilla HTML/CSS/JS (chat UI) · Bootstrap 5 RTL (admin) · SQLite (`chat_history.db`) · pure-Python BM25 + model2vec local embeddings for retrieval, scikit-learn for the logistic-regression intent head · OpenAI via the GapGPT proxy. Persian/RTL, Vazirmatn font.
 
 Entry point: `python main.py` (uvicorn with reload). The app object is `app.main:app` — a `FastAPI()` created at import time in `app/main.py` (**not** a factory). Routers are loaded through the **module registry**, filtered by the `ENABLED_MODULES` env var.
 
@@ -29,7 +29,7 @@ PadyarAIChatbot/
     modules/
       registry.py          # ModuleDef catalogue + resolve/load logic
     routers/               # HTTP layer (thin)
-      chat.py              # /chat — the core two-tier pipeline
+      chat.py              # /chat — the core tiered pipeline
       admin.py             # admin login, stats, settings, export
       synonyms.py          # synonym CRUD  (the "search" module)
       dataset.py           # dataset + questions + video CRUD
@@ -37,7 +37,10 @@ PadyarAIChatbot/
       voice.py             # /api/transcribe (Whisper) — optional module
       public.py            # public pages + health
     services/              # business logic (no HTTP)
-      search.py            # TF-IDF matching, dataset loading
+      search.py            # retrieval orchestration, dataset loading, reindex
+      bm25.py              # Okapi BM25 lexical retriever (pure Python)
+      embeddings.py        # local model2vec sentence embeddings (no external API)
+      rerank.py            # feature reranker fusing dense + lexical candidates
       openai.py            # GPT classification, chat, Whisper (via GapGPT)
       themes.py            # theme discovery
     db/
@@ -55,21 +58,32 @@ PadyarAIChatbot/
   scripts/                 # standalone dev/ops utilities
 ```
 
-## Two-Tier Intelligence Pipeline
+## Tiered Intelligence Pipeline
 
-The heart of the app (`app/routers/chat.py` + `app/services/`):
+The heart of the app (`app/routers/chat.py` + `app/services/`). This is a summary. **`CLAUDE.md` under "Tiered Intelligence Pipeline" is the full, authoritative version — read it before changing any tier.**
 
 ```
 User query
+  → Pick tier: a number, an ordinal word or an offered title resolved against
+    the ids stored on the last turn (zero AI calls)
+  → Tier 0: (almost) exact hit in the curated questions index
   → Persian normalization + synonym expansion (app/utils/normalizer.py)
-  → Tier 1: TF-IDF + cosine similarity over the local dataset (app/services/search.py)
-      confidence >= SIMILARITY_THRESHOLD (0.20)?  → return matched video entry
-  → Tier 2 (low confidence): GPT classification (app/services/openai.py)
-      dataset intent found  → return that entry
-      out_of_domain         → GPT generates a free-text answer
+  → Tier 1: BM25 (bm25.py) + local model2vec embeddings (embeddings.py),
+    fused by the feature reranker (rerank.py), orchestrated by search.py
+      score >= TRUSTED_MATCH_THRESHOLD (0.70)?  → return matched video entry
+  → Tier 1.5: this install's own logistic-regression intent head over the local
+    embeddings, retrained on every reindex
+      p >= INTENT_TRUST_THRESHOLD (0.6)?  → return that entry
+  → Tier 2 selection (app/services/answer.py): the model sees the top
+    ANSWER_TOPK records and returns JSON naming record ids. It CHOOSES; our
+    renderer writes every fact string back out of the database.
+  → Tier 2 legacy: GPT classification (app/services/openai.py), else a written
+    answer, verified before it is served
+  → AI unavailable: answer locally only above LOCAL_FALLBACK_THRESHOLD (0.45)
+    / QUESTIONS_FALLBACK_THRESHOLD (0.60), else ask the visitor to rephrase
 ```
 
-Keep Tier 1 cheap and local; only fall through to the paid GPT tier when local confidence is low. All thresholds live in `app/config.py` (`SIMILARITY_THRESHOLD`, etc.).
+There is **no TF-IDF vectorizer** and **no `search_backend` setting**; both were removed. Keep the local tiers cheap; only fall through to the paid model tiers when local confidence is low. All thresholds live in `app/config.py`.
 
 ## Module System
 
@@ -85,7 +99,7 @@ Keep Tier 1 cheap and local; only fall through to the paid GPT tier when local c
 ## Layering Rules
 
 - **Routers (`app/routers/`)** stay thin: parse/validate the request (Pydantic), call a service, return a response. Attach auth via `dependencies=[Depends(verify_admin)]` (admin) or the chat-token/origin/rate-limit trio (public chat). See the `authorization` skill.
-- **Services (`app/services/`)** hold business logic — TF-IDF, OpenAI calls, theme discovery, media handling. No HTTP concerns here.
+- **Services (`app/services/`)** hold business logic — retrieval, OpenAI calls, theme discovery, media handling. No HTTP concerns here.
 - **DB (`app/db/`)** owns all SQLite access. Use `get_db_connection()` and the `queries.py` helpers. Always parameterize (`?`) — never string-format user input into SQL.
 - **Auth (`app/auth/`)** owns all security primitives. Reuse, don't duplicate.
 - **Utils (`app/utils/`)** for shared helpers like Persian normalization.
@@ -137,7 +151,7 @@ SQLite, **no migration system** — `init_db()` in `app/db/connection.py` create
 
 ## Mandatory Pre-Commit Check
 
-Git main branch is `main-noor`. Before committing, run the syntax checks from CLAUDE.md:
+Git main branch is `main`. Before committing, run the syntax checks from CLAUDE.md:
 
 ```bash
 .venv/bin/python -m py_compile app/main.py
@@ -151,8 +165,11 @@ Git main branch is `main-noor`. Before committing, run the syntax checks from CL
 | `app/config.py`           | All configuration — read this first when looking for a setting   |
 | `app/modules/registry.py` | Module catalogue, core vs. optional, `ENABLED_MODULES` resolution |
 | `app/main.py`             | `FastAPI()` app, lifespan, `load_module_routers()`               |
-| `app/routers/chat.py`     | Core two-tier chatbot pipeline                                   |
-| `app/services/search.py`  | TF-IDF matching, dataset loading                                 |
+| `app/routers/chat.py`     | Core tiered chatbot pipeline                                     |
+| `app/services/search.py`  | Retrieval orchestration, dataset loading, reindex                |
+| `app/services/bm25.py`    | Okapi BM25 lexical retriever (pure Python)                       |
+| `app/services/embeddings.py` | Local model2vec sentence embeddings                           |
+| `app/services/rerank.py`  | Feature reranker fusing dense + lexical candidates                |
 | `app/services/openai.py`  | GPT classification, chat, Whisper (via GapGPT)                   |
 | `app/db/connection.py`    | `get_db_connection()`, `init_db()` — schema + seeding            |
 | `app/auth/security.py`    | All auth/security primitives (see the `authorization` skill)     |

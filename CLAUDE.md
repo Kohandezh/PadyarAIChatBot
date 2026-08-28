@@ -38,10 +38,12 @@ chat ast.
 
 **PadyarAIChatbot** is a **CMS (Content Management System) for AI chatbots** — installed per-customer. Each customer deploys the app, enters their own content (Q&A dataset, videos, branding), and manages it through the admin panel.
 
-The chatbot uses a **two-tier intelligence** approach:
+The chatbot answers through a **tiered pipeline**. Cheap local tiers run first, and the paid model tiers only run when the local ones are not confident:
 
-1. **Tier 1 — Local Knowledge Base:** Matches user queries against the customer's curated dataset using TF-IDF vectorization and cosine similarity. Returns the best-matching video response.
-2. **Tier 2 — AI Fallback:** When local confidence is low, routes to OpenAI models (GPT-5 Nano for classification, GPT-4.1 for free-text generation) via the **GapGPT** proxy API.
+1. **Local knowledge base:** matches the query against the customer's curated dataset with BM25 plus local model2vec embeddings, fused by a feature reranker. Returns the best-matching video response. There is no TF-IDF; it was removed on 2026-08-28.
+2. **AI fallback:** when local confidence is low, routes to the configured models via the Padyar AI Wrapper. The model picks record ids and our renderer writes the facts back out of the database.
+
+See "Tiered Intelligence Pipeline" below for every tier and its threshold. That diagram is the authoritative version.
 
 ### CMS Model
 
@@ -68,7 +70,7 @@ The chatbot uses a **two-tier intelligence** approach:
 | Frontend (Chat)  | Vanilla HTML/CSS/JS — no framework                             |
 | Frontend (Admin) | Tabler UI (built on Bootstrap 5, RTL) + Chart.js                |
 | Database         | **PostgreSQL 16** (production). SQLite = test backend + migration/rollback artifact only |
-| ML/Search        | scikit-learn (TF-IDF, logistic-regression intent head), pure-Python BM25, model2vec local embeddings |
+| ML/Search        | Pure-Python BM25, model2vec local embeddings, feature reranker. scikit-learn is used only for the logistic-regression intent head. No TF-IDF, no `search_backend` setting. |
 | AI Provider      | **Padyar AI Control Plane** — 11 provider types behind the Padyar AI Wrapper (OpenAI, Anthropic, Gemini native; Z.AI, Kimi, DeepSeek, Qwen, xAI, Mistral, OpenAI-compatible; SAKOO/Rayen — live verification at deployment) |
 | AI Models        | Per-route, configured in Admin -> AI -> Routing. Whisper-1 for voice (STT is outside the wrapper). |
 | Font             | Vazirmatn (Persian web font)                                   |
@@ -307,7 +309,7 @@ User Query
 │  Tier 1: Local Retrieval    │
 │  Persian text normalization │
 │  Synonym expansion          │
-│  TF-IDF + BM25 + embeddings │
+│  BM25 + local embeddings    │
 │  Feature reranker (fusion)  │
 └────────────┬────────────────┘
              │
@@ -614,6 +616,14 @@ Every feature must be a module. Follow this pattern:
    test backend
 3. Add queries/mutations in `app/db/queries.py`
 
+**Never edit a migration that has already been applied.** `apply_migrations.py`
+stores a sha256 of every file it applies. Change an applied file and it prints
+`REFUSING TO CONTINUE` and exits 2. That is step 4 of six in
+`deploy/padyar-deploy.sh`, so the next deploy aborts there and resets the code.
+It fails safe, but nothing ships until someone finds out why. A migration on
+`main` is history: add a new numbered file, use
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and leave the old one alone.
+
 There IS a migration system now. It has no downgrade path: rolling back means
 restoring a backup (`app/services/pg_backup.py`).
 
@@ -629,6 +639,63 @@ restoring a backup (`app/services/pg_backup.py`).
 Via the admin panel — that is now the only supported path. The knowledge base lives in the `dataset`/`questions` tables; the bundled defaults are Python literals in `app/default_content.py`, seeded into a brand-new DB only (never over existing content). The old `data/dataset.json` / `data/questions.json` files are gone. To restore the bundled defaults on an existing install, run `python scripts/reset-content-to-defaults.py` (it backs up the DB first and preserves admins, chat logs and settings).
 
 ---
+
+## Use the Tooling That Ships With This Repo
+
+This repo carries 18 skills in `.claude/skills/` and 9 agents in
+`.claude/agents/`. Two plugins add more: `engineering:*` and
+`product-management:*`. They were sitting unused while avoidable bugs shipped.
+
+Two things went wrong and both are fixable by habit:
+
+1. A skill read AFTER the code is written changes nothing. Load it first.
+2. A skill that lies makes the code wrong. On 2026-08-29 three skills still
+   said the main branch was `main-noor`, that retrieval used TF-IDF, and that
+   the database was SQLite. All three were false. An agent that follows a
+   stale skill writes stale code.
+
+### Which source wins
+
+| Source | Wins on |
+| ------ | ------- |
+| `.claude/skills/`, `.claude/agents/` | Anything about THIS codebase: the tiered pipeline, the module registry, Persian normalization, themes, the admin panel |
+| `engineering:*` | How to think about it: decisions, test depth, incidents, deploys |
+| `product-management:*` | Before any code exists: the problem, the spec, the order of work |
+
+A project skill beats a plugin skill whenever they overlap. The project skill
+knows our file layout; the plugin skill does not.
+
+### What to load, by what you are about to do
+
+| You are about to | Load first |
+| ---------------- | ---------- |
+| Touch auth, sessions, cookies, tokens, rate limits, or any endpoint's access control | `authorization`, then `/security-review` before you call it done |
+| Add an endpoint or a route | `api-test` |
+| Add a service, a util, or an auth function | `write-tests` |
+| Change anything a visitor sees in a browser | `e2e-test-gen`, `playwright-cli` |
+| Chase a bug, a failing test, or behaviour you cannot explain | `systematic-debugging` or `engineering:debug`. Find the root cause BEFORE proposing a fix |
+| Choose between two technical approaches | `engineering:architecture`. Record the decision in `docs/engineering/DECISIONS.md` |
+| Design a new subsystem | `engineering:system-design` |
+| Decide what to test and how deep | `engineering:testing-strategy` |
+| Ship a release | `engineering:deploy-checklist` |
+| Handle production being broken | `engineering:incident-response` |
+| Refactor with no new behaviour | `engineering:tech-debt` |
+| Branch, commit, or open a PR | `scoped-pr`, `commit` |
+| Review a change | `code-review`, plus the `code-review-specialist` agent |
+| Build a non-trivial feature or refactor | `implement` |
+| Turn a request into a spec | `product-management:write-spec` |
+| Shape a vague idea | `product-management:product-brainstorming` |
+| Decide what ships next | `product-management:roadmap-update` |
+
+### The two rules that make it stick
+
+**Load the skill before the code, not after.** A review skill run on finished
+code catches some of what a design skill would have prevented, and costs a
+rewrite.
+
+**A skill that contradicts the code is a bug in the skill.** Fix the skill in
+the same change. Do not work around it and do not leave it for later: the next
+agent reads it and repeats your bug.
 
 ## Mandatory Checks Before Every Commit
 

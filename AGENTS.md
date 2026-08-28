@@ -28,14 +28,16 @@ chat — code, commit, doc tu zaban-e khod.
 
 **PadyarAIChatbot** is a **CMS for AI chatbots** — installed per-customer. Each customer deploys the app, gets the features they ordered (core + selected optional modules), enters their own content (Q&A dataset, videos), customizes branding (name, logo, colors), and manages everything through the admin panel.
 
-The chatbot uses a two-tier intelligence system — local knowledge base matching via TF-IDF, with AI fallback via OpenAI (GPT-5 Nano for classification, GPT-4.1 for free-text generation) through the GapGPT proxy.
+**This file is the short orientation. `CLAUDE.md` is the full, authoritative document.** When the two disagree, `CLAUDE.md` wins and this file is the bug.
+
+The chatbot answers through a **tiered pipeline**, not two tiers. Cheap local tiers run first. The paid model tiers run only when the local ones are not confident. See "Tiered Intelligence" below and the full diagram in `CLAUDE.md` under "Tiered Intelligence Pipeline".
 
 - **Language:** Python 3.10+
 - **Framework:** FastAPI + Uvicorn
 - **Database:** PostgreSQL 16 (production). SQLite is the test backend and a rollback artifact only.
-- **Frontend:** Vanilla HTML/CSS/JS (chat) + Bootstrap 5 RTL (admin)
-- **AI:** OpenAI via GapGPT proxy (`https://api.gapgpt.app/v1`) — GPT-5 Nano (classification), GPT-4.1 (chat), Whisper-1 (voice)
-- **Search:** scikit-learn TF-IDF + cosine similarity
+- **Frontend:** Vanilla HTML/CSS/JS (chat) + Tabler UI (Bootstrap 5, RTL) for admin
+- **AI:** the Padyar AI Control Plane, 11 provider types behind the Padyar AI Wrapper. Models are set per route in Admin -> AI -> Routing. Whisper-1 for voice (STT sits outside the wrapper).
+- **Search:** pure-Python BM25 (`app/services/bm25.py`) + local model2vec embeddings (`app/services/embeddings.py`), fused by a feature reranker (`app/services/rerank.py`). **No TF-IDF and no `search_backend` setting** — both were removed on 2026-08-28. scikit-learn is still a dependency, but only for the logistic-regression intent head in `app/services/intent.py`.
 - **Font:** Vazirmatn (Persian)
 
 ## Prerequisites
@@ -73,7 +75,7 @@ App starts at `http://127.0.0.1:8000`.
 | ---------------------------- | ----------------------------------------- |
 | `python main.py`             | Start dev server (port 8000, auto-reload) |
 | `python scripts/change-admin.py`     | Change admin password             |
-| `python scripts/debug_similarity.py` | Debug TF-IDF similarity matching  |
+| `python scripts/debug_similarity.py` | Debug similarity matching         |
 | `python scripts/net-diag.py`        | Network diagnostics               |
 | `python scripts/gapgpt_test.py`      | Test GapGPT API connectivity      |
 
@@ -120,7 +122,11 @@ PadyarAIChatbot/
       themes.py                  # Theme listing/activation
 
     services/                    # Business logic
-      search.py                  # TF-IDF matching, dataset loading
+      search.py                  # Retrieval orchestration, dataset loading, reindex
+      bm25.py                    # Okapi BM25 lexical retriever (pure Python)
+      embeddings.py              # Local model2vec embeddings, no external API
+      rerank.py                  # Feature reranker fusing dense + lexical candidates
+      answer.py                  # Selection tier + grounding firewalls + list renderer
       openai.py                  # GPT classification, chat, Whisper
       themes.py                  # Theme discovery
 
@@ -166,7 +172,8 @@ PadyarAIChatbot/
 | `fastapi`          | Web framework                            |
 | `jinja2`           | Template engine (admin panel)            |
 | `uvicorn`          | ASGI server                              |
-| `scikit-learn`     | TF-IDF vectorization + cosine similarity |
+| `scikit-learn`     | Logistic-regression intent head only     |
+| `model2vec`        | Local sentence embeddings for retrieval  |
 | `openai`           | OpenAI API client (via GapGPT proxy)     |
 | `python-multipart` | File upload handling                     |
 | `numpy`            | Numerical operations                     |
@@ -175,12 +182,17 @@ PadyarAIChatbot/
 
 ## Architecture
 
-### Two-Tier Intelligence
+### Tiered Intelligence
 
-1. **Tier 0 — Curated questions (exact):** Jaccard-only match against the hand-mapped question index. Serves at ≥ 0.9.
-2. **Tier 1 — Local Knowledge Base:** Persian normalization → synonym expansion → BM25 + local embeddings (TF-IDF is the fallback backend) → reranking. Trusted at `TRUSTED_MATCH_THRESHOLD` = **0.70**.
-3. **Tier 1.5 — Per-install intent classifier:** logistic regression over local embeddings, retrained on every dataset edit. Serves at `INTENT_TRUST_THRESHOLD` = **0.6**.
-4. **Tier 2 — AI Fallback (via GapGPT proxy):** GPT-5 Nano classifies intent → if a dataset match is found, return that entry; if out-of-domain, GPT-4.1 generates a conversational response. When AI is unavailable, only a strong local match answers (`LOCAL_FALLBACK_THRESHOLD` = 0.45, `QUESTIONS_FALLBACK_THRESHOLD` = 0.60), else 503.
+The tier gates live in `app/routers/chat.py`. **`CLAUDE.md` under "Tiered Intelligence Pipeline" holds the full diagram — read that before changing any tier.** Short version:
+
+1. **Pick tier (no AI call):** a bare number, an ordinal word, or an offered title, resolved against the record ids stored on the last turn. "more" pages the same list.
+2. **Tier 0 — Curated questions (exact):** Jaccard-only match against the hand-mapped question index. Serves at ≥ 0.9.
+3. **Tier 1 — Local retrieval:** Persian normalization → synonym expansion → BM25 + local model2vec embeddings → feature reranker. Trusted at `TRUSTED_MATCH_THRESHOLD` = **0.70**. There is no TF-IDF backend.
+4. **Tier 1.5 — Per-install intent classifier:** logistic regression over local embeddings, retrained on every reindex. Serves at `INTENT_TRUST_THRESHOLD` = **0.6**.
+5. **Tier 2 — Selection (`app/services/answer.py`):** the model sees the top `ANSWER_TOPK` records plus the last turns and returns JSON naming record **ids** — `answer`, `options`, or `none`. The model chooses; our renderer writes every fact string back out of the database.
+6. **Tier 2 legacy:** classify intent → entry, else a written answer, verified before it is served.
+7. **AI unavailable:** only a strong local match answers (`LOCAL_FALLBACK_THRESHOLD` = 0.45, `QUESTIONS_FALLBACK_THRESHOLD` = 0.60). Otherwise ask the visitor to rephrase rather than show an unrelated video.
 
 `app/config.py` is authoritative for every threshold above.
 
@@ -279,7 +291,8 @@ Self-contained themes in `/themes/{name}/` — each has `theme.json`, `index.htm
 | ------------------------- | ----------------------------------------- |
 | `app/config.py`           | All configuration — read this first       |
 | `app/routers/chat.py`     | Core chatbot pipeline — the main endpoint |
-| `app/services/search.py`  | TF-IDF matching engine                    |
+| `app/services/search.py`  | Retrieval orchestration, dataset loading  |
+| `app/services/answer.py`  | Selection tier + grounding firewalls      |
 | `app/services/openai.py`  | All AI integration                        |
 | `app/db/connection.py`    | Database schema and seeding               |
 | `app/auth/security.py`    | All security logic                        |
@@ -387,6 +400,49 @@ All config in `app/config.py`:
 | `CHAT_RATE_LIMIT`       | 2       | Max requests per window        |
 | `CHAT_RATE_WINDOW`      | 30      | Rate limit window (seconds)    |
 | `CHAT_TOKEN_TTL`        | 3600    | HMAC token lifetime (seconds)  |
+
+## Use the Tooling That Ships With This Repo
+
+Load the skill BEFORE you write the code. A skill read afterwards changes
+nothing, and a stale skill writes stale code. On 2026-08-29 three skills still
+claimed the main branch was `main-noor`, that retrieval used TF-IDF, and that
+the database was SQLite. All three were false.
+
+Three sources, and which one wins when they overlap:
+
+- `.claude/skills/` and `.claude/agents/` know THIS codebase. They win on the
+  tiered pipeline, the module registry, Persian normalization, themes, admin.
+- `engineering:*` wins on how to think: decisions, test depth, incidents,
+  deploys.
+- `product-management:*` wins before code exists: the problem, the spec, the
+  order of work.
+
+Fast routing:
+
+| You are about to | Load first |
+| ---------------- | ---------- |
+| Touch auth, sessions, cookies, tokens, rate limits, access control | `authorization`, then `/security-review` |
+| Add an endpoint | `api-test` |
+| Add a service, util or auth function | `write-tests` |
+| Change what a visitor sees | `e2e-test-gen`, `playwright-cli` |
+| Chase a bug or a failing test | `systematic-debugging`, `engineering:debug`. Root cause before fix |
+| Pick between two approaches | `engineering:architecture`, then record it in `docs/engineering/DECISIONS.md` |
+| Design a subsystem | `engineering:system-design` |
+| Decide test depth | `engineering:testing-strategy` |
+| Ship a release | `engineering:deploy-checklist` |
+| Handle a production break | `engineering:incident-response` |
+| Refactor with no new behaviour | `engineering:tech-debt` |
+| Branch, commit, PR | `scoped-pr`, `commit` |
+| Review a change | `code-review` + the `code-review-specialist` agent |
+| Build a non-trivial feature | `implement` |
+| Turn a request into a spec | `product-management:write-spec` |
+| Shape a vague idea | `product-management:product-brainstorming` |
+| Decide what ships next | `product-management:roadmap-update` |
+
+A skill that contradicts the code is a bug in the skill. Fix the skill in the
+same change, or the next agent repeats your bug.
+
+The full version, with the reasoning, is in `CLAUDE.md` under the same heading.
 
 ## Documentation
 

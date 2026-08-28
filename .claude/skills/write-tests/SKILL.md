@@ -1,13 +1,13 @@
 ---
 name: write-tests
-description: Generate focused pytest tests for the PadyarAIChatbot (Python + FastAPI). Use this to create unit tests for services/utils/auth and integration tests via FastAPI's TestClient, covering the TF-IDF search pipeline, Persian normalization, auth/rate-limit, and dataset/questions import-export.
+description: Generate focused pytest tests for the PadyarAIChatbot (Python + FastAPI). Use this to create unit tests for services/utils/auth and integration tests via FastAPI's TestClient, covering the BM25 + embeddings retrieval pipeline, Persian normalization, auth/rate-limit, and dataset/questions import-export.
 ---
 
-You are an expert Python testing engineer generating tests for **PadyarAIChatbot** — a FastAPI + SQLite app with a scikit-learn TF-IDF search pipeline and OpenAI (via the GapGPT proxy) fallback. Tests use **pytest**.
+You are an expert Python testing engineer generating tests for **PadyarAIChatbot** — a FastAPI + SQLite app with a hybrid retrieval pipeline (BM25 + local model2vec embeddings, fused by a feature reranker) and OpenAI (via the GapGPT proxy) fallback. Tests use **pytest**.
 
 ## Project Testing Reality (read this first)
 
-- There is **no `tests/` dir yet**, so writing the first tests means creating `tests/` and a `tests/conftest.py`. CLAUDE.md says: "The project doesn't currently have a formal test suite — if adding one, use pytest."
+- `tests/` and `tests/conftest.py` **already exist** and hold a large suite. Add to them. Read `tests/conftest.py` for the fixtures before you write a new one, and never create a second `conftest.py` at the top level.
 - The test deps are **already installed** and tracked in **`requirements-dev.txt`** (kept separate from `requirements.txt` so customer installs don't pull in pytest/Playwright): `pytest`, `pytest-asyncio`, `pytest-playwright`. `httpx` is already a runtime dependency (TestClient uses it). A fresh checkout sets up with:
   ```bash
   .venv/bin/python -m pip install -r requirements-dev.txt
@@ -26,12 +26,12 @@ You are an expert Python testing engineer generating tests for **PadyarAIChatbot
 
 ## File Layout
 
-All tests live in a top-level `tests/` directory:
+All tests live in a top-level `tests/` directory. It already holds far more files than the sketch below; this is the naming pattern to follow, not the full list:
 
 ```
 tests/
 ├── conftest.py            # shared fixtures: temp DB, TestClient, admin login, chat token
-├── test_search.py         # TF-IDF matching (app/services/search.py)
+├── test_search.py         # retrieval: BM25 + embeddings + reranker (app/services/search.py)
 ├── test_normalizer.py     # Persian normalization + synonyms (app/utils/normalizer.py)
 ├── test_security.py       # tokens, password hashing, rate limit (app/auth/security.py)
 ├── test_openai.py         # classify_intent / get_openai_response with the OpenAI client mocked
@@ -98,10 +98,14 @@ Notes:
 
 ## What to cover (this project's high-value tests)
 
-### TF-IDF search pipeline (`test_search.py`)
-- A query that closely matches a seeded dataset entry returns that entry with `score >= 0.20`.
-- An unrelated/gibberish query returns a score below threshold (so the route would fall through to the AI tier).
+### Retrieval pipeline (`test_search.py`)
+
+Retrieval is BM25 (`app/services/bm25.py`) plus local model2vec embeddings (`app/services/embeddings.py`), fused by the feature reranker (`app/services/rerank.py`). There is no TF-IDF vectorizer and no `search_backend` setting. Scores still come back on the same 0..1 scale, so the thresholds in `app/config.py` keep their meaning.
+
+- A query that closely matches a seeded dataset entry returns that entry with `score >= LOCAL_FALLBACK_THRESHOLD` (0.45).
+- An unrelated/gibberish query returns a score below that threshold (so the route would fall through to the AI tier).
 - `find_best_match` returns the tuple shape `(dict-or-None, float)`.
+- The embedding index is `None` when model2vec is not installed on the host, and retrieval then runs on BM25 alone. A test must not assume the embedding index exists.
 
 ```python
 def test_find_best_match_returns_relevant_entry(temp_db):
@@ -110,13 +114,13 @@ def test_find_best_match_returns_relevant_entry(temp_db):
 
     save_dataset([{"id": "lasik", "title": "لیزیک", "text": "توضیح لیزیک", "video_url": ""}])
     save_questions([{"question": "عمل لیزیک چیست", "dataset_id": "lasik", "video_url": ""}])
-    load_dataset_internal()  # refresh the in-memory TF-IDF index from the DB
+    load_dataset_internal()  # rebuild the in-memory BM25 + embedding indexes from the DB
 
     best, score = find_best_match("عمل لیزیک")
 
     assert best is not None
     assert best["id"] == "lasik"
-    assert score >= 0.20
+    assert score >= 0.45
 ```
 
 (Confirm the exact in-memory refresh entrypoint in `app/services/search.py` before relying on `load_dataset_internal()`.)

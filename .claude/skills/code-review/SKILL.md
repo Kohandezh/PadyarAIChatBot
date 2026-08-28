@@ -137,7 +137,7 @@ Run through these on every change — they reflect the real conventions in `CLAU
 
 ### Performance & Resource Review
 
-1. **Search pipeline** — The TF-IDF vectorizer/dataset shouldn't be rebuilt on every chat request when it can be loaded/cached once; watch for repeated full-dataset work in the hot path (`app/services/search.py`).
+1. **Search pipeline** — Retrieval is BM25 (`app/services/bm25.py`) plus local model2vec embeddings (`app/services/embeddings.py`), fused by the feature reranker (`app/services/rerank.py`). There is no TF-IDF vectorizer and no `search_backend` setting; both were removed. The BM25 and embedding indexes are built once per reindex and must not be rebuilt on every chat request. Watch for repeated full-dataset work in the hot path (`app/services/search.py`).
 2. **Database** — Queries are bounded (no unbounded `SELECT *` over growing `chat_logs` without limits/pagination); connections are opened and closed correctly.
 3. **External calls** — GapGPT/OpenAI calls have timeouts and are only made on the Tier-2 fallback path, not eagerly; failures degrade gracefully.
 4. **Media & static** — Uploaded videos/images are size/type validated; large files aren't loaded fully into memory unnecessarily.
