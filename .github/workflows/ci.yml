@@ -20,17 +20,33 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # requirements-dev.txt, not a hand-listed subset. The hand-listed one
+      # drifted: tests/test_booth_videos.py imports openpyxl at module level,
+      # which made pytest ERROR during collection and stop the entire suite,
+      # while every developer's machine had the package and stayed green.
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install -r requirements-dev.txt
+
+      # The browser tests skip themselves when chromium is missing, so without
+      # this step CI reports a pass it did not earn. They are the only check
+      # that sees a DOM defect: the "New chat" button once wiped #loading-bubble
+      # and left a permanently dead chat screen, and every source-string
+      # assertion in the suite stayed green through it.
+      - name: Install chromium for the browser tests
+        run: python -m playwright install --with-deps chromium
 
       - name: Compile check
         run: |
           python -m py_compile app/main.py app/routers/chat.py app/services/openai.py
 
+      # No --ignore. tests/e2e used to be excluded because one sync-Playwright
+      # fixture kept an event loop alive and broke 126 unrelated tests; the
+      # browser tests use the async api now, and tests/test_suite_isolation.py
+      # fails if either half of that rule is undone.
       - name: Run test suite
-        run: pytest -q --ignore=tests/e2e
+        run: pytest -q
 
   # Blocking. These assert properties that must never regress: the assistant
   # must not answer confidently from the previous event's identity, must not
@@ -52,7 +68,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install -r requirements-dev.txt
 
       - name: Retrieval evaluation + safety gates
         env:

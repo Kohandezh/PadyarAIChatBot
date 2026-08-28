@@ -8,3 +8,10 @@
 pytest
 pytest-asyncio
 pytest-playwright
+
+# tests/test_booth_videos.py imports this at module level, and
+# scripts/import-content.py reads the customer's .xlsx with it. Neither
+# is part of a customer install, so it does not belong in
+# requirements.txt — but without it here, collection ERRORS rather than
+# skips, and the whole suite stops.
+openpyxl
