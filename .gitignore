@@ -72,21 +72,30 @@ Thumbs.db
 # Large model archives (downloaded, not source)
 *.tar.bz2
 
-# Large media files.
+# Large media files. THE WHOLE media/ TREE, not a list of subdirectories.
 #
-# Both of these are RUNTIME storage, written by the admin panel while the
-# install is in use, and a fresh clone is supposed to arrive with them empty.
-# media/uploads/ was not listed here and five files from a media-upload test
-# had already been committed into it.
-media/videos/
-media/uploads/
+# media/ is RUNTIME storage, written by the admin panel while the install is in
+# use, and a fresh clone is supposed to arrive with it empty. app/main.py
+# creates it at startup, so nothing needs it in the repo.
+#
+# On a server it is a SYMLINK to /var/lib/padyar/<slug>/media (see
+# deploy/10-install-app.sh), and deploy/padyar-deploy.sh updates the checkout
+# with `git reset --hard`. Those two facts together are why a tracked file under
+# media/ is dangerous: reset --hard restores it THROUGH the symlink, straight
+# into the customer's live media store, on every single deploy. Five files from
+# an old media-upload test were doing exactly that until 2026-08-28.
+#
+# Listing subdirectories one by one is what let media/uploads/ slip in before
+# it was added. Ignore the tree, and add an exception below if a real asset
+# ever has to ship.
+media/
 .gstack/
 
 # Generated speech. TTS_CACHE_DIR points outside the repo on a real install
 # (/var/lib/padyar/tts/cache), but a developer running the engine locally gets
 # it here, and a cache is regenerable by definition — the panel's "build audio
-# for every answer" button is how it comes back.
-media/tts-cache/
+# for every answer" button is how it comes back. (media/tts-cache/ is already
+# covered by the media/ rule above; this one is for the non-media path.)
 tts-cache/
 
 # Graphify code-graph output (regenerated, not source)
