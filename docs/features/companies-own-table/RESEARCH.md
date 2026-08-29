@@ -83,13 +83,52 @@ test backend, and delete the `company_profiles` block from `_TABLES` in
 **There is no downgrade.** Rolling back means restoring a backup
 (`app/services/pg_backup.py`). Take one before the deploy.
 
-### 2. `questions` rows that point at a company
+### 2. `questions` rows that point at a company — RESOLVED, 2026-08-29
 
-Decide before writing the migration: `questions.dataset_id` may hold company
-ids. `_intent_training_set()` already throws those away, so they are dead
-weight in the index today. Count them on production first
-(`SELECT COUNT(*) FROM questions WHERE dataset_id IN (SELECT dataset_id FROM company_profiles)`),
-then either move them beside the company or delete them. Do not guess.
+Measured on inotex production: **840 rows**
+(`SELECT COUNT(*) FROM questions WHERE dataset_id IN (SELECT dataset_id FROM company_profiles)`).
+
+**They are not dead weight — this was the wrong assumption to check first.**
+`_intent_training_set()` excludes them from the CLASSIFIER's training set,
+true, but that is one of three readers of `questions_data`, not all of them.
+Traced `app/services/search.py:485-901` and `app/routers/chat.py:449-586`:
+
+- `load_dataset_internal()` loads every `questions` row, company or not, into
+  `questions_data` / `questions_embedding_index` / `questions_bm25_index` — no
+  filter.
+- `find_similar_question()` (Tier 0) scores the visitor's query against ALL of
+  them and, on a hit, resolves the answer with
+  `dataset_lookup.get(dataset_id)` (`search.py:896`).
+- `chat.py:580-585` treats an exact_score ≥ 0.9 Tier-0 hit as **authoritative,
+  outranking the company tiers** ("Tier 0 stays authoritative: a near-exact
+  hit on a hand-curated question... never overridden by the anchor").
+
+So a curated question like "شماره تماس شرکت دکیو چیست؟" is answered by Tier 0
+TODAY, live, at booth traffic — not a training-time artifact. Deleting these
+840 rows would delete real curated answers. Decision: **keep them, unchanged,
+in `questions`.**
+
+**Why no migration is needed for this table.** THE IDS DO NOT CHANGE (see
+above) — a `questions.dataset_id` that names a company keeps naming that same
+id after the move; only the table holding that id changes. The `questions`
+row itself does not need to move or be rewritten.
+
+**What DOES need to change — a second choke point, not in the reads-table
+below because it isn't a company-profile join, it's a plain
+`dataset_lookup.get(id)` that goes stale the moment companies leave
+`dataset`:**
+
+| File | What |
+| ---- | ---- |
+| `app/services/search.py:896` | `find_similar_question()` — Tier 0's answer resolution. A curated company question would keep winning the match and then silently resolve to `None` (company id no longer in `dataset_lookup`), falling through to a worse tier with no error. |
+| `app/services/search.py:813-825` | `get_entry()` — the pick/offer tier's id→entry lookup, called from `chat.py:351,378,380,401,713,750,762` and `answer.py:324`. The Tier 2 selection tier can legitimately offer a company as one of the numbered options (`ANSWER_TOPK` draws from the same corpus), so a visitor picking "2" for a company hits this exact gap. |
+
+Fix: add a module-level `companies_lookup: Dict[str, dict]` in `search.py`,
+built in `load_dataset_internal()` from `SELECT ... FROM companies` the same
+way `dataset_lookup` is built, and change exactly those two reads to
+`dataset_lookup.get(id) or companies_lookup.get(id)`. Ship this in the same
+change as the migration — it is a live-traffic regression, not a slow-burn
+one, if it lags behind.
 
 ### 3. Code that has to move
 
@@ -158,7 +197,8 @@ your change breaking something. See `local-suite-has-15-env-failures`.
 
 Take a BASELINE READING BEFORE the change, because the golden set today has
 **60 FAQ questions and zero company queries**, so it measures exactly the half
-that should improve. Recall@8 was 0.952 on 2026-08-28.
+that should improve. Recall@8 was 0.952 on 2026-08-28, reconfirmed unchanged
+on 2026-08-29 before starting the migration.
 
 Then add company queries to the golden set, which is on the backlog anyway,
 and measure both halves separately. If FAQ recall does not improve, the
@@ -169,11 +209,16 @@ knowing before the follow-up work.
 
 ## Order of work
 
-1. Count the company-owned `questions` rows on production. Decide their fate.
+1. ~~Count the company-owned `questions` rows on production. Decide their
+   fate.~~ Done 2026-08-29 — 840 rows, keep them, see section 2.
 2. Baseline `run_eval.py --recall-k`.
 3. Write `0013_companies.sql` plus the `init_db()` mirror. Test the migration
    against a restored copy of the production dump, not against a fresh DB.
-4. Move the readers, one file at a time, tests going green as you go.
+4. Move the readers, one file at a time, tests going green as you go —
+   including the `companies_lookup` fallback in `get_entry()` and
+   `find_similar_question()` from section 2. Do not ship the migration
+   without it; that pairing is what keeps Tier 0 and the pick tier answering
+   companies at all.
 5. Delete `_company_dataset_ids()` and the subtraction. This is the moment the
    change pays for itself.
 6. Re-run the eval and record both numbers in
