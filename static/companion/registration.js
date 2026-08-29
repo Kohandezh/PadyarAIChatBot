@@ -100,7 +100,7 @@
             required: 'لطفاً همهٔ فیلدها را کامل کنید.',
             badPhone: 'شماره موبایل معتبر نیست.',
             network: 'خطای شبکه. دوباره تلاش کنید.',
-            logout: 'خروج',
+            logout: 'خروج از سیستم',
             autofilled: 'کد از پیامک خوانده شد.',
             planTitle: 'بازدید هدفمند شما',
             planSub: 'بر اساس کار و علاقه‌مندی‌تان، اول سراغ این بخش‌ها بروید:',
@@ -241,14 +241,22 @@
         return [p.first_name, p.last_name].filter(Boolean).join(' ').trim();
     }
 
+    // A door-with-an-arrow, same stroke style as every other drawer-row icon
+    // (see themes/*/partials/menu.html). Built once, reused by every paint —
+    // only the label text span is rewritten (language switches, etc.).
+    var LOGOUT_ICON_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+        'aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>' +
+        '<polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>';
+
     /* Draw the logout button for anyone who is signed in.
 
        KEYED ON THE SESSION, NOT ON A NAME. It used to be keyed on the name,
        and the /verify page posts only { destination }: those visitors have
        first_name = '' and last_name = '', so displayName() was '' and this
        function REMOVED the button. They were signed in for weeks with no way
-       to sign out anywhere in the UI. The button says «خروج» / "Log out",
-       which needs no name to make sense.
+       to sign out anywhere in the UI. The button says «خروج از سیستم» /
+       "Log out", which needs no name to make sense.
 
        displayName() stays in the condition as the second half: before the server
        answers, a remembered name is enough to paint the button, so a returning
@@ -274,18 +282,25 @@
         // silently never appeared on the other two).
         const section = document.getElementById('menu-account-section');
         let logoutBtn = document.getElementById('visitor-logout');
+        // Admin-toggleable (Settings → برندینگ → «نمایش موارد منو»): the row
+        // stays hidden even for a signed-in visitor when the admin turned it
+        // off. Missing attribute (no server-rendered menu.html reached this
+        // page, e.g. the legacy fallback index.html) defaults to allowed.
+        const logoutAllowed = !section || section.dataset.showLogout !== 'false';
 
-        if (p && (server.signed_in || displayName(p))) {
+        if (logoutAllowed && p && (server.signed_in || displayName(p))) {
             if (!logoutBtn && section) {
                 logoutBtn = document.createElement('button');
                 logoutBtn.type = 'button';
                 logoutBtn.id = 'visitor-logout';
-                logoutBtn.className = 'visitor-logout menu-account-btn';
+                logoutBtn.className = 'visitor-logout menu-logout-btn';
+                logoutBtn.innerHTML = LOGOUT_ICON_SVG + '<span class="menu-logout-btn-label"></span>';
                 logoutBtn.addEventListener('click', logout);
                 section.append(logoutBtn);
             }
             if (logoutBtn) {
-                logoutBtn.textContent = t().logout;
+                const label = logoutBtn.querySelector('.menu-logout-btn-label');
+                if (label) label.textContent = t().logout;
                 logoutBtn.title = t().logout;
                 logoutBtn.setAttribute('aria-label', t().logout);
             }

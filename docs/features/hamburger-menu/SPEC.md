@@ -175,3 +175,31 @@ None in Phase 1. Phase 2 would reuse the existing `visitors`/`conversations`/`me
 - **OQ-A/OQ-B — RESOLVED 2026-08-29, then REVISED 2026-08-29.** Product owner first chose "start small" (Phase 2 deferred indefinitely — that project sounded like a large, security-relevant build). Hours later, a separate, unrelated security-remediation effort landed on `main` and independently built exactly the persistent-identity/session system that decision was deferring (`app/auth/visitor.py`, `chat.py` wired to `conversations.py`'s writes). With that risk already retired by someone else's work, the product owner revisited the decision and asked for Phase 2 after all — see `docs/features/visitor-chat-history/` for what was actually built once the calculus changed.
 - **OQ-C — RESOLVED 2026-08-29** (product owner chose "Ezafe kon" / add it): dark/light mode added to `base`/`minimal` too, matching the other three themes — same `inotex-light-mode` storage key as inotex's own toggle (one install only ever runs one active theme, so sharing the key is not a real conflict), `theme-btn` row added to a new `themes/minimal/partials/menu.html`, light-mode variable overrides added to `themes/minimal/static/style.css`. Verified live in the browser (round-trips light→dark→light correctly).
 - **OQ-D — RESOLVED** (implemented as originally requested): the speaker button's full removal — both the read-aloud feature and the only working video-unmute control — was confirmed as intended by the original request's wording ("hazvesh kon kolan" / remove it completely) and shipped as-is in Phase 1.
+
+## Phase 3 — Row visibility, logout restyle (2026-08-30)
+
+Not in the original scope; a follow-up request once Phase 1+2 were live.
+
+- **Layout**: language / theme-toggle / text-size / account are now wrapped
+  in one `.menu-footer` div (`display: flex; flex-direction: column;`)
+  pinned to the bottom of the drawer with `margin-top: auto`. `#menu-history`
+  is the drawer's one internally-scrolling region (`flex: 1 1 auto;
+  overflow-y: auto;`) — the drawer itself no longer scrolls as a whole. See
+  `static/chat/base.css`.
+- **Admin-toggleable rows**: `app/services/menu_settings.py` (four booleans,
+  same key-value pattern as `whitelabel_*`/`idle_video_*`), a card on
+  Settings → برندینگ, and `GET`/`POST /admin/api/menu-settings`. A flag only
+  ever HIDES a row a theme already renders — haj still has no language row
+  with the flag on, base still has no theme-toggle row. Rides the same
+  rendered-page-cache-invalidation contract as branding/idle-video
+  (`menu_settings_cache_key` folded into `app/services/themes.py`'s cache
+  key tuples).
+- **Logout restyle**: `#visitor-logout` (id unchanged — e2e tests depend on
+  it) now carries `.menu-logout-btn` (`static/chat/base.css`, a fixed
+  semantic red in every theme) plus an exit icon, and its Persian label is
+  "خروج از سیستم" instead of "خروج" (`static/companion/registration.js`).
+  Also newly admin-toggleable via `menu_show_logout` /
+  `data-show-logout` on `#menu-account-section`.
+- **"My chats" pagination**: see `docs/features/visitor-chat-history/SPEC.md`
+  — the list that shipped un-paginated in Phase 2 now pages 10 at a time,
+  loading more as the visitor scrolls `#menu-history` itself.

@@ -1744,29 +1744,9 @@ body.video-mode .pet-panel { bottom: 96px; }
     .reg-digits { gap: 6px; }
 }
 
-/* Signed-in control in the header */
-.visitor-logout {
-    display: inline-flex;
-    align-items: center;
-    height: 36px;
-    padding: 0 14px;
-    border: var(--border-width) solid var(--color-border-subtle);
-    border-radius: 999px;
-    background: var(--color-surface-sunken);
-    color: var(--color-text-muted);
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
-}
-
-.visitor-logout:hover { background: var(--color-surface-interactive); color: var(--color-text-primary); }
-
-.visitor-logout:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 2px;
-}
+/* Signed-in control: styled generically in static/chat/base.css
+   (.menu-logout-btn — a fixed semantic red in every theme, not a token) so
+   sign-out reads the same everywhere. Nothing INOTEX-specific to add. */
 
 
 /* ══ Light mode — liquid-crystal ═══════════════════════════════════════
@@ -1825,13 +1805,14 @@ body.light-mode .switcher__option:has(.switcher__input:checked) {
 
 body.light-mode .lang-btn,
 body.light-mode .theme-btn,
-body.light-mode .a11y-btn,
-body.light-mode .visitor-logout {
+body.light-mode .a11y-btn {
     background: #FFFFFFD9;
     color: var(--color-text-primary);
     border-color: var(--color-border-interactive);
     backdrop-filter: blur(8px);
 }
+/* .menu-logout-btn (base.css) is a fixed semantic red on purpose — it does
+   not join the frosted-glass light-mode look above, in either mode. */
 
 /* Frosted message cards */
 body.light-mode .message.bot .bubble {

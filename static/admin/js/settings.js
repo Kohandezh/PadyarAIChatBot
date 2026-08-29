@@ -521,6 +521,51 @@ export function initBranding() {
 }
 
 
+async function loadMenuSettings() {
+    try {
+        const res = await fetchAuth('/admin/api/menu-settings');
+        if (!res.ok) return;
+        const d = await res.json();
+        document.getElementById('menu-show-language').checked = !!d.menu_show_language;
+        document.getElementById('menu-show-theme-toggle').checked = !!d.menu_show_theme_toggle;
+        document.getElementById('menu-show-text-size').checked = !!d.menu_show_text_size;
+        document.getElementById('menu-show-logout').checked = !!d.menu_show_logout;
+    } catch { /* form keeps its server-rendered values */ }
+}
+
+export function initMenuSettings() {
+    const form = document.getElementById('menu-settings-form');
+    if (!form) return;
+    loadMenuSettings();
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('save-menu-settings-btn');
+        btn.disabled = true;
+        try {
+            const res = await fetchAuth('/admin/api/menu-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    show_language: document.getElementById('menu-show-language').checked,
+                    show_theme_toggle: document.getElementById('menu-show-theme-toggle').checked,
+                    show_text_size: document.getElementById('menu-show-text-size').checked,
+                    show_logout: document.getElementById('menu-show-logout').checked,
+                }),
+            });
+            let detail = '';
+            try { detail = (await res.json()).detail || ''; } catch { /* no body */ }
+            if (res.ok) showMsg('menu-settings-msg', 'ذخیره شد', 'success');
+            else showMsg('menu-settings-msg', detail || 'خطا در ذخیره', 'danger');
+        } catch {
+            showMsg('menu-settings-msg', 'خطای ارتباط با سرور', 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
+
 export function initAccount() {
     loadProfile();
 

@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-08-29 |
-| Updated | 2026-08-29 |
+| Updated | 2026-08-30 |
 | Status | Implemented |
 | Domain | chat |
 | Author | Sina Shamsizadeh (requested), drafted by Claude |
@@ -22,7 +22,7 @@ Phase 1 of `docs/features/hamburger-menu/` built the drawer's history section as
 ## Non-Goals
 
 - Not changing anonymous (not-signed-in) behavior at all — the history section stays hidden for them, exactly as Phase 1 left it.
-- Not adding pagination — a visitor's own conversation count is expected to be small; `list_conversations_for_visitor` caps at 100 and the UI shows the whole list.
+- ~~Not adding pagination~~ — **superseded 2026-08-30**: the drawer now pages 10 at a time, loading more as the visitor scrolls `#menu-history` itself; see `docs/features/hamburger-menu/SPEC.md`'s Phase 3 note. `list_conversations_for_visitor`'s 100-row cap and offset cap stand regardless.
 - Not touching `/chat` itself — reopening reuses its existing `continuable_conversation_id()` ownership check via a cookie rebind, rather than adding new continuation logic.
 - Not handling "delete the conversation you're currently mid-typing-in" as a special case in the UI — see RESEARCH.md's Risks table for why the existing backend behavior already degrades safely there.
 
@@ -45,7 +45,7 @@ Reopening a conversation via cookie rebind (rather than inventing a parallel "ac
 
 ## Functional Requirements
 
-- REQ-001: `GET /api/chat/conversations` returns the current session's own conversations (id, timestamps, message count, a short text preview), gated by `Depends(visitor_auth.require_visitor)` — anonymous gets a 401 with the `registration_required` marker, same as every other visitor-only endpoint.
+- REQ-001: `GET /api/chat/conversations?offset=N` returns one page (`MENU_HISTORY_PAGE_SIZE` = 10) of the current session's own conversations (id, timestamps, message count, a short text preview) plus `has_more`, gated by `Depends(visitor_auth.require_visitor)` — anonymous gets a 401 with the `registration_required` marker, same as every other visitor-only endpoint. Added 2026-08-30 — see `docs/features/hamburger-menu/SPEC.md`'s Phase 3 note.
 - REQ-002: `GET /api/chat/conversations/{id}` returns one conversation's full message list, only when `id` belongs to the session's visitor_id (checked in the service layer, never trusting the URL). A non-owned or nonexistent id returns the same 404 either way. As a side effect, it rebinds the `padyar_conv` cookie to `id`.
 - REQ-003: `DELETE /api/chat/conversations/{id}` deletes the conversation's messages then the conversation row, only when owned by the session's visitor_id. Same 404-either-way rule as REQ-002.
 - REQ-004: The drawer's `#menu-history` section is fetched and rendered once per drawer-open (not on every page load), and stays hidden whenever `document.documentElement.dataset.visitor !== 'in'` or the list is empty.
@@ -82,7 +82,7 @@ Frontend: `static/chat/core.js` gained `refreshMenuHistory()`, `renderMenuHistor
 
 | Method | Endpoint | Description |
 |--------|----------|--------------|
-| GET | `/api/chat/conversations` | List the current visitor's own conversations |
+| GET | `/api/chat/conversations?offset=N` | One 10-row page of the current visitor's own conversations, plus `has_more` |
 | GET | `/api/chat/conversations/{id}` | Replay one conversation's messages; makes it active |
 | DELETE | `/api/chat/conversations/{id}` | Delete one conversation the visitor owns |
 

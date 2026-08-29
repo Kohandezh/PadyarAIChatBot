@@ -1,5 +1,13 @@
 <!-- Hamburger drawer menu — everything that used to sit in the inx-header, in
-     one place: chats (Phase 2) → language → light/dark → text size → account. -->
+     one place: chats → language → light/dark → text size → account.
+
+     Layout: #menu-history is the flexible, independently-scrolling region
+     (see static/chat/base.css) — a visitor scrolls INSIDE the "my chats"
+     list to page in more, the drawer itself does not scroll. .menu-footer
+     holds every other row and is pinned to the bottom of the drawer
+     regardless of how tall or short the history list is. Each row inside
+     .menu-footer is admin-toggleable — see app/services/menu_settings.py /
+     Settings → برندینگ. -->
 <div class="menu-backdrop" id="menu-backdrop"></div>
 <nav class="menu-drawer" id="menu-drawer" data-i18n-aria-label="menuTitle" aria-label="منو">
     <button type="button" class="menu-drawer-close" id="menu-close"
@@ -11,91 +19,100 @@
         </svg>
     </button>
 
-    <!-- My chats — Phase 2, not built yet. Hidden until a visitor's
-         conversations can actually be listed/deleted server-side; see
-         docs/features/hamburger-menu/SPEC.md (Open Questions A/B). -->
+    <!-- My chats. Hidden until a signed-in visitor's list actually has rows
+         (static/chat/core.js refreshMenuHistory()); paginated 10 at a time,
+         more loading on scroll inside this section. -->
     <div class="menu-section" id="menu-history" hidden>
         <div class="menu-section-label" data-i18n="historyLabel">گفتگوهای من</div>
         <ul class="menu-history-list" id="menu-history-list"></ul>
     </div>
 
-    <div class="menu-section">
-        <div class="menu-row">
-            <span class="menu-row-label">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
-                </svg>
-                <span data-i18n="languageLabel">زبان</span>
-            </span>
-            <div class="lang-switch">
-                <button class="lang-btn" id="lang-btn" type="button" aria-label="Switch to English"
-                    title="Switch to English">EN</button>
+    <div class="menu-footer" id="menu-footer">
+        {% if menu_show_language %}
+        <div class="menu-section">
+            <div class="menu-row">
+                <span class="menu-row-label">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
+                    </svg>
+                    <span data-i18n="languageLabel">زبان</span>
+                </span>
+                <div class="lang-switch">
+                    <button class="lang-btn" id="lang-btn" type="button" aria-label="Switch to English"
+                        title="Switch to English">EN</button>
+                </div>
             </div>
         </div>
-    </div>
+        {% endif %}
 
-    <div class="menu-section">
-        <div class="menu-row">
-            <span class="menu-row-label">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-                    <circle cx="12" cy="12" r="4" />
-                </svg>
-                <span data-i18n="themeLabel">روشن / تاریک</span>
-            </span>
-            <!-- Light / dark switch. Present in the previous header and carried
-                 forward here unchanged (same id, same core.js-independent
-                 wiring in footer.html) — only its container moved. -->
-            <button class="theme-btn" id="theme-btn" type="button" aria-pressed="false"
-                title="حالت روشن" data-i18n-title="themeToggle" aria-label="Switch to light mode">
-                <span class="theme-icon-moon" aria-hidden="true">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />
-                    </svg>
-                </span>
-                <span class="theme-icon-sun" aria-hidden="true">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
+        {% if menu_show_theme_toggle %}
+        <div class="menu-section">
+            <div class="menu-row">
+                <span class="menu-row-label">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
                         <circle cx="12" cy="12" r="4" />
-                        <path d="M12 2v2" /><path d="M12 20v2" />
-                        <path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
-                        <path d="M2 12h2" /><path d="M20 12h2" />
-                        <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
                     </svg>
+                    <span data-i18n="themeLabel">روشن / تاریک</span>
                 </span>
-            </button>
-        </div>
-    </div>
-
-    <div class="menu-section">
-        <div class="menu-row">
-            <span class="menu-row-label">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M4 7V4h16v3" />
-                    <path d="M9 20h6" />
-                    <path d="M12 4v16" />
-                </svg>
-                <span data-i18n="textSizeLabel">اندازه متن</span>
-            </span>
-            <div class="menu-a11y-buttons">
-                <button class="a11y-btn" type="button" onclick="adjustFontSize(1)" title="افزایش سایز متن"
-                    data-i18n-title="fontInc" aria-label="Increase font size">A+</button>
-                <button class="a11y-btn" type="button" onclick="adjustFontSize(-1)" title="کاهش سایز متن"
-                    data-i18n-title="fontDec" aria-label="Decrease font size">A-</button>
+                <!-- Light / dark switch. Present in the previous header and carried
+                     forward here unchanged (same id, same core.js-independent
+                     wiring in footer.html) — only its container moved. -->
+                <button class="theme-btn" id="theme-btn" type="button" aria-pressed="false"
+                    title="حالت روشن" data-i18n-title="themeToggle" aria-label="Switch to light mode">
+                    <span class="theme-icon-moon" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />
+                        </svg>
+                    </span>
+                    <span class="theme-icon-sun" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="4" />
+                            <path d="M12 2v2" /><path d="M12 20v2" />
+                            <path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
+                            <path d="M2 12h2" /><path d="M20 12h2" />
+                            <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
+                        </svg>
+                    </span>
+                </button>
             </div>
         </div>
-    </div>
+        {% endif %}
 
-    <!-- Account (login/logout) — populated by static/companion/registration.js
-         only when the registration module is enabled for this install and a
-         visitor is signed in. Empty and invisible otherwise. -->
-    <div class="menu-section" id="menu-account-section"></div>
+        {% if menu_show_text_size %}
+        <div class="menu-section">
+            <div class="menu-row">
+                <span class="menu-row-label">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 7V4h16v3" />
+                        <path d="M9 20h6" />
+                        <path d="M12 4v16" />
+                    </svg>
+                    <span data-i18n="textSizeLabel">اندازه متن</span>
+                </span>
+                <div class="menu-a11y-buttons">
+                    <button class="a11y-btn" type="button" onclick="adjustFontSize(1)" title="افزایش سایز متن"
+                        data-i18n-title="fontInc" aria-label="Increase font size">A+</button>
+                    <button class="a11y-btn" type="button" onclick="adjustFontSize(-1)" title="کاهش سایز متن"
+                        data-i18n-title="fontDec" aria-label="Decrease font size">A-</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Account (login/logout) — populated by static/companion/registration.js
+             only when the registration module is enabled, a visitor is signed
+             in, AND the admin has not turned the row off (data-show-logout). -->
+        <div class="menu-section" id="menu-account-section"
+            data-show-logout="{{ 'true' if menu_show_logout else 'false' }}"></div>
+    </div>
 </nav>

@@ -515,7 +515,11 @@ button:disabled {
     flex-direction: column;
     gap: 4px;
     padding: 18px 16px;
-    overflow-y: auto;
+    /* The drawer itself does not scroll — #menu-history is the one region
+       that does (below), and .menu-footer is pinned under it. Containing
+       overflow here keeps a tall history list from growing the whole panel
+       instead of scrolling in place. */
+    overflow: hidden;
     transform: translateX(100%);
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 301;
@@ -561,6 +565,38 @@ button:disabled {
 
 .menu-section:first-of-type {
     border-top: none;
+}
+
+/* #menu-history is the drawer's one scrolling region: it grows to fill
+   whatever space is left above .menu-footer, and scrolls internally once its
+   list is taller than that — the visitor pages in more "my chats" rows by
+   scrolling here, not by scrolling the whole drawer (see core.js
+   loadMoreMenuHistory). min-height: 0 is required for a flex child to be
+   allowed to shrink below its content size; without it this never scrolls. */
+#menu-history {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Language / theme / text-size / logout — one flex column, pinned to the
+   bottom of the drawer regardless of how tall or short #menu-history is
+   (margin-top: auto does the pinning even when history is hidden/empty, and
+   costs nothing extra when #menu-history is already flex:1 and has pushed
+   this down on its own). Each row inside is admin-toggleable — see
+   app/services/menu_settings.py. */
+/* :first-of-type is relative to each element's own parent, so the existing
+   .menu-section:first-of-type rule above already drops the border on
+   whichever row lands first inside .menu-footer too (language, or theme/
+   text-size/account if admin-toggled rows above it are off) — this border
+   is only the line separating the footer as a whole from #menu-history. */
+.menu-footer {
+    display: flex;
+    flex-direction: column;
+    margin-top: auto;
+    flex-shrink: 0;
+    padding-top: 8px;
+    border-top: 1px solid rgba(128, 128, 128, 0.2);
 }
 
 .menu-section-label {
@@ -619,9 +655,46 @@ button:disabled {
     opacity: 1;
 }
 
-/* History rows (Phase 2 — see docs/features/hamburger-menu/SPEC.md).
-   #menu-history stays hidden until that work is scoped; the rules exist so
-   the section doesn't need re-styling when it is filled in. */
+/* Sign-out reads as sign-out at a glance — a semantic red, not the neutral
+   pill every other account-row control uses (docs/features/hamburger-menu/
+   SPEC.md's REQ-002 only asked for relocation; the look was never revisited
+   until now). Colors are fixed rather than theme tokens on purpose: this is
+   a safety-relevant action (a kiosk visitor accidentally signing the NEXT
+   person out of nothing, or hesitating over an ambiguous button) and must
+   read as "leave" the same way in every theme, light or dark. */
+.menu-logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: rgba(229, 72, 77, 0.12);
+    color: #e5484d;
+    border: 1px solid rgba(229, 72, 77, 0.4);
+    opacity: 1;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+}
+
+.menu-logout-btn:hover,
+.menu-logout-btn:focus-visible {
+    background: rgba(229, 72, 77, 0.22);
+    border-color: rgba(229, 72, 77, 0.6);
+}
+
+.menu-logout-btn svg {
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+}
+
+/* "My chats" rows, paginated 10 at a time — see core.js refreshMenuHistory /
+   loadMoreMenuHistory. #menu-history above holds the actual scrolling. */
 .menu-history-list {
     list-style: none;
     display: flex;

@@ -166,6 +166,20 @@ class WhitelabelBrandingRequest(BaseModel):
     welcome_text: str = ""
 
 
+class MenuSettingsRequest(BaseModel):
+    """Which hamburger-drawer rows an admin wants visible (app/services/menu_settings.py).
+
+    All default True so an install that never opens this form keeps every
+    row it has today. A theme without a given row (haj has no language row,
+    base has no theme row) is unaffected either way — these flags only ever
+    hide a row a theme already renders.
+    """
+    show_language: bool = True
+    show_theme_toggle: bool = True
+    show_text_size: bool = True
+    show_logout: bool = True
+
+
 class SmsSettingsRequest(BaseModel):
     """Registration/SMS settings.
 

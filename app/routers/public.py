@@ -155,18 +155,21 @@ async def read_root(request: Request):
     try:
         from app.services.themes import get_active_theme, render_theme_index
         from app.services.branding import chat_branding_context
+        from app.services.menu_settings import menu_settings_context
         active_theme = get_active_theme()
         token = generate_chat_token()
         # Branding is baked into the (cached) shell: same bytes for every
         # visitor, so the only per-visitor splice stays the token. The cache
         # key carries wl_cache_key for exactly this reason — see
-        # app/services/themes.py.
+        # app/services/themes.py. The hamburger-drawer row visibility flags
+        # ride the same cached-shell contract, carrying menu_settings_cache_key.
         context = {
             "theme_name": active_theme,
             "chat_token": token,
             "asset_version": _asset_version(active_theme),
         }
         context.update(chat_branding_context())
+        context.update(menu_settings_context())
         html = render_theme_index(active_theme, context)
         return html
     except Exception:
@@ -551,8 +554,10 @@ async def admin_settings_branding(request: Request):
     # is filled on first paint, no JS required; initBranding() re-reads via
     # the API like every other settings page.
     from app.services.branding import get_branding
+    from app.services.menu_settings import get_menu_settings
     return _render("admin/settings_branding.html", request=request,
-                   active_page="settings_branding", branding=get_branding())
+                   active_page="settings_branding", branding=get_branding(),
+                   menu_settings=get_menu_settings())
 
 
 # --- Public APIs ---

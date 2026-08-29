@@ -71,13 +71,51 @@
                 </form>
             </div>
         </div>
+
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-bars me-2"></i>نمایش موارد منو</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    این موارد در منوی همبرگری صفحهٔ چت (کنار دکمهٔ ☰) دیده می‌شوند. هر کدام را
+                    می‌توانید خاموش کنید تا از منو حذف شود؛ تم‌هایی که از ابتدا زبان یا حالت
+                    روشن/تاریک ندارند (مثلاً تم حج)، با روشن کردن این کلید چیزی اضافه نمی‌شود.
+                </p>
+                <form id="menu-settings-form">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="menu-show-language"
+                            {% if menu_settings.menu_show_language %}checked{% endif %}>
+                        <label class="form-check-label" for="menu-show-language">زبان</label>
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="menu-show-theme-toggle"
+                            {% if menu_settings.menu_show_theme_toggle %}checked{% endif %}>
+                        <label class="form-check-label" for="menu-show-theme-toggle">حالت روشن و تاریک</label>
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="menu-show-text-size"
+                            {% if menu_settings.menu_show_text_size %}checked{% endif %}>
+                        <label class="form-check-label" for="menu-show-text-size">اندازهٔ متن</label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="menu-show-logout"
+                            {% if menu_settings.menu_show_logout %}checked{% endif %}>
+                        <label class="form-check-label" for="menu-show-logout">خروج از سیستم</label>
+                    </div>
+                    <button type="submit" id="save-menu-settings-btn" class="btn btn-primary">ذخیره</button>
+                    <div id="menu-settings-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block page_js %}
 <script type="module">
-    import { initBranding } from '/static/admin/js/settings.js';
+    import { initBranding, initMenuSettings } from '/static/admin/js/settings.js';
     initBranding();
+    initMenuSettings();
 </script>
 {% endblock %}

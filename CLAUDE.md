@@ -177,6 +177,7 @@ PadyarAIChatbot/
       taxonomy.py                # Loads/validates data/visit-taxonomy.json (hot-reload)
       visit_plan.py              # Matches a visitor profile to INOTEX sections
       themes.py                  # Theme discovery from themes/ dir
+      menu_settings.py           # Hamburger-drawer row visibility (admin-toggleable)
       backup.py                  # DB backup scheduler + operations
 
     db/                          # Database layer
@@ -558,6 +559,7 @@ Active theme is stored in the `settings` table (key `active_theme`) and switchab
 | `app/services/otp.py`     | OTP lifecycle + `otp_challenges` schema — read before touching auth |
 | `app/services/sms.py`     | SMS gateways — credential precedence (settings → env → default) |
 | `app/services/taxonomy.py`| Registration/planner vocabulary — validates + hot-reloads the JSON |
+| `app/services/menu_settings.py` | Hamburger-drawer row visibility (language/theme/text-size/logout), admin-toggleable |
 | `app/db/connection.py`    | Database schema — table definitions, seeding                    |
 | `app/auth/security.py`    | All security — tokens, rate limits, admin auth                  |
 | `app/utils/normalizer.py` | Persian text processing — normalization, synonyms               |
