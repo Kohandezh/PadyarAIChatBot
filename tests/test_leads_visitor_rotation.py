@@ -142,13 +142,14 @@ def _seed_company_and_lead(visitor_id, dataset_id, status="verified"):
 
     Direct SQL, like tests/test_leads_visitors_admin.py: the OTP round trip
     that normally creates this row belongs to another module and is not what
-    is under test here.
+    is under test here. Companies are their own table now
+    (migrations/0013_companies.sql), not `dataset` rows.
     """
     from app.db.connection import get_db_connection
     lead_id = secrets.token_urlsafe(8)
     conn = get_db_connection()
     try:
-        conn.execute("INSERT INTO dataset (id, title, text) VALUES (?, ?, ?)",
+        conn.execute("INSERT INTO companies (id, title, text) VALUES (?, ?, ?)",
                      (dataset_id, "شرکت نمونه", "متن قدیمی"))
         conn.execute(
             "INSERT INTO company_leads (id, dataset_id, company_name, visitor_id,"

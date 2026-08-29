@@ -5,17 +5,16 @@ Why this exists (measured in production, 2026-08-27): «شرکت‌های هوش
 only ever pick ONE entry — list questions were structurally unanswerable and
 the outcome depended on phrasing. Worse, the faq-20 entry is literally the
 out-of-scope REFUSAL text and contains «هوش مصنوعی اینوتکس», which made it a
-token magnet: Tier 1 served the refusal at 0.81 as the "answer". The dataset
-actually holds ~169 company entries (one dataset row per company, each with a
-company_profiles row carrying activity_field), so the right answer was a list
-of the AI companies.
+token magnet: Tier 1 served the refusal at 0.81 as the "answer". The knowledge
+base actually holds ~169 companies (one `companies` row each, carrying
+activity_field), so the right answer was a list of the AI companies.
 
 This tier answers list questions straight from the database — no LLM, no
 similarity model. Everything here is deterministic: a conservative
-list-intent check on the tokens the visitor actually typed, a JOIN over
-dataset × company_profiles, and an all-keywords filter. When anything is off
-(no list intent, no profiles table, a topic no company matches), it returns
-None and the existing pipeline proceeds unchanged.
+list-intent check on the tokens the visitor actually typed, a read of
+`companies`, and an all-keywords filter. When anything is off (no list
+intent, no companies, a topic no company matches), it returns None and the
+existing pipeline proceeds unchanged.
 """
 
 from difflib import SequenceMatcher
@@ -270,11 +269,10 @@ def _select_facets(tokens: list, companies: list):
 
 
 def _load_companies() -> list:
-    """Every dataset row that IS a company (has a company_profiles row).
-
-    Deliberately no ensure_tables() call: an install without the leads module
-    has no company_profiles table, and that absence simply means this tier is
-    off — creating the table here would grow schema the install never ordered.
+    """Every company. See migrations/0013_companies.sql: a company used to be
+    a `dataset` row with a matching `company_profiles` row (this was a JOIN);
+    it is now one row of `companies`, so every row this reads back IS a
+    company, no join and no separate "is this one?" test needed.
     """
     from app.db.connection import get_db_connection
     conn = get_db_connection()
@@ -283,9 +281,8 @@ def _load_companies() -> list:
             # video_url comes along because a listed company is a PICKABLE
             # company: the chip the visitor taps carries its booth clip, and a
             # title and its clip must never be looked up separately.
-            "SELECT d.id, d.title, d.title_en, d.text, d.video_url,"
-            " p.activity_field, p.province, p.company_type"
-            " FROM dataset d JOIN company_profiles p ON p.dataset_id = d.id"
+            "SELECT id, title, title_en, text, video_url,"
+            " activity_field, province, company_type FROM companies"
         ).fetchall()
     finally:
         conn.close()
@@ -453,12 +450,11 @@ def _requested_field(tokens: list):
 def answer_company_field(query: str, entry: dict, lang: str = "fa"):
     """The one recorded fact this query asks about a named company, or None.
 
-    `entry` is the dataset row resolve_named_entity() already produced, so the
+    `entry` is the entry resolve_named_entity() already produced, so the
     company is settled before this runs and this only has to decide WHICH
-    field. None means "not mine" — not a field question, no profile row, the
-    requested field empty for this company, or any DB fault (an install
-    without the leads module has no company_profiles table). This tier
-    degrades, it never raises.
+    field. None means "not mine" — not a field question, no matching company
+    row, the requested field empty for this company, or any DB fault. This
+    tier degrades, it never raises.
     """
     if not entry:
         return None

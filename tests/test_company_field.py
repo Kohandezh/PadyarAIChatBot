@@ -105,10 +105,19 @@ EXTRA_DATASET = [
 
 
 def _seed(companies=COMPANIES, extra_dataset=EXTRA_DATASET, with_profiles=True):
-    """Insert dataset rows (+ optional company_profiles) and reindex."""
+    """Insert dataset rows + companies (merged profile columns) and reindex.
+
+    Companies are their own table now (migrations/0013_companies.sql).
+    ``with_profiles=False`` reproduces the "no way to answer a field
+    question" shape without a company_profiles table to omit: the "co-*" rows
+    are inserted as plain `dataset` rows instead of `companies` rows, so
+    `public_profile()` finds nothing for them (a `companies` row that does not
+    exist reads exactly like an empty profile did before this migration).
+    """
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     # Empty synonym table: expansion must not blur the token overlaps the
     # anchor and the field detection are built on.
@@ -117,28 +126,19 @@ def _seed(companies=COMPANIES, extra_dataset=EXTRA_DATASET, with_profiles=True):
         conn.execute("INSERT INTO dataset (id, title, text, video_url)"
                      " VALUES (?, ?, ?, '')", (i, title, text))
     for c in companies:
-        conn.execute("INSERT INTO dataset (id, title, text, video_url)"
-                     " VALUES (?, ?, ?, '')", (c["id"], c["title"], c["text"]))
-    conn.commit()
-    conn.close()
-
-    if with_profiles:
-        # The leads module owns the SQLite mirror of company_profiles — the
-        # same ensure call the app itself uses.
-        from app.services import leads
-        leads.ensure_tables()
-        conn = dbc.get_db_connection()
-        for c in companies:
+        if with_profiles:
             prof = c["profile"]
             cols = ", ".join(prof.keys())
             marks = ", ".join("?" for _ in prof)
             conn.execute(
-                f"INSERT INTO company_profiles (dataset_id, {cols},"
-                f" created_at, updated_at)"
-                f" VALUES (?, {marks}, '2026-08-27', '2026-08-27')",
-                (c["id"], *prof.values()))
-        conn.commit()
-        conn.close()
+                f"INSERT INTO companies (id, title, text, video_url, {cols})"
+                f" VALUES (?, ?, ?, '', {marks})",
+                (c["id"], c["title"], c["text"], *prof.values()))
+        else:
+            conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                         " VALUES (?, ?, ?, '')", (c["id"], c["title"], c["text"]))
+    conn.commit()
+    conn.close()
 
     from app.services import search
     search.load_dataset_internal()
@@ -207,7 +207,7 @@ def _entry(query):
 def test_a_phone_question_answers_with_that_companys_public_phone(client, monkeypatch):
     """The company's own landline is public record. The visitor named the
     company and asked for its number — that number is the answer, straight
-    from company_profiles, with no model call."""
+    from `companies`, with no model call."""
     _seed()
     _mock_ai(monkeypatch, forbid=True)
     r = _ask(client, "شماره تماس شرکت دکیو چیست؟")
@@ -287,8 +287,8 @@ def test_an_empty_public_field_falls_back_to_the_company_description(client, mon
 
 
 def test_an_install_without_company_profiles_still_answers_a_field_question(client, monkeypatch):
-    """An install without the leads module has no company_profiles table.
-    Any DB error switches the tier off: no exception, normal pipeline."""
+    """A named entity with no row in `companies` (or any DB error) switches
+    the field tier off: no exception, normal pipeline."""
     _seed(with_profiles=False)
     _mock_ai(monkeypatch)
     query = "شماره تماس شرکت دکیو چیست؟"

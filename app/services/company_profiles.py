@@ -2,26 +2,20 @@
 
 THE RELATION THIS SERVES
 ------------------------
-One `dataset` row IS one company (the chatbot's answer sheet), and this table
-hangs off it 1:1 by primary key:
+A company is one row of `app.companies` — see
+migrations/0013_companies.sql and docs/features/companies-own-table/RESEARCH.md
+for why: it used to be a `dataset` row (what the PUBLIC reads) plus a
+`company_profiles` row (what the ORGANIZER knows), joined 1:1 by id, and
+every reader had to remember to do that join. Now it is one row, one table.
+This module is what remains of the old `company_profiles` service: the same
+functions, reading and writing the profile-shaped COLUMNS of that one row
+instead of a whole separate table.
 
-    dataset.id ◄──── company_profiles.dataset_id (PK, no separate id)
-                     company_leads.dataset_id  (the capture/consent events)
-
-Three tables, three lifetimes, deliberately not merged:
-
-  * `dataset` — what the PUBLIC reads (title, text, video). Core module.
-  * `company_profiles` — what the ORGANIZER knows (contact, address, type).
-    Imported in bulk, edited here, never shown to the public as-is.
-  * `company_leads` — a VERIFIED CAPTURE EVENT (OTP at the booth or an admin
-    vouching). A row there OWNS the company. Spreadsheet data is not consent,
-    so importing it must never create a lead — that would claim all 169
-    companies and lock the booth out of every one of them (search_companies
-    hides owned companies).
-
-The schema lives in migrations/0008_company_profiles.sql (PostgreSQL) and in
-`_TABLES` of app/services/leads.py (the SQLite test mirror), the same split
-every other table in this module uses.
+`company_leads` stays a separate table, deliberately: a lead is a VERIFIED
+CAPTURE EVENT (OTP at the booth or an admin vouching), not a fact about the
+company. Importing a spreadsheet must never create a lead — that would claim
+every company and lock the booth out of all of them (search_companies hides
+owned companies, see app/services/leads.py).
 """
 
 
@@ -34,9 +28,9 @@ class ProfileError(Exception):
 
 
 # The editable profile fields, in the order the admin form shows them. The
-# company name itself (dataset.title / title_en / text) is NOT here: it is the
-# chatbot's public answer and belongs to the dataset page — one fact, one
-# editor.
+# company name itself (companies.title / title_en / text) is NOT here: it is
+# the chatbot's public answer and belongs to the dataset-style editor, not
+# this one — one fact, one editor.
 PROFILE_FIELDS = (
     "contact_name", "contact_position", "contact_mobile",
     "email", "website", "company_phone", "fax",
@@ -46,9 +40,9 @@ PROFILE_FIELDS = (
 )
 
 # What a VISITOR may be told. This is an ALLOWLIST on purpose: a column added
-# to company_profiles later is withheld until someone deliberately adds it
-# here. A denylist would publish every new column by default, and the one
-# time that is wrong it is wrong about somebody's personal data.
+# to `companies` later is withheld until someone deliberately adds it here. A
+# denylist would publish every new column by default, and the one time that
+# is wrong it is wrong about somebody's personal data.
 #
 # Read against the workbook mapping (PROFILE_MAP in scripts/import-content.py)
 # these are the COMPANY's own coordinates: the workbook `phone` column lands in
@@ -70,20 +64,19 @@ PUBLIC_PROFILE_FIELDS = (
 # these five may ever leave this module.
 
 
-def ensure_tables() -> None:
-    # The DDL lives with the leads module's tables (this table is part of the
-    # same feature surface and is created by the same ensure call).
-    from app.services import leads
-    leads.ensure_tables()
-
-
 def get_profile(dataset_id: str) -> dict:
-    ensure_tables()
+    """The profile-shaped columns of one company, or {} if it does not exist.
+
+    `companies` is a core table (created in init_db(), unlike the old
+    company_profiles which lived behind the leads module's ensure_tables()),
+    so there is no table-creation step here any more.
+    """
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
         row = conn.execute(
-            "SELECT * FROM company_profiles WHERE dataset_id = ?", (dataset_id,)
+            "SELECT id AS dataset_id, " + ", ".join(PROFILE_FIELDS)
+            + " FROM companies WHERE id = ?", (dataset_id,)
         ).fetchone()
     finally:
         conn.close()
@@ -98,18 +91,13 @@ def public_profile(dataset_id: str) -> dict:
     table itself, so the allowlist is one gate and not a rule each caller has
     to remember. The SELECT names the public columns explicitly: a withheld
     column is never even loaded into memory on a visitor's request path.
-
-    Deliberately no ensure_tables() call, same as the company-list tier: an
-    install without the leads module has no company_profiles table, and that
-    absence just means there is nothing public to say — it is not a reason to
-    grow schema the install never ordered. The caller catches the DB error.
     """
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
         row = conn.execute(
             "SELECT " + ", ".join(PUBLIC_PROFILE_FIELDS)
-            + " FROM company_profiles WHERE dataset_id = ?", (dataset_id,)
+            + " FROM companies WHERE id = ?", (dataset_id,)
         ).fetchone()
     finally:
         conn.close()
@@ -122,13 +110,17 @@ def public_profile(dataset_id: str) -> dict:
 
 
 def upsert_profile(dataset_id: str, values: dict) -> dict:
-    """Create or update the one profile of a dataset row.
+    """Update the profile columns of an existing company row.
 
     Unknown keys are dropped rather than stored: the import path and the form
     both build field dicts, and a typo surviving silently into a column nobody
     reads is how profiles drift from the schema.
+
+    "Upsert" is a holdover name from when this wrote a separate table keyed on
+    dataset_id; a company row always already exists in `companies` by the time
+    this runs (companies are created on the dataset-style editor / by import,
+    never by this form), so this is always an UPDATE.
     """
-    ensure_tables()
     from datetime import datetime, timezone
     from app.db.connection import get_db_connection
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
@@ -138,22 +130,17 @@ def upsert_profile(dataset_id: str, values: dict) -> dict:
     conn = get_db_connection()
     try:
         company = conn.execute(
-            "SELECT id FROM dataset WHERE id = ?", (dataset_id,)
+            "SELECT id FROM companies WHERE id = ?", (dataset_id,)
         ).fetchone()
         if company is None:
             raise ProfileError("این شرکت در دانش‌نامه نیست.", status=404)
-        # Upsert by primary key: an import re-running never duplicates a
-        # profile, and the admin form overwrites what the import left.
         # Timestamps are Python-side values (naive UTC), the convention every
         # other table here uses — datetime('now') is SQLite-only.
         conn.execute(
-            "INSERT INTO company_profiles (dataset_id, " + ", ".join(clean.keys())
-            + ", source, created_at, updated_at)"
-            " VALUES (?, " + ", ".join("?" for _ in clean) + ", 'admin', ?, ?)"
-            " ON CONFLICT(dataset_id) DO UPDATE SET "
-            + ", ".join(f"{k} = excluded.{k}" for k in clean)
-            + ", updated_at = excluded.updated_at",
-            (dataset_id, *clean.values(), now, now),
+            "UPDATE companies SET "
+            + ", ".join(f"{k} = ?" for k in clean)
+            + ", source = 'admin', updated_at = ? WHERE id = ?",
+            (*clean.values(), now, dataset_id),
         )
         conn.commit()
     finally:
@@ -174,24 +161,18 @@ def sync_from_lead(lead: dict) -> None:
     must not roll back because a display table could not be refreshed.
     """
     try:
-        ensure_tables()
         from datetime import datetime, timezone
         from app.db.connection import get_db_connection
         now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         conn = get_db_connection()
         try:
             conn.execute(
-                "INSERT INTO company_profiles (dataset_id, contact_name,"
-                " contact_position, contact_mobile, source, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, 'booth', ?, ?)"
-                " ON CONFLICT(dataset_id) DO UPDATE SET"
-                " contact_name = excluded.contact_name,"
-                " contact_position = excluded.contact_position,"
-                " contact_mobile = excluded.contact_mobile,"
-                " source = 'booth', updated_at = excluded.updated_at",
-                (lead["dataset_id"],
-                 (lead.get("first_name", "") + " " + lead.get("last_name", "")).strip(),
-                 lead.get("position", ""), lead.get("phone", ""), now, now),
+                "UPDATE companies SET contact_name = ?, contact_position = ?,"
+                " contact_mobile = ?, source = 'booth', updated_at = ?"
+                " WHERE id = ?",
+                ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip(),
+                 lead.get("position", ""), lead.get("phone", ""), now,
+                 lead["dataset_id"]),
             )
             conn.commit()
         finally:
@@ -202,11 +183,17 @@ def sync_from_lead(lead: dict) -> None:
 
 
 def list_companies(query: str = "", limit: int = 500) -> list:
-    """Every dataset entry beside its profile AND its capture state.
+    """Every company beside what is known about it AND its capture state.
 
-    All of `dataset`, not only rows with a profile: the operator's job is to
-    see which companies still have a hole (no profile) — a list that hides
-    them shows a finished page that is not finished.
+    All of `companies`: every row here IS a company (unlike the old `dataset`,
+    which also held FAQ rows), so there is no LEFT JOIN of "which dataset rows
+    are companies" left to do.
+
+    `has_profile` used to mean "a company_profiles row exists at all" — now
+    every company row exists by construction, so the operator-facing question
+    it answers ("which companies still have a hole") is reframed as "does this
+    company have ANY recorded profile data yet" — true when at least one of
+    the profile columns is non-empty.
 
     `lead_status` is the SALES lens (why this whole feature exists): which
     companies nobody has approached yet, which are being worked, which are
@@ -215,34 +202,39 @@ def list_companies(query: str = "", limit: int = 500) -> list:
     review) — and NULL when the company is still untouched. Released or
     unverified attempts are history, not a state: the company is back to
     "not approached", which is exactly what the next visitor needs to see.
+
+    `company_leads` is still a `leads`-module table (see app/services/leads.py
+    `_TABLES`), unlike `companies` itself, so this — unlike get_profile/
+    upsert_profile/public_profile, which only ever touch `companies` — still
+    needs the ensure call.
     """
-    ensure_tables()
     from app.db.connection import get_db_connection
-    from app.services.leads import _live_owner
+    from app.services.leads import _live_owner, ensure_tables
+    ensure_tables()
     term = (query or "").strip()
     conn = get_db_connection()
     try:
         if term:
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            where = (" WHERE (d.title LIKE ? ESCAPE '\\'"
-                     " OR p.contact_name LIKE ? ESCAPE '\\'"
-                     " OR p.activity_field LIKE ? ESCAPE '\\'"
-                     " OR p.province LIKE ? ESCAPE '\\')")
+            where = (" WHERE (c.title LIKE ? ESCAPE '\\'"
+                     " OR c.contact_name LIKE ? ESCAPE '\\'"
+                     " OR c.activity_field LIKE ? ESCAPE '\\'"
+                     " OR c.province LIKE ? ESCAPE '\\')")
             args = [f"%{escaped}%"] * 4
         else:
             where, args = "", []
         rows = conn.execute(
-            "SELECT d.id, d.title, d.title_en,"
-            " p.contact_name, p.contact_position, p.contact_mobile,"
-            " p.email, p.website, p.company_phone, p.province,"
-            " p.company_type, p.activity_field, p.participation,"
-            " (p.dataset_id IS NOT NULL) AS has_profile,"
+            "SELECT c.id, c.title, c.title_en, " + ", ".join(f"c.{f}" for f in PROFILE_FIELDS) + ","
             " o.status AS lead_status, o.id AS lead_id"
-            " FROM dataset d"
-            " LEFT JOIN company_profiles p ON p.dataset_id = d.id"
-            " LEFT JOIN company_leads o ON o.dataset_id = d.id AND " + _live_owner("o")
-            + where + " ORDER BY d.title LIMIT ?", (*args, limit)
+            " FROM companies c"
+            " LEFT JOIN company_leads o ON o.dataset_id = c.id AND " + _live_owner("o")
+            + where + " ORDER BY c.title LIMIT ?", (*args, limit)
         ).fetchall()
     finally:
         conn.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["has_profile"] = any((d.get(f) or "").strip() for f in PROFILE_FIELDS)
+        out.append(d)
+    return out

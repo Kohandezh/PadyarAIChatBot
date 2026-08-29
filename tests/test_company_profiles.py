@@ -1,9 +1,10 @@
 """Company profiles: the organizer's exhibitor data beside the chatbot's.
 
-The relation under test — three tables, three lifetimes:
+The relation under test — two tables now (migrations/0013_companies.sql
+merged what used to be `dataset` + `company_profiles` into one `companies`
+row per company):
 
-    dataset.id ◄── company_profiles.dataset_id  (what we KNOW, 1:1)
-                ◄── company_leads.dataset_id    (a VERIFIED capture event)
+    companies.id ◄── company_leads.dataset_id    (a VERIFIED capture event)
 
 The load-bearing rule: profile data never creates a lead and never claims a
 company. If an upsert left a company owned, the booth search would hide all
@@ -29,7 +30,9 @@ def admin_client(tmp_path, monkeypatch):
         from app.services import leads as leads_svc
         leads_svc.ensure_tables()
         conn = get_db_connection()
-        conn.execute("INSERT INTO dataset (id, title, text)"
+        # Companies are their own table now (migrations/0013_companies.sql),
+        # not `dataset` rows.
+        conn.execute("INSERT INTO companies (id, title, text)"
                      " VALUES ('co-a', 'شرکت آ', 'متن آ'), ('co-b', 'شرکت ب', 'متن ب')")
         token = secrets.token_hex(16)
         conn.execute("INSERT OR IGNORE INTO admins (username, password_hash, salt,"
@@ -83,18 +86,20 @@ def test_the_round_trip_and_the_ownership_rule(admin_client):
     rows = admin_client.get("/admin/api/company-profiles?q=هوش مصنوعی").json()["companies"]
     assert [c["id"] for c in rows] == ["co-a"]
 
-    # Re-save updates in place — one profile per company, never two.
+    # Re-save updates in place — one row per company, never two (a PRIMARY
+    # KEY makes that structural now, but the total company count must stay
+    # unchanged and the new value must have landed on the right row).
     admin_client.put("/admin/api/company-profiles/co-a",
                      json={"contact_name": "نام تازه"})
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
-        n = conn.execute("SELECT COUNT(*) c FROM company_profiles").fetchone()["c"]
-        name = conn.execute("SELECT contact_name FROM company_profiles"
-                            " WHERE dataset_id = 'co-a'").fetchone()["contact_name"]
+        n = conn.execute("SELECT COUNT(*) c FROM companies").fetchone()["c"]
+        name = conn.execute("SELECT contact_name FROM companies"
+                            " WHERE id = 'co-a'").fetchone()["contact_name"]
     finally:
         conn.close()
-    assert n == 1 and name == "نام تازه"
+    assert n == 2 and name == "نام تازه"
 
 
 def test_upsert_drops_unknown_fields_and_refuses_unknown_companies(admin_client):
@@ -104,7 +109,7 @@ def test_upsert_drops_unknown_fields_and_refuses_unknown_companies(admin_client)
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
-        cols = [c[1] for c in conn.execute("PRAGMA table_info(company_profiles)")]
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(companies)")]
         assert "status" not in cols
     finally:
         conn.close()

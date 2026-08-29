@@ -68,6 +68,7 @@ def client(tmp_path, monkeypatch):
         import app.db.connection as dbc
         conn = dbc.get_db_connection()
         conn.execute("DELETE FROM dataset")
+        conn.execute("DELETE FROM companies")
         conn.execute("DELETE FROM questions")
         # Empty synonym table: expansion must not change token overlaps and
         # blur the Jaccard scores these tests are built on.
@@ -224,6 +225,7 @@ def _reseed(dataset_rows, questions=(), synonyms=(), profiles=None):
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     conn.execute("DELETE FROM synonyms")
     conn.executemany(
@@ -238,14 +240,21 @@ def _reseed(dataset_rows, questions=(), synonyms=(), profiles=None):
     conn.close()
 
     if profiles is not None:
-        from app.services import leads
-        leads.ensure_tables()
+        # `profiles` names existing `dataset` rows that should ALSO be
+        # companies. Since companies are their own table now
+        # (migrations/0013_companies.sql), that means moving the row rather
+        # than adding a side profile: delete it from `dataset` and write the
+        # merged shape into `companies`.
         conn = dbc.get_db_connection()
         for dataset_id, field in profiles:
+            row = conn.execute(
+                "SELECT title, text, video_url FROM dataset WHERE id = ?",
+                (dataset_id,)).fetchone()
+            conn.execute("DELETE FROM dataset WHERE id = ?", (dataset_id,))
             conn.execute(
-                "INSERT INTO company_profiles (dataset_id, activity_field,"
-                " created_at, updated_at) VALUES (?, ?, '2026-08-27', '2026-08-27')",
-                (dataset_id, field))
+                "INSERT INTO companies (id, title, text, video_url,"
+                " activity_field) VALUES (?, ?, ?, ?, ?)",
+                (dataset_id, row["title"], row["text"], row["video_url"], field))
         conn.commit()
         conn.close()
 

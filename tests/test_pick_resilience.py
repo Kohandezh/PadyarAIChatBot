@@ -52,22 +52,19 @@ def _seed(companies=COMPANIES, field="هوش مصنوعی"):
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     conn.execute("DELETE FROM synonyms")
-    for i, title, text, video in list(EXTRA) + list(companies):
+    for i, title, text, video in EXTRA:
         conn.execute("INSERT INTO dataset (id, title, text, video_url)"
                      " VALUES (?, ?, ?, ?)", (i, title, text, video))
-    conn.commit()
-    conn.close()
-
-    from app.services import leads
-    leads.ensure_tables()
-    conn = dbc.get_db_connection()
-    for i, _t, _x, _v in companies:
+    # Companies are their own table now (migrations/0013_companies.sql), not
+    # `dataset` rows with a side `company_profiles` row.
+    for i, title, text, video in companies:
         conn.execute(
-            "INSERT INTO company_profiles (dataset_id, activity_field,"
-            " province, created_at, updated_at)"
-            " VALUES (?, ?, 'تهران', '2026-08-28', '2026-08-28')", (i, field))
+            "INSERT INTO companies (id, title, text, video_url,"
+            " activity_field, province)"
+            " VALUES (?, ?, ?, ?, ?, 'تهران')", (i, title, text, video, field))
     conn.commit()
     conn.close()
 
@@ -246,7 +243,10 @@ def _fake_candidates(monkeypatch, ids, scores=None):
     from app.services import search
 
     scores = scores or [0.60 - 0.05 * i for i in range(len(ids))]
-    cands = [(search.dataset_lookup[i], s, {"lexical": s})
+    # A candidate can be a company now (migrations/0013_companies.sql moved
+    # companies out of `dataset`), same fallback the production code uses.
+    cands = [(search.dataset_lookup.get(i) or search.companies_lookup[i], s,
+              {"lexical": s})
              for i, s in zip(ids, scores)]
     monkeypatch.setattr(chat, "find_top_matches", lambda query, k=8: cands)
 
@@ -259,7 +259,8 @@ def _decision(candidates, query=NEUTRAL_QUERY):
 
 def _cands(*specs):
     from app.services import search
-    return [{**search.dataset_lookup[i], "score": s} for i, s in specs]
+    return [{**(search.dataset_lookup.get(i) or search.companies_lookup[i]),
+             "score": s} for i, s in specs]
 
 
 def test_an_options_reply_naming_line_numbers_is_not_a_none_verdict(client, monkeypatch):
@@ -374,7 +375,7 @@ def test_paging_after_the_rest_of_the_list_was_deleted_prints_no_empty_list(clie
 
     from app.db.connection import get_db_connection
     conn = get_db_connection()
-    conn.execute("DELETE FROM dataset WHERE id LIKE 'co-%'")
+    conn.execute("DELETE FROM companies WHERE id LIKE 'co-%'")
     conn.commit()
     conn.close()
     from app.services import search
@@ -406,7 +407,7 @@ def test_paging_when_only_the_names_already_shown_survive_prints_no_empty_list(c
     conn = get_db_connection()
     for cid, _t, _x, _v in COMPANIES:
         if cid not in shown_ids:
-            conn.execute("DELETE FROM dataset WHERE id = ?", (cid,))
+            conn.execute("DELETE FROM companies WHERE id = ?", (cid,))
     conn.commit()
     conn.close()
     from app.services import search
@@ -467,7 +468,7 @@ def test_paging_after_some_of_the_list_was_deleted_counts_only_what_survived(
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     for cid in unshown[:2]:
-        conn.execute("DELETE FROM dataset WHERE id = ?", (cid,))
+        conn.execute("DELETE FROM companies WHERE id = ?", (cid,))
     conn.commit()
     conn.close()
     from app.services import search

@@ -22,6 +22,16 @@ questions_data: List[dict] = []
 normalized_questions: List[str] = []
 dataset_lookup: Dict[str, dict] = {}
 
+# id -> company row, built the same way as dataset_lookup. Companies left
+# `dataset` in migrations/0013_companies.sql, but a curated question
+# (find_similar_question) or a numbered pick (get_entry) can still resolve to
+# a company id, and the named-entity anchor (resolve_named_entity) can still
+# name one — see docs/features/companies-own-table/RESEARCH.md section 2.
+# Every id-based reader that used to find a company through dataset_lookup
+# now tries this as a fallback: `dataset_lookup.get(id) or
+# companies_lookup.get(id)`.
+companies_lookup: Dict[str, dict] = {}
+
 # Semantic indexes (local model2vec embeddings, no external API). Rebuilt on
 # every reindex, so dataset edits in the panel refresh them. None when
 # model2vec is not installed on this host — retrieval then runs on BM25 alone.
@@ -93,72 +103,27 @@ def _bm25_only(index, normalized_query: str, k: int):
         return []
 
 
-def _company_dataset_ids() -> set:
-    """Dataset ids that are exhibitor companies, or an empty set.
-
-    Authoritative definition, copied from company_search._load_companies():
-    a dataset row is a company when company_profiles holds a row keyed by its
-    id. An install without the leads module has no such table, and the empty
-    set that comes back is the correct answer for it — nothing is a company.
-    """
-    try:
-        conn = get_db_connection()
-    except Exception as e:  # noqa: BLE001 — reindex must survive a DB fault
-        logger.error(f"[intent] cannot read company_profiles: {e}")
-        return set()
-    try:
-        rows = conn.execute("SELECT dataset_id FROM company_profiles").fetchall()
-        return {r[0] for r in rows if r[0]}
-    except Exception:
-        # No company_profiles table on this install. Not an error.
-        return set()
-    finally:
-        conn.close()
-
-
 def _intent_training_set(matrix, questions):
-    """(vectors, labels) for intent.train, with company rows dropped.
+    """(vectors, labels) for intent.train.
 
-    WHY. The classifier's labels are dataset ids. This install holds 222
-    dataset rows and 168 of them are exhibitor companies, so "which record is
-    this?" was being modelled as a 222-way problem with a handful of examples
-    per class. The head came out noisy and overconfident: «شرکتای فین تک هم
-    دارین؟» (any fintech companies?) returned one unrelated company about
-    deaf-accessibility content, because a near-singleton class won a softmax
-    that should never have been asked the question.
+    Used to also drop company-labeled questions here (this install held 222
+    dataset rows, 168 of them exhibitor companies, so "which record is this?"
+    was a 222-way problem with a handful of examples per class — a
+    near-singleton company class could win a softmax that should never have
+    been asked the question). That filter is gone: migrations/0013_companies.sql
+    moved companies out of `dataset` entirely, so a company id predicted here
+    no longer resolves through classify_intent_local's plain
+    `dataset_lookup.get(dataset_id)` — it simply falls through to the next
+    tier, same net effect as the old filter, with no per-reindex query needed
+    to know which ids are companies.
 
-    Companies are not found this way. app/services/company_search.py finds
-    them by matching facets (activity_field, province, company_type) over the
-    controlled vocabulary in the data. The classifier's only useful job is
-    routing an FAQ question to its FAQ answer, so that is all it is trained on.
-
-    An install with no company_profiles rows keeps every label, unchanged.
-
-    The vectors and the labels are filtered TOGETHER by index. Dropping a
-    label without its vector silently mislabels the whole corpus, so the
-    lengths are asserted before this returns.
+    The length assertion stays: it is not company-specific, it is what
+    protects `matrix`/`labels` from drifting out of step no matter what future
+    change touches this function.
     """
     labels = [q.get('dataset_id', '') for q in questions]
-    companies = _company_dataset_ids()
-    if not companies:
-        return matrix, labels
-
-    keep = [i for i, lab in enumerate(labels) if lab not in companies]
-    if not keep:
-        # Every question belongs to a company. Nothing left to route, so the
-        # classifier is skipped rather than trained on an empty corpus.
-        logger.warning("[intent] every question maps to a company; no classifier")
-        return matrix[:0], []
-
-    vecs = matrix[keep]
-    kept = [labels[i] for i in keep]
-    assert len(vecs) == len(kept), "intent vectors and labels fell out of step"
-    dropped = len(labels) - len(kept)
-    if dropped:
-        logger.info(f"[intent] excluded {dropped} company question(s) from training; "
-                    f"{len(kept)} FAQ question(s) over "
-                    f"{len(set(kept))} intent(s) remain")
-    return vecs, kept
+    assert len(matrix) == len(labels), "intent vectors and labels fell out of step"
+    return matrix, labels
 
 
 # Trained intent classifier (this installation's own model, retrained on
@@ -174,14 +139,18 @@ intent_classifier = None
 _corpus_vocab: set = set()
 _vocab_by_len: dict = {}
 
-# Distinctive title tokens: token -> dataset index, for tokens that appear in
-# exactly ONE entry's title across the whole dataset. This is how a query that
-# NAMES a known entity gets anchored to that entity's own entry, no matter
-# what the similarity scores say. The 2026-08-26 الکامپ guard above covers
-# entities the corpus does NOT know; this covers confusion BETWEEN known
-# entries (measured 2026-08-27: «شماره مدیرعامل دوندگان لبه علم» was served
-# the دبیرخانه phone FAQ at 0.87, and «درباره دکیو بهم بگو» fell through to
-# the paid AI tier at 0.691 — both entities exist in the dataset).
+# Distinctive title tokens: token -> entry id, for tokens that appear in
+# exactly ONE entry's title across the whole knowledge base — dataset AND
+# companies together (migrations/0013_companies.sql moved companies out of
+# `dataset`, but a company is still a nameable entity, and a token distinctive
+# only among dataset titles could still collide with a company's, so both are
+# scanned here even though the retrieval indices above stay dataset-only).
+# This is how a query that NAMES a known entity gets anchored to that entity's
+# own entry, no matter what the similarity scores say. The 2026-08-26 الکامپ
+# guard above covers entities the corpus does NOT know; this covers confusion
+# BETWEEN known entries (measured 2026-08-27: «شماره مدیرعامل دوندگان لبه
+# علم» was served the دبیرخانه phone FAQ at 0.87, and «درباره دکیو بهم بگو»
+# fell through to the paid AI tier at 0.691 — both entities exist).
 _distinctive_title_tokens: dict = {}
 # id -> dataset index, so entry_mentions/entity_coverage can reuse the
 # already-normalized descriptions instead of re-normalizing per call.
@@ -244,7 +213,7 @@ def unknown_salient_tokens(query: str) -> list:
 
 
 def resolve_named_entity(query: str):
-    """The single dataset entry the query NAMES, or (None, set()).
+    """The single dataset-or-company entry the query NAMES, or (None, set()).
 
     Tokenizes the UNexpanded normalized query (same approach as
     unknown_salient_tokens: the anchor must see what the visitor actually
@@ -264,12 +233,16 @@ def resolve_named_entity(query: str):
     hits = named_entity_hits(query)
     if len(hits) != 1:
         return None, set()
-    idx, matched = next(iter(hits.items()))
-    return dataset[idx], matched
+    entity_id, matched = next(iter(hits.items()))
+    # Same fallback as get_entry()/find_similar_question(): companies left
+    # `dataset` in migrations/0013_companies.sql but the anchor still has to
+    # be able to name one — a named company is exactly what the company-field
+    # tier in app/services/company_search.py resolves one recorded fact about.
+    return dataset_lookup.get(entity_id) or companies_lookup.get(entity_id), matched
 
 
 def named_entity_hits(query: str) -> dict:
-    """{dataset index: the query tokens that named it} for every NAMED entry.
+    """{entry id: the query tokens that named it} for every NAMED entry.
 
     Split out of resolve_named_entity so the caller can tell "named nothing"
     from "named two things". Both used to come back as (None, set()), so the
@@ -285,9 +258,9 @@ def named_entity_hits(query: str) -> dict:
     from app.services.rerank import content_tokens
     hits = {}
     for tok in content_tokens(normalize_persian(query, expand_synonyms=False)):
-        idx = _distinctive_title_tokens.get(tok)
-        if idx is not None and 0 <= idx < len(dataset):
-            hits.setdefault(idx, set()).add(tok)
+        entity_id = _distinctive_title_tokens.get(tok)
+        if entity_id:
+            hits.setdefault(entity_id, set()).add(tok)
     return hits
 
 
@@ -431,7 +404,7 @@ def load_dataset_internal():
     """
     global dataset, descriptions
     global normalized_titles, normalized_descriptions
-    global questions_data, normalized_questions, dataset_lookup
+    global questions_data, normalized_questions, dataset_lookup, companies_lookup
     global dataset_embedding_index, questions_embedding_index
     global dataset_bm25_index, questions_bm25_index
     global intent_classifier
@@ -446,6 +419,8 @@ def load_dataset_internal():
     _normalized_titles = []
     _normalized_descriptions = []
     _dataset_lookup = {}
+    _companies = []
+    _companies_lookup = {}
 
     _questions_data = []
     _normalized_questions = []
@@ -478,6 +453,27 @@ def load_dataset_internal():
             logger.warning("Dataset table is empty")
     except Exception as e:
         logger.error(f"Error loading dataset: {e}")
+
+    # Companies (migrations/0013_companies.sql): NOT part of the retrieval
+    # corpus above — that is the whole point of the move (an install's
+    # FAQ-vs-company ratio no longer skews the embedding/BM25/intent index —
+    # see docs/features/companies-own-table/RESEARCH.md). Loaded only for id
+    # lookup (companies_lookup, used by get_entry/find_similar_question/
+    # resolve_named_entity as a fallback) and for the named-entity anchor
+    # below, which still has to be able to name a company.
+    try:
+        conn = get_db_connection()
+        rows = conn.execute(
+            'SELECT id, title, text, video_url, title_en, text_en FROM companies'
+        ).fetchall()
+        conn.close()
+        _companies = [dict(r) for r in rows]
+        for item in _companies:
+            item_id = item.get("id", "")
+            if item_id:
+                _companies_lookup[item_id] = item
+    except Exception as e:
+        logger.error(f"Error loading companies: {e}")
 
     # بارگذاری questions از دیتابیس
     try:
@@ -520,6 +516,17 @@ def load_dataset_internal():
     # salient token outside this set names something the knowledge base has
     # NO information on — the strongest "do not answer locally" signal there
     # is (see unknown_salient_tokens for the incident this answers).
+    #
+    # Companies' own title+text go in too, even though they are no longer
+    # part of `_normalized_descriptions` (that stays FAQ-only — see the
+    # "Companies" load above). Measured while writing
+    # migrations/0013_companies.sql: without this, «شرکت» itself (and every
+    # other word that lives only in company text — a company's own name, its
+    # activity field) reads as an UNKNOWN token the moment no FAQ entry
+    # happens to use it, and unknown_tokens gates OFF every local tier in
+    # app/routers/chat.py, including the company-list and company-field tiers
+    # this migration exists to keep working. The knowledge base still knows
+    # about companies; only the FAQ retrieval corpus is companies-free.
     from app.utils.normalizer import active_synonyms as _active_synonyms
     _vocab = set()
     for _text in _normalized_descriptions:
@@ -527,6 +534,11 @@ def load_dataset_internal():
     for _text in _normalized_questions:
         _vocab.update(_text.split())
     for _item in _dataset:
+        _vocab.update(normalize_persian(_item.get("title_en") or "").split())
+        _vocab.update(normalize_persian(_item.get("text_en") or "").split())
+    for _item in _companies:
+        _vocab.update(normalize_persian(
+            f"{_item.get('title', '')} {_item.get('text', '')}").split())
         _vocab.update(normalize_persian(_item.get("title_en") or "").split())
         _vocab.update(normalize_persian(_item.get("text_en") or "").split())
     for _src, _dst in _active_synonyms:
@@ -560,16 +572,25 @@ def load_dataset_internal():
     # only this name map must see what the admin actually typed. See
     # resolve_named_entity for the original incident (entity confusion
     # between KNOWN entries, 2026-08-27).
+    #
+    # Scanned over dataset AND companies together, keyed by id rather than a
+    # dataset index: before migrations/0013_companies.sql a company WAS a
+    # dataset row, so this df count already included every company title —
+    # dropping companies here (rather than only from the retrieval indices
+    # above) would silently make company names collide with each other and
+    # with FAQ titles that happen to share a word, undoing the anchor for
+    # every «شماره تماس شرکت X» question the company-field tier answers.
+    _entities = _dataset + _companies
     _plain_title_sets = [
         rerank.content_tokens(
             normalize_persian(item.get("title", "").strip(),
                               expand_synonyms=False))
-        for item in _dataset]
+        for item in _entities]
     _plain_doc_sets = [
         set(normalize_persian(
             f"{item.get('title', '').strip()} {item.get('text', '').strip()}",
             expand_synonyms=False).split())
-        for item in _dataset]
+        for item in _entities]
     _title_df = {}
     for _toks in _plain_title_sets:
         for _tok in _toks:
@@ -580,11 +601,14 @@ def load_dataset_internal():
             _doc_df[_tok] = _doc_df.get(_tok, 0) + 1
     _distinctive = {}
     for _i, _toks in enumerate(_plain_title_sets):
+        _entity_id = _entities[_i].get("id", "")
+        if not _entity_id:
+            continue
         for _tok in _toks:
             if (_title_df[_tok] == 1
                     and _doc_df.get(_tok, 0) == 1
                     and len(_tok) >= (4 if _tok.isascii() else 3)):
-                _distinctive[_tok] = _i
+                _distinctive[_tok] = _entity_id
     _index_by_id = {item.get("id", ""): _i for _i, item in enumerate(_dataset)
                     if item.get("id", "")}
 
@@ -594,6 +618,7 @@ def load_dataset_internal():
     normalized_titles = _normalized_titles
     normalized_descriptions = _normalized_descriptions
     dataset_lookup = _dataset_lookup
+    companies_lookup = _companies_lookup
 
     questions_data = _questions_data
     normalized_questions = _normalized_questions
@@ -613,6 +638,13 @@ def classify_intent_local(query: str):
 
     Returns (None, 0.0) when no classifier is live or the winning intent no
     longer exists in the dataset — callers fall through to the next tier.
+
+    Deliberately no companies_lookup fallback here, unlike get_entry() and
+    find_similar_question(): a predicted id that names a company simply misses
+    `dataset_lookup` and falls through, same as an id an admin deleted. That
+    keeps this tier doing only its "useful job" (see _intent_training_set) —
+    routing an FAQ question to its FAQ answer — even though its training set
+    no longer excludes company-labeled questions by construction.
     """
     if intent_classifier is None:
         return None, 0.0
@@ -811,18 +843,26 @@ def find_top_matches(query: str, k: int = 8):
 
 
 def get_entry(entry_id: str):
-    """One dataset record by id, or None.
+    """One dataset-or-company record by id, or None.
 
     The pick tier stores IDS, not text, so this is the lookup that turns a
     stored offer back into an answer with its video_url intact. None is the
     honest answer for an id an admin deleted between the turn that offered it
     and the turn that picked it — the caller then falls through to normal
     retrieval instead of serving a stale dict.
+
+    Falls back to companies_lookup: the company-list tier
+    (app/services/company_search.py) offers companies as numbered options and
+    stores their ids in the same offer_state a pick resolves against, and a
+    curated question (Tier 0) can name a company as its dataset_id too — a
+    visitor picking "2" or asking a company's own curated question has to
+    resolve here, not only in `dataset`. See
+    docs/features/companies-own-table/RESEARCH.md section 2.
     """
     if not entry_id:
         return None
     _maybe_refresh()
-    return dataset_lookup.get(entry_id)
+    return dataset_lookup.get(entry_id) or companies_lookup.get(entry_id)
 
 
 def find_similar_question(query: str, exact_only: bool = False):
@@ -893,7 +933,11 @@ def find_similar_question(query: str, exact_only: bool = False):
     if final_score >= 0.5 and final_idx != -1:
         question_entry = questions_data[final_idx]
         dataset_id = question_entry.get("dataset_id", "")
-        dataset_entry = dataset_lookup.get(dataset_id)
+        # A curated question can name a company (840 such rows on production —
+        # see docs/features/companies-own-table/RESEARCH.md section 2), and
+        # companies left `dataset` in migrations/0013_companies.sql, so the
+        # fallback here is what keeps Tier 0 answering them at all.
+        dataset_entry = dataset_lookup.get(dataset_id) or companies_lookup.get(dataset_id)
         if dataset_entry:
             logger.info(f"Question match (Jaccard: {best_score:.2f}, ranked: {rank_score:.2f}): {question_entry.get('question')} → {dataset_id}")
             return dataset_entry, final_score

@@ -9,8 +9,8 @@ live owner, kills the previous one, and returns the link + QR once.
 
 DELETE — a company was added by mistake or pulled out. Its leads, invites and
 pending drafts go; it disappears from the booth search and the contact form;
-the dataset row (the chatbot's answer) stays, because that is the dataset
-page's business.
+the `companies` row (the chatbot's answer) stays, because that is the
+companies page's business.
 """
 import datetime
 import secrets
@@ -30,7 +30,8 @@ def admin_client(tmp_path, monkeypatch):
         from app.services import leads as svc
         svc.ensure_tables()
         conn = get_db_connection()
-        conn.execute("INSERT INTO dataset (id, title, text)"
+        # Companies are their own table now (migrations/0013_companies.sql).
+        conn.execute("INSERT INTO companies (id, title, text)"
                      " VALUES ('co-a', 'شرکت آ', 'متن آ')")
         token = secrets.token_hex(16)
         conn.execute("INSERT OR IGNORE INTO admins (username, password_hash, salt,"
@@ -121,8 +122,8 @@ def test_delete_company_removes_leads_invites_and_drafts(admin_client):
         assert conn.execute("SELECT COUNT(*) c FROM company_leads").fetchone()["c"] == 0
         assert conn.execute("SELECT COUNT(*) c FROM edit_invites").fetchone()["c"] == 0
         assert conn.execute("SELECT COUNT(*) c FROM dataset_edits").fetchone()["c"] == 0
-        # The chatbot's answer is the dataset page's business, not this one's.
-        assert conn.execute("SELECT COUNT(*) c FROM dataset WHERE id = 'co-a'"
+        # The chatbot's answer is the companies page's business, not this one's.
+        assert conn.execute("SELECT COUNT(*) c FROM companies WHERE id = 'co-a'"
                             ).fetchone()["c"] == 1
     finally:
         conn.close()
