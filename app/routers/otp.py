@@ -8,6 +8,25 @@ docs/engineering/OTP_MODULE.md and scripts/export-otp-module.py.
 The page is an authentication step, not part of the chat skeleton: it is a
 standalone route. It is not linked from the public chat navigation; flows that
 need verification link to it.
+
+WHO IS ASKING
+-------------
+Exactly one endpoint here mints an identity (`POST /api/auth/otp/verify`) and
+exactly one thing carries it afterwards: the HttpOnly session cookie
+`app/auth/visitor.py` owns. `challenge_id` is still a body field on verify and
+resend, where it is correct — it is a server-minted, single-use capability and
+no session exists yet — but it is no longer identity anywhere else. It used to
+be: `/api/auth/profile` and `/api/visit-plan` took whatever challenge id the
+body carried, which made a never-expiring bearer token out of a value that sat
+in localStorage. Whoever held it could rewrite that person's profile and read
+their name and masked number back.
+
+Endpoints that consume or mint that cookie also run `validate_request_origin`,
+because the moment a credential is ambient the browser will attach it to a POST
+from any page the visitor happens to be on. `/request` and `/resend` are
+deliberately left without it: they carry no ambient credential, so a forged
+cross-site POST there gives an attacker nothing they could not do with curl,
+and the per-destination hourly cap is the real bound on SMS spend.
 """
 import json
 import os
@@ -15,13 +34,16 @@ import shutil
 import tempfile
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.config import BASE_DIR, logger
 from app.auth import security
-from app.auth.security import check_rate_limits, client_ip, verify_admin
+from app.auth import visitor as visitor_auth
+from app.auth.security import (check_rate_limits, client_ip,
+                               validate_request_origin, verify_admin)
+from app.services import conversations
 from app.services import otp as otp_service
 
 router = APIRouter()
@@ -60,17 +82,166 @@ def branding() -> dict:
     return {key: (get_setting(key, default) or default) for key, default in _BRAND_DEFAULTS.items()}
 
 
+def _verified_registration(challenge_id: str) -> dict:
+    """Everything a verified challenge holds, RAW phone included, or {}.
+
+    `otp_service.profile_for()` cannot be used: it masks the number, which is
+    the right rule for anything a browser sees and the wrong one here. The
+    durable visitor row stores the real number because contacting these people
+    after the exhibition is the point, and because the dedupe key is a hash of
+    it — two spellings of one phone must not become two people.
+
+    `used` is checked in the query, so an unverified or unknown challenge
+    yields {} and nothing is ever promoted on the strength of a guessed id.
+    """
+    from app.db.connection import get_db_connection
+
+    if not challenge_id:
+        return {}
+    try:
+        otp_service.ensure_table()
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                "SELECT first_name, last_name, destination, job, position,"
+                " interests FROM otp_challenges WHERE id = ? AND used = TRUE",
+                (challenge_id,)).fetchone()
+        finally:
+            conn.close()
+        return dict(row) if row else {}
+    except Exception as e:  # noqa: BLE001 — see _promote_to_visitor
+        logger.error(f"[registration] challenge unreadable: {type(e).__name__}: {e}")
+        return {}
+
+
+def _promote_to_visitor(request: Request, challenge_id: str) -> str:
+    """Turn a VERIFIED challenge into a durable visitor, and claim their chat.
+
+    WHY THIS EXISTS. The registration answers lived on `otp_challenges`, a
+    table keyed by a challenge and built to expire, plus a copy in the
+    browser's localStorage. The exhibition's whole point is knowing who came
+    and what they wanted, and both of those homes throw it away. This writes
+    the person to `app.visitors`, which nothing expires.
+
+    AND IT KEEPS THEIR CHAT. Somebody walks up, asks four questions, and only
+    then registers. `padyar_conv` is the conversation those four questions are
+    already in, so the new visitor is attached to it rather than starting a
+    fresh one — the earlier messages stay exactly where they are and simply
+    gain a name.
+
+    Called from ONE place, the verify endpoint. It used to run on every profile
+    save too, which meant a body-supplied challenge id could bind somebody
+    else's visitor row to the attacker's conversation. Promotion happens once,
+    where the code was actually proved.
+
+    Never raises. A person who just proved their phone must be told they are
+    registered, whatever the transcript store is doing.
+    """
+    record = _verified_registration(challenge_id)
+    if not record:
+        return ""
+    conversation_id = (request.cookies.get("padyar_conv") or "")[:64]
+    return conversations.register_visitor(conversation_id, {
+        "first_name": record.get("first_name", ""),
+        "last_name": record.get("last_name", ""),
+        "phone": record.get("destination", ""),
+        "job": record.get("job", ""),
+        "position": record.get("position", ""),
+        "interests": record.get("interests", ""),
+    })
+
+
+_BLANK_PROFILE = {"first_name": "", "last_name": "", "job": "", "position": "",
+                  "interests": "", "destination_masked": ""}
+
+
+def _visitor_profile(visitor_id: str) -> dict:
+    """What the browser may see about a signed-in visitor. Phone MASKED.
+
+    Same keys `otp_service.profile_for()` returns for a challenge, so the
+    frontend reads one profile shape whether the visitor just verified or came
+    back the next morning carrying nothing but a cookie.
+
+    The raw number never leaves the server. `app.visitors` stores it because
+    contacting these people after the exhibition is the point, not so that a
+    page can print it — the masking rule is the same one profile_for() applies.
+    """
+    visitor_id = (visitor_id or "").strip()
+    if not visitor_id:
+        return dict(_BLANK_PROFILE)
+    try:
+        row = conversations.get_visitor(visitor_id)
+    except Exception as e:  # noqa: BLE001 — a read fault is an empty profile
+        logger.error("[registration] visitor unreadable: %s: %s", type(e).__name__, e)
+        return dict(_BLANK_PROFILE)
+    if not row:
+        return dict(_BLANK_PROFILE)
+    phone = row.get("phone") or ""
+    return {
+        "first_name": row.get("first_name") or "",
+        "last_name": row.get("last_name") or "",
+        "job": row.get("job") or "",
+        "position": row.get("position") or "",
+        "interests": row.get("interests") or "",
+        "destination_masked": otp_service.mask_destination(phone) if phone else "",
+    }
+
+
+def _write_visitor_profile(visitor_id: str, job: str, position: str,
+                           interests: str) -> bool:
+    """Rewrite the three work fields of ONE visitor row. Returns False if none.
+
+    BY ID AND NOTHING ELSE. The id comes from `require_visitor`, which reads it
+    off the session the middleware resolved from the cookie, so the only row a
+    request can ever write is its own. There is no phone, no challenge and no
+    body field in this query to aim it somewhere else.
+
+    Blanks are written, not skipped. `upsert_visitor` deliberately keeps an old
+    value when a new registration leaves the field empty (a re-verification to
+    fix a typo must not erase a name); this is the opposite case — a visitor
+    clearing every interest is withdrawing consent and has to be obeyed.
+
+    Name and phone are absent on purpose: the code proved those, and nothing
+    reachable from a browser is allowed to change them.
+    """
+    from app.db.connection import get_db_connection
+    try:
+        conn = get_db_connection()
+        try:
+            # datetime('now') is INLINE, not a bound parameter: app/db/pg.py
+            # rewrites it into the PostgreSQL form only when it can see the
+            # literal. Same idiom as app/services/conversations.py.
+            changed = conn.execute(
+                "UPDATE visitors SET job = ?, position = ?, interests = ?,"
+                " last_seen_at = datetime('now') WHERE id = ?",
+                (job.strip()[:80], position.strip()[:80],
+                 interests.strip()[:400], visitor_id)).rowcount or 0
+            conn.commit()
+        finally:
+            conn.close()
+        return changed > 0
+    except Exception as e:  # noqa: BLE001
+        logger.error("[registration] profile write failed: %s: %s",
+                     type(e).__name__, e)
+        return False
+
+
 def check_rate_limit(request: Request) -> None:
     """Two-tier limiter for this router's public endpoints.
 
-    Tight bucket = the request's OTP identity (per canonicalized destination
-    on /request, per challenge everywhere else) at OTP_RATE_LIMIT; loose
-    bucket = the per-IP backstop at OTP_IP_RATE_LIMIT. Identity buckets exist
-    so a booth's registration bursts do not collectively lock the hall out;
-    the backstop exists so rotating identities cannot turn the endpoints into
-    a free SMS relay. The service-level caps (attempts, resends,
-    per-destination-hourly) remain the real bounds — these buckets just stop
-    a booth lockout before the service is reached.
+    Tight bucket = the request's OTP identity at OTP_RATE_LIMIT; loose
+    bucket = the per-IP backstop at OTP_IP_RATE_LIMIT. The identity is the
+    canonicalized destination on /request, the challenge on /verify and
+    /resend, and the SESSION'S visitor id once one exists. That last one is
+    the point: keying a bucket on a body field let a caller mint a fresh, empty
+    bucket per request just by varying the value, which left only the backstop
+    counting. A visitor id is server-issued, so it cannot be rotated.
+
+    Identity buckets exist so a booth's registration bursts do not
+    collectively lock the hall out; the backstop exists so rotating identities
+    cannot turn the endpoints into a free SMS relay. The service-level caps
+    (attempts, resends, per-destination-hourly) remain the real bounds — these
+    buckets just stop a booth lockout before the service is reached.
 
     Defined at module level under this router's historical name ON PURPOSE:
     the OTP test suites disable HTTP throttling by monkeypatching exactly this
@@ -109,12 +280,16 @@ class OtpResendBody(BaseModel):
 
 
 class VisitPlanBody(BaseModel):
-    """A verified challenge, or the raw profile fields, or neither.
+    """The raw profile fields, or nothing at all. No identity field.
 
-    Neither is valid and returns the generic plan — the planner is useful to a
-    visitor who never registered, so it must not require an identity.
+    `job`, `position` and `interests` are INPUTS to a recommendation, not
+    claims about who is asking, so an anonymous visitor may still send them and
+    get a useful plan — the planner has to work for somebody who walked up and
+    never registered. What they can no longer do is name a stored profile: the
+    `challenge_id` that used to sit here made the plan come back for whoever
+    owned that id. A signed-in visitor's stored profile now wins, and it is
+    read from the session cookie, never from this body.
     """
-    challenge_id: str = Field("", max_length=64)
     job: str = Field("", max_length=80)
     position: str = Field("", max_length=80)
     interests: str = Field("", max_length=200)
@@ -142,8 +317,17 @@ async def otp_request(body: OtpRequestBody, request: Request):
         raise HTTPException(status_code=e.status, detail=e.public)
 
 
-@router.post("/api/auth/otp/verify")
-async def otp_verify(body: OtpVerifyBody, request: Request):
+@router.post("/api/auth/otp/verify",
+             dependencies=[Depends(validate_request_origin)])
+async def otp_verify(body: OtpVerifyBody, request: Request, response: Response):
+    """Check the code and, on success, MINT the visitor session.
+
+    This is the one place a browser is handed an identity. Origin is validated
+    first because of login CSRF: an attacker knows their OWN challenge and
+    code, and a forged POST from a page the visitor is looking at would drop
+    the attacker's session cookie into the victim's browser. Everything the
+    victim then said in the chat would be filed under the attacker's name.
+    """
     # Per-challenge bucket: challenge_id is a server-minted unguessable
     # capability, so one phone's retries cannot consume a neighbour's budget.
     # The service's own 5-attempts bound stays the real brute-force limit.
@@ -151,6 +335,18 @@ async def otp_verify(body: OtpVerifyBody, request: Request):
     check_rate_limit(request)
     ok, message = otp_service.verify(body.challenge_id, body.code)
     if ok:
+        # The code proved the phone, so this person is now known: write them
+        # to the durable visitor table, hand them the conversation they have
+        # been chatting in, and open a session for that visitor id.
+        #
+        # Storage trouble never turns a good verification into an error. A
+        # failed promotion returns "", mint("") returns "" and set_cookie("")
+        # is a no-op, so the visitor is told they verified and simply is not
+        # signed in — the next verify fixes it. Being wrongly signed OUT is
+        # recoverable; telling somebody who just proved their phone that it
+        # failed is not.
+        token = visitor_auth.mint(_promote_to_visitor(request, body.challenge_id))
+        visitor_auth.set_cookie(response, token)
         # The profile is returned only on success, and only the display name —
         # the phone number stays masked everywhere the browser can see it.
         profile = otp_service.profile_for(body.challenge_id)
@@ -172,7 +368,12 @@ async def otp_resend(body: OtpResendBody, request: Request):
 
 
 class ProfileUpdateBody(BaseModel):
-    challenge_id: str = Field(..., min_length=8, max_length=64)
+    """The three editable fields, and nothing that says who is editing.
+
+    There is no `challenge_id` here any more, and no visitor id either. The
+    body of a request cannot name the row it writes: identity comes from the
+    session cookie, through `require_visitor`.
+    """
     job: str = Field("", max_length=80)
     position: str = Field("", max_length=80)
     interests: str = Field("", max_length=400)
@@ -189,49 +390,101 @@ async def registration_options(lang: str = "fa"):
     return taxonomy.form_options("en" if lang.lower().startswith("en") else "fa")
 
 
-@router.post("/api/auth/profile")
-async def update_profile(body: ProfileUpdateBody, request: Request):
-    """Let a verified visitor correct their work profile and re-plan.
+@router.post("/api/auth/profile",
+             dependencies=[Depends(validate_request_origin)])
+async def update_profile(body: ProfileUpdateBody, request: Request,
+                         visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """Let a signed-in visitor correct their work profile and re-plan.
 
-    Only the descriptive fields move: name and phone are fixed at verification
-    and cannot be edited from the browser. An unverified (or unknown) challenge
-    is refused, so this cannot be used to write into someone else's row.
+    A visitor may only ever write their OWN row, and cannot say which row that
+    is. `require_visitor` returns the id the middleware resolved from the
+    session cookie; anonymous gets a 401 carrying the registration_required
+    marker, which is what opens the signup card in the browser.
+
+    Only the descriptive fields move. Name and phone are what the code proved
+    and are not editable from a browser at all.
     """
-    # Per-challenge bucket, as verify: a client-supplied garbage id merely
-    # creates a bucket only the backstop ever counts — it grants nothing.
-    request.state.otp_limit_identity = f"otp:chal:{body.challenge_id}"
+    # Bucket on the SESSION's visitor id. The old key was built from a body
+    # field, so varying it handed the caller a fresh empty bucket every request
+    # and only the per-IP backstop ever counted them.
+    request.state.otp_limit_identity = f"otp:visitor:{visitor_id}"
     check_rate_limit(request)
-    ok = otp_service.update_profile(
-        body.challenge_id, body.job, body.position, body.interests
-    )
-    if not ok:
+    if not _write_visitor_profile(visitor_id, body.job, body.position,
+                                  body.interests):
+        # The session resolved but its person is gone (a deleted visitor row,
+        # or a storage fault). Nothing was written, so say so rather than
+        # reporting a save that did not happen.
         raise HTTPException(status_code=403, detail="این نشست معتبر نیست.")
-    return {"updated": True, "profile": otp_service.profile_for(body.challenge_id)}
+    return {"updated": True, "profile": _visitor_profile(visitor_id)}
 
 
-@router.post("/api/visit-plan")
+@router.post("/api/visit-plan",
+             dependencies=[Depends(validate_request_origin)])
 async def visit_plan_endpoint(body: VisitPlanBody, request: Request):
     """Which official INOTEX sections match this visitor's work and interests.
 
-    When a verified `challenge_id` is supplied the stored profile wins over the
-    fields in the body: the server already knows what the visitor typed at
-    registration, and that copy cannot be edited from the browser.
+    Open to anonymous callers on purpose — see VisitPlanBody. When a session
+    exists the STORED profile wins over the body, exactly as the challenge id
+    used to make it win: the server already knows what this person typed at
+    registration, and no browser can edit that copy.
     """
-    # Identity bucket only when a challenge is supplied: the planner is useful
-    # without one, and a body carrying none limits by IP alone.
+    visitor_id = getattr(request.state, "visitor_id", "") or ""
+    # Identity bucket only when there is a session: the planner is useful
+    # without one, and an anonymous call is limited by IP alone.
     request.state.otp_limit_identity = (
-        f"otp:chal:{body.challenge_id}" if body.challenge_id else "")
+        f"otp:visitor:{visitor_id}" if visitor_id else "")
     check_rate_limit(request)
     from app.services import visit_plan as planner
 
     profile = {"job": body.job, "position": body.position, "interests": body.interests}
-    if body.challenge_id:
-        stored = otp_service.profile_for(body.challenge_id)  # {} of blanks unless verified
+    if visitor_id:
+        stored = _visitor_profile(visitor_id)
         if any(stored.get(k) for k in ("job", "position", "interests")):
             profile = {k: stored.get(k, "") for k in ("job", "position", "interests")}
 
     lang = "en" if body.lang.lower().startswith("en") else "fa"
     return planner.recommend(profile, lang)
+
+
+@router.get("/api/auth/session")
+async def visitor_session(request: Request):
+    """Am I signed in, and as whom. Read from the COOKIE only.
+
+    This is what replaces localStorage as the answer to that question. The
+    browser used to decide for itself by reading a key it had written, which
+    meant typing one value into devtools made it "signed in" and the server
+    never disagreed. Now the browser asks and the server answers from the
+    session it resolved.
+
+    The phone stays masked, matching every other profile the browser sees.
+
+    no-store because an exhibition kiosk is shared: a back button that redraws
+    the previous visitor's name from cache would be a privacy leak with no
+    request behind it.
+    """
+    visitor_id = getattr(request.state, "visitor_id", "") or ""
+    return JSONResponse(
+        {"signed_in": bool(visitor_id),
+         "profile": _visitor_profile(visitor_id) if visitor_id else {}},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/api/auth/logout",
+             dependencies=[Depends(validate_request_origin)])
+async def visitor_logout(request: Request, response: Response):
+    """End this browser's session: delete the row, then delete the cookie.
+
+    Safe to call when already anonymous — revoke() ignores a token that never
+    existed, and clearing an absent cookie is a no-op. A sign-out must never
+    fail, or a shared kiosk keeps the last visitor signed in.
+
+    Deleting the ROW is what makes this real. A signed token could only be
+    asked to expire; a row stops resolving the same second it is gone.
+    """
+    visitor_auth.revoke(request.cookies.get(visitor_auth.VISITOR_COOKIE_NAME, ""))
+    visitor_auth.clear_cookie(response)
+    return {"signed_in": False}
 
 
 @router.get("/api/auth/registration-status")

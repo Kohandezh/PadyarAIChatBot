@@ -167,6 +167,91 @@ app.add_middleware(
 )
 
 
+# Asset traffic that must never pay for a session lookup. Every one of these
+# is a mount, and a mount still passes through http middleware, so without this
+# a page with forty images costs forty pooled connections and forty queries.
+# Same set (and same reason) as _NO_API_LOG_PREFIXES below, kept separate
+# because that one also excludes /admin/api/logs, which is not asset traffic.
+_NO_VISITOR_PREFIXES = ("/static", "/themes", "/media", "/favicon", "/LOGO")
+
+
+@app.middleware("http")
+async def resolve_visitor(request, call_next):
+    """Decide WHO is asking, from the session cookie and nothing else.
+
+    IT READS `request.cookies` ONLY. Not a header, not a body field, not a
+    query parameter, not a path segment. That is the entire point: identity
+    has to come from a credential the server minted, so that passing a few
+    extra fields in a request can never make you somebody. Every other way in
+    was the hole this closes.
+
+    A middleware and not a dependency, because a dependency is opt-in per
+    route and the next endpoint somebody adds would be silently anonymous.
+    Here it runs on every request and sets, unconditionally and before
+    anything else can fail:
+
+        request.state.visitor_id  -> str, "" when anonymous
+        request.state.visitor     -> VisitorProfile or None
+
+    so no downstream reader ever needs a getattr default.
+
+    IT NEVER RAISES. An unknown, expired, malformed or unreadable cookie means
+    anonymous, not an error — app/auth/visitor.py swallows storage faults for
+    the same reason app/services/conversations.py does. A resolver that raised
+    would turn a database blip into a site-wide 500 on `GET /`.
+
+    NO request.state HANDSHAKE, unlike slide_admin_cookie. That pair exists
+    because verify_admin is a DEPENDENCY and a dependency has no handle on the
+    response, so it can slide the row but not re-issue the cookie. This is
+    already a middleware: it holds the cookie on the way in and the response on
+    the way out, so it does both halves itself. Two guards are kept from the
+    admin version, both earned: an error response is not activity, and a
+    response that already carries this cookie is one that just minted it (OTP
+    verify) or just cleared it (logout) — re-issuing there would overwrite a
+    fresh token with the stale one the request came in with.
+
+    WHERE IT SITS: registered here, straight after CORS, which makes it the
+    INNERMOST of the six (Starlette wraps in reverse registration order). So it
+    runs inside request_correlation and its log rows carry a request id; inside
+    csrf_protection and reject_oversized_bodies, so a 403 or 413 short-circuits
+    before paying for a lookup; and its response half runs first, so neither
+    security_headers nor slide_admin_cookie can strip the Set-Cookie it adds.
+    """
+    from app.auth import visitor as visitor_auth
+
+    request.state.visitor_id = ""
+    request.state.visitor = None
+
+    if request.url.path.startswith(_NO_VISITOR_PREFIXES):
+        return await call_next(request)
+
+    token = request.cookies.get(visitor_auth.VISITOR_COOKIE_NAME, "")
+    session = visitor_auth.resolve(token) if token else None
+    if session:
+        request.state.visitor_id = session["visitor_id"]
+        request.state.visitor = session["profile"]
+
+    response = await call_next(request)
+
+    if session and response.status_code < 400 \
+            and not _sets_visitor_cookie(response):
+        visitor_auth.set_cookie(response, token)
+    return response
+
+
+def _sets_visitor_cookie(response) -> bool:
+    """Did the handler already write this cookie itself?
+
+    True on the OTP verify response (which just minted a NEW token) and on the
+    logout response (which just deleted one). `request.cookies` still holds the
+    OLD value on both, so re-issuing would undo what the endpoint just did.
+    """
+    from app.auth.visitor import VISITOR_COOKIE_NAME
+    prefix = (VISITOR_COOKIE_NAME + "=").encode()
+    return any(key.lower() == b"set-cookie" and value.startswith(prefix)
+               for key, value in response.raw_headers)
+
+
 # Backstop on request size, from the Content-Length header. Generous by design
 # (video uploads are large and stream to disk); its job is to stop a single
 # request from buffering an unbounded body, not to police legitimate uploads.

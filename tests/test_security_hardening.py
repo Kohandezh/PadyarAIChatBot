@@ -410,14 +410,17 @@ def test_otp_verify_buckets_are_per_challenge(client, monkeypatch,
         assert r.status_code == 200, r.text
         challenge_ids.append(r.json()["challenge_id"])
     wrong_code = "000000"
+    # ORIGIN_HEADERS because verify mints the visitor session cookie, so it
+    # validates the request origin like the other endpoints that hand out or
+    # consume an ambient credential.
     for _ in range(2):
-        r = client.post("/api/auth/otp/verify",
+        r = client.post("/api/auth/otp/verify", headers=ORIGIN_HEADERS,
                         json={"challenge_id": challenge_ids[0], "code": wrong_code})
         assert r.status_code == 400  # wrong code — but the bucket admits it
-    r = client.post("/api/auth/otp/verify",
+    r = client.post("/api/auth/otp/verify", headers=ORIGIN_HEADERS,
                     json={"challenge_id": challenge_ids[0], "code": wrong_code})
     assert r.status_code == 429     # challenge 1's bucket exhausted
-    r = client.post("/api/auth/otp/verify",
+    r = client.post("/api/auth/otp/verify", headers=ORIGIN_HEADERS,
                     json={"challenge_id": challenge_ids[1], "code": wrong_code})
     assert r.status_code == 400     # the neighbour is still answerable
 

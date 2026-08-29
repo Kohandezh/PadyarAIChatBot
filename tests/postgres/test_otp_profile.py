@@ -68,8 +68,14 @@ def test_update_profile_writes_the_visitor_profile(verified):
     assert stored["interests"] == "رباتیک"
 
 
-def test_the_profile_endpoint_answers_200(verified):
-    """The reported symptom: POST /api/auth/profile 500'd on PostgreSQL."""
+def test_the_profile_endpoint_answers_200(pg_clean, outbox):
+    """The reported symptom: POST /api/auth/profile 500'd on PostgreSQL.
+
+    Driven end to end now. The endpoint takes no challenge id any more —
+    identity is the session cookie verify mints — so the client has to actually
+    register and keep what verify handed it. The write lands on `app.visitors`,
+    which is a second real table this exercises on a real server.
+    """
     from fastapi.testclient import TestClient
 
     import app.routers.otp as otp_router
@@ -77,12 +83,23 @@ def test_the_profile_endpoint_answers_200(verified):
 
     otp_router.check_rate_limit = lambda request: None
     with TestClient(app) as c:
+        # A browser sends both; every endpoint acting on the visitor cookie
+        # validates the origin.
+        c.headers.update({"Origin": "http://localhost",
+                          "User-Agent": "pytest-agent/1.0"})
+        issued = c.post("/api/auth/otp/request", json={
+            "destination": DEST, "first_name": "علی", "last_name": "احمدی"})
+        assert issued.status_code == 200, issued.text
+        v = c.post("/api/auth/otp/verify", json={
+            "challenge_id": issued.json()["challenge_id"], "code": outbox[-1][1]})
+        assert v.status_code == 200, v.text
+
         r = c.post("/api/auth/profile", json={
-            "challenge_id": verified,
             "job": "مهندس", "position": "مدیر فنی", "interests": "رباتیک",
         })
     assert r.status_code == 200, f"{r.status_code}: {r.text}"
     assert r.json()["updated"] is True
+    assert r.json()["profile"]["job"] == "مهندس"
 
 
 def test_an_unverified_challenge_is_still_refused(pg_clean, outbox):

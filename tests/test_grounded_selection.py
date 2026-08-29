@@ -729,7 +729,9 @@ def test_a_single_id_in_options_mode_is_served_as_a_plain_answer(client, monkeyp
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] == "ai_selected", body
-    assert body["text"] == BETA_TEXT, body["text"]
+    # startswith, not ==: the candidate scored 0.49, below the trust bar, so
+    # the answer ends with the hedge line (app/services/scope.hedge_text).
+    assert body["text"].startswith(BETA_TEXT), body["text"]
 
 
 # ── The chosen record keeps its booth video ──────────────────────────────
