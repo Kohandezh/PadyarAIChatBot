@@ -65,22 +65,33 @@ PUBLIC_PROFILE_FIELDS = (
 
 
 def get_profile(dataset_id: str) -> dict:
-    """The profile-shaped columns of one company, or {} if it does not exist.
+    """The profile-shaped columns of one company, or {} if it has none yet.
 
     `companies` is a core table (created in init_db(), unlike the old
     company_profiles which lived behind the leads module's ensure_tables()),
-    so there is no table-creation step here any more.
+    so there is no table-creation step here any more. But a company row now
+    always exists (it's the same row `dataset` used to hold), so "no profile"
+    can no longer mean "no row" the way it did with a separate
+    company_profiles table — it means no profile FIELD has ever been filled
+    in. Same {} contract for that case, computed instead of read off a
+    missing row.
     """
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
         row = conn.execute(
             "SELECT id AS dataset_id, " + ", ".join(PROFILE_FIELDS)
+            + ", source, created_at, updated_at"
             + " FROM companies WHERE id = ?", (dataset_id,)
         ).fetchone()
     finally:
         conn.close()
-    return dict(row) if row else {}
+    if not row:
+        return {}
+    profile = dict(row)
+    if not any((profile.get(f) or "").strip() for f in PROFILE_FIELDS):
+        return {}
+    return profile
 
 
 def public_profile(dataset_id: str) -> dict:
