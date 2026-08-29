@@ -44,7 +44,8 @@ import secrets
 
 from fastapi import HTTPException, Request
 
-from app.config import logger, COOKIE_SECURE, VISITOR_COOKIE_NAME, VISITOR_SESSION_DAYS
+from app.config import (logger, COOKIE_SECURE, VISITOR_COOKIE_NAME,
+                        VISITOR_SESSION_DAYS, VISITOR_SESSION_MAX_HOURS)
 
 # Marker the frontend branches on when /chat refuses an unregistered visitor.
 # A code, not a sentence: the signup modal must not be wired to Persian prose
@@ -129,16 +130,27 @@ def resolve(token: str):
     An expired row is DELETED on read, the same lazy cleanup admin_sessions
     uses. `purge_expired()` exists for the rows nobody ever comes back for.
 
-    The expiry slides on every hit, so the 30 days is inactivity and not a
-    hard cap. One UPDATE by primary key, and only for a request that actually
-    carried a session — an anonymous request does no database work at all.
+    TWO CLOCKS, AND A SESSION HAS TO PASS BOTH.
+
+    `expiry` slides on every hit, so VISITOR_SESSION_DAYS is inactivity. That
+    number alone is unreachable on a booth kiosk: one browser is shared by
+    strangers and it is the NEXT person's traffic that renews the session, so
+    the row never gets the chance to go idle and the second visitor keeps
+    being answered as the first one.
+
+    `created_at` never moves, so VISITOR_SESSION_MAX_HOURS is the bound a
+    kiosk can actually reach. Past it the session dies no matter how busy the
+    machine was.
+
+    One UPDATE by primary key, and only for a request that actually carried a
+    session. An anonymous request does no database work at all.
     """
     token = (token or "").strip()
     if not token:
         return None
 
     from app.db.connection import get_db_connection
-    from app.db.timeutil import as_datetime, compare_now
+    from app.db.timeutil import as_datetime, compare_now, to_naive_utc
 
     try:
         # ONE query, joined: the profile is wanted on every hit, and a second
@@ -148,6 +160,7 @@ def resolve(token: str):
         conn = get_db_connection()
         row = conn.execute(
             "SELECT s.visitor_id AS visitor_id, s.expiry AS expiry,"
+            " s.created_at AS created_at,"
             " v.first_name AS first_name, v.last_name AS last_name,"
             " v.job AS job, v.position AS position, v.interests AS interests"
             " FROM visitor_sessions s"
@@ -163,6 +176,26 @@ def resolve(token: str):
         # Python refuses to compare the two shapes. Never `utcnow() > expiry`.
         expiry = as_datetime(row["expiry"])
         if expiry is None or compare_now(expiry) > expiry:
+            revoke(token)
+            return None
+
+        # The hard cap. `created_at` is the one timestamp on this row that
+        # nothing ever moves, so this is the age of the SESSION and not the
+        # gap since the last request.
+        #
+        # to_naive_utc on BOTH sides, not compare_now(). PostgreSQL returns an
+        # aware datetime for this TIMESTAMPTZ column; SQLite's DEFAULT
+        # CURRENT_TIMESTAMP returns a naive string that is already UTC.
+        # compare_now() would answer that naive value with LOCAL now, so on a
+        # host that is not on UTC the cap would fire hours early or hours
+        # late. That is the same timezone bug _stamp() above exists to avoid.
+        #
+        # A created_at we cannot read revokes too. It should be impossible
+        # (NOT NULL DEFAULT on both backends), and "we do not know how old
+        # this session is" must not mean "keep it forever".
+        created = to_naive_utc(row["created_at"])
+        age_cap = datetime.timedelta(hours=VISITOR_SESSION_MAX_HOURS)
+        if created is None or to_naive_utc(_now()) - created > age_cap:
             revoke(token)
             return None
 

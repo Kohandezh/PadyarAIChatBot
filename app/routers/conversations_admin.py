@@ -13,6 +13,11 @@ the owner of an exhibition install actually asks:
 (3) is the one that makes the product better, so it is a first-class endpoint
 with its own screen and its own sidebar link, not a filter buried in a list.
 
+There is ONE write endpoint here, and it is deliberately the only one: ending
+a visitor's sessions (.../visitors/{id}/sessions/revoke). It lives on this
+router because the visitor list is the screen where an operator is standing
+when somebody tells them their phone was stolen. See its own docstring.
+
 PRIVACY — every route here is admin-only
 ----------------------------------------
 These responses carry names, raw phone numbers, IP addresses and the exact
@@ -39,6 +44,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app.auth import visitor as visitor_auth
 from app.auth.security import client_ip, verify_admin
 from app.config import LOCAL_FALLBACK_THRESHOLD, TRUSTED_MATCH_THRESHOLD
 from app.services import applog
@@ -337,6 +343,50 @@ async def export_visitors(request: Request,
              r["position"], r["interests"], r.get("conversation_count", 0),
              r["created_at"], r["last_seen_at"]] for r in rows]
     return _csv_response(header, body, "visitors")
+
+
+@router.post("/admin/api/visitors/{visitor_id}/sessions/revoke",
+             dependencies=[Depends(verify_admin)])
+async def revoke_visitor_sessions(visitor_id: str, request: Request,
+                                  username: str = Depends(verify_admin)):
+    """Sign one visitor out of every browser and phone at once.
+
+    THE CASE THIS IS FOR. A visitor registers at the kiosk, walks the hall,
+    and their phone is stolen. The session cookie in that phone is the whole
+    credential. Whoever holds it is that person to this install, for the
+    remaining 30 days. They tell the booth, and until now an operator had no
+    way to end it: `revoke_all()` shipped with nothing calling it.
+
+    This is also the reason `visitor_sessions` is a TABLE and not a signed
+    token. migrations/0012_visitor_sessions.sql justifies the rows with
+    exactly this: a session has to be revocable the second someone asks, and
+    a signature cannot be un-signed. Without a caller that justification was
+    a promise the product did not keep.
+
+    404 on an unknown visitor rather than a quiet 0. An operator who mistyped
+    an id would otherwise see "done" and believe the stolen phone was cut off.
+
+    The audit row names the visitor by ID, never by phone number. Audit rows
+    are read by more people than the visitor list is, and the id is enough to
+    find the person again.
+
+    It takes the id in the PATH and no body, so the visitor list can call it
+    with the id it already has. CSRF is covered: /admin/ is inside
+    PROTECTED_PREFIXES, so the middleware in app/main.py checks the token
+    before this function runs.
+    """
+    visitor = store.get_visitor((visitor_id or "").strip())
+    if not visitor:
+        raise HTTPException(404, detail="این بازدیدکننده پیدا نشد.")
+
+    removed = visitor_auth.revoke_all(visitor["id"])
+
+    applog.audit("admin.visitor.sessions_revoked",
+                 message=f"همهٔ نشست‌های یک بازدیدکننده باطل شد ({removed} نشست)",
+                 actor=username, target=visitor["id"], outcome="ok",
+                 level="warning", ip=client_ip(request),
+                 metadata={"revoked": removed})
+    return {"revoked": removed}
 
 
 # ── Export plumbing ──────────────────────────────────────────────────────

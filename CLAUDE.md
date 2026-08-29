@@ -767,6 +767,8 @@ All config lives in `app/config.py`. Key thresholds:
 | `CHAT_RATE_LIMIT`       | 20      | Max chat requests per window per IP (env-overridable) |
 | `CHAT_RATE_WINDOW`      | 60      | Rate limit window in seconds (env-overridable) |
 | `CHAT_TOKEN_TTL`        | 3600    | HMAC chat token lifetime (seconds) |
+| `VISITOR_SESSION_DAYS`  | 30      | Days a visitor stays signed in; slides on use, so this is inactivity |
+| `VISITOR_SESSION_MAX_HOURS` | 12  | Hard cap from when the session was minted; nothing renews it. The bound a shared kiosk can reach |
 | `ANSWER_TOPK`           | 8       | Records shown to the selection tier (recall@8 = 0.952, measured) |
 | `HISTORY_TURNS`         | 5       | Prior turns handed to the model as context |
 | `HISTORY_WINDOW_MINUTES` | 15     | How far back those turns are read (shared-kiosk bound) |

@@ -93,7 +93,7 @@ def admin_js_version(*names: str) -> str:
 
 
 def _asset_version(theme_name: str) -> str:
-    """Cache-buster token for the chat stylesheets.
+    """Cache-buster token for the chat page's stylesheets and scripts.
 
     Browsers cache /static and /themes assets aggressively (no Cache-Control is
     sent, so they heuristically cache), which meant customers kept seeing the
@@ -101,11 +101,31 @@ def _asset_version(theme_name: str) -> str:
     onto their <link> href makes every upgrade produce a new URL, so the browser
     is forced to refetch. Falls back to "0" if the files are unreadable — a
     missing buster only costs freshness, it must never break the page.
+
+    THIS LIST MUST HOLD EVERY FILE A THEME STAMPS WITH THE TOKEN. A file that
+    is stamped but missing here gets a URL that never changes, which is worse
+    than no buster at all: the edit ships to the server and the browser keeps
+    the old copy forever. tests/test_asset_version_covers_stamped_assets.py
+    greps the theme templates and fails when the two lists drift apart, so
+    nobody has to remember this paragraph.
     """
     paths = [
         os.path.join(BASE_DIR, "static", "chat", "base.css"),
         os.path.join(BASE_DIR, "themes", theme_name, "static", "style.css"),
         os.path.join(BASE_DIR, "static", "chat", "core.js"),
+        # The companion scripts are stamped with this same token by the inotex
+        # and haj footers. registration.js is the one that bit us: it carries
+        # the whole client half of visitor sign-in (the GET /api/auth/session
+        # probe, the 401 sign-in handler, the send gate, the logout button),
+        # so a security fix to it was shipping to a URL every kiosk already
+        # had cached. The browser then enforced last week's rules against this
+        # week's server.
+        # Listed for every theme, not just the two that load them: a theme
+        # that does not load a file only pays a spare refetch of the files it
+        # does load when that file changes. Cheap, and it cannot go stale.
+        os.path.join(BASE_DIR, "static", "companion", "companion.js"),
+        os.path.join(BASE_DIR, "static", "companion", "companion-ui.js"),
+        os.path.join(BASE_DIR, "static", "companion", "registration.js"),
     ]
     newest = 0
     for path in paths:

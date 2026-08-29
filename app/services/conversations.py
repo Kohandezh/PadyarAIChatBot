@@ -36,8 +36,8 @@ app/db/queries.py document).
 import json
 import secrets
 
-from app.config import (logger, HISTORY_TURNS, SUMMARIZE_AFTER_MESSAGES,
-                        SUMMARY_MAX_CHARS)
+from app.config import (logger, HISTORY_TURNS, HISTORY_WINDOW_MINUTES,
+                        SUMMARIZE_AFTER_MESSAGES, SUMMARY_MAX_CHARS)
 from app.db.connection import get_db_connection
 
 ROLE_VISITOR = "visitor"
@@ -293,25 +293,85 @@ def _joined_conversation(row) -> dict:
 def get_summary(conversation_id: str) -> str:
     """The stored summary of this conversation's older part, or ''.
 
+    BOUNDED BY THE SAME WINDOW AS THE RAW TURNS, and for the same reason.
+    app/db/queries.py recent_turns() only reads turns from the last
+    HISTORY_WINDOW_MINUTES because a booth kiosk is one browser shared by
+    strangers and the padyar_conv cookie slides on every answer, so one
+    conversation id covers everyone who touches the machine that day. Without
+    a bound here the summary walked straight through that fence: the next
+    visitor's first question shipped a condensed version of the PREVIOUS
+    visitor's conversation to the AI provider. Same bug the 15 minutes was
+    added to fix, one layer up.
+
+    `last_message_at` is the column, not `started_at`. The question is "is
+    this conversation still the one being had", not "how long has it been
+    going": a visitor who has been talking for forty minutes without a break
+    is exactly who the summary exists for and must keep theirs. `started_at`
+    would take it away from them and leave the handover case unfixed.
+
+    The interval is int-clamped and INLINED into the SQL string, because
+    app/db/pg.py rewrites `datetime('now', '-N minutes')` into the PostgreSQL
+    form only when it can see the literal. Same idiom as recent_turns().
+
     Swallows like the write side, and for the same reason: this is read on the
     visitor's hot path, and no summary at all is a fine conversation — the
     recent turns still go to the model.
     """
     if not conversation_id:
         return ""
+    minutes = max(1, int(HISTORY_WINDOW_MINUTES))
     try:
         conn = get_db_connection()
         try:
             row = conn.execute(
-                "SELECT summary FROM conversations WHERE id = ?",
+                "SELECT summary FROM conversations WHERE id = ?"
+                f"   AND last_message_at >= datetime('now','-{minutes} minutes')",
                 (conversation_id,)).fetchone()
+            if row:
+                return str(row["summary"] or "")
+            # No row means one of two things: no such conversation, or one
+            # that went quiet for longer than the window. Both say the stored
+            # summary belongs to somebody who has walked away.
+            _forget_stale_summary(conn, conversation_id)
+            return ""
         finally:
             conn.close()
-        return str(row["summary"] or "") if row else ""
     except Exception as e:  # noqa: BLE001 — see the module docstring
         logger.info("[conversations] get_summary unavailable: %s: %s",
                     type(e).__name__, e)
         return ""
+
+
+def _forget_stale_summary(conn, conversation_id: str) -> None:
+    """Delete a summary the window has expired, and skip past what it covered.
+
+    HIDING IT IS NOT ENOUGH, which is the trap this function exists for.
+    update_summary() folds the messages after `summary_upto_id` into the
+    stored summary, so a summary that was only hidden comes back: the new
+    visitor sends two messages, the background refresh merges the previous
+    visitor's paragraph with them, stamps the row with a fresh
+    `last_message_at`, and the read above starts returning it again two turns
+    later. Moving `summary_upto_id` to the newest message written so far is
+    the half that closes it. Everything from before the gap is now behind
+    the line, so the next summary is built only from what the person sitting
+    there now has said.
+
+    Deleting the dead thing on read is the same lazy cleanup app/auth/
+    visitor.py resolve() and admin_sessions already use. It runs on the rare
+    branch only: one gap, one write, and the row is fresh again after the
+    visitor's next message.
+
+    Uses the CALLER's open connection, and commits on it. A second connection
+    here would be a second pooled connection on the visitor's hot path.
+    """
+    newest = conn.execute(
+        "SELECT MAX(id) AS newest FROM messages WHERE conversation_id = ?",
+        (conversation_id,)).fetchone()
+    upto = int((newest["newest"] if newest else 0) or 0)
+    conn.execute(
+        "UPDATE conversations SET summary = '', summary_upto_id = ?"
+        " WHERE id = ?", (upto, conversation_id))
+    conn.commit()
 
 
 def set_summary(conversation_id: str, summary: str, upto_id: int) -> bool:

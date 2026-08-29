@@ -157,10 +157,10 @@ def test_a_storage_fault_still_reports_a_successful_verification(
     """Being wrongly signed OUT is recoverable. Being told your code was wrong
     when it was right is not.
 
-    So a promotion that cannot write returns "" rather than raising, mint("")
-    returns "" and set_cookie("") is a no-op: the visitor is told they
-    verified, is simply not signed in, and the next verify fixes it. Nothing
-    here may become a 4xx or a 500.
+    So a promotion that cannot write returns "" rather than raising, and
+    mint("") returns "": the visitor is told they verified, is simply not
+    signed in, and the next verify fixes it. Nothing here may become a 4xx or
+    a 500.
     """
     import app.routers.otp as otp_router
     monkeypatch.setattr(otp_router.conversations, "register_visitor",
@@ -174,6 +174,77 @@ def test_a_storage_fault_still_reports_a_successful_verification(
     assert v.json()["verified"] is True
     assert not client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME)
     assert client.get("/api/auth/session").json()["signed_in"] is False
+
+
+# ── The kiosk handover: one screen, one visitor after another ────────────
+
+def test_verifying_takes_the_browser_off_the_previous_visitor(client, outbox):
+    """Person B verifies on the screen person A just used. B gets it, and A's
+    session is DEAD, not merely covered up.
+
+    The old code minted B a session and overwrote the cookie, but never
+    touched A's row. On a kiosk that leaves one live session per person who
+    ever walked up: rows nobody can reach, each still resolving to a real
+    identity, and every one of them a working credential for anybody who
+    captured the token. Sign-out is a DELETE everywhere else in this module
+    (see visitor_logout), and a handover is a sign-out.
+
+    Both people go through the real endpoints on ONE cookie jar, because a
+    kiosk is exactly one browser.
+    """
+    _register(client, outbox, DEST_A, job="مهندس")
+    first_token = client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME)
+    assert first_token, "the first visitor never got a session"
+
+    _register(client, outbox, DEST_B, job="خبرنگار")
+    second_token = client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME)
+
+    assert second_token and second_token != first_token
+    assert visitor_auth.resolve(second_token)["visitor_id"] == _visitor_id(DEST_B)
+    assert visitor_auth.resolve(first_token) is None, (
+        "the previous visitor's session row is still alive and still resolves")
+    assert client.get("/api/auth/session").json()["profile"]["job"] == "خبرنگار"
+
+
+def test_a_failed_mint_leaves_the_kiosk_anonymous_not_the_last_visitor(
+        client, outbox, monkeypatch):
+    """The bug this pair of tests exists for. A storage fault must sign the
+    browser OUT, and it used to sign it in as somebody else.
+
+    mint() returns "" when the session cannot be written. The endpoint then
+    wrote no cookie at all, and `resolve_visitor` in app/main.py re-issues the
+    cookie the REQUEST came in with whenever the response did not write one.
+    So person B, who just proved their own phone, was handed person A's
+    identity back with a refreshed expiry. Everything B said next was filed
+    under A's name.
+
+    mint is patched rather than the storage under it, because the only thing
+    that matters here is the empty-token path, whatever produced it.
+    """
+    _register(client, outbox, DEST_A, job="مهندس")
+    stale = client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME)
+    assert stale
+
+    monkeypatch.setattr(visitor_auth, "mint", lambda visitor_id: "")
+
+    r = client.post("/api/auth/otp/request", json={
+        "destination": DEST_B, "first_name": "زهرا", "last_name": "کریمی",
+        "job": "خبرنگار"})
+    v = client.post("/api/auth/otp/verify", json={
+        "challenge_id": r.json()["challenge_id"], "code": outbox[-1][1]})
+
+    # The promise that must survive the fix: a storage fault is never an error
+    # in front of somebody who just proved their phone.
+    assert v.status_code == 200, v.text
+    assert v.json()["verified"] is True
+
+    assert not client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME), (
+        "the browser kept a session cookie after a failed mint")
+    body = client.get("/api/auth/session").json()
+    assert body["signed_in"] is False, "anonymous was expected, got a session"
+    assert body["profile"] == {}
+    assert visitor_auth.resolve(stale) is None, (
+        "the previous visitor's session survived the handover")
 
 
 # ── /api/auth/profile: no cookie, no write ───────────────────────────────
