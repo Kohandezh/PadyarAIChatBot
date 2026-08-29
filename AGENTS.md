@@ -77,6 +77,25 @@ App starts at `http://127.0.0.1:8000`.
 | `python scripts/net-diag.py`        | Network diagnostics               |
 | `python scripts/gapgpt_test.py`      | Test GapGPT API connectivity      |
 
+## Testing
+
+**Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
+the full pytest suite plus the retrieval/safety eval on every push and PR —
+that run is the pass/fail signal. Don't run the whole `pytest` suite locally
+as a commit or merge gate: this machine has 15 tests that always fail here
+and always pass on CI (env/network-only, e.g. tests needing a live
+PostgreSQL), so a local full run is not a trustworthy signal.
+
+```bash
+gh run list --branch <branch> --limit 1
+gh run watch
+```
+
+`python -m py_compile <file>` on files you touched is still fine as a quick
+local syntax check before pushing. Running a single test file locally while
+writing it (TDD red/green) is fine too — just don't treat a local full-suite
+run as the merge gate.
+
 ## Project Structure
 
 ```
