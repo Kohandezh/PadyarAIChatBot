@@ -13,6 +13,12 @@ const FILTER_KEYS = ['since', 'until', 'job', 'interest', 'q'];
 
 let state = { limit: 50, offset: 0, hasMore: false };
 
+/* Who the side panel is showing right now. The "sign out everywhere" button
+ * lives in the template and is bound once, so it has to read the visitor from
+ * somewhere; a stale id here would end the WRONG person's sessions, which is
+ * why openVisitor() sets it and nothing else writes it. */
+let openRow = null;
+
 /* A table cell holding text and nothing else. */
 function td(value, opts = {}) {
   const cell = document.createElement('td');
@@ -129,6 +135,8 @@ const FIELD_FA = {
 function openVisitor(row) {
   const panel = el('visitor-body');
   panel.replaceChildren();
+  openRow = row;
+  el('revoke-msg').textContent = '';   // last person's result is not this one's
 
   const table = document.createElement('table');
   table.className = 'table table-sm';
@@ -176,6 +184,49 @@ function openVisitor(row) {
   new bootstrap.Offcanvas(el('visitor-panel')).show();
 }
 
+/* ── Sign this person out everywhere ───────────────────────────────────
+ *
+ * The stolen-phone control. The session cookie in that phone IS the
+ * credential, so whoever holds the phone is this visitor to the install until
+ * the sessions are deleted. This is the only way an operator can delete them.
+ *
+ * fetchAuth, never a bare fetch: it attaches X-CSRF-Token, and without that
+ * header app/auth/csrf.py answers 403 before the endpoint runs, so the
+ * button would look like it worked and change nothing.
+ */
+async function revokeSessions() {
+  if (!openRow) return;
+  const name = [openRow.first_name, openRow.last_name].filter(Boolean).join(' ')
+    || 'این نفر';
+  // Two steps on purpose. Ending somebody's access must not be a single
+  // mis-click, and the message names the person so a wrong row is caught here.
+  if (!confirm(`${name} از همهٔ دستگاه‌ها خارج شود؟ برای ادامهٔ گفتگو باید دوباره شماره‌اش را تأیید کند.`)) return;
+
+  const msg = el('revoke-msg');
+  const button = el('btn-revoke-sessions');
+  button.disabled = true;
+  msg.className = 'small mt-2 text-muted';
+  msg.textContent = 'در حال انجام…';
+  try {
+    const res = await fetchAuth(
+      '/admin/api/visitors/' + encodeURIComponent(openRow.id) + '/sessions/revoke',
+      { method: 'POST' });
+    if (!res.ok) throw new Error('http ' + res.status);
+    const data = await res.json();
+    msg.className = 'small mt-2 text-success';
+    // The count matters: 0 means they were already signed out everywhere, and
+    // an operator who was told "انجام شد" would not know that.
+    msg.textContent = data.revoked
+      ? `انجام شد. ${data.revoked} دستگاه از حساب خارج شد.`
+      : 'این نفر روی هیچ دستگاهی وارد نبود.';
+  } catch (e) {
+    msg.className = 'small mt-2 text-danger';
+    msg.textContent = 'انجام نشد. دوباره تلاش کنید.';
+  } finally {
+    button.disabled = false;
+  }
+}
+
 export function initVisitors() {
   applyUrlToForm();
   el('visitors-filter').addEventListener('submit', (e) => {
@@ -193,6 +244,7 @@ export function initVisitors() {
   el('page-size').addEventListener('change', (e) => {
     state.limit = parseInt(e.target.value, 10) || 50; state.offset = 0; load();
   });
+  el('btn-revoke-sessions').addEventListener('click', revokeSessions);
   el('btn-csv').addEventListener('click', () => {
     window.location = '/admin/api/visitors/export?' + new URLSearchParams(filters());
   });

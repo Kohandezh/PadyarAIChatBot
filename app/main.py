@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import prodcheck
 from app.config import (logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE,
                         ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS)
 from app.auth.csrf import PROTECTED_PREFIXES
@@ -24,6 +25,7 @@ async def _retention_loop():
     """
     from app.services import applog
     from app.db import queries
+    from app.auth import visitor as visitor_auth
     while True:
         try:
             await asyncio.sleep(6 * 3600)
@@ -35,6 +37,12 @@ async def _retention_loop():
             # same dial applog has always had. Default 0 = keep forever, so no
             # existing install loses data by upgrading.
             queries.purge_chat_logs()
+            # visitor_sessions grows by one row per registered person per
+            # browser and keeps it for 30 days. resolve() deletes an expired
+            # row only when its owner comes back, and most visitors never come
+            # back, so nothing swept them: the dead rows outnumber the live
+            # ones on an install that runs for years. This is the sweep.
+            visitor_auth.purge_expired()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -150,7 +158,52 @@ def _mount_themes(app: FastAPI):
         logger.warning(f"Theme discovery failed: {e}")
 
 
-app = FastAPI(title="دستیار پادیار", lifespan=lifespan)
+def _api_docs_enabled() -> bool:
+    """Should this install publish /openapi.json, /docs and /redoc?
+
+    WHAT WAS WRONG. FastAPI serves all three to anybody, with no session and
+    no token. On a production install that handed a stranger the full route
+    table: the obscured admin path (/secure-panel-inotex), every
+    /admin/api/... endpoint, and the exact request body each one takes. The
+    Referrer-Policy header in security_headers() below exists to keep that
+    panel path out of other people's logs, which is wasted work while one
+    unauthenticated GET prints it.
+
+    WHICH MARKER. PADYAR_ENV, read through app/prodcheck.py. NOT COOKIE_SECURE:
+    prodcheck explains at length why deriving "is this production" from a
+    setting that production itself must set is unsound. A host that forgot
+    COOKIE_SECURE would classify itself as development and publish its whole
+    API. PADYAR_ENV describes what the install IS, so it cannot be switched
+    off by the mistake it is guarding against.
+
+    STAGING COUNTS AS PRODUCTION HERE, which is why this asks for the
+    environment rather than calling is_production(). prodcheck.audit() runs
+    every other security rule with `strict = env in (STAGING, PRODUCTION)`,
+    because staging is reachable from the internet and is built to look like
+    the real thing. A staging box that published the route table would hand
+    over the same obscured admin path production uses.
+
+    An unrecognised PADYAR_ENV hides the docs. That value stops the boot a
+    moment later in enforce_at_startup(), and swallowing it here rather than
+    raising keeps that clearer error the one the operator sees.
+    """
+    try:
+        return prodcheck.environment() not in (prodcheck.STAGING,
+                                               prodcheck.PRODUCTION)
+    except prodcheck.InvalidEnvironment:
+        return False
+
+
+_DOCS = _api_docs_enabled()
+
+app = FastAPI(
+    title="دستیار پادیار", lifespan=lifespan,
+    # None removes the route entirely, so the path 404s like any address that
+    # was never registered. Nothing tells a scanner the endpoint exists here.
+    openapi_url="/openapi.json" if _DOCS else None,
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
+)
 
 # --- Middleware ---
 # allow_credentials=False makes the "*" origin safe: browsers refuse to expose
