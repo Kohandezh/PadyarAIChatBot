@@ -168,8 +168,8 @@ def test_a_misspelled_province_still_filters(client):
     import app.db.connection as dbc
     _seed(COMPANIES)
     conn = dbc.get_db_connection()
-    conn.execute("UPDATE company_profiles SET province = 'اصفهان'"
-                 " WHERE dataset_id = 'co-saba'")
+    conn.execute("UPDATE companies SET province = 'اصفهان'"
+                 " WHERE id = 'co-saba'")
     conn.commit(); conn.close()
     r = _ask("شرکت های استان اصفحان")          # ح for ه
     assert r is not None and _titles(r) == {"شرکت صبا"}, r
@@ -244,10 +244,10 @@ def test_province_filtering_still_works(client):
     import app.db.connection as dbc
     _seed(COMPANIES)
     conn = dbc.get_db_connection()
-    conn.execute("UPDATE company_profiles SET province = 'اصفهان'"
-                 " WHERE dataset_id = 'co-saba'")
-    conn.execute("UPDATE company_profiles SET province = 'تهران'"
-                 " WHERE dataset_id <> 'co-saba'")
+    conn.execute("UPDATE companies SET province = 'اصفهان'"
+                 " WHERE id = 'co-saba'")
+    conn.execute("UPDATE companies SET province = 'تهران'"
+                 " WHERE id <> 'co-saba'")
     conn.commit()
     conn.close()
     r = _ask("شرکت های استان اصفهان")
@@ -331,8 +331,8 @@ def test_the_word_sherkat_inside_a_facet_value_is_not_a_topic(client):
     import app.db.connection as dbc
     _seed(COMPANIES)
     conn = dbc.get_db_connection()
-    conn.execute("UPDATE company_profiles SET company_type ="
-                 " 'صندوق سرمایه گذاری خطرپذیر شرکتی' WHERE dataset_id = 'co-ava'")
+    conn.execute("UPDATE companies SET company_type ="
+                 " 'صندوق سرمایه گذاری خطرپذیر شرکتی' WHERE id = 'co-ava'")
     conn.commit(); conn.close()
     r = _ask("دیگه چه شرکت هایی هستند؟")
     assert r is not None and r["count"] == len(COMPANIES), r

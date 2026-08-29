@@ -505,10 +505,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # Company-field tier (2026-08-27): the visitor named a company AND asked
     # for one recorded fact about it — «شماره تماس شرکت دکیو چیست؟» was
     # answered with that company's generic description because nothing in this
-    # pipeline ever read company_profiles. This serves the field itself when it
-    # is on the public allowlist, and refuses when the request is about a
-    # PERSON. Confidence is the entity coverage above: the answer comes from
-    # the entry the anchor resolved.
+    # pipeline ever read the company's profile fields. This serves the field
+    # itself when it is on the public allowlist, and refuses when the request
+    # is about a PERSON. Confidence is the entity coverage above: the answer
+    # comes from the entry the anchor resolved.
     #
     # Looked up HERE, once, and not inside _entity_answer(): that ran only on
     # the anchor's OVERRIDE and RESCUE paths, so the tier was invisible
@@ -565,9 +565,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                 and candidate.get("id") == entity_entry.get("id"))
 
     def _names_other_entity(candidate: dict) -> bool:
-        # A candidate conflicts when it is a DIFFERENT dataset entry than the
-        # one the visitor named AND never even mentions that entity. Privacy
-        # note: the entry served here is dataset.text, which is public by
+        # A candidate conflicts when it is a DIFFERENT entry than the one the
+        # visitor named AND never even mentions that entity. Privacy note: the
+        # entry served here is dataset/companies.text, which is public by
         # definition. Profile data only ever reaches a visitor through
         # company_profiles.public_profile() — its allowlist keeps the contact
         # person's mobile and email out of every answer, so a "give me the
@@ -589,8 +589,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # one entry — Tier 1 served faq-20, the out-of-scope REFUSAL text, at 0.81
     # because it contains «هوش مصنوعی اینوتکس» and is a token magnet. The real
     # answer was a list built from the ~169 company rows. This tier answers
-    # such questions straight from dataset × company_profiles, so it must run
-    # BEFORE the trusted T1/questions block. Gated on the two guards above:
+    # such questions straight from the `companies` table (see
+    # migrations/0013_companies.sql), so it must run BEFORE the trusted
+    # T1/questions block. Gated on the two guards above:
     # an unknown salient token still defers to AI, and a query naming ONE
     # specific company («شرکت دکیو چیست؟») is about that company, not a list.
     if not unknown_tokens and entity_entry is None:

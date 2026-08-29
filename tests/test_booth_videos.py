@@ -148,9 +148,11 @@ def _run(importer, monkeypatch, xlsx, video_dir=None, apply=False):
 
 
 def _stored(dataset_id):
+    """A booth video is a `companies` column now (migrations/0013_companies.sql
+    — companies left `dataset` entirely), not a `dataset` one."""
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
-    row = conn.execute("SELECT video_url FROM dataset WHERE id = ?",
+    row = conn.execute("SELECT video_url FROM companies WHERE id = ?",
                        (dataset_id,)).fetchone()
     conn.close()
     return None if row is None else row["video_url"]

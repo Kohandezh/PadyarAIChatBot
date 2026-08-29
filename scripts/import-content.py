@@ -11,11 +11,12 @@ FAQ workbook (پرسش/پاسخ): each row → one dataset entry (id faq-<n>) + 
   Multi-question cells are the workbook's own way of saying "these all ask
   the same thing" — one entry, several anchors.
 
-Exhibitor workbook (20 columns): each row →
-  * dataset:            نام/نام(انگلیسی)/درباره/درباره(انگلیسی) (the public
-                        answer — the only fields the chatbot may ever serve)
-                        plus video_url when the workbook carries booth numbers
-  * company_profiles:   contact/comms/address/classification fields
+Exhibitor workbook (20 columns): each row → one `companies` row (see
+  migrations/0013_companies.sql — companies are no longer `dataset` rows):
+  * نام/نام(انگلیسی)/درباره/درباره(انگلیسی) (the public answer — the only
+                        fields the chatbot may ever serve) plus video_url when
+                        the workbook carries booth numbers
+  * contact/comms/address/classification fields (the profile columns)
   * curated anchors:    4 Persian templates + 1 English per company, because
                         measured retrieval on company names is exactly where
                         the corpus without anchors failed
@@ -107,7 +108,7 @@ COMPANY_COLS = [
     "company_type", "about", "about_en", "org_stage", "activity_field",
     "participation", "notes", "mobile",
 ]
-PROFILE_MAP = {  # workbook key → company_profiles column
+PROFILE_MAP = {  # workbook key → companies profile column
     "contact_name": "contact_name", "contact_position": "contact_position",
     "email": "email", "website": "website", "phone": "company_phone",
     "fax": "fax", "address": "address", "address_en": "address_en",
@@ -279,11 +280,19 @@ def main() -> int:
     init_db()
     conn = get_db_connection()
     existing = {r["id"] for r in conn.execute("SELECT id FROM dataset").fetchall()}
+    existing_companies = {r["id"] for r in conn.execute("SELECT id FROM companies").fetchall()}
     existing_q = {r["question"] for r in conn.execute("SELECT question FROM questions").fetchall()}
     conn.close()
 
     faq_clash = [r[0] for r in faq if r[0] in existing]
-    co_clash = [r[0] for r in companies if r[0] in existing]
+    co_clash = [r[0] for r in companies if r[0] in existing_companies]
+    # `dataset` and `companies` are two separate primary-key spaces
+    # (migrations/0013_companies.sql) — nothing stops an id from existing in
+    # both. That is never an upsert, it is a real conflict: whichever id wins
+    # `dataset_lookup.get(id) or companies_lookup.get(id)` would silently
+    # shadow the other row. Caught here, before either INSERT runs.
+    cross_clash = ([r[0] for r in faq if r[0] in existing_companies]
+                   + [c[0] for c in companies if c[0] in existing])
 
     print(f"FAQ rows to import:      {len(faq)}")
     for fid, title, _, variants in faq[:5]:
@@ -320,6 +329,13 @@ def main() -> int:
     print(f"Id collisions with DB:   faq={len(faq_clash)} companies={len(co_clash)}")
     if faq_clash or co_clash:
         print(f"   {faq_clash + co_clash}")
+    if cross_clash:
+        print(f"   ERROR: id(s) collide ACROSS dataset and companies "
+              f"(two different tables, same id): {cross_clash}")
+
+    if cross_clash:
+        sys.exit("Aborting: fix the colliding id(s) in the workbook first — "
+                 "an id must not name both a dataset row and a company.")
 
     if not args.apply:
         print("\nDRY RUN — nothing written. Re-run with --apply to import.")
@@ -328,34 +344,36 @@ def main() -> int:
     from app.db.connection import get_db_connection
     from app.services import company_profiles
     conn = get_db_connection()
-    n_ds = n_q = 0
+    n_faq = n_co = n_q = 0
 
-    # Pass 1 — every dataset row first, committed. upsert_profile opens its
-    # OWN connection, and a second connection cannot see rows this one has
-    # not committed yet (the first --apply died exactly there: profile upsert
-    # said «این شرکت در دانش‌نامه نیست» for a row sitting uncommitted one
-    # connection over).
+    # Pass 1 — every FAQ (dataset) and company row first, committed.
+    # upsert_profile opens its OWN connection, and a second connection cannot
+    # see rows this one has not committed yet (the first --apply died exactly
+    # there: profile upsert said «این شرکت در دانش‌نامه نیست» for a row
+    # sitting uncommitted one connection over).
     for fid, title, text, variants in faq:
         conn.execute(
             "INSERT INTO dataset (id, title, text, video_url, title_en, text_en)"
             " VALUES (?, ?, ?, '', '', '')"
             " ON CONFLICT(id) DO UPDATE SET title=excluded.title, text=excluded.text",
             (fid, title, text))
-        n_ds += 1
+        n_faq += 1
     for cid, ds, profile, anchors in companies:
-        # video_url is updated ONLY when this run actually has one. A re-import
-        # from the plain 20-column workbook (or from a machine without the
-        # video files) must never wipe a video that is already attached.
+        # A company is one `companies` row, not a `dataset` row —
+        # migrations/0013_companies.sql. video_url is updated ONLY when this
+        # run actually has one. A re-import from the plain 20-column workbook
+        # (or from a machine without the video files) must never wipe a video
+        # that is already attached.
         conn.execute(
-            "INSERT INTO dataset (id, title, text, video_url, title_en, text_en)"
+            "INSERT INTO companies (id, title, text, video_url, title_en, text_en)"
             " VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(id) DO UPDATE SET title=excluded.title, text=excluded.text,"
             " title_en=excluded.title_en, text_en=excluded.text_en,"
             " video_url=CASE WHEN excluded.video_url != ''"
-            " THEN excluded.video_url ELSE dataset.video_url END",
+            " THEN excluded.video_url ELSE companies.video_url END",
             (cid, ds["title"], ds["text"], ds["video_url"],
              ds["title_en"], ds["text_en"]))
-        n_ds += 1
+        n_co += 1
     conn.commit()
 
     # Pass 2 — profiles, now over rows that are visible to every connection.
@@ -388,8 +406,8 @@ def main() -> int:
 
     from app.services.search import reindex_and_publish
     reindex_and_publish()
-    print(f"\nAPPLIED: {n_ds} dataset rows, {n_q} curated questions, "
-          f"{len(companies)} profiles, "
+    print(f"\nAPPLIED: {n_faq} FAQ rows, {n_co} companies, "
+          f"{n_q} curated questions, "
           f"{video_report['with_video']} booth videos. Index rebuilt.")
     print("Next: .venv/bin/python scripts/run_eval.py   # re-baseline")
     return 0

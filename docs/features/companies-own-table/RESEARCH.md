@@ -1,6 +1,8 @@
 # Companies get their own table
 
-**Status:** planned, not started. Approved by the product owner on 2026-08-29.
+**Status:** implemented and verified against a restored production dump, not
+yet deployed. Approved by the product owner on 2026-08-29. See ADR-021 in
+`docs/engineering/DECISIONS.md`.
 **Written by:** the session that surveyed the surface, so the next session does
 not have to survey it again.
 
@@ -80,16 +82,71 @@ Then mirror the table in `init_db()` in `app/db/connection.py` for the SQLite
 test backend, and delete the `company_profiles` block from `_TABLES` in
 `app/services/leads.py` (around line 218).
 
+**Backend divergence that would silently wipe test data.** In PostgreSQL
+(`migrations/0001_initial.sql:52-58`), `app.questions.dataset_id` is a plain
+`TEXT NOT NULL` with an index — no foreign key. In SQLite
+(`app/db/connection.py:252-258`), the same column IS a foreign key with
+`ON DELETE CASCADE`. Step 3 of the migration (`DELETE FROM dataset WHERE id
+IN (SELECT id FROM companies)`) is safe on production — nothing references
+`dataset` by FK — but mirrored verbatim against the current SQLite schema it
+would CASCADE-DELETE every one of the 840-equivalent company-linked
+`questions` rows in the test backend the moment the dataset cleanup runs.
+Tests would then pass locally while quietly testing a `questions` table that
+no longer has any company rows in it — the opposite of what section 2 above
+just spent a trace establishing. **Drop the `ON DELETE CASCADE` FK (or the FK
+entirely) from the SQLite `questions.dataset_id` definition in the same
+change**, so both backends behave identically: a dataset/company row's
+removal never touches `questions`.
+
 **There is no downgrade.** Rolling back means restoring a backup
 (`app/services/pg_backup.py`). Take one before the deploy.
 
-### 2. `questions` rows that point at a company
+### 2. `questions` rows that point at a company — RESOLVED, 2026-08-29
 
-Decide before writing the migration: `questions.dataset_id` may hold company
-ids. `_intent_training_set()` already throws those away, so they are dead
-weight in the index today. Count them on production first
-(`SELECT COUNT(*) FROM questions WHERE dataset_id IN (SELECT dataset_id FROM company_profiles)`),
-then either move them beside the company or delete them. Do not guess.
+Measured on inotex production: **840 rows**
+(`SELECT COUNT(*) FROM questions WHERE dataset_id IN (SELECT dataset_id FROM company_profiles)`).
+
+**They are not dead weight — this was the wrong assumption to check first.**
+`_intent_training_set()` excludes them from the CLASSIFIER's training set,
+true, but that is one of three readers of `questions_data`, not all of them.
+Traced `app/services/search.py:485-901` and `app/routers/chat.py:449-586`:
+
+- `load_dataset_internal()` loads every `questions` row, company or not, into
+  `questions_data` / `questions_embedding_index` / `questions_bm25_index` — no
+  filter.
+- `find_similar_question()` (Tier 0) scores the visitor's query against ALL of
+  them and, on a hit, resolves the answer with
+  `dataset_lookup.get(dataset_id)` (`search.py:896`).
+- `chat.py:580-585` treats an exact_score ≥ 0.9 Tier-0 hit as **authoritative,
+  outranking the company tiers** ("Tier 0 stays authoritative: a near-exact
+  hit on a hand-curated question... never overridden by the anchor").
+
+So a curated question like "شماره تماس شرکت دکیو چیست؟" is answered by Tier 0
+TODAY, live, at booth traffic — not a training-time artifact. Deleting these
+840 rows would delete real curated answers. Decision: **keep them, unchanged,
+in `questions`.**
+
+**Why no migration is needed for this table.** THE IDS DO NOT CHANGE (see
+above) — a `questions.dataset_id` that names a company keeps naming that same
+id after the move; only the table holding that id changes. The `questions`
+row itself does not need to move or be rewritten.
+
+**What DOES need to change — a second choke point, not in the reads-table
+below because it isn't a company-profile join, it's a plain
+`dataset_lookup.get(id)` that goes stale the moment companies leave
+`dataset`:**
+
+| File | What |
+| ---- | ---- |
+| `app/services/search.py:896` | `find_similar_question()` — Tier 0's answer resolution. A curated company question would keep winning the match and then silently resolve to `None` (company id no longer in `dataset_lookup`), falling through to a worse tier with no error. |
+| `app/services/search.py:813-825` | `get_entry()` — the pick/offer tier's id→entry lookup, called from `chat.py:351,378,380,401,713,750,762` and `answer.py:324`. The Tier 2 selection tier can legitimately offer a company as one of the numbered options (`ANSWER_TOPK` draws from the same corpus), so a visitor picking "2" for a company hits this exact gap. |
+
+Fix: add a module-level `companies_lookup: Dict[str, dict]` in `search.py`,
+built in `load_dataset_internal()` from `SELECT ... FROM companies` the same
+way `dataset_lookup` is built, and change exactly those two reads to
+`dataset_lookup.get(id) or companies_lookup.get(id)`. Ship this in the same
+change as the migration — it is a live-traffic regression, not a slow-burn
+one, if it lags behind.
 
 ### 3. Code that has to move
 
@@ -158,7 +215,8 @@ your change breaking something. See `local-suite-has-15-env-failures`.
 
 Take a BASELINE READING BEFORE the change, because the golden set today has
 **60 FAQ questions and zero company queries**, so it measures exactly the half
-that should improve. Recall@8 was 0.952 on 2026-08-28.
+that should improve. Recall@8 was 0.952 on 2026-08-28, reconfirmed unchanged
+on 2026-08-29 before starting the migration.
 
 Then add company queries to the golden set, which is on the backlog anyway,
 and measure both halves separately. If FAQ recall does not improve, the
@@ -169,14 +227,39 @@ knowing before the follow-up work.
 
 ## Order of work
 
-1. Count the company-owned `questions` rows on production. Decide their fate.
-2. Baseline `run_eval.py --recall-k`.
-3. Write `0013_companies.sql` plus the `init_db()` mirror. Test the migration
-   against a restored copy of the production dump, not against a fresh DB.
-4. Move the readers, one file at a time, tests going green as you go.
-5. Delete `_company_dataset_ids()` and the subtraction. This is the moment the
-   change pays for itself.
-6. Re-run the eval and record both numbers in
-   `docs/knowledge-based-evidence/`.
-7. Record the decision in `docs/engineering/DECISIONS.md` as ADR-019, in
-   Persian, matching that file.
+1. ~~Count the company-owned `questions` rows on production. Decide their
+   fate.~~ Done 2026-08-29 — 840 rows, keep them, see section 2.
+2. ~~Baseline `run_eval.py --recall-k`.~~ Done 2026-08-29 — recall@8 0.952.
+3. ~~Write `0013_companies.sql` plus the `init_db()` mirror.~~ Done
+   2026-08-30. ~~Test the migration against a restored copy of the production
+   dump.~~ Also done 2026-08-30, in a local Docker PostgreSQL 16 restored from
+   a real `pg_dump` of inotex production (`pg_20260829_211034_998ac1_padyar.dump`).
+   Results: `dataset` 224→56, `companies`=168 (exactly `company_profiles`'
+   count), `questions` unchanged at 1059 (840 of them company-linked, exactly
+   the count from section 2), `company_profiles` dropped, zero orphaned
+   `company_profiles` rows so the count-check RAISE EXCEPTION path never
+   fired. Also smoke-tested `get_entry()` and `find_similar_question()`
+   against this restored data: both resolve a real company (`dekio`) through
+   the `companies_lookup` fallback, including a live curated Tier-0 question
+   ("شرکت دکیو چیست؟", score 1.0). This is the strongest evidence available
+   short of an actual deploy.
+4. ~~Move the readers, one file at a time, tests going green as you go —
+   including the `companies_lookup` fallback in `get_entry()` and
+   `find_similar_question()` from section 2.~~ Done 2026-08-30. Two more
+   readers needed the same fallback, found by testing, not by the file:line
+   survey above: `resolve_named_entity()` and the `_corpus_vocab` builder in
+   `app/services/search.py` — see ADR-021 for why.
+5. ~~Delete `_company_dataset_ids()` and the subtraction.~~ Done 2026-08-30.
+6. ~~Re-run the eval and record both numbers.~~ Done 2026-08-30 — recall@8
+   unchanged at 0.952, because the local golden set still has zero company
+   queries (see the measurement section above). This does NOT demonstrate the
+   improvement the migration is for; that still needs company queries added
+   to the golden set, or a production measurement.
+7. ~~Record the decision in `docs/engineering/DECISIONS.md` as ADR-021.~~ Done
+   2026-08-30.
+
+**Left for deploy, not done by this session:** take a FRESH backup
+immediately before running this for real on production (the dump tested
+above is a point-in-time copy, not a substitute for a pre-deploy backup),
+then follow the normal PR → merge to main → CI deploy path (no manual rsync
+— see `padyar-deployment-state`).
