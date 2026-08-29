@@ -589,9 +589,11 @@ def _headline_noun(entries: list, lang: str) -> str:
     deterministic renderer, the one part of this tier the model cannot touch,
     was stating something false.
 
-    A dataset row IS one of the collection when it has a company_profiles row.
-    That is the same JOIN the company-list tier uses, so the two tiers cannot
-    disagree about what a company is. Every listed record must have one; a
+    A record IS one of the collection when its id is a row of `companies`
+    (migrations/0013_companies.sql — companies no longer live in `dataset`, so
+    this is now a plain membership check, not a JOIN, but it must still read
+    the same table the company-list tier lists from, so the two tiers cannot
+    disagree about what a company is). Every listed record must be one; a
     single record without one makes the list mixed, and a mixed list is called
     «مورد» / "items" — a plain word that claims nothing.
 
@@ -612,10 +614,10 @@ def _headline_noun(entries: list, lang: str) -> str:
         conn = get_db_connection()
         try:
             company_ids = {str(r[0]) for r in
-                           conn.execute("SELECT dataset_id FROM company_profiles")}
+                           conn.execute("SELECT id FROM companies")}
         finally:
             conn.close()
-    except Exception as e:  # noqa: BLE001 — no profiles table: no way to tell
+    except Exception as e:  # noqa: BLE001 — any DB fault: no way to tell
         logger.info(f"[answer] headline noun undecidable: {type(e).__name__}: {e}")
         return _collection_noun(lang)
 

@@ -46,10 +46,18 @@ AI_COMPANY_TITLES = ("شرکت آوا", "شرکت رایان", "شرکت نگا�
 
 
 def _seed(companies, extra_dataset=(), with_profiles=True):
-    """Insert dataset rows (+ optional company_profiles) and reindex."""
+    """Insert dataset rows + companies and reindex.
+
+    Companies are their own table now (migrations/0013_companies.sql).
+    ``with_profiles=False`` reproduces the "this isn't a company" shape
+    without a company_profiles table to omit: the companies are inserted as
+    plain `dataset` rows instead of `companies` rows, so the list tier's
+    `_load_companies()` (a plain `SELECT ... FROM companies`) finds none.
+    """
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     # Empty synonym table: expansion must not blur the token overlaps the
     # intent/keyword checks are built on.
@@ -57,25 +65,16 @@ def _seed(companies, extra_dataset=(), with_profiles=True):
     for i, title, text in extra_dataset:
         conn.execute("INSERT INTO dataset (id, title, text, video_url)"
                      " VALUES (?, ?, ?, '')", (i, title, text))
-    for i, title, text, _field in companies:
-        conn.execute("INSERT INTO dataset (id, title, text, video_url)"
-                     " VALUES (?, ?, ?, '')", (i, title, text))
+    for i, title, text, field in companies:
+        if with_profiles:
+            conn.execute(
+                "INSERT INTO companies (id, title, text, video_url,"
+                " activity_field) VALUES (?, ?, ?, '', ?)", (i, title, text, field))
+        else:
+            conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                         " VALUES (?, ?, ?, '')", (i, title, text))
     conn.commit()
     conn.close()
-
-    if with_profiles:
-        # The leads module owns the SQLite mirror of company_profiles — the
-        # same ensure call the app itself uses.
-        from app.services import leads
-        leads.ensure_tables()
-        conn = dbc.get_db_connection()
-        for i, _title, _text, field in companies:
-            conn.execute(
-                "INSERT INTO company_profiles (dataset_id, activity_field,"
-                " created_at, updated_at) VALUES (?, ?, '2026-08-27', '2026-08-27')",
-                (i, field))
-        conn.commit()
-        conn.close()
 
     from app.services import search
     search.load_dataset_internal()
@@ -181,8 +180,9 @@ def test_a_list_topic_no_company_matches_falls_through_to_the_pipeline(client, m
 
 
 def test_without_a_company_profiles_table_the_list_query_still_answers(client, monkeypatch):
-    """An install without the leads module has no company_profiles table.
-    The tier must silently switch off — no exception, normal pipeline."""
+    """No rows in `companies` (an install where nothing was ever imported as
+    a company). The tier must silently switch off — no exception, normal
+    pipeline."""
     _seed(COMPANIES, extra_dataset=[("faq-20", "سوال خارج از موضوع", REFUSAL_TEXT)],
           with_profiles=False)
     _mock_ai(monkeypatch)

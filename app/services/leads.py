@@ -7,7 +7,7 @@ system has to guarantee is not "a form was filled in" but "the person whose
 number this is agreed to it, and only they can change the company's text":
 
     visitor opens their own link      -> a visitor session (12 h)
-    visitor searches the company      -> a row of `dataset`, never free text,
+    visitor searches the company      -> a row of `companies`, never free text,
                                          and never a company someone already owns
     visitor enters name/role/phone    -> a lead, status `unverified`, OTP sent
     contact reads the code out loud   -> OTP verified, status `verified`
@@ -15,7 +15,7 @@ number this is agreed to it, and only they can change the company's text":
     contact opens it and reads        -> nothing burns; the link still works
     contact submits their text        -> THE INVITE BURNS, status `completed`,
                                          and a PENDING edit, not the live answer
-    admin approves                    -> the text lands in `dataset`
+    admin approves                    -> the text lands in `companies`
 
 WHY THE INVITE BURNS ON SUBMIT AND NOT ON OPEN
 ---------------------------------------------
@@ -211,32 +211,10 @@ _TABLES = (
         reviewed_by  TEXT NOT NULL DEFAULT ''
     )
     """,
-    # The SQLite half of migrations/0008_company_profiles.sql. What the
-    # organizer already knows about an exhibitor, keyed on dataset.id — see
-    # that file for why this is neither a wider `dataset` nor a lead.
-    """
-    CREATE TABLE IF NOT EXISTS company_profiles (
-        dataset_id       TEXT PRIMARY KEY,
-        contact_name     TEXT NOT NULL DEFAULT '',
-        contact_position TEXT NOT NULL DEFAULT '',
-        contact_mobile   TEXT NOT NULL DEFAULT '',
-        email            TEXT NOT NULL DEFAULT '',
-        website          TEXT NOT NULL DEFAULT '',
-        company_phone    TEXT NOT NULL DEFAULT '',
-        fax              TEXT NOT NULL DEFAULT '',
-        address          TEXT NOT NULL DEFAULT '',
-        address_en       TEXT NOT NULL DEFAULT '',
-        province         TEXT NOT NULL DEFAULT '',
-        company_type     TEXT NOT NULL DEFAULT '',
-        org_stage        TEXT NOT NULL DEFAULT '',
-        activity_field   TEXT NOT NULL DEFAULT '',
-        participation    TEXT NOT NULL DEFAULT '',
-        notes            TEXT NOT NULL DEFAULT '',
-        source           TEXT NOT NULL DEFAULT 'import',
-        created_at       TEXT NOT NULL,
-        updated_at       TEXT NOT NULL
-    )
-    """,
+    # `company_profiles` used to live here — see migrations/0013_companies.sql.
+    # What it held is now columns on `companies` (app/db/connection.py's
+    # `_create_companies_table`, a core table created in init_db(), not a
+    # module table created on demand here).
 )
 
 _INDEXES = (
@@ -580,17 +558,17 @@ def visitor_by_id(visitor_id: str) -> Optional[dict]:
 # ── Company search ───────────────────────────────────────────────────────
 
 def search_companies(query: str, limit: int = 20) -> list:
-    """Search the knowledge base by title, minus the companies already taken.
+    """Search the companies table by title, minus the companies already taken.
 
     The visitor picks from this list and can never type a company name: a typed
     name creates a company that does not exist, and no later cleanup finds it.
     A company with a live owner is gone from EVERY visitor's list, including the
     one who registered it, because two people cannot work the same booth.
     """
-    ensure_tables()
+    ensure_tables()  # company_leads (the ownership check) is a module table
     term = (query or "").strip()
     unowned = (" AND NOT EXISTS (SELECT 1 FROM company_leads l"
-               f" WHERE l.dataset_id = dataset.id AND {_live_owner()})")
+               f" WHERE l.dataset_id = companies.id AND {_live_owner()})")
     conn = get_db_connection()
     try:
         if term:
@@ -598,12 +576,12 @@ def search_companies(query: str, limit: int = 20) -> list:
             # wildcard cannot broaden the match beyond what they typed.
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             rows = conn.execute(
-                "SELECT id, title FROM dataset WHERE title LIKE ? ESCAPE '\\'" + unowned
+                "SELECT id, title FROM companies WHERE title LIKE ? ESCAPE '\\'" + unowned
                 + " ORDER BY title LIMIT ?", (f"%{escaped}%", limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, title FROM dataset WHERE 1 = 1" + unowned
+                "SELECT id, title FROM companies WHERE 1 = 1" + unowned
                 + " ORDER BY title LIMIT ?", (limit,)
             ).fetchall()
     finally:
@@ -611,11 +589,14 @@ def search_companies(query: str, limit: int = 20) -> list:
     return [{"id": r["id"], "title": r["title"]} for r in rows]
 
 
-def _dataset_row(dataset_id: str):
+def _company_row(dataset_id: str):
+    """One company by id, from `companies` — not `dataset` any more (see
+    migrations/0013_companies.sql). Every caller here is about a company, so
+    there is no ambiguity to resolve."""
     conn = get_db_connection()
     try:
         return conn.execute(
-            "SELECT id, title, text FROM dataset WHERE id = ?", (dataset_id,)
+            "SELECT id, title, text FROM companies WHERE id = ?", (dataset_id,)
         ).fetchone()
     finally:
         conn.close()
@@ -636,7 +617,7 @@ def register_contact(visitor_id: str, dataset_id: str, first_name: str,
     code and writes down who overrode what.
     """
     ensure_tables()
-    company = _dataset_row(dataset_id)
+    company = _company_row(dataset_id)
     if company is None:
         raise LeadError("این شرکت در فهرست نیست.", status=404, code="unknown_company")
 
@@ -728,7 +709,7 @@ def admin_add_contact(dataset_id: str, first_name: str, last_name: str,
 
     The scenario: the contact was met OUTSIDE the booth flow — a phone call, a
     corridor conversation — and the operator wants exactly what the booth
-    produces: the responsible person on file for this `dataset` row, and a
+    produces: the responsible person on file for this `companies` row, and a
     one-time link they can hand over (WhatsApp, email, in person) so the
     company's text still goes through the same human review.
 
@@ -738,7 +719,7 @@ def admin_add_contact(dataset_id: str, first_name: str, last_name: str,
     meet is met here too, with the same codes, so the UI can share its logic.
     """
     ensure_tables()
-    company = _dataset_row(dataset_id)
+    company = _company_row(dataset_id)
     if company is None:
         raise LeadError("این شرکت در فهرست نیست.", status=404, code="unknown_company")
 
@@ -965,7 +946,7 @@ def invite_view(token: str, ip: str = "") -> dict:
             _audit("invite_expired", "", lead_id=row["lead_id"], ip=ip)
             raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
         company = conn.execute(
-            "SELECT id, title, text FROM dataset WHERE id = ?", (row["dataset_id"],)
+            "SELECT id, title, text FROM companies WHERE id = ?", (row["dataset_id"],)
         ).fetchone()
     finally:
         conn.close()
@@ -1112,7 +1093,7 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
 
 def review_edit(edit_id: str, approve: bool, reviewer: str = "",
                 base_url: str = "") -> dict:
-    """Approve (write into `dataset`, reindex) or reject a pending edit.
+    """Approve (write into `companies`, reindex) or reject a pending edit.
 
     Approval sends nothing: the text appears on the chatbot, which is the
     notification. Rejection has to be told, and is told with a fresh 24-hour
@@ -1131,7 +1112,7 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
         if row["status"] != "pending":
             raise LeadError("این ویرایش قبلاً بررسی شده است.", code="already_reviewed")
         if approve:
-            conn.execute("UPDATE dataset SET text = ? WHERE id = ?",
+            conn.execute("UPDATE companies SET text = ? WHERE id = ?",
                          (row["new_text"], row["dataset_id"]))
         conn.execute(
             "UPDATE dataset_edits SET status = ?, reviewed_at = ?, reviewed_by = ?"
@@ -1180,7 +1161,7 @@ def revert_edit(edit_id: str, actor: str = "") -> dict:
         if row["status"] != "approved":
             raise LeadError("فقط یک ویرایش تأییدشده قابل برگرداندن است.",
                             code="not_revertable")
-        conn.execute("UPDATE dataset SET text = ? WHERE id = ?",
+        conn.execute("UPDATE companies SET text = ? WHERE id = ?",
                      (row["old_text"], row["dataset_id"]))
         conn.execute("UPDATE dataset_edits SET status = 'reverted' WHERE id = ?", (edit_id,))
         conn.commit()
@@ -1310,11 +1291,11 @@ def delete_company(dataset_id: str, actor: str = "") -> dict:
     of the exhibition. Every lead row, every live invite and every pending
     draft for it goes — the company disappears from the booth search and the
     contact form, and any link still sitting in a phone dies on its next tap.
-    The `dataset` row itself is NOT touched: whether the company exists in the
-    chatbot's knowledge base is the dataset page's business, not the leads
-    page's.
+    The `companies` row itself is NOT touched: whether the company exists in
+    the chatbot's knowledge base is the companies page's business, not the
+    leads page's.
 
-    Deleting the leads (not the dataset row) is the reversible direction: an
+    Deleting the leads (not the companies row) is the reversible direction: an
     operator who deleted the wrong company re-adds a contact and everything is
     back, with no way to have lost the chatbot's answer.
     """

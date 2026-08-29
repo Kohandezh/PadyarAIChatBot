@@ -248,16 +248,25 @@ def _create_sqlite_schema(cursor):
 
     ensure_dataset_columns(cursor)
 
+    # No FOREIGN KEY on dataset_id (there used to be one, ON DELETE CASCADE).
+    # PostgreSQL (migrations/0001_initial.sql) never had this FK — dataset_id
+    # is a plain indexed TEXT column there. migrations/0013_companies.sql
+    # deletes every company id out of `dataset` (they move to `companies`),
+    # and a curated question row for a company must survive that: 840 of them
+    # do, on production, and they are what Tier 0 (find_similar_question)
+    # still answers from. A CASCADE FK here would have deleted those rows the
+    # moment the dataset cleanup ran, silently, so both backends now agree:
+    # removing a dataset/company row never touches `questions`.
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS questions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         question TEXT NOT NULL,
         dataset_id TEXT NOT NULL,
-        video_url TEXT DEFAULT '',
-        FOREIGN KEY (dataset_id) REFERENCES dataset(id) ON DELETE CASCADE
+        video_url TEXT DEFAULT ''
     )
     ''')
 
+    _create_companies_table(cursor)
     _create_conversation_tables(cursor)
     _create_visitor_sessions_table(cursor)
 
@@ -265,6 +274,61 @@ def _create_sqlite_schema(cursor):
         cursor.execute('SELECT salt FROM admins LIMIT 1')
     except sqlite3.OperationalError:
         cursor.execute('ALTER TABLE admins ADD COLUMN salt TEXT')
+
+
+def _create_companies_table(cursor):
+    """The SQLite half of migrations/0013_companies.sql.
+
+    Read that file (and docs/features/companies-own-table/RESEARCH.md) for
+    WHY: a `dataset` row used to BE a company when `company_profiles` held a
+    row keyed to it, and every reader had to remember to subtract companies
+    out. This table merges what a company IS (the old `dataset` columns) with
+    what the organizer KNOWS about it (the old `company_profiles` columns,
+    formerly created by app/services/leads.py's `_TABLES`), so a company is
+    one row, one table, no join.
+
+    Created here — a CORE table, not gated behind the leads/registration
+    module the way `company_profiles` was — because a `companies` row can now
+    be the answer to a Tier 0 curated question or a pick-tier offer on ANY
+    install, whether or not that install ordered the leads module. See
+    app/services/search.py's `companies_lookup` fallback in `get_entry()` and
+    `find_similar_question()`.
+
+    No FOREIGN KEY on `id` anywhere else needs it: `questions.dataset_id`,
+    `company_leads.dataset_id`, `dataset_edits.dataset_id` and
+    `edit_invites.dataset_id` are plain TEXT columns on both backends, exactly
+    as they were when they pointed into `dataset` — see the note beside the
+    `questions` table above for why that stays true here too.
+    """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS companies (
+        id                TEXT PRIMARY KEY,
+        title             TEXT NOT NULL DEFAULT '',
+        title_en          TEXT NOT NULL DEFAULT '',
+        text              TEXT NOT NULL DEFAULT '',
+        text_en           TEXT NOT NULL DEFAULT '',
+        video_url         TEXT NOT NULL DEFAULT '',
+        position          INTEGER,
+        contact_name      TEXT NOT NULL DEFAULT '',
+        contact_position  TEXT NOT NULL DEFAULT '',
+        contact_mobile    TEXT NOT NULL DEFAULT '',
+        email             TEXT NOT NULL DEFAULT '',
+        website           TEXT NOT NULL DEFAULT '',
+        company_phone     TEXT NOT NULL DEFAULT '',
+        fax               TEXT NOT NULL DEFAULT '',
+        address           TEXT NOT NULL DEFAULT '',
+        address_en        TEXT NOT NULL DEFAULT '',
+        province          TEXT NOT NULL DEFAULT '',
+        company_type      TEXT NOT NULL DEFAULT '',
+        org_stage         TEXT NOT NULL DEFAULT '',
+        activity_field    TEXT NOT NULL DEFAULT '',
+        participation     TEXT NOT NULL DEFAULT '',
+        notes             TEXT NOT NULL DEFAULT '',
+        source            TEXT NOT NULL DEFAULT 'import',
+        created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
 
 
 def _create_conversation_tables(cursor):

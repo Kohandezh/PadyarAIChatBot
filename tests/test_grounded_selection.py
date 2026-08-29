@@ -108,33 +108,32 @@ NEUTRAL_QUERY = "درباره غرفه ها توضیح بده"
 
 
 def _seed(rows=DATASET, profiles=PROFILES):
+    """Companies are their own table now (migrations/0013_companies.sql): a
+    row whose id is a key of `profiles` is a company (goes to `companies`,
+    profile columns merged straight into the insert); everything else is a
+    plain `dataset` (FAQ) row."""
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     # Empty synonym table: expansion must not blur the token overlaps the
     # entity anchor and the unknown-token guard are built on.
     conn.execute("DELETE FROM synonyms")
     for i, title, text, video in rows:
-        conn.execute("INSERT INTO dataset (id, title, text, video_url)"
-                     " VALUES (?, ?, ?, ?)", (i, title, text, video))
-    conn.commit()
-    conn.close()
-
-    if profiles:
-        from app.services import leads
-        leads.ensure_tables()
-        conn = dbc.get_db_connection()
-        for dataset_id, prof in profiles.items():
+        if i in profiles:
+            prof = profiles[i]
             cols = ", ".join(prof.keys())
             marks = ", ".join("?" for _ in prof)
             conn.execute(
-                f"INSERT INTO company_profiles (dataset_id, {cols},"
-                f" created_at, updated_at)"
-                f" VALUES (?, {marks}, '2026-08-28', '2026-08-28')",
-                (dataset_id, *prof.values()))
-        conn.commit()
-        conn.close()
+                f"INSERT INTO companies (id, title, text, video_url, {cols})"
+                f" VALUES (?, ?, ?, ?, {marks})",
+                (i, title, text, video, *prof.values()))
+        else:
+            conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                         " VALUES (?, ?, ?, ?)", (i, title, text, video))
+    conn.commit()
+    conn.close()
 
     from app.services import search
     search.load_dataset_internal()
@@ -258,7 +257,10 @@ def _fake_candidates(monkeypatch, ids, scores=None):
     from app.services import search
 
     scores = scores or [0.60 - 0.05 * i for i in range(len(ids))]
-    cands = [(search.dataset_lookup[i], s, {"lexical": s})
+    # A candidate can be a company now (migrations/0013_companies.sql moved
+    # companies out of `dataset`), same fallback the production code uses.
+    cands = [(search.dataset_lookup.get(i) or search.companies_lookup[i], s,
+              {"lexical": s})
              for i, s in zip(ids, scores)]
     seen = {"k": None}
 
@@ -293,9 +295,10 @@ def _decision(candidates, lang="fa", query=NEUTRAL_QUERY, history=None):
 
 
 def _cands(*specs):
-    """Candidate dicts: the dataset entry plus the score retrieval gave it."""
+    """Candidate dicts: the dataset-or-company entry plus retrieval's score."""
     from app.services import search
-    return [{**search.dataset_lookup[i], "score": s} for i, s in specs]
+    return [{**(search.dataset_lookup.get(i) or search.companies_lookup[i]),
+             "score": s} for i, s in specs]
 
 
 # ── 1. The grounding gate: an invented id cannot survive ─────────────────

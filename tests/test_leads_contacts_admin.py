@@ -26,7 +26,8 @@ def admin_client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.connection import get_db_connection
         conn = get_db_connection()
-        conn.execute("INSERT INTO dataset (id, title, text)"
+        # Companies are their own table now (migrations/0013_companies.sql).
+        conn.execute("INSERT INTO companies (id, title, text)"
                      " VALUES ('co-a', 'شرکت آ', 'متن آ'), ('co-b', 'شرکت ب', 'متن ب')")
         token = secrets.token_hex(16)
         conn.execute("INSERT OR IGNORE INTO admins (username, password_hash, salt,"

@@ -68,22 +68,19 @@ def _seed(companies=COMPANIES, extra=EXTRA, field="هوش مصنوعی"):
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     conn.execute("DELETE FROM synonyms")
-    for i, title, text, video in list(extra) + list(companies):
+    for i, title, text, video in extra:
         conn.execute("INSERT INTO dataset (id, title, text, video_url)"
                      " VALUES (?, ?, ?, ?)", (i, title, text, video))
-    conn.commit()
-    conn.close()
-
-    from app.services import leads
-    leads.ensure_tables()
-    conn = dbc.get_db_connection()
-    for i, _t, _x, _v in companies:
+    # Companies are their own table now (migrations/0013_companies.sql), not
+    # `dataset` rows with a side `company_profiles` row.
+    for i, title, text, video in companies:
         conn.execute(
-            "INSERT INTO company_profiles (dataset_id, activity_field,"
-            " province, created_at, updated_at)"
-            " VALUES (?, ?, 'تهران', '2026-08-28', '2026-08-28')", (i, field))
+            "INSERT INTO companies (id, title, text, video_url,"
+            " activity_field, province)"
+            " VALUES (?, ?, ?, ?, ?, 'تهران')", (i, title, text, video, field))
     conn.commit()
     conn.close()
 
@@ -521,7 +518,7 @@ def test_a_pick_whose_record_was_deleted_between_turns_falls_through_quietly(cli
 
     from app.db.connection import get_db_connection
     conn = get_db_connection()
-    conn.execute("DELETE FROM dataset WHERE id = ?", (third["id"],))
+    conn.execute("DELETE FROM companies WHERE id = ?", (third["id"],))
     conn.commit()
     conn.close()
     from app.services import search
@@ -610,7 +607,7 @@ def test_deleting_a_name_from_page_one_does_not_step_over_the_next_company(
 
     from app.db.connection import get_db_connection
     conn = get_db_connection()
-    conn.execute("DELETE FROM dataset WHERE id = ?", (third["id"],))
+    conn.execute("DELETE FROM companies WHERE id = ?", (third["id"],))
     conn.commit()
     conn.close()
     search.load_dataset_internal()

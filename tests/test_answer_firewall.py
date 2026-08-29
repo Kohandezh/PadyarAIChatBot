@@ -60,30 +60,32 @@ WEBSITE = "https://inotex.example.ir"
 
 
 def _seed(rows=DATASET, with_profiles=True):
+    """Companies are their own table now (migrations/0013_companies.sql): a
+    "co-" id goes to `companies`, everything else to `dataset`.
+
+    ``with_profiles=False`` reproduces the OTHER "no way to tell a company
+    apart from an FAQ row" shape `_headline_noun()` in app/services/answer.py
+    has to degrade for: a "co-" id that is, structurally, just a `dataset` row
+    — nothing recorded in `companies` at all — the same as before this
+    migration a `dataset` row with no matching `company_profiles` row was.
+    """
     import app.db.connection as dbc
     conn = dbc.get_db_connection()
     conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
     conn.execute("DELETE FROM questions")
     conn.execute("DELETE FROM synonyms")
     for i, title, text, video in rows:
-        conn.execute("INSERT INTO dataset (id, title, text, video_url)"
-                     " VALUES (?, ?, ?, ?)", (i, title, text, video))
+        if i.startswith("co-") and with_profiles:
+            conn.execute(
+                "INSERT INTO companies (id, title, text, video_url,"
+                " activity_field) VALUES (?, ?, ?, ?, 'هوش مصنوعی')",
+                (i, title, text, video))
+        else:
+            conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                         " VALUES (?, ?, ?, ?)", (i, title, text, video))
     conn.commit()
     conn.close()
-
-    if with_profiles:
-        from app.services import leads
-        leads.ensure_tables()
-        conn = dbc.get_db_connection()
-        for i, _t, _x, _v in rows:
-            if not i.startswith("co-"):
-                continue
-            conn.execute(
-                "INSERT INTO company_profiles (dataset_id, activity_field,"
-                " created_at, updated_at)"
-                " VALUES (?, 'هوش مصنوعی', '2026-08-28', '2026-08-28')", (i,))
-        conn.commit()
-        conn.close()
 
     from app.services import search
     search.load_dataset_internal()
@@ -128,7 +130,8 @@ def _log_rows(event=None):
 
 def _entries(*ids):
     from app.services import search
-    return [search.dataset_lookup[i] for i in ids]
+    return [search.dataset_lookup.get(i) or search.companies_lookup[i]
+            for i in ids]
 
 
 def _render(entries, lead, lang="fa", start_index=1, total=None, filter_label=""):
@@ -900,7 +903,7 @@ MIXED_DATASET = DATASET + [
 
 
 def test_a_list_of_faq_records_is_not_called_companies(client):
-    """None of these three rows is a company: none has a company_profiles row.
+    """None of these three rows is a company: none is a row of `companies`.
     Calling them «شرکت» is the renderer inventing a fact."""
     _seed(MIXED_DATASET)
     text, _options, _offer = _render(
@@ -942,10 +945,19 @@ def test_an_install_with_no_profile_data_keeps_the_configured_noun(client):
     row from another. This check only ever DOWNGRADES a claim it can show is
     wrong, so with nothing to check against, the configured noun stands.
 
-    Here the company_profiles TABLE does not exist at all, so the read raises
-    and the noun is left alone. The next test covers the other shape of "nothing to
-    check against", which reaches a different line."""
+    `companies` is a core table now (migrations/0013_companies.sql), so there
+    is no install-level way to make the SELECT itself raise any more — the
+    table always exists. Dropped here instead, to still pin the
+    `except Exception` arm of `_headline_noun()` specifically (any DB fault
+    must degrade the same way). The next test covers the other shape of
+    "nothing to check against" — an empty, present table — which reaches a
+    different line."""
     _seed(MIXED_DATASET, with_profiles=False)
+    import app.db.connection as dbc
+    conn = dbc.get_db_connection()
+    conn.execute("DROP TABLE companies")
+    conn.commit()
+    conn.close()
     from app.db.queries import set_setting
     set_setting("collection_noun_fa", "بخش")
     text, _options, _offer = _render(
@@ -954,10 +966,11 @@ def test_an_install_with_no_profile_data_keeps_the_configured_noun(client):
 
 
 def test_an_install_whose_profiles_table_is_empty_keeps_the_configured_noun(client):
-    """DAY ONE of a leads install: the table is there, and nobody has filled in
-    a single profile yet. The read succeeds and returns an empty set, so this
-    does NOT go through the missing-table arm above. It reaches the emptiness
-    guard on the comparison itself.
+    """DAY ONE of an install: `companies` exists (it is core now — see
+    migrations/0013_companies.sql), and nobody has entered a single company
+    yet. The read succeeds and returns an empty set, so this does NOT go
+    through the missing-table arm above. It reaches the emptiness guard on the
+    comparison itself.
 
     Without that guard the subset test is `ids <= set()`, which is false for
     every non-empty list, and so every list on a brand-new install would be
@@ -966,8 +979,6 @@ def test_an_install_whose_profiles_table_is_empty_keeps_the_configured_noun(clie
     exists to correct a claim it can PROVE wrong; an empty table proves
     nothing."""
     _seed(MIXED_DATASET, with_profiles=False)
-    from app.services import leads
-    leads.ensure_tables()
     from app.db.queries import set_setting
     set_setting("collection_noun_fa", "بخش")
 
