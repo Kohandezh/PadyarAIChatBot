@@ -206,7 +206,13 @@ def test_plan_text_separates_general_sections_from_matches():
 def client():
     from fastapi.testclient import TestClient
     from app.main import app
-    return TestClient(app)
+    # /api/visit-plan reads the visitor session cookie, so it validates the
+    # request origin like every other endpoint that acts on an ambient
+    # credential. A browser always sends these two headers; TestClient does not.
+    c = TestClient(app)
+    c.headers.update({"Origin": "http://localhost",
+                      "User-Agent": "pytest-agent/1.0"})
+    return c
 
 
 def test_endpoint_returns_a_plan_from_raw_fields(client):
@@ -225,7 +231,13 @@ def test_endpoint_works_without_registering(client):
 
 
 def test_endpoint_ignores_an_unverified_challenge_id(client):
-    """An unknown id must not error, and must not leak anything."""
+    """An unknown id must not error, and must not leak anything.
+
+    `challenge_id` is no longer a field of this endpoint at all — identity
+    comes from the session cookie. The old field is now ordinary extra JSON,
+    and this still asserts what it always did: nothing about it changes the
+    plan, and nothing about the caller's phone comes back.
+    """
     r = client.post("/api/visit-plan", json={"challenge_id": "x" * 32, "interests": "رسانه"})
     assert r.status_code == 200
     body = r.json()

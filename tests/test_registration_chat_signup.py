@@ -40,7 +40,11 @@ def outbox(monkeypatch):
 
 @pytest.fixture()
 def client():
+    # Origin + User-Agent, because verify mints the visitor session cookie and
+    # the profile endpoint consumes it, so both validate the request origin.
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost",
+                          "User-Agent": "pytest-agent/1.0"})
         yield c
 
 
@@ -56,6 +60,11 @@ def _cleanup():
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM otp_challenges WHERE destination LIKE '+9891200000%'")
+        # A verified challenge is now promoted to a durable `visitors`
+        # row (app/routers/otp.py). These three OTP files run against
+        # the ambient database, so their test numbers have to be swept
+        # out of that table too or they pile up in a real install.
+        conn.execute("DELETE FROM visitors WHERE phone LIKE '+9891200000%'")
         conn.commit()
     finally:
         conn.close()
@@ -63,8 +72,25 @@ def _cleanup():
 
 # ── The server side of the new flow ──────────────────────────────────────
 
+def _stored():
+    """The durable visitor row — where the chat answers land.
+
+    They used to be read back off `otp_challenges`. That table expires; the
+    profile endpoint now writes `app.visitors`, which is the copy the
+    exhibition keeps and the one the planner reads.
+    """
+    from app.services import conversations
+    row = conversations.find_visitor_by_phone(DEST)
+    assert row, "no visitor row was written"
+    return row
+
+
 def _signed_up(client, outbox, interests=""):
-    """What the three-input card posts: a name, a number, and the checkbox."""
+    """What the three-input card posts: a name, a number, and the checkbox.
+
+    Verifying leaves the session cookie in this client's jar, which is the only
+    thing the profile posts below carry as identity.
+    """
     r = client.post("/api/auth/otp/request", json={
         "destination": DEST, "first_name": "زهرا", "last_name": "کریمی",
         "job": "", "position": "", "interests": interests,
@@ -80,22 +106,21 @@ def _signed_up(client, outbox, interests=""):
 def test_signup_needs_only_a_name_a_number_and_the_checkbox(client, outbox):
     """The card no longer collects job, position or interests — the request
     must still be accepted with those three fields empty."""
-    cid = _signed_up(client, outbox)
-    profile = otp_service.profile_for(cid)
+    _signed_up(client, outbox)
+    profile = _stored()
     assert profile["first_name"] == "زهرا"
     assert profile["job"] == "" and profile["position"] == ""
 
 
 def test_the_three_chat_answers_reach_the_existing_profile_endpoint(client, outbox):
-    cid = _signed_up(client, outbox)
+    _signed_up(client, outbox)
     r = client.post("/api/auth/profile", json={
-        "challenge_id": cid,
         "job": "خبرنگار / رسانه",
         "position": "کارشناس",
         "interests": "رسانه و ارتباطات، هوش مصنوعی",
     })
     assert r.status_code == 200, r.text
-    stored = otp_service.profile_for(cid)
+    stored = _stored()
     assert stored["job"] == "خبرنگار / رسانه"
     assert stored["position"] == "کارشناس"
     assert "هوش مصنوعی" in stored["interests"]
@@ -106,14 +131,14 @@ def test_the_signup_checkbox_survives_the_chat_answers(client, outbox):
     interests question must merge, never overwrite — otherwise a visitor who
     asked for AI classes is silently unsubscribed one screen later."""
     flag = taxonomy.form_options("fa")["flags"][0]["label"]
-    cid = _signed_up(client, outbox, interests=flag)
+    _signed_up(client, outbox, interests=flag)
 
     # Exactly what registration.js sends: the remembered flag, then the taps.
     client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "مهندس / متخصص فنی", "position": "کارشناس",
+        "job": "مهندس / متخصص فنی", "position": "کارشناس",
         "interests": flag + "، " + "هوش مصنوعی",
     })
-    assert flag in otp_service.profile_for(cid)["interests"]
+    assert flag in _stored()["interests"]
 
 
 def test_the_checkbox_the_form_renders_comes_from_the_taxonomy(client):
@@ -132,9 +157,9 @@ def test_every_interest_at_once_still_fits_the_profile_endpoint(client, outbox):
     everything = "، ".join(
         [f["label"] for f in options["flags"]] + [i["label"] for i in options["interests"]]
     )
-    cid = _signed_up(client, outbox)
+    _signed_up(client, outbox)
     r = client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "", "position": "", "interests": everything,
+        "job": "", "position": "", "interests": everything,
     })
     assert r.status_code == 200, (
         f"{len(everything)} characters of interests was refused: {r.text}")
@@ -146,13 +171,13 @@ def test_the_longest_job_and_position_fit_their_fields(client, outbox):
     options = taxonomy.form_options("fa")
     longest_job = max((j["label"] for j in options["jobs"]), key=len)
     longest_position = max((p["label"] for p in options["positions"]), key=len)
-    cid = _signed_up(client, outbox)
+    _signed_up(client, outbox)
     r = client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": longest_job, "position": longest_position,
+        "job": longest_job, "position": longest_position,
         "interests": "",
     })
     assert r.status_code == 200, r.text
-    assert otp_service.profile_for(cid)["job"] == longest_job
+    assert _stored()["job"] == longest_job
 
 
 # ── The chat engine's seam ───────────────────────────────────────────────
@@ -169,12 +194,25 @@ def test_the_first_message_is_held_and_not_answered():
     assert "heldMessage = text;" in REGISTRATION_JS
     assert "function deliverHeld()" in REGISTRATION_JS
     # Delivered through the normal path, so it is answered like any message.
-    assert "if (typeof sendMessage === 'function') sendMessage(true);" in REGISTRATION_JS
+    # The `echo` option decides one thing: whether the visitor's own bubble is
+    # printed again. It is false only for a message the SERVER refused with a
+    # 401, which is already on screen — see serverGate() in registration.js.
+    assert "sendMessage(true, { echo: !echoed })" in REGISTRATION_JS
 
 
 def test_the_gate_is_installed_only_where_registration_is_switched_on():
-    assert "if (s.enabled && typeof ChatConfig !== 'undefined') ChatConfig.sendGateFn = gate;" \
-        in REGISTRATION_JS
+    """…and only once the server has said who this visitor is.
+
+    Installing the gate before GET /api/auth/session answers would hold a
+    signed-in visitor's message for a round trip and open a sign-up card they
+    do not need. tests/e2e/test_visitor_session_e2e.py drives both halves of
+    this in a real browser.
+    """
+    boot = REGISTRATION_JS[
+        REGISTRATION_JS.index("fetch('/api/auth/registration-status')"):]
+    assert "if (!s.enabled || typeof ChatConfig === 'undefined') return;" in boot
+    assert "refreshServerSession()" in boot
+    assert "ChatConfig.sendGateFn = gate;" in boot
 
 
 # ── The interaction that matters: buttons, not a dropdown ────────────────

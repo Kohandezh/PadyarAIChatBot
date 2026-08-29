@@ -8,6 +8,11 @@ class VisitorProfile(BaseModel):
 
     Registration collects a name and phone too; those deliberately do not
     travel with chat messages, because nothing in the answer depends on them.
+
+    Still here, and still exactly this shape, but it is now built by the
+    SERVER: app/auth/visitor.py fills it from the `visitors` row behind the
+    session cookie. The targeted-visit planner reads the same three fields it
+    always did, so nothing downstream changed — only where they come from.
     """
     job: str = ""
     position: str = ""
@@ -19,8 +24,17 @@ class ChatRequest(BaseModel):
     # UI language. "en" serves the English side of the bilingual knowledge base;
     # anything else falls back to Persian, which is always populated.
     lang: str = "fa"
-    # Present only for a registered visitor who filled the optional fields.
-    visitor: Optional[VisitorProfile] = None
+    # `visitor: Optional[VisitorProfile]` was here, and it was a hole: the
+    # CALLER stated their own job, position and interests, and the planner
+    # believed them. Four extra fields in a POST body made anybody a
+    # registered visitor. The profile now comes from the padyar_vs session
+    # cookie, resolved by the `resolve_visitor` middleware in app/main.py, and
+    # the router reads http_request.state.visitor.
+    #
+    # Nothing replaces the field, on purpose. Pydantic ignores body keys it
+    # does not declare, so a browser still running the old frontend keeps
+    # chatting and its `visitor` object is simply dropped — which is the whole
+    # point, not a leftover.
 
 
 class ChatOption(BaseModel):

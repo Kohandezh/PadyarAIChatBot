@@ -293,6 +293,56 @@ async def admin_themes(request: Request):
     return _render("admin/themes.html", request=request, active_page="themes")
 
 
+@router.get("/secure-panel-inotex/visitors", response_class=HTMLResponse)
+async def admin_visitors(request: Request):
+    """The people who registered, and how to reach them again.
+
+    Never module-gated. The page reads what the CORE chat module always
+    writes, so every install has it — see the `conversations` entry in
+    app/modules/registry.py.
+
+    The «شغل» and «علاقه‌مندی» dropdowns are filled from the registration
+    taxonomy, because that file is what put those exact labels on the visitor
+    rows. An install whose taxonomy is missing or unreadable gets plain text
+    boxes instead: two empty dropdowns would be a filter nobody can use.
+    """
+    redirect = await _require_admin(request)
+    if redirect:
+        return redirect
+    jobs, interests = [], []
+    try:
+        from app.services import taxonomy
+        options = taxonomy.form_options("fa")
+        jobs = [o["label"] for o in options.get("jobs", []) if o.get("label")]
+        interests = [o["label"] for o in options.get("interests", []) if o.get("label")]
+    except Exception:
+        jobs, interests = [], []
+    return _render("admin/visitors.html", request=request, active_page="visitors",
+                   jobs=jobs, interests=interests,
+                   js_version=admin_js_version("visitors.js"))
+
+
+@router.get("/secure-panel-inotex/conversations", response_class=HTMLResponse)
+async def admin_conversations(request: Request):
+    """Every chat session, and the one-click list of the bot's wrong answers.
+
+    One page, two views. `?view=weak` opens on the wrong-answer queue, which
+    is what the sidebar's own link points at — that queue is the reason the
+    screen exists, so it gets its own entry in the menu instead of hiding
+    behind a filter. The active_page value follows the view so the sidebar
+    highlights the entry the operator actually clicked.
+    """
+    redirect = await _require_admin(request)
+    if redirect:
+        return redirect
+    weak_view = request.query_params.get("view") == "weak"
+    from app.routers.conversations_admin import SOURCE_FA, WEAK_BELOW
+    return _render("admin/conversations.html", request=request,
+                   active_page="conversations_weak" if weak_view else "conversations",
+                   sources=SOURCE_FA, weak_below=WEAK_BELOW,
+                   js_version=admin_js_version("conversations.js"))
+
+
 @router.get("/secure-panel-inotex/infrastructure/database", response_class=HTMLResponse)
 async def admin_infra_database(request: Request):
     redirect = await _require_admin(request)

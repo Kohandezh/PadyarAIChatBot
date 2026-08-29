@@ -259,6 +259,7 @@ def _create_sqlite_schema(cursor):
     ''')
 
     _create_conversation_tables(cursor)
+    _create_visitor_sessions_table(cursor)
 
     try:
         cursor.execute('SELECT salt FROM admins LIMIT 1')
@@ -275,11 +276,13 @@ def _create_conversation_tables(cursor):
     holding the same JSON, NUMERIC/DOUBLE PRECISION -> REAL, IDENTITY ->
     AUTOINCREMENT.
 
-    No ALTER pass is needed the way `ensure_chat_log_columns()` needs one.
-    That helper exists because CREATE TABLE IF NOT EXISTS does nothing to an
-    EXISTING table, so new COLUMNS never landed. A whole new TABLE does land:
-    an install that has been running for a year gets these three on its next
-    boot.
+    A whole new TABLE lands on its own: an install that has been running for a
+    year gets these three on its next boot. New COLUMNS do not — CREATE TABLE
+    IF NOT EXISTS does nothing to an existing table — which is why the two
+    summary columns get the same ALTER pass `ensure_chat_log_columns()` uses.
+    Only a developer box can be in that state (migration 0010 has not been
+    applied to any production install), but a machine that silently never
+    summarizes is a bad afternoon to debug.
 
     `created_at` is TIMESTAMP DEFAULT CURRENT_TIMESTAMP, not an ISO string
     written by Python, so retention can compare it with
@@ -320,9 +323,21 @@ def _create_conversation_tables(cursor):
         message_count INTEGER NOT NULL DEFAULT 0,
         lang TEXT NOT NULL DEFAULT 'fa',
         ip TEXT NOT NULL DEFAULT '',
-        user_agent TEXT NOT NULL DEFAULT ''
+        user_agent TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        summary_upto_id INTEGER NOT NULL DEFAULT 0
     )
     ''')
+    # For a database created before the summary columns existed. Both are
+    # empty by default, which is exactly "this conversation has no summary
+    # yet" — the state every new conversation starts in anyway.
+    for column, ddl in (("summary", "TEXT NOT NULL DEFAULT ''"),
+                        ("summary_upto_id", "INTEGER NOT NULL DEFAULT 0")):
+        try:
+            cursor.execute(
+                f"ALTER TABLE conversations ADD COLUMN {column} {ddl}")
+        except sqlite3.OperationalError:
+            pass  # column already present
     cursor.execute('CREATE INDEX IF NOT EXISTS ix_conversations_started'
                    ' ON conversations(started_at DESC)')
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_conversations_visitor"
@@ -349,6 +364,49 @@ def _create_conversation_tables(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_messages_weak"
                    " ON messages(created_at DESC, confidence)"
                    " WHERE role = 'assistant'")
+
+
+def _create_visitor_sessions_table(cursor):
+    """The SQLite half of migrations/0012_visitor_sessions.sql.
+
+    Read that file for WHY the table exists (a registered visitor's identity
+    must come from a credential the server minted, not from a body field) and
+    why it is a table rather than a stateless signed token (a session has to
+    be revocable). This is only the type mapping: TIMESTAMPTZ -> TIMESTAMP.
+
+    Two places the mirror differs from the PostgreSQL original, both because
+    SQLite cannot express them usefully:
+
+    * the foreign key is written out but not enforced — SQLite does not check
+      foreign keys unless the connection turns them on, so it is here for the
+      reader, exactly as `messages.conversation_id` is;
+    * `expiry` carries no DEFAULT because every row is written by
+      app/auth/visitor.py mint(), which always supplies one.
+
+    `created_at` and `last_seen` use DEFAULT CURRENT_TIMESTAMP for the same
+    reason the conversation tables do: CURRENT_TIMESTAMP writes
+    'YYYY-MM-DD HH:MM:SS' and a Python isoformat() string sorts differently
+    ('T' > ' '), which would silently break any later date comparison.
+    app/auth/visitor.py writes `expiry` in the matching space-separated shape
+    for exactly that reason.
+
+    SQLite-only helper: PostgreSQL never runs this, migrations/ owns it there.
+    """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS visitor_sessions (
+        token TEXT PRIMARY KEY,
+        visitor_id TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expiry TIMESTAMP,
+        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (visitor_id) REFERENCES visitors(id) ON DELETE CASCADE
+    )
+    ''')
+    # "Log this person out everywhere" is a lookup, not a scan.
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_visitor_sessions_visitor'
+                   ' ON visitor_sessions(visitor_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_visitor_sessions_expiry'
+                   ' ON visitor_sessions(expiry)')
 
 
 def _seed_defaults(cursor):

@@ -643,7 +643,9 @@ def test_ladder_ai_failure_falls_back_to_a_strong_local_match(chat_client, monke
     r = _ask(chat_client, "ساعات بازدید نمایشگاه اینوتکس")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local"
-    assert r.json()["text"] == "پاسخ محلی"
+    # startswith, not ==: 0.55 is below TRUSTED_MATCH_THRESHOLD, so the answer
+    # carries the "if you meant something else, tell me" line after it.
+    assert r.json()["text"].startswith("پاسخ محلی"), r.json()["text"]
 
 
 def test_ladder_kill_switch_skips_the_ai_branch_entirely(chat_client, monkeypatch):
