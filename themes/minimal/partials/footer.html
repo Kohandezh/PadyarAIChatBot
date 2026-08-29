@@ -1,5 +1,47 @@
 <script src="/static/chat/core.js"></script>
 <script>
-    // Minimal theme: no overrides needed, uses all defaults
+    // ── Light / dark mode ──
+    // Same key inotex's own toggle uses (see the boot script in
+    // themes/base/partials/index.html, which already resolves this before
+    // first paint) — one install only ever runs one active theme, so
+    // sharing the key is not a real conflict.
+    (function () {
+        const btn = document.getElementById('theme-btn');
+        if (!btn) return;
+        const KEY = 'inotex-light-mode';
+        const COPY = {
+            fa: { toLight: 'حالت روشن', toDark: 'حالت تیره' },
+            en: { toLight: 'Switch to light mode', toDark: 'Switch to dark mode' }
+        };
+
+        function apply(light, persist) {
+            document.body.classList.toggle('light-mode', light);
+            const lang = document.documentElement.lang === 'en' ? 'en' : 'fa';
+            const label = light ? COPY[lang].toDark : COPY[lang].toLight;
+            btn.setAttribute('aria-pressed', light ? 'true' : 'false');
+            btn.setAttribute('title', label);
+            btn.setAttribute('aria-label', light ? COPY.en.toDark : COPY.en.toLight);
+            if (persist) localStorage.setItem(KEY, light ? '1' : '0');
+        }
+
+        const device = window.matchMedia('(prefers-color-scheme: light)');
+        const stored = localStorage.getItem(KEY);
+        apply(stored === null ? device.matches : stored === '1', false);
+
+        device.addEventListener('change', function (e) {
+            if (localStorage.getItem(KEY) === null) apply(e.matches, false);
+        });
+
+        btn.addEventListener('click', function () {
+            apply(!document.body.classList.contains('light-mode'), true);
+        });
+
+        // Keep the tooltip in the active language when EN/فا is toggled.
+        new MutationObserver(function () {
+            apply(document.body.classList.contains('light-mode'), false);
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    })();
+
+    // Minimal theme: everything else uses core.js defaults.
     initChat();
 </script>

@@ -91,8 +91,6 @@
         }
         chatContent.scrollTop = chatContent.scrollHeight;
         if (save) saveToHistory(content, type);
-
-        if (type === 'bot') CompanionTTS.speak(content);
     };
 
     // ── Liquid Glass: switchTab keeps the segmented control in sync ──
@@ -166,59 +164,6 @@
                 switchTabInternal(radio.value);
             });
         });
-    })();
-
-    // ── Text-to-speech (browser SpeechSynthesis — no key, no network) ──
-    const CompanionTTS = (function () {
-        const supported = 'speechSynthesis' in window;
-        const btn = document.getElementById('tts-btn');
-        let on = localStorage.getItem('inotex-tts') === '1';
-
-        function paint() {
-            if (!btn) return;
-            btn.classList.toggle('active', on);
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        }
-
-        function speak(text) {
-            if (!on || !supported || !text) return;
-            const plain = String(text)
-                .replace(/<[^>]*>/g, ' ')
-                .replace(/https?:\/\/\S+/g, ' ')
-                .replace(/[*_`#>\[\]()]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            if (!plain) return;
-
-            const en = document.documentElement.lang === 'en';
-            speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(plain);
-            u.lang = en ? 'en-US' : 'fa-IR';
-            const want = en ? 'en' : 'fa';
-            const v = (speechSynthesis.getVoices() || [])
-                .find(x => x.lang && x.lang.toLowerCase().startsWith(want));
-            if (v) u.voice = v;
-            u.rate = 0.98;
-            u.onstart = function () { InotexVoice.set('speaking'); };
-            u.onend = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
-            u.onerror = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
-            speechSynthesis.speak(u);
-        }
-
-        if (btn && !supported) {
-            btn.disabled = true;
-            btn.title = 'مرورگر شما خواندن صوتی را پشتیبانی نمی‌کند';
-        } else if (btn) {
-            btn.addEventListener('click', function () {
-                on = !on;
-                localStorage.setItem('inotex-tts', on ? '1' : '0');
-                if (!on) { speechSynthesis.cancel(); InotexVoice.set('idle'); }
-                paint();
-            });
-        }
-        paint();
-
-        return { speak: speak };
     })();
 
     // ── Chat column: centre a short conversation, scroll a long one ──

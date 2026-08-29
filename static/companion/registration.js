@@ -176,21 +176,21 @@
 
     function paintSession() {
         const p = session();
-        const header = document.querySelector('.header-tools');
+        // The account row at the bottom of the hamburger drawer — one fixed
+        // anchor present on every theme, instead of the old `.header-tools`
+        // lookup (a class only two of four themes ever had, so this control
+        // silently never appeared on the other two).
+        const section = document.getElementById('menu-account-section');
         let logout = document.getElementById('visitor-logout');
 
         if (p && displayName(p)) {
-            if (!logout && header) {
+            if (!logout && section) {
                 logout = document.createElement('button');
                 logout.type = 'button';
                 logout.id = 'visitor-logout';
-                logout.className = 'visitor-logout';
+                logout.className = 'visitor-logout menu-account-btn';
                 logout.addEventListener('click', clearSession);
-                // Beside the hamburger: leaving is an account action, and the
-                // account controls live at that end of the header.
-                const a11y = header.querySelector('.accessibility-controls');
-                if (a11y) a11y.insertAdjacentElement('afterend', logout);
-                else header.append(logout);
+                section.append(logout);
             }
             if (logout) {
                 logout.textContent = t().logout;

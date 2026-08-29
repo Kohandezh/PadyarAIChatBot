@@ -128,14 +128,9 @@ COMPANION-OFF (end) -->
                 micTitle: 'پرسیدن با صدا',
                 micStop: 'پایان دادن به ضبط صدا',
                 sendTitle: 'ارسال پرسش',
-                ttsOn: 'خواندن پاسخ‌ها با صدا',
-                ttsOff: 'خاموش کردن خواندن پاسخ‌ها',
-                videoSoundOn: 'پخش صدای ویدیو',
-                videoSoundOff: 'قطع صدای ویدیو',
                 keyboard: 'نوشتن با صفحه‌کلید',
                 themeToDark: 'رفتن به حالت تاریک',
                 themeToLight: 'رفتن به حالت روشن',
-                a11y: 'اندازه متن',
                 petEyebrow: 'سازمان حج و زیارت',
                 petTitle: 'پرسش کوتاه',
                 hintListening: 'در حال شنیدن… وقتی حرفتان تمام شد دوباره روی میکروفون بزنید.',
@@ -172,7 +167,6 @@ COMPANION-OFF (end) -->
             text('haj-pet-eyebrow', c.petEyebrow);
             text('pet-panel-title', c.petTitle);
             label('haj-keyboard-btn', c.keyboard);
-            label('a11y-hamburger', c.a11y);
             label('send-btn', c.sendTitle);
 
             var input = document.getElementById('user-input');
@@ -358,7 +352,9 @@ COMPANION-OFF (end) -->
             // stay silent: reading a saved conversation back on every page load
             // is a voice starting by itself, with nothing on screen to explain
             // where it came from.
-            if (type === 'bot' && !failed && !restored) HajSpeech.speak(content);
+            // Read-aloud used to fire here; the speaker control it depended on
+            // (#tts-btn) was removed at the product owner's request — see
+            // docs/features/hamburger-menu/SPEC.md, REQ-005.
         }
 
         return { render: render, lastUser: function () { return lastUserMessage; } };
@@ -464,95 +460,6 @@ COMPANION-OFF (end) -->
             input.focus();
             input.setSelectionRange(input.value.length, input.value.length);
         });
-    })();
-
-
-    /* ── Speaker: reads answers aloud, or owns the video's sound ───────
-       One sound control per screen. On the video tab it mutes/unmutes the
-       clip — the sound a visitor can actually hear there — and it re-labels
-       itself so the button always says which sound it owns. */
-    var HajSpeech = (function () {
-        var supported = 'speechSynthesis' in window;
-        var btn = document.getElementById('tts-btn');
-        var on = localStorage.getItem('haj-tts') === '1';
-
-        function inVideo() { return document.body.classList.contains('video-mode'); }
-
-        function paint() {
-            if (!btn) return;
-            var c = HajCopy.s();
-            var video = document.getElementById('avatar-video');
-            if (inVideo() && video) {
-                var audible = !video.muted;
-                btn.classList.toggle('is-on', audible);
-                btn.setAttribute('aria-pressed', audible ? 'true' : 'false');
-                btn.title = audible ? c.videoSoundOff : c.videoSoundOn;
-            } else {
-                btn.classList.toggle('is-on', on);
-                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-                btn.title = on ? c.ttsOff : c.ttsOn;
-            }
-            btn.setAttribute('aria-label', btn.title);
-        }
-
-        function speak(text) {
-            if (!on || !supported || !text) return;
-            var plain = String(text)
-                .replace(/<[^>]*>/g, ' ')
-                .replace(/https?:\/\/\S+/g, ' ')
-                .replace(/[*_`#>\[\]()]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            if (!plain) return;
-
-            speechSynthesis.cancel();
-            var u = new SpeechSynthesisUtterance(plain);
-            u.lang = 'fa-IR';
-            var voice = (speechSynthesis.getVoices() || [])
-                .find(function (v) { return v.lang && v.lang.toLowerCase().indexOf('fa') === 0; });
-            if (voice) u.voice = voice;
-            // A shade under natural pace: the audience includes people who are
-            // hearing a synthetic Persian voice for the first time.
-            u.rate = 0.95;
-            u.onstart = function () { HajVoice.set('speaking'); };
-            u.onend = function () { if (HajVoice.state() === 'speaking') HajVoice.set('idle'); };
-            u.onerror = function () { if (HajVoice.state() === 'speaking') HajVoice.set('idle'); };
-            speechSynthesis.speak(u);
-        }
-
-        function toggleVideoSound() {
-            var video = document.getElementById('avatar-video');
-            if (!video) return;
-            var turningOn = video.muted;
-            video.muted = !turningOn;
-            if (turningOn) {
-                video.volume = 1;
-                // Some browsers pause on an unmute that lost its gesture;
-                // resume explicitly so sound-on never means picture-stopped.
-                video.play().catch(function () { });
-            }
-            paint();
-        }
-
-        if (btn && !supported) {
-            btn.disabled = true;
-        } else if (btn) {
-            btn.addEventListener('click', function () {
-                if (inVideo()) { toggleVideoSound(); return; }
-                on = !on;
-                localStorage.setItem('haj-tts', on ? '1' : '0');
-                if (!on) { speechSynthesis.cancel(); HajVoice.set('idle'); }
-                paint();
-            });
-        }
-
-        // Re-describe the button whenever the surface it controls changes.
-        new MutationObserver(paint).observe(document.body,
-            { attributes: true, attributeFilter: ['class'] });
-        var videoEl = document.getElementById('avatar-video');
-        if (videoEl) videoEl.addEventListener('volumechange', paint);
-
-        return { speak: speak, paint: paint };
     })();
 
 
@@ -682,7 +589,6 @@ COMPANION-OFF (end) -->
                 video.src = idleSrc;
             }
             video.play().catch(function () { });
-            HajSpeech.paint();
         }
 
         function playWelcome() {
@@ -701,7 +607,6 @@ COMPANION-OFF (end) -->
                 video.muted = true;          // sound refused — still show it
                 video.play().catch(function () { });
             });
-            HajSpeech.paint();
         }
 
         // Only the introduction ends (the idle clip loops), so this is the
@@ -775,7 +680,6 @@ COMPANION-OFF (end) -->
     // core.js's setLang runs inside initChat and writes its own generic copy;
     // the theme's sentences are re-applied on top, once, right after.
     HajCopy.paint();
-    HajSpeech.paint();
 </script>
 
 <!-- Loaded after initChat so the mini panel can reuse sendPreset()/getDisplayQuestions(). -->

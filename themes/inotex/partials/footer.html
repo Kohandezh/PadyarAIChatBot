@@ -151,8 +151,6 @@
         }
         chatContent.scrollTop = chatContent.scrollHeight;
         if (save) saveToHistory(content, type);
-
-        if (type === 'bot') InotexTTS.speak(content);
     };
 
     // ── Tab switcher keeps the segmented control in sync ──
@@ -174,109 +172,6 @@
                 if (radio.checked) switchTabInternal(radio.value);
             });
         });
-    })();
-
-    // ── Text-to-speech (browser SpeechSynthesis — no key, no network) ──
-    const InotexTTS = (function () {
-        const supported = 'speechSynthesis' in window;
-        const btn = document.getElementById('tts-btn');
-        let on = localStorage.getItem('inotex-tts') === '1';
-
-        function paint() {
-            if (!btn) return;
-            btn.classList.toggle('active', on);
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        }
-
-        function speak(text) {
-            if (!on || !supported || !text) return;
-            const plain = String(text)
-                .replace(/<[^>]*>/g, ' ')
-                .replace(/https?:\/\/\S+/g, ' ')
-                .replace(/[*_`#>\[\]()]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            if (!plain) return;
-
-            const en = document.documentElement.lang === 'en';
-            speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(plain);
-            u.lang = en ? 'en-US' : 'fa-IR';
-            const want = en ? 'en' : 'fa';
-            const v = (speechSynthesis.getVoices() || [])
-                .find(x => x.lang && x.lang.toLowerCase().startsWith(want));
-            if (v) u.voice = v;
-            u.rate = 0.98;
-            u.onstart = function () { InotexVoice.set('speaking'); };
-            u.onend = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
-            u.onerror = function () { if (InotexVoice.state() === 'speaking') InotexVoice.set('idle'); };
-            speechSynthesis.speak(u);
-        }
-
-        if (btn && !supported) {
-            btn.disabled = true;
-            btn.title = 'مرورگر شما خواندن صوتی را پشتیبانی نمی‌کند';
-        } else if (btn) {
-            btn.addEventListener('click', function () {
-                // One speaker button, two surfaces: on the video tab it is the
-                // video's mute/unmute (that is the sound the visitor can hear
-                // there); on the chat tab it toggles reading answers aloud.
-                // A second sound control elsewhere on screen only raises the
-                // question of which one is "the" sound button.
-                if (document.body.classList.contains('video-mode')) {
-                    toggleVideoSound();
-                    return;
-                }
-                on = !on;
-                localStorage.setItem('inotex-tts', on ? '1' : '0');
-                if (!on) { speechSynthesis.cancel(); InotexVoice.set('idle'); }
-                paint();
-            });
-        }
-        paint();
-
-        /** Keep the button's look and label describing whichever sound it
-            currently controls, so switching tabs never leaves a stale state. */
-        function syncButton() {
-            if (!btn) return;
-            const fa = document.documentElement.lang !== 'en';
-            const video = document.getElementById('avatar-video');
-            if (document.body.classList.contains('video-mode') && video) {
-                const audible = !video.muted;
-                btn.classList.toggle('active', audible);
-                btn.setAttribute('aria-pressed', audible ? 'true' : 'false');
-                btn.title = audible ? (fa ? 'قطع صدای ویدیو' : 'Mute video')
-                                    : (fa ? 'پخش صدای ویدیو' : 'Unmute video');
-            } else {
-                btn.title = fa ? 'خواندن پاسخ‌ها با صدا' : 'Read answers aloud';
-                paint();
-            }
-            btn.setAttribute('aria-label', btn.title);
-        }
-
-        function toggleVideoSound() {
-            const video = document.getElementById('avatar-video');
-            if (!video) return;
-            const turningOn = video.muted;
-            video.muted = !turningOn;
-            if (turningOn) {
-                video.volume = 1;
-                // Some browsers pause on an unmute that lost its gesture;
-                // resume explicitly so sound-on never means picture-stopped.
-                video.play().catch(function () { });
-            }
-            localStorage.setItem('inotex-video-sound', turningOn ? '1' : '0');
-            syncButton();
-        }
-
-        // Re-describe the button whenever the surface it controls changes.
-        new MutationObserver(syncButton).observe(document.body,
-            { attributes: true, attributeFilter: ['class'] });
-        const videoEl = document.getElementById('avatar-video');
-        if (videoEl) videoEl.addEventListener('volumechange', syncButton);
-        syncButton();
-
-        return { speak: speak };
     })();
 
     // ── Chat column: centre a short conversation, scroll a long one ──

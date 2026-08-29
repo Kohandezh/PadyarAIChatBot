@@ -6,38 +6,34 @@
         </div>
     </div>
 
-    <!-- Forget this browser's conversation. A booth kiosk is ONE browser
-         shared by many people, so the next visitor needs a way to start
-         clean — otherwise their "1" lands on the previous person's list.
-         One tap, a plain label, nothing to explain. -->
-    <button id="new-chat-btn" type="button"
-        data-i18n="newChat" data-i18n-title="newChat"
-        title="گفتگوی جدید" aria-label="گفتگوی جدید">گفتگوی جدید</button>
+    <div class="header-tools">
+        <!-- Forget this browser's conversation. A booth kiosk is ONE browser
+             shared by many people, so the next visitor needs a way to start
+             clean — otherwise their "1" lands on the previous person's list.
+             One tap, one obvious icon, nothing to explain. -->
+        <button id="new-chat-btn" type="button"
+            data-i18n-title="newChat"
+            title="گفتگوی جدید" aria-label="گفتگوی جدید">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+        </button>
 
-    <!-- Language switch -->
-    <div class="lang-switch">
-        <button class="lang-btn" id="lang-btn" type="button" aria-label="Switch to English"
-            title="Switch to English">EN</button>
-    </div>
-
-    <div class="accessibility-controls">
-        <button class="a11y-hamburger" id="a11y-hamburger" title="تنظیمات دسترسی‌پذیری"
-            aria-label="Accessibility settings" aria-expanded="false">
+        <!-- Everything else that used to live here — language, text size —
+             now lives in the drawer menu.html opens. See
+             docs/features/hamburger-menu/SPEC.md. -->
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-haspopup="dialog"
+            aria-controls="menu-drawer" aria-expanded="false"
+            data-i18n-title="menuTitle" title="منو" aria-label="منو">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                aria-hidden="true">
                 <line x1="4" x2="20" y1="6" y2="6" />
                 <line x1="4" x2="20" y1="12" y2="12" />
                 <line x1="4" x2="20" y1="18" y2="18" />
             </svg>
         </button>
-
-        <div class="a11y-dropdown" id="a11y-dropdown">
-            <div class="a11y-dropdown-content">
-                <button class="a11y-btn" onclick="adjustFontSize(1)" title="افزایش سایز متن"
-                    aria-label="Increase font size">A+</button>
-                <button class="a11y-btn" onclick="adjustFontSize(-1)" title="کاهش سایز متن"
-                    aria-label="Decrease font size">A-</button>
-            </div>
-        </div>
     </div>
 </header>
