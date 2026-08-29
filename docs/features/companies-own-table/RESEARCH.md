@@ -1,6 +1,8 @@
 # Companies get their own table
 
-**Status:** planned, not started. Approved by the product owner on 2026-08-29.
+**Status:** implemented (migration + every reader moved, tests green), not yet
+deployed. Approved by the product owner on 2026-08-29. See ADR-019 in
+`docs/engineering/DECISIONS.md`.
 **Written by:** the session that surveyed the surface, so the next session does
 not have to survey it again.
 
@@ -227,17 +229,27 @@ knowing before the follow-up work.
 
 1. ~~Count the company-owned `questions` rows on production. Decide their
    fate.~~ Done 2026-08-29 — 840 rows, keep them, see section 2.
-2. Baseline `run_eval.py --recall-k`.
-3. Write `0013_companies.sql` plus the `init_db()` mirror. Test the migration
-   against a restored copy of the production dump, not against a fresh DB.
-4. Move the readers, one file at a time, tests going green as you go —
+2. ~~Baseline `run_eval.py --recall-k`.~~ Done 2026-08-29 — recall@8 0.952.
+3. ~~Write `0013_companies.sql` plus the `init_db()` mirror.~~ Done
+   2026-08-30. **Still needed before deploy:** test the migration against a
+   restored copy of the production dump, not only against a fresh DB — this
+   session had no production Postgres to test against, only SQLite.
+4. ~~Move the readers, one file at a time, tests going green as you go —
    including the `companies_lookup` fallback in `get_entry()` and
-   `find_similar_question()` from section 2. Do not ship the migration
-   without it; that pairing is what keeps Tier 0 and the pick tier answering
-   companies at all.
-5. Delete `_company_dataset_ids()` and the subtraction. This is the moment the
-   change pays for itself.
-6. Re-run the eval and record both numbers in
-   `docs/knowledge-based-evidence/`.
-7. Record the decision in `docs/engineering/DECISIONS.md` as ADR-019, in
-   Persian, matching that file.
+   `find_similar_question()` from section 2.~~ Done 2026-08-30. Two more
+   readers needed the same fallback, found by testing, not by the file:line
+   survey above: `resolve_named_entity()` and the `_corpus_vocab` builder in
+   `app/services/search.py` — see ADR-019 for why.
+5. ~~Delete `_company_dataset_ids()` and the subtraction.~~ Done 2026-08-30.
+6. ~~Re-run the eval and record both numbers.~~ Done 2026-08-30 — recall@8
+   unchanged at 0.952, because the local golden set still has zero company
+   queries (see the measurement section above). This does NOT demonstrate the
+   improvement the migration is for; that still needs company queries added
+   to the golden set, or a production measurement.
+7. ~~Record the decision in `docs/engineering/DECISIONS.md` as ADR-019.~~ Done
+   2026-08-30.
+
+**Left for deploy, not done by this session:** apply `0013_companies.sql` to
+a restored production dump first (see step 3 above), take a fresh backup
+immediately before running it for real, then follow the normal PR → merge to
+main → CI deploy path (no manual rsync — see `padyar-deployment-state`).

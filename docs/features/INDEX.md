@@ -14,7 +14,7 @@ Central tracking for all features.
 | exhibition-perf-hardening | Implemented | Ready | infrastructure | 2026-08-24 | 2026-08-24 |
 | rate-limit-identity | Implemented | Ready | infrastructure | 2026-08-25 | 2026-08-25 |
 | grounded-selection | Implemented | Ready | chat | 2026-08-28 | 2026-08-28 |
-| companies-own-table | Approved | Not started | chat | 2026-08-29 | 2026-08-29 |
+| companies-own-table | Implemented | In review | chat | 2026-08-29 | 2026-08-30 |
 
 ## Quick Features
 
