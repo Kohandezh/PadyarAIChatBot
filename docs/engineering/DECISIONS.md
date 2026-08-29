@@ -266,8 +266,9 @@ backend=embedding با rerank، ۶۰ پرسش گلدن):**
 
 ## ADR-019: شرکت‌ها جدول خودشان را گرفتند
 
-**تاریخ:** ۲۰۲۶-۰۸-۳۰ · **وضعیت:** پذیرفته‌شده، migration نوشته و روی
-SQLite تست شده، هنوز روی production اجرا نشده · **مرجع:**
+**تاریخ:** ۲۰۲۶-۰۸-۳۰ · **وضعیت:** پذیرفته‌شده، migration روی یک کپی
+restore‌شده از dump واقعی production (PostgreSQL 16، داکر محلی) تست شد،
+هنوز روی production اجرا نشده · **مرجع:**
 `docs/features/companies-own-table/RESEARCH.md`، `migrations/0013_companies.sql`
 
 **تصمیم:** یک جدول `companies` ساخته شد که ستون‌های `dataset` (id، title،

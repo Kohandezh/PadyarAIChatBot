@@ -1,7 +1,7 @@
 # Companies get their own table
 
-**Status:** implemented (migration + every reader moved, tests green), not yet
-deployed. Approved by the product owner on 2026-08-29. See ADR-019 in
+**Status:** implemented and verified against a restored production dump, not
+yet deployed. Approved by the product owner on 2026-08-29. See ADR-019 in
 `docs/engineering/DECISIONS.md`.
 **Written by:** the session that surveyed the surface, so the next session does
 not have to survey it again.
@@ -231,9 +231,18 @@ knowing before the follow-up work.
    fate.~~ Done 2026-08-29 — 840 rows, keep them, see section 2.
 2. ~~Baseline `run_eval.py --recall-k`.~~ Done 2026-08-29 — recall@8 0.952.
 3. ~~Write `0013_companies.sql` plus the `init_db()` mirror.~~ Done
-   2026-08-30. **Still needed before deploy:** test the migration against a
-   restored copy of the production dump, not only against a fresh DB — this
-   session had no production Postgres to test against, only SQLite.
+   2026-08-30. ~~Test the migration against a restored copy of the production
+   dump.~~ Also done 2026-08-30, in a local Docker PostgreSQL 16 restored from
+   a real `pg_dump` of inotex production (`pg_20260829_211034_998ac1_padyar.dump`).
+   Results: `dataset` 224→56, `companies`=168 (exactly `company_profiles`'
+   count), `questions` unchanged at 1059 (840 of them company-linked, exactly
+   the count from section 2), `company_profiles` dropped, zero orphaned
+   `company_profiles` rows so the count-check RAISE EXCEPTION path never
+   fired. Also smoke-tested `get_entry()` and `find_similar_question()`
+   against this restored data: both resolve a real company (`dekio`) through
+   the `companies_lookup` fallback, including a live curated Tier-0 question
+   ("شرکت دکیو چیست؟", score 1.0). This is the strongest evidence available
+   short of an actual deploy.
 4. ~~Move the readers, one file at a time, tests going green as you go —
    including the `companies_lookup` fallback in `get_entry()` and
    `find_similar_question()` from section 2.~~ Done 2026-08-30. Two more
@@ -249,7 +258,8 @@ knowing before the follow-up work.
 7. ~~Record the decision in `docs/engineering/DECISIONS.md` as ADR-019.~~ Done
    2026-08-30.
 
-**Left for deploy, not done by this session:** apply `0013_companies.sql` to
-a restored production dump first (see step 3 above), take a fresh backup
-immediately before running it for real, then follow the normal PR → merge to
-main → CI deploy path (no manual rsync — see `padyar-deployment-state`).
+**Left for deploy, not done by this session:** take a FRESH backup
+immediately before running this for real on production (the dump tested
+above is a point-in-time copy, not a substitute for a pre-deploy backup),
+then follow the normal PR → merge to main → CI deploy path (no manual rsync
+— see `padyar-deployment-state`).
