@@ -320,13 +320,33 @@ async def otp_request(body: OtpRequestBody, request: Request):
 @router.post("/api/auth/otp/verify",
              dependencies=[Depends(validate_request_origin)])
 async def otp_verify(body: OtpVerifyBody, request: Request, response: Response):
-    """Check the code and, on success, MINT the visitor session.
+    """Check the code and, on success, HAND THIS BROWSER TO THE NEW VISITOR.
 
     This is the one place a browser is handed an identity. Origin is validated
     first because of login CSRF: an attacker knows their OWN challenge and
     code, and a forged POST from a page the visitor is looking at would drop
     the attacker's session cookie into the victim's browser. Everything the
     victim then said in the chat would be filed under the attacker's name.
+
+    THE OLD SESSION DIES FIRST. This runs on an exhibition kiosk, so the
+    browser normally arrives holding the PREVIOUS visitor's cookie. That
+    session is revoked before a new one is minted. Person A is signed out of
+    the screen person B is now standing at, and the kiosk stops collecting live
+    session rows that nobody will ever come back for.
+
+    THE RESPONSE ALWAYS WRITES THE COOKIE: set when there is a token, cleared
+    when there is not. That is not tidiness, it is the fix for a real bug. The
+    `resolve_visitor` middleware in app/main.py re-issues the cookie the
+    REQUEST arrived with whenever the response did not write one itself, so a
+    response that stayed silent handed person B person A's identity back, with
+    a refreshed expiry. This docstring used to promise that a failed mint left
+    the visitor "simply not signed in". It did not. It left them signed in as
+    the last person who used the kiosk.
+
+    A storage fault still never turns a good verification into an error. The
+    visitor is told they verified and is anonymous, which the next verify
+    fixes. Being wrongly signed OUT is recoverable; telling somebody who just
+    proved their phone that it failed is not.
     """
     # Per-challenge bucket: challenge_id is a server-minted unguessable
     # capability, so one phone's retries cannot consume a neighbour's budget.
@@ -335,18 +355,24 @@ async def otp_verify(body: OtpVerifyBody, request: Request, response: Response):
     check_rate_limit(request)
     ok, message = otp_service.verify(body.challenge_id, body.code)
     if ok:
+        # Whoever was signed in on this browser is signed out NOW, before the
+        # new identity exists, so no path below can leave the old one alive.
+        # revoke() ignores a token it does not know, so an absent or already
+        # dead cookie costs one no-op.
+        visitor_auth.revoke(
+            request.cookies.get(visitor_auth.VISITOR_COOKIE_NAME, ""))
         # The code proved the phone, so this person is now known: write them
         # to the durable visitor table, hand them the conversation they have
         # been chatting in, and open a session for that visitor id.
-        #
-        # Storage trouble never turns a good verification into an error. A
-        # failed promotion returns "", mint("") returns "" and set_cookie("")
-        # is a no-op, so the visitor is told they verified and simply is not
-        # signed in — the next verify fixes it. Being wrongly signed OUT is
-        # recoverable; telling somebody who just proved their phone that it
-        # failed is not.
         token = visitor_auth.mint(_promote_to_visitor(request, body.challenge_id))
-        visitor_auth.set_cookie(response, token)
+        if token:
+            visitor_auth.set_cookie(response, token)
+        else:
+            # Storage trouble: no session to give. DELETE the cookie rather
+            # than say nothing. Saying nothing is what let the middleware put
+            # the previous visitor's token back on this response, which is the
+            # opposite of both what this endpoint means and what it promised.
+            visitor_auth.clear_cookie(response)
         # The profile is returned only on success, and only the display name —
         # the phone number stays masked everywhere the browser can see it.
         profile = otp_service.profile_for(body.challenge_id)
