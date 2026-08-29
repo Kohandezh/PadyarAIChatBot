@@ -34,6 +34,16 @@
         })();
     </script>
 
+    <!-- Included BEFORE .app-layout on purpose: below the desktop breakpoint
+         (static/chat/base.css, 992px) this is a `position: fixed` overlay so
+         DOM order does not matter, but at and above it `body` becomes a flex
+         row and this becomes a real sidebar sitting beside .app-layout — DOM
+         order IS visual order there. `body` stays `dir="rtl"`, so the first
+         flex child renders at the physical right, which is exactly where the
+         mobile overlay already anchors (`right: 0`). Reorder this and the
+         sidebar silently jumps to the wrong side on desktop only. -->
+    {% include "menu.html" %}
+
     <div class="app-layout">
         {% include "header.html" %}
 
@@ -44,8 +54,6 @@
 
         {% include "input.html" %}
     </div>
-
-    {% include "menu.html" %}
 
     {% include "footer.html" %}
 </body>

@@ -56,22 +56,10 @@
     </fieldset>
 
     <div class="header-tools">
-        <!-- Forget this browser's conversation. A booth kiosk is ONE browser
-             shared by many people, so the next visitor needs a way to start
-             clean — otherwise their "1" lands on the previous person's list.
-             One tap, one obvious icon, nothing to explain. -->
-        <button id="new-chat-btn" type="button"
-            data-i18n-title="newChat"
-            title="گفتگوی جدید" aria-label="گفتگوی جدید">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-        </button>
-
-        <!-- Light/dark, language and text size now live in the drawer
-             menu.html opens. See docs/features/hamburger-menu/SPEC.md. -->
+        <!-- "New chat" moved into the drawer's sidebar (menu.html) as a
+             labelled row — always the first item, like every ChatGPT-style
+             sidebar. Light/dark, language and text size still live in the
+             drawer menu.html opens. See docs/features/hamburger-menu/SPEC.md. -->
         <button class="menu-toggle" id="menu-toggle" type="button" aria-haspopup="dialog"
             aria-controls="menu-drawer" aria-expanded="false"
             data-i18n-title="menuTitle" title="منو" aria-label="منو">

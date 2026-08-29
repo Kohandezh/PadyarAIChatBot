@@ -47,6 +47,10 @@ const SUGGESTIONS_URL = "/api/suggestions";
 const CHAT_HISTORY_KEY = 'inotex_chat_history';
 const LANG_KEY = 'inotex_lang';
 const QUESTIONS_PER_PAGE = 5;
+// Desktop sidebar (992px+, static/chat/base.css): whether a visitor
+// collapsed it. Per-browser like every other display preference here —
+// absent = "open", the default this project's owner asked for.
+const SIDEBAR_COLLAPSED_KEY = 'inotex_sidebar_collapsed';
 
 // English suggested questions for the seeded INOTEX install. Superseded by the
 // title_en column, which getDisplayQuestions() reads, so nothing in the page
@@ -1337,6 +1341,34 @@ function initChat() {
             el.addEventListener('click', closeMenu);
         });
     }
+
+    // Desktop sidebar collapse (static/chat/base.css, 992px+): a completely
+    // separate control from the mobile hamburger above — `.collapsed` here,
+    // `.open` there, and CSS guarantees only one of the two breakpoints is
+    // ever active, so they cannot fight each other. "همیشه باز" (always
+    // open) is the default: nothing is written to storage until a visitor
+    // actually collapses it once, and only their own choice ever collapses
+    // it after that.
+    const sidebarToggle = document.getElementById('menu-sidebar-toggle');
+    if (sidebarToggle && menuDrawer) {
+        const applyCollapsed = (collapsed) => {
+            menuDrawer.classList.toggle('collapsed', collapsed);
+            sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+        };
+        applyCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+        sidebarToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const collapsed = !menuDrawer.classList.contains('collapsed');
+            applyCollapsed(collapsed);
+            try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (err) { /* private mode */ }
+        });
+    }
+
+    // The desktop sidebar has no "open" gesture to hang this on — it is
+    // always part of the page — so "my chats" loads once here regardless of
+    // viewport. Cheap and safe on mobile too: refreshMenuHistory() itself
+    // no-ops unless the visitor is actually signed in.
+    refreshMenuHistory();
 
     // Load chat history
     loadHistory();
