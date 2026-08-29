@@ -494,6 +494,11 @@ def rotate_visitor_code(visitor_id: str) -> Optional[str]:
 
     The only way to see a visitor's link twice. A lost phone is answered here
     rather than by re-displaying the code that is on the lost phone.
+
+    The old link stops working immediately, and so does every session already
+    open on it. That holds because the /v session cookie carries this `code`,
+    not `id`: one UPDATE and no cookie anywhere names a row any more. See
+    `current_visitor` in app/routers/leads.py.
     """
     ensure_tables()
     code = secrets.token_urlsafe(24)
@@ -511,6 +516,12 @@ def rotate_visitor_code(visitor_id: str) -> Optional[str]:
 
 
 def visitor_by_code(code: str) -> Optional[dict]:
+    """Resolve a personal link, or the /v session cookie made from it.
+
+    Same columns as `visitor_by_id` below, because the cookie path moved from
+    one to the other and a caller reading `visitor["name"]` must not care
+    which door it came through.
+    """
     ensure_tables()
     conn = get_db_connection()
     try:
@@ -522,6 +533,34 @@ def visitor_by_code(code: str) -> Optional[dict]:
     if not row or not row["active"]:
         return None
     return dict(row)
+
+
+def visitor_id_for_session(code: str) -> str:
+    """Which visitor a /v cookie belongs to, active or not. "" when nobody.
+
+    Not `visitor_by_code`: that one refuses a revoked visitor, which is right
+    for a session and wrong here. This answers a different question, asked on
+    the CONTACT's edit page, where nobody is being let in: which booth phone
+    minted this invite. That memory must survive the visitor being revoked,
+    or a booth that captured a lead could scan its own QR after being taken
+    off the roster and write the company's answer itself. See `submit_edit`.
+
+    It does NOT survive a code rotation, because the lookup is by `code` and
+    rotation replaces it. A phone whose link was rotated resolves to "" here.
+    That is handled where it matters, not here: `submit_edit` is told
+    separately whether the request carried a /v cookie at all, and refuses a
+    request that carries one but names nobody. So this function is allowed to
+    answer "" and the caller still fails closed.
+    """
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id FROM lead_visitors WHERE code = ?", (code,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return row["id"] if row else ""
 
 
 def visitor_by_id(visitor_id: str) -> Optional[dict]:
@@ -870,8 +909,10 @@ def create_invite(lead_id: str, dataset_id: str, base_url: str,
 
     The raw token is returned to this module's own callers and never stored:
     the table keeps only its keyed HMAC, so a database read cannot forge an
-    invite. `issued_by_session` records the visitor session that minted it,
-    which is the session refused when the edit is submitted.
+    invite. `issued_by_session` records the ID of the visitor who minted it,
+    which is the visitor refused when the edit is submitted. An id and never
+    the /v cookie: that cookie is the visitor's live code, and this column is
+    stored in the clear.
     """
     ensure_tables()
     token = secrets.token_urlsafe(32)
@@ -969,11 +1010,26 @@ def pending_edit_for(dataset_id: str) -> Optional[dict]:
 # ── The edit itself ──────────────────────────────────────────────────────
 
 def submit_edit(token: str, new_text: str, visitor_session: str = "",
-                ip: str = "") -> dict:
+                ip: str = "", *, from_booth_phone: bool = False) -> dict:
     """Queue the contact's rewrite for review and burn the invite.
 
     The live answer is untouched. Everything that can refuse this edit refuses
     it BEFORE the burn, so a rejected submit leaves the link working.
+
+    `visitor_session` is a lead_visitors.id, or "" for anyone not carrying a
+    /v cookie. The router turns the cookie into that id with
+    `visitor_id_for_session`; do not pass the cookie itself, or the guard
+    below starts comparing a live personal-link code and stops matching the
+    moment that link is rotated.
+
+    `from_booth_phone` says whether the request carried a /v cookie AT ALL,
+    which is a different question from which visitor it named. Only booth
+    staff ever hold that cookie; a contact opening the link from an SMS never
+    does. So a request that carries one but names nobody is a booth phone
+    whose link was rotated or whose visitor row is gone, and it is refused.
+    Without this the phone the operator just cut off reads as an anonymous
+    contact and walks through the guard below, which is exactly the phone
+    rotation was used to lock out.
     """
     view = invite_view(token, ip=ip)
     text = (new_text or "").strip()
@@ -982,7 +1038,8 @@ def submit_edit(token: str, new_text: str, visitor_session: str = "",
     if len(text) > MAX_EDIT_CHARS:
         raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
                         code="text_too_long")
-    if visitor_session and visitor_session == view["issued_by_session"]:
+    if from_booth_phone and (not visitor_session
+                             or visitor_session == view["issued_by_session"]):
         _audit("edit_refused_own_session", view["company"], lead_id=view["lead_id"], ip=ip)
         raise LeadError(DEAD_INVITE_MESSAGE, status=403, code="dead_invite")
 
