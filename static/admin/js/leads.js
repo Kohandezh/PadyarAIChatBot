@@ -254,7 +254,7 @@ async function loadEdits() {
     box.innerHTML = edits.map(e => `
         <div class="border rounded p-3 mb-3" data-edit="${esc(e.id)}">
           <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
-            <strong>${esc(e.company_name || e.dataset_id)}</strong>
+            <strong>${esc(e.company_name || e.company_title || e.dataset_id)}</strong>
             <span class="text-muted small">${senderLine(e)}</span>
           </div>
           ${riskyHtml(e)}
@@ -278,7 +278,7 @@ async function loadApproved() {
     box.innerHTML = edits.map(e => `
         <div class="border rounded p-3 mb-3" data-edit="${esc(e.id)}">
           <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
-            <strong>${esc(e.company_name || e.dataset_id)}</strong>
+            <strong>${esc(e.company_name || e.company_title || e.dataset_id)}</strong>
             <span class="text-muted small">
               تأیید شده در ${esc(faDate(e.reviewed_at))}
               ${e.reviewed_by ? '· ' + esc(e.reviewed_by) : ''}

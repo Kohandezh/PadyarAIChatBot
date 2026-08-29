@@ -602,6 +602,67 @@ def _company_row(dataset_id: str):
         conn.close()
 
 
+# No existing convention bounds a company title's length (dataset titles are
+# never length-checked either), so this picks a plain, generous number rather
+# than inventing a shared constant nothing else would use.
+MAX_COMPANY_TITLE_CHARS = 200
+
+
+def propose_company(visitor_id: str, title: str, text: str) -> dict:
+    """A visitor's booth is missing from the list — let them add it.
+
+    The row goes in with an EMPTY `text`: see app/services/search.py and
+    app/services/company_search.py, both of which now skip any `companies`
+    row with empty text, so this company answers nothing and appears in no
+    list until an admin approves the text below. The typed text becomes the
+    company's first pending edit, going through the exact same review_edit()
+    path an existing company's /edit/{token} submission already uses — one
+    approval mechanism, not two.
+
+    `search_companies()` (the visitor's own company picker, above) is NOT
+    filtered on `text`: the visitor who just proposed this company must be
+    able to find it immediately and register its contact. Only the
+    chatbot-facing reads are blind to it until an admin approves.
+    """
+    ensure_tables()
+    clean_title = (title or "").strip()
+    if not clean_title:
+        raise LeadError("نام شرکت را وارد کنید.", code="missing_title")
+    if len(clean_title) > MAX_COMPANY_TITLE_CHARS:
+        raise LeadError(f"نام شرکت نباید از {MAX_COMPANY_TITLE_CHARS} نویسه بیشتر باشد.",
+                        code="title_too_long")
+    clean_text = (text or "").strip()
+    if not clean_text:
+        raise LeadError("متن پاسخ نمی‌تواند خالی باشد.", code="empty_text")
+    if len(clean_text) > MAX_EDIT_CHARS:
+        raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
+                        code="text_too_long")
+
+    # token_urlsafe(8), same as create_visitor's id. No collision guard: like
+    # every other id this file mints (visitor ids, lead ids), the id is ours
+    # to generate, not something an operator typed, so the birthday-bound
+    # collision odds are the same non-issue they are everywhere else here.
+    company_id = secrets.token_urlsafe(8)
+    now = _now()
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT INTO companies (id, title, text, video_url, title_en, text_en, source)"
+            " VALUES (?, ?, '', '', '', '', 'booth')",
+            (company_id, clean_title),
+        )
+        conn.execute(
+            "INSERT INTO dataset_edits (id, dataset_id, lead_id, old_text, new_text,"
+            " status, created_at) VALUES (?, ?, '', '', ?, 'pending', ?)",
+            (secrets.token_urlsafe(12), company_id, clean_text, now.isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _audit("company_proposed", clean_title, company_id=company_id, visitor_id=visitor_id)
+    return {"id": company_id, "title": clean_title}
+
+
 # ── Registering a contact ────────────────────────────────────────────────
 
 def register_contact(visitor_id: str, dataset_id: str, first_name: str,
@@ -1070,6 +1131,11 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     Columns are named rather than starred: this row goes to a browser, and
     `SELECT *` on a joined table hands over whatever column the next migration
     adds.
+
+    `company_title` is the fallback name for a proposed company's first edit:
+    that one has no `lead_id` (see propose_company), so `company_name` (joined
+    from `company_leads`) is empty and the raw `dataset_id` would otherwise be
+    the only thing an admin sees in the queue.
     """
     ensure_tables()
     conn = get_db_connection()
@@ -1077,8 +1143,9 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
         rows = conn.execute(
             "SELECT e.id, e.dataset_id, e.lead_id, e.old_text, e.new_text, e.status,"
             " e.created_at, e.reviewed_at, e.reviewed_by, l.company_name,"
-            " l.first_name, l.last_name, l.position, l.phone"
+            " l.first_name, l.last_name, l.position, l.phone, c.title AS company_title"
             " FROM dataset_edits e LEFT JOIN company_leads l ON l.id = e.lead_id"
+            " LEFT JOIN companies c ON c.id = e.dataset_id"
             " WHERE e.status = ? ORDER BY e.created_at DESC LIMIT ?", (status, limit)
         ).fetchall()
     finally:
