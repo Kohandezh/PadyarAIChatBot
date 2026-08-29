@@ -1,6 +1,6 @@
 ---
 name: scoped-pr
-description: Use when taking on bug fixes, addressing reported issues, or any change that could span multiple root causes — and again before creating a branch, commit, or pull request. Keeps each PR scoped to one root cause (not one file, not one ticket), branching off and targeting the repo's main branch (main-noor) with git + the gh CLI.
+description: Use when taking on bug fixes, addressing reported issues, or any change that could span multiple root causes — and again before creating a branch, commit, or pull request. Keeps each PR scoped to one root cause (not one file, not one ticket), branching off and targeting the repo's main branch (main) with git + the gh CLI.
 ---
 
 # Scoped PR
@@ -9,7 +9,9 @@ description: Use when taking on bug fixes, addressing reported issues, or any ch
 
 One reviewable idea per PR. Scope every PR to a single **root cause** — not one file, not one ticket.
 
-This repo's main branch is **`main-noor`** (not `main`). PRs are created with the `gh` CLI against `main-noor`. There is **no helper script** — use plain `git` and `gh pr create`.
+This repo's main branch is **`main`**. PRs are created with the `gh` CLI against `main`. There is **no helper script** — use plain `git` and `gh pr create`.
+
+`.github/workflows/ci.yml` still triggers on both `main` and `main-noor`. Only `main` is the default branch and only `main` deploys. Never base or target a branch on `main-noor`.
 
 Apply this at two moments:
 
@@ -33,35 +35,35 @@ Remember the project's module principle: a new feature is normally one optional 
 
 If the work is one cause, continue. If it is several, do the steps below once per cause, fully finishing one PR before starting the next.
 
-## Step 2 — Start clean, off the latest main-noor
+## Step 2 — Start clean, off the latest main
 
 ```bash
 git fetch origin
-git switch -c <branch-name> origin/main-noor
+git switch -c <branch-name> origin/main
 ```
 
-Branching from the latest `origin/main-noor` keeps unmerged work from a previous fix out of this PR. Make sure the tree is clean first (`git status`) so you don't pick up unrelated changes.
+Branching from the latest `origin/main` keeps unmerged work from a previous fix out of this PR. Make sure the tree is clean first (`git status`) so you don't pick up unrelated changes.
 
 ### Optional: isolate in a worktree
 
 In-place branch switching is the default. **Only when you want isolation** (e.g. to keep the current checkout untouched, or to work several PRs in parallel):
 
 - **Prefer the native `EnterWorktree` tool** — always use the harness's worktree tool over raw git when it exists. First detect existing isolation (`git rev-parse --git-dir` ≠ `--git-common-dir` ⇒ already in a worktree — don't nest).
-- **Manual path:** create the worktree *outside* the repo root so it never clutters `git status` or nests a checkout inside the tracked tree: `git worktree add ../worktrees/<branch> -b <branch> origin/main-noor`, then `cd` in (or `EnterWorktree` its path) and continue.
+- **Manual path:** create the worktree *outside* the repo root so it never clutters `git status` or nests a checkout inside the tracked tree: `git worktree add ../worktrees/<branch> -b <branch> origin/main`, then `cd` in (or `EnterWorktree` its path) and continue.
 
 ### Big features → stack, don't bundle
 
 A large feature is still one root cause per PR — slice it into a stack of dependent PRs. Branch each slice off the one below, and target the parent when opening the PR:
 
 ```bash
-git switch -c feat/x-1-schema origin/main-noor
-# …commit, open PR with --base main-noor…
+git switch -c feat/x-1-schema origin/main
+# …commit, open PR with --base main…
 git switch -c feat/x-2-api feat/x-1-schema
 # …commit…
 gh pr create --base feat/x-1-schema --title "feat(api): x endpoint" --fill
 ```
 
-Each PR's diff then shows only its own slice. **Merge bottom-up — first slice first.** After merging slice A into `main-noor`, rebase the next slice onto the updated `main-noor` (`git rebase --onto origin/main-noor <tip-of-A> feat/x-2-api`) before opening/merging it.
+Each PR's diff then shows only its own slice. **Merge bottom-up — first slice first.** After merging slice A into `main`, rebase the next slice onto the updated `main` (`git rebase --onto origin/main <tip-of-A> feat/x-2-api`) before opening/merging it.
 
 ## Step 3 — Fix it
 
@@ -73,11 +75,11 @@ Use the `commit` skill. It runs the mandatory `python -m py_compile` checks and 
 
 ## Step 5 — Open the PR
 
-Push the branch, then create the PR against `main-noor` with `gh`:
+Push the branch, then create the PR against `main` with `gh`:
 
 ```bash
 git push -u origin <branch-name>
-gh pr create --base main-noor --title "<title>" --body "<body>"
+gh pr create --base main --title "<title>" --body "<body>"
 ```
 
 - Use `--fill` to default title/body from the branch's commits, or supply `--title`/`--body` for richer context.
@@ -93,7 +95,7 @@ gh pr create --base main-noor --title "<title>" --body "<body>"
 Example:
 
 ```bash
-gh pr create --base main-noor \
+gh pr create --base main \
   --title "fix(chat): downgrade non-actionable provider noise" \
   --body "$(cat <<'EOF'
 Reclassify GapGPT 4xx responses as warnings, not exceptions.
@@ -108,7 +110,7 @@ EOF
 
 ## Step 6 — Next root cause
 
-Return to Step 2 from a fresh `main-noor`-based branch. Never continue an independent fix on the previous fix's branch.
+Return to Step 2 from a fresh `main`-based branch. Never continue an independent fix on the previous fix's branch.
 
 ## Sizing budget
 

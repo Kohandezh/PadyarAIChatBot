@@ -11,17 +11,17 @@ model: inherit
 
 **Getting Branch Diff (Pre-PR):**
 
-When reviewing changes from the current branch before creating a PR (this repo's main branch is `main-noor`):
+When reviewing changes from the current branch before creating a PR (this repo's main branch is `main`):
 
 ```bash
-git diff main-noor --name-only
-git diff main-noor -- "*.py" "*.html" "*.js" "*.css"
+git diff main --name-only
+git diff main -- "*.py" "*.html" "*.js" "*.css"
 ```
 
-This compares the current branch against `main-noor` to see all changes. To get the actual diff content:
+This compares the current branch against `main` to see all changes. To get the actual diff content:
 
 ```bash
-git diff main-noor > branch-diff.diff
+git diff main > branch-diff.diff
 ```
 
 **Getting PR Diff:**
