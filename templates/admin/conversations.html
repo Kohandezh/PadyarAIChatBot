@@ -1,0 +1,246 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}گفتگوها{% endblock %}
+
+{% block page_content %}
+{#
+  One page, two views. The list is every chat session; the second view is the
+  queue of answers the bot got wrong. They share a page because they share a
+  transcript drawer and a "fix this answer" box — two pages would be two
+  copies of both.
+#}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title" id="page-title">گفتگوها</h2>
+      <div class="text-muted mt-1" id="page-hint">
+        هر گفتگو یک بار نشستن یک بازدیدکننده پای چت‌بات است.
+      </div>
+    </div>
+    <div class="col-auto">
+      <button type="button" class="btn btn-outline-primary" id="btn-csv">
+        <i class="fas fa-file-csv ms-1"></i> خروجی CSV
+      </button>
+    </div>
+  </div>
+</div>
+
+{# Buttons, not nav-pills. The admin stylesheet tints an active pill by 4%,
+   which is not enough signal for the control the whole page pivots on: the
+   operator must see which of the two views they are in without looking for
+   it. #}
+<div class="btn-group mt-3" role="group" id="view-tabs">
+  <button type="button" class="btn btn-outline-primary" data-view="list">
+    <i class="fas fa-comments ms-1"></i> همهٔ گفتگوها
+  </button>
+  <button type="button" class="btn btn-outline-warning" data-view="weak">
+    <i class="fas fa-triangle-exclamation ms-1"></i> پاسخ‌های اشتباه
+  </button>
+</div>
+
+<!-- ── View 1: the conversation list ─────────────────────────────────── -->
+<div id="view-list">
+  <div class="card mt-3">
+    <div class="card-body">
+      <form id="conv-filter" class="row g-2">
+        <div class="col-md-2">
+          <label class="form-label" for="f-since">از تاریخ</label>
+          <input type="date" id="f-since" class="form-control" dir="ltr">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="f-until">تا تاریخ</label>
+          <input type="date" id="f-until" class="form-control" dir="ltr">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="f-registered">بازدیدکننده</label>
+          <select id="f-registered" class="form-select">
+            <option value="">همه</option>
+            <option value="yes">ثبت‌نام‌شده</option>
+            <option value="no">ناشناس</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="f-source">پاسخ‌دهنده</label>
+          <select id="f-source" class="form-select">
+            <option value="">همه</option>
+            {% for slug, label in sources.items() %}
+            <option value="{{ slug }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="f-band">کیفیت پاسخ</label>
+          <select id="f-band" class="form-select">
+            <option value="">همه</option>
+            <option value="good">پاسخ مطمئن</option>
+            <option value="mid">پاسخ متوسط</option>
+            <option value="weak">پاسخ ضعیف</option>
+          </select>
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">اعمال</button>
+        </div>
+
+        <div class="col-md-8">
+          <label class="form-label" for="f-q">جستجو در متن پیام‌ها</label>
+          <input type="text" id="f-q" class="form-control"
+                 placeholder="هر کلمه‌ای که بازدیدکننده یا ربات گفته باشد…">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+          <button type="button" class="btn btn-outline-secondary w-100" id="btn-reset">پاک‌سازی</button>
+        </div>
+        {# Filled by JS when the visitors screen sends the operator here for
+           one person. Rendered as a removable chip so it is never an
+           invisible filter. #}
+        <div class="col-md-2 d-flex align-items-end">
+          <button type="button" class="btn btn-outline-warning w-100 d-none" id="btn-clear-visitor">
+            فقط یک نفر ✕
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-hover">
+        <thead>
+          <tr>
+            <th>آخرین پیام</th>
+            <th>بازدیدکننده</th>
+            <th>شماره تماس</th>
+            <th>تعداد پیام</th>
+            <th>وضعیت</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="conv-body"></tbody>
+      </table>
+    </div>
+
+    <div class="card-footer d-flex align-items-center">
+      <div class="d-flex align-items-center gap-2">
+        <label class="form-label mb-0" for="page-size">تعداد در صفحه</label>
+        <select id="page-size" class="form-select form-select-sm" style="width:auto">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+        <span class="text-muted" id="conv-range">—</span>
+      </div>
+      <div class="ms-auto">
+        <button class="btn btn-outline-secondary" id="btn-prev">قبلی</button>
+        <button class="btn btn-outline-secondary" id="btn-next">بعدی</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── View 2: the wrong answers ─────────────────────────────────────── -->
+<div id="view-weak" class="d-none">
+  <div class="alert alert-warning mt-3" role="alert">
+    <h3 class="mb-1">پاسخ‌هایی که ربات مطمئن نبوده</h3>
+    <p class="mb-0">
+      این‌ها سوال‌هایی است که ربات نتوانسته درست جواب بدهد. روی «درست کردن»
+      بزنید و بگویید کدام پاسخ دیتاست جواب این سوال است. دفعهٔ بعد ربات
+      درست جواب می‌دهد.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label" for="w-threshold">چقدر سخت‌گیر باشیم</label>
+          <select id="w-threshold" class="form-select">
+            <option value="0.19">فقط بدترین‌ها</option>
+            <option value="0.45" selected>پاسخ‌های ضعیف</option>
+            <option value="0.70">هر پاسخی که ربات مطمئن نبوده</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="w-limit">چند مورد</label>
+          <select id="w-limit" class="form-select">
+            <option value="50" selected>50 مورد آخر</option>
+            <option value="100">100 مورد آخر</option>
+            <option value="200">200 مورد آخر</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="button" class="btn btn-outline-secondary w-100" id="btn-weak-reload">
+            <i class="fas fa-rotate ms-1"></i> تازه‌سازی
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th>زمان</th>
+            <th>سوال بازدیدکننده</th>
+            <th>پاسخ ربات</th>
+            <th>پاسخ‌دهنده</th>
+            <th>اطمینان</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="weak-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── The transcript ────────────────────────────────────────────────── -->
+<div class="offcanvas offcanvas-start" tabindex="-1" id="transcript-panel" style="width:560px">
+  <div class="offcanvas-header">
+    <h2 class="offcanvas-title">متن کامل گفتگو</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="بستن"></button>
+  </div>
+  <div class="offcanvas-body" id="transcript-body"></div>
+</div>
+
+<!-- ── Fix an answer ─────────────────────────────────────────────────── -->
+{#
+  The loop from "the bot got this wrong" to "here is the right answer",
+  without leaving the screen. Saving writes a question -> dataset mapping
+  through the existing /admin/api/questions endpoint, which reindexes on the
+  way out, so the very next visitor asking this gets the right answer.
+#}
+<div class="modal modal-blur fade" id="fix-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">پاسخ درست را وصل کنید</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">سوال بازدیدکننده</label>
+          <input type="text" id="fix-question" class="form-control">
+          <small class="text-muted">اگر جمله ناقص است، می‌توانید اصلاحش کنید.</small>
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="fix-search">پاسخ درست کدام است؟</label>
+          <input type="text" id="fix-search" class="form-control mb-2" placeholder="جستجو در پاسخ‌ها…">
+          <select id="fix-entry" class="form-select" size="8"></select>
+        </div>
+        <div id="fix-msg" class="small"></div>
+      </div>
+      <div class="modal-footer">
+        <a href="/secure-panel-inotex/manage-datasets" class="btn btn-link ms-auto">
+          پاسخ تازه بسازم
+        </a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+        <button type="button" class="btn btn-primary" id="fix-save">ذخیره</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+  import { initConversations } from '/static/admin/js/conversations.js?v={{ js_version }}';
+  initConversations();
+</script>
+{% endblock %}

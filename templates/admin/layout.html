@@ -26,6 +26,30 @@
                             <span class="nav-link-title">داشبورد</span>
                         </a>
                     </li>
+                    {# Visitors, transcripts and the wrong-answer queue. Three
+                       flat links, not a dropdown: «پاسخ‌های اشتباه» is the
+                       screen that makes the bot better, and a menu the
+                       operator has to open first is a screen they will not
+                       open. Never module-gated — the `conversations` module
+                       is core (app/modules/registry.py). #}
+                    <li class="nav-item {% if active_page == 'visitors' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/visitors">
+                            <span class="nav-link-icon"><i class="fas fa-users"></i></span>
+                            <span class="nav-link-title">بازدیدکنندگان</span>
+                        </a>
+                    </li>
+                    <li class="nav-item {% if active_page == 'conversations' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/conversations">
+                            <span class="nav-link-icon"><i class="fas fa-comments"></i></span>
+                            <span class="nav-link-title">گفتگوها</span>
+                        </a>
+                    </li>
+                    <li class="nav-item {% if active_page == 'conversations_weak' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-inotex/conversations?view=weak">
+                            <span class="nav-link-icon text-warning"><i class="fas fa-triangle-exclamation"></i></span>
+                            <span class="nav-link-title">پاسخ‌های اشتباه</span>
+                        </a>
+                    </li>
                     <li class="nav-item {% if active_page == 'dataset' %}active{% endif %}">
                         <a class="nav-link" href="/secure-panel-inotex/manage-datasets">
                             <span class="nav-link-icon"><i class="fas fa-database"></i></span>
