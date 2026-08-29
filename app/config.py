@@ -128,6 +128,60 @@ CHAT_TOKEN_REFRESH_GRACE = int(os.getenv("CHAT_TOKEN_REFRESH_GRACE", "900"))
 # an operator has no reason to tune a correlation window, and a sliding 24h
 # already outlives any real conversation. "When in doubt: default."
 CONV_COOKIE_MAX_AGE = 24 * 3600
+
+# --- Visitor session (the registered visitor's identity) ---
+# The cookie that carries a row in app.visitor_sessions. It is the ONLY thing
+# app/main.py resolve_visitor will look at to decide who is asking; a header,
+# a body field or a query parameter never counts.
+#
+# NOT "padyar_visitor". That name is already taken by the leads module
+# (app/services/leads.py VISITOR_COOKIE), where it carries a booth STAFF
+# member's personal link code on path "/" with a 12 hour lifetime. Two
+# different tables, two different people, one unfortunate English word.
+# Shipping both under one name means a staff member who also chats loses
+# their /v panel and hands their staff credential to the session lookup.
+# Do not "fix" this back.
+VISITOR_COOKIE_NAME = "padyar_vs"
+
+# How long a registered visitor stays signed in, in days. The expiry slides on
+# every request that uses the session, so this is "days of inactivity", not a
+# hard cap. 30 because an exhibition runs for days and the same people come
+# back to the same booth; re-typing an SMS code every morning is the kind of
+# friction this product exists to remove.
+#
+# Env-overridable so an install that shares one kiosk between strangers can
+# shorten it without a deploy.
+#
+# NOTE: app/auth/visitor.py binds all three of these at import
+# (`from app.config import VISITOR_COOKIE_NAME, VISITOR_SESSION_DAYS,
+# VISITOR_SESSION_MAX_HOURS`), so a test must patch the ENFORCING module's
+# binding (app.auth.visitor.X), not app.config's copy. Same trap
+# CHAT_TOKEN_TTL documents above.
+try:
+    VISITOR_SESSION_DAYS = max(1, int(os.getenv("VISITOR_SESSION_DAYS", "30")))
+except ValueError:
+    VISITOR_SESSION_DAYS = 30
+
+# The HARD cap on one session, in hours, counted from the row's `created_at`
+# and never extended. The setting above is INACTIVITY, and lowering it does
+# not help a booth kiosk, because a kiosk in continuous use never goes
+# inactive: it is the NEXT person's traffic that slides the expiry, so the
+# person who sits down second stays signed in as the person who sat down
+# first. This is the only bound a kiosk can actually reach.
+#
+# 12 hours is one exhibition day. A visitor who comes back tomorrow types
+# their SMS code again, which costs them seconds; inheriting a stranger's
+# identity costs them their name on somebody else's conversation.
+#
+# Env-overridable and clamped to at least 1 hour, like the days above: a
+# customer with a private handset per visitor can raise it, and a value of 0
+# would sign every single visitor out on their next request.
+try:
+    VISITOR_SESSION_MAX_HOURS = max(
+        1, int(os.getenv("VISITOR_SESSION_MAX_HOURS", "12")))
+except ValueError:
+    VISITOR_SESSION_MAX_HOURS = 12
+
 # Rate limiting is per VISITOR IDENTITY — the nonce inside the signed chat
 # token — with a loose per-IP backstop. At an exhibition a whole hall of
 # visitors often arrives through one NAT'd address, and a per-IP-only limit
@@ -320,3 +374,16 @@ LEAD_MAX_CHARS = 160
 HISTORY_QUERY_CHARS = 300
 HISTORY_ANSWER_CHARS = 400
 HISTORY_BLOCK_CHARS = 2000
+
+# How many messages a conversation may hold before the OLD part of it is
+# replaced by a short summary. A message is one line: the visitor's question
+# and the bot's answer are two, so twelve is six turns. Below this the last
+# HISTORY_TURNS turns already carry the whole conversation word for word and a
+# summary would only add a second, worse copy of it.
+SUMMARIZE_AFTER_MESSAGES = 12
+
+# Longest summary we keep. It is sent to the model inside HISTORY_BLOCK_CHARS
+# together with the recent turns, so it has to leave room for them. Four
+# hundred characters is a solid paragraph — enough to say what the visitor is
+# here for, too short to become a second transcript.
+SUMMARY_MAX_CHARS = 400

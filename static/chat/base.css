@@ -465,7 +465,6 @@ button:disabled {
     opacity: 1;
 }
 
-
 /* ── Hamburger Drawer Menu ──
    Shared structural shell for every theme (base, minimal, inotex,
    liquid-glass, haj). Each theme's own style.css overrides only colour

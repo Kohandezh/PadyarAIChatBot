@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import (APIRouter, BackgroundTasks, HTTPException, Request,
+                     Response)
 
 from app.models import ChatRequest, ChatResponse
 from app.config import (
     logger,
+    is_module_enabled,
     TRUSTED_MATCH_THRESHOLD,
     LOCAL_FALLBACK_THRESHOLD,
     QUESTIONS_FALLBACK_THRESHOLD,
@@ -15,6 +17,7 @@ from app.config import (
     PICK_WINDOW_MINUTES,
 )
 from app.auth import security
+from app.auth import visitor as visitor_auth
 from app.auth.security import (
     client_ip, validate_chat_token, validate_request_origin,
 )
@@ -22,7 +25,7 @@ import time as _perf
 
 from app.db.queries import (get_setting, log_chat, recent_turns,
                             last_offer_state)
-from app.services import applog, scope
+from app.services import applog, conversations, scope
 from app.services.search import (find_best_match, find_similar_question,
                                  classify_intent_local, unknown_salient_tokens,
                                  resolve_named_entity, named_entity_hits,
@@ -60,6 +63,96 @@ def _targeted_visit_suffix(entry: dict, visitor, lang: str) -> str:
     return f"\n\n{text}" if text else ""
 
 
+# What the summary is called where the model reads it. A label, not a claim:
+# the line beside it is a compression of this conversation, nothing else.
+SUMMARY_LABEL_FA = "خلاصهٔ بخش‌های قبلی همین گفتگو"
+SUMMARY_LABEL_EN = "Summary of the earlier part of this conversation"
+
+
+def _history_for(conversation_id: str, lang: str) -> list:
+    """The prior turns handed to the model, newest first.
+
+    TWO THINGS HAPPEN HERE.
+
+    A no-answer turn is dropped. «متاسفانه در این خصوص نمی‌توانم پاسخی به شما
+    بدهم» is a sentence WE wrote, and replaying it as a prior assistant answer
+    teaches the model to write it again. recent_turns() already drops the old
+    `system` sentinels for exactly this reason; this is the same rule for the
+    tier that replaced the 503.
+
+    Then the rolling summary, when there is one, takes the OLDEST slot. The
+    model sees one short paragraph covering everything before the recent turns
+    and the recent turns themselves word for word, which is how a long
+    conversation stays useful without the prompt growing forever. One slot is
+    given up to make room for it — the block the model reads is capped, and a
+    summary that pushed the newest turn out would be a trade in the wrong
+    direction.
+
+    BOTH HALVES ARE BOUNDED BY HISTORY_WINDOW_MINUTES. recent_turns() drops
+    old turns, and get_summary() drops the summary of a conversation that went
+    quiet. On a shared kiosk everything said before that gap was said by
+    somebody who has walked away, and a summary is those same words, only
+    compressed.
+    """
+    turns = [t for t in recent_turns(conversation_id, limit=HISTORY_TURNS)
+             if t.get("source") != "no_answer"]
+    summary = conversations.get_summary(conversation_id)
+    if not summary:
+        return turns
+    label = SUMMARY_LABEL_EN if lang == "en" else SUMMARY_LABEL_FA
+    return turns[:max(1, HISTORY_TURNS - 1)] + [
+        {"query": label, "response": summary, "source": "summary"}]
+
+
+def _log_turn(user_query: str, answer_text: str, r_type: str, source: str,
+              confidence, tokens: int = 0, cost: float = 0.0, *,
+              conversation_id: str = "", entry_id: str = "",
+              offer_state: str = "", video_url: str = "",
+              answered: bool = True) -> None:
+    """Record one turn. THE one place a turn is written, in both stores.
+
+    This endpoint has more than a dozen answering branches — pick, company
+    list, company field, the questions index, local retrieval, the trained
+    intent head, selection, options, the legacy classifier, the refusal, the
+    two AI-down fallbacks. Every one of them already had to call log_chat, so
+    log_chat's call site IS the chokepoint, and this function is it. Anything
+    that answers a visitor calls this and gets the transcript for free; a new
+    tier that forgets it also forgets chat_logs, which is the failure a
+    reviewer notices.
+
+    TWO STORES, ON PURPOSE. `chat_logs` is the flat per-turn telemetry the
+    admin dashboard aggregates today. `messages` is the durable transcript:
+    one row per message, tied to a conversation, tied to a person. See
+    migrations/0010_conversations.sql for why both exist.
+
+    `answered=False` writes the visitor's question and NO assistant message.
+    That is the AI-outage path, and a question nobody answered is precisely
+    the thing `chat_logs` cannot represent and `messages` can.
+
+    A storage fault here must never cost a visitor their answer, so
+    everything below either swallows on its own (log_chat, and every write in
+    app/services/conversations.py) or is swallowed here.
+    """
+    # Kept EXACTLY as it was: when there is no conversation, log_chat is
+    # called with its original seven positional arguments. tests/
+    # test_ai_legacy_import.py wraps it with a seven-argument spy.
+    memory = {}
+    if conversation_id:
+        memory = {"conversation_id": conversation_id, "entry_id": entry_id,
+                  "offer_state": offer_state}
+    log_chat(user_query, answer_text, r_type, source, confidence, tokens, cost,
+             **memory)
+    try:
+        conversations.append_visitor_message(conversation_id, user_query)
+        if answered:
+            conversations.append_assistant_message(
+                conversation_id, answer_text, source=source,
+                confidence=confidence, entry_id=entry_id, video_url=video_url,
+                tokens=tokens, cost=cost)
+    except Exception as e:  # noqa: BLE001 — chat is the product, logging is not
+        logger.error(f"[transcript] turn not recorded: {type(e).__name__}: {e}")
+
+
 def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
                        tokens: int = 0, cost: float = 0.0, lang: str = "fa",
                        visitor=None, conversation_id: str = "",
@@ -85,18 +178,22 @@ def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
     if not response_text:
         response_text = entry.get("text") or ""
     response_text += _targeted_visit_suffix(entry, visitor, lang)
-    # The three memory fields travel together, and only when this turn actually
-    # belongs to a conversation — which is also the only time anything can read
-    # them back. A caller outside the request path (the legacy-import test
-    # exercises _answer_from_entry directly) then still sees the original
-    # seven-argument call it wraps.
-    memory = {}
-    if conversation_id:
-        memory = {"conversation_id": conversation_id,
-                  "entry_id": str(entry.get("id", "")),
-                  "offer_state": offer_state}
-    log_chat(user_query, response_text, response_type, source, score, tokens, cost,
-             **memory)
+    # The hedge. Below the trust bar we are serving the best record we found
+    # while knowing it may not be the one the visitor meant, and the honest
+    # thing is to say so and invite the correction. Above it we say nothing:
+    # a line on every answer is a line nobody reads, and then it no longer
+    # collects the correction it exists for.
+    #
+    # ONE threshold, no lower bound. A band ("hedge between the fallback floor
+    # and the trust bar") would leave the LEAST confident answers of all — an
+    # AI-selected record whose retrieval score was 0.2 — with no hedge at all,
+    # which is backwards.
+    if float(score or 0) < TRUSTED_MATCH_THRESHOLD:
+        response_text += "\n\n" + scope.hedge_text(lang)
+    _log_turn(user_query, response_text, response_type, source, score,
+              tokens, cost, conversation_id=conversation_id,
+              entry_id=str(entry.get("id", "")), offer_state=offer_state,
+              video_url=video_url)
     applog.info("chat", "conversation.answer.served", "پاسخ به بازدیدکننده داده شد",
                 subcategory=source, outcome="ok",
                 tokens_in=tokens or None, cost=cost or None,
@@ -114,7 +211,7 @@ def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, http_request: Request,
-                        response: Response):
+                        response: Response, background_tasks: BackgroundTasks):
     # Maintenance blocks VISITOR traffic only; the admin panel stays reachable
     # so an operator can watch and end the maintenance they started.
     from app.services.maintenance import guard as _maintenance_guard
@@ -134,6 +231,39 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         (f"chatip:{ip}", security.CHAT_IP_RATE_LIMIT),
     ])
 
+    # WHO IS ASKING. Resolved by the `resolve_visitor` middleware from the
+    # padyar_vs cookie and nothing else — no header, no body field, no query
+    # string. The profile below used to arrive in this request's BODY, which
+    # meant a caller could describe themselves however they liked and the
+    # targeted-visit planner would believe them. getattr with a default so a
+    # test that calls this function directly, without the middleware, still
+    # gets an anonymous visitor rather than an AttributeError.
+    visitor_id = getattr(http_request.state, "visitor_id", "") or ""
+    visitor = getattr(http_request.state, "visitor", None)
+
+    # The registration gate, and it is the SERVER side of one. Blocking the
+    # first message until somebody signs up has always been done in
+    # static/companion/registration.js (ChatConfig.sendGateFn), which is a
+    # courtesy, not a control: a direct POST carrying a valid chat token
+    # walked straight past it.
+    #
+    # BOTH conditions matter, and the first one protects a live install. The
+    # elecomp deployment does not load the registration module at all — it has
+    # no /verify page, no OTP endpoints, no way for anyone to obtain a
+    # session — so demanding one there would lock every visitor out of the
+    # chatbot. "Is the module loaded" is asked of the registry
+    # (app/modules/registry.py, via config.is_module_enabled) and never of an
+    # ImportError, because a module that fails to import is BROKEN, not
+    # switched off, and the two must not behave the same. The second
+    # condition is the operator's own switch, the same `registration_enabled`
+    # row the admin panel and /api/auth/registration-status read.
+    #
+    # require_visitor raises 401 with a machine-readable `code`, so the
+    # frontend opens the signup modal instead of printing an error sentence.
+    if (is_module_enabled("registration")
+            and get_setting("registration_enabled", "false") == "true"):
+        visitor_auth.require_visitor(http_request)
+
     lang = "en" if (request.lang or "").lower().startswith("en") else "fa"
     user_query = request.message.strip()
     if not user_query:
@@ -146,7 +276,17 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # One id for the whole logical operation. The middleware already stamped a
     # request id; this binds the CONVERSATION so message -> retrieval -> LLM ->
     # answer can be reconstructed from a single value in the log explorer.
-    conversation_id = (http_request.cookies.get("padyar_conv") or "")[:64] or applog.new_id()
+    #
+    # AND WHOSE conversation is it. `padyar_conv` is an unsigned id in a cookie,
+    # so anybody can paste anybody else's into their browser and, until now,
+    # get that person's transcript appended to and their history fed to the
+    # model. continuable_conversation_id() returns "" for a conversation that
+    # belongs to a DIFFERENT visitor, and a fresh id is minted instead. An
+    # unowned conversation still passes, because the person who registers
+    # halfway through has to keep the questions they already asked.
+    conversation_id = conversations.continuable_conversation_id(
+        (http_request.cookies.get("padyar_conv") or "")[:64],
+        visitor_id) or applog.new_id()
     # Echo the conversation id on EVERY successful response. The read above
     # shipped long ago but nothing ever wrote the cookie, so every message
     # got a fresh random id and message → retrieval → LLM → answer could not
@@ -166,6 +306,24 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     applog.set_request_context(
         correlation_id=applog.current_request_id() or applog.new_id(),
         conversation_id=conversation_id)
+    # The durable transcript's session row. Created here, once, so the
+    # conversation carries the language, address and browser of the message
+    # that STARTED it — the per-message writes below only add messages. It
+    # swallows its own faults and returns {} when storage is unhappy.
+    # `visitor_id` stamps the OWNER onto a conversation this call creates, so
+    # a signed-in visitor's new conversation is defended from its first
+    # message. An existing row keeps whatever owner it already had (or none),
+    # which is what leaves the mid-chat signup claim to _promote_to_visitor.
+    conversations.get_or_create_conversation(
+        conversation_id, lang=lang, ip=ip,
+        user_agent=http_request.headers.get("user-agent", ""),
+        visitor_id=visitor_id)
+    # Refresh the rolling summary AFTER this answer has been sent. Starlette
+    # runs background tasks once the response is on the wire, so a slow or
+    # dead provider costs the visitor nothing: this turn was answered from the
+    # recent turns alone, and so is the next one if this never finishes.
+    background_tasks.add_task(conversations.update_summary,
+                              conversation_id, lang=lang)
     _chat_started = _perf.perf_counter()
     applog.info("chat", "conversation.message.received", "پیام بازدیدکننده دریافت شد",
                 conversation_id=conversation_id, actor_type="visitor",
@@ -173,10 +331,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                 metadata={"query": applog.apply_content_policy(user_query),
                           "chars": len(user_query)})
 
-    # Conversation memory. Both readers return their empty default on ANY
+    # Conversation memory. Every reader here returns its empty default on ANY
     # problem — including a chat_logs table that predates migration 0009 — so
     # an unmigrated install simply behaves like today's chatbot.
-    history = recent_turns(conversation_id, limit=HISTORY_TURNS)
+    history = _history_for(conversation_id, lang)
     offer = parse_offer(last_offer_state(conversation_id,
                                          within_minutes=PICK_WINDOW_MINUTES))
 
@@ -197,7 +355,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                 # must still resolve and the 15-minute clock restarts.
                 return _answer_from_entry(
                     picked, 0.9, "local_pick", user_query, lang=lang,
-                    visitor=request.visitor, conversation_id=conversation_id,
+                    visitor=visitor, conversation_id=conversation_id,
                     offer_state=dump_offer(offer))
             # The record was edited or deleted between the two turns — staff
             # correct content WHILE visitors ask. Fall through quietly rather
@@ -267,8 +425,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                     page_entries, "", lang, start_index=next_start,
                     total=page_total, filter_label=page_filter,
                     source_query=offer["query"])
-                log_chat(user_query, more_text, "text", "local_company_search", 0.9,
-                         conversation_id=conversation_id, offer_state=more_offer)
+                _log_turn(user_query, more_text, "text", "local_company_search",
+                          0.9, conversation_id=conversation_id,
+                          offer_state=more_offer)
                 applog.info("chat", "conversation.answer.served",
                             "پاسخ به بازدیدکننده داده شد",
                             subcategory="local_company_search", outcome="ok",
@@ -372,10 +531,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         """Serve (and log) the company-field answer. A helper because three
         branches reach it — the anchor's two paths and the trusted local
         branches that are already serving the named company."""
-        log_chat(user_query, field_answer["text"], "text",
-                 "local_company_field", ent_score,
-                 conversation_id=conversation_id,
-                 entry_id=str(entity_entry.get("id", "")))
+        _log_turn(user_query, field_answer["text"], "text",
+                  "local_company_field", ent_score,
+                  conversation_id=conversation_id,
+                  entry_id=str(entity_entry.get("id", "")))
         applog.info("chat", "conversation.answer.served",
                     "پاسخ به بازدیدکننده داده شد",
                     subcategory="local_company_field", outcome="ok",
@@ -393,7 +552,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         if field_answer is not None:
             return _serve_field_answer()
         return _answer_from_entry(entity_entry, ent_score, "local_entity",
-                                  user_query, lang=lang, visitor=request.visitor,
+                                  user_query, lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
 
     def _is_named_entity(candidate: dict) -> bool:
@@ -422,7 +581,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         # Tier 0 stays authoritative: a near-exact hit on a hand-curated
         # question is a deliberate mapping, never overridden by the anchor.
         return _answer_from_entry(exact_match, exact_score, "local_questions", user_query,
-                                  lang=lang, visitor=request.visitor,
+                                  lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
 
     # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
@@ -444,10 +603,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             # offer_state is what makes the next turn's "3" resolvable. It is
             # produced by the same function that rendered the list, so the
             # names printed and the ids stored can never disagree.
-            log_chat(user_query, company_list["text"], "text",
-                     "local_company_search", list_score,
-                     conversation_id=conversation_id,
-                     offer_state=company_list["offer_state"])
+            _log_turn(user_query, company_list["text"], "text",
+                      "local_company_search", list_score,
+                      conversation_id=conversation_id,
+                      offer_state=company_list["offer_state"])
             applog.info("chat", "conversation.answer.served",
                         "پاسخ به بازدیدکننده داده شد",
                         subcategory="local_company_search", outcome="ok",
@@ -481,7 +640,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             logger.info(f"Company field: {entity_entry.get('id')} → {field_answer['field']}")
             return _serve_field_answer()
         return _answer_from_entry(best_match, score, "local", user_query, lang=lang,
-                                  visitor=request.visitor,
+                                  visitor=visitor,
                                   conversation_id=conversation_id)
 
     if q_trusted:
@@ -492,7 +651,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             logger.info(f"Company field: {entity_entry.get('id')} → {field_answer['field']}")
             return _serve_field_answer()
         return _answer_from_entry(question_match, q_score, "local_questions", user_query,
-                                  lang=lang, visitor=request.visitor,
+                                  lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
 
     # Entity rescue (the دکیو case above): no local tier qualified, but the
@@ -511,7 +670,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     if not unknown_tokens and intent_entry and intent_prob >= INTENT_TRUST_THRESHOLD:
         logger.info(f"Local intent classifier → {intent_entry.get('id')} (p={intent_prob:.2f})")
         return _answer_from_entry(intent_entry, intent_prob, "local_intent", user_query,
-                                  lang=lang, visitor=request.visitor,
+                                  lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
 
     # Tier 2 — below the trust bar, the AI classifier decides intent. We do NOT
@@ -596,7 +755,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                     return _answer_from_entry(
                         chosen, chosen_score, "ai_selected", user_query,
                         decision["tokens"], decision["cost"],
-                        lang=lang, visitor=request.visitor,
+                        lang=lang, visitor=visitor,
                         conversation_id=conversation_id)
 
             if decision is not None and decision["mode"] == "options":
@@ -607,10 +766,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                         start_index=1, total=len(chosen_entries),
                         filter_label="")
                     top_score = max((float(c["score"]) for c in candidates), default=0.0)
-                    log_chat(user_query, opt_text, "text", "ai_options", top_score,
-                             decision["tokens"], decision["cost"],
-                             conversation_id=conversation_id,
-                             offer_state=opt_offer)
+                    _log_turn(user_query, opt_text, "text", "ai_options",
+                              top_score, decision["tokens"], decision["cost"],
+                              conversation_id=conversation_id,
+                              offer_state=opt_offer)
                     applog.info("chat", "conversation.answer.served",
                                 "پاسخ به بازدیدکننده داده شد",
                                 subcategory="ai_options", outcome="ok",
@@ -640,7 +799,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                     return _answer_from_entry(
                         classified_entry, score, "openai_classified", user_query,
                         sel_tokens + cls_tokens, sel_cost + cls_cost,
-                        lang=lang, visitor=request.visitor,
+                        lang=lang, visitor=visitor,
                         conversation_id=conversation_id,
                     )
             # mode "none" skips classify_intent entirely: a model that just read
@@ -660,19 +819,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                                "پاسخ تولیدشده به‌دلیل اطلاعات تأییدنشده جایگزین شد",
                                subcategory="chat", outcome="rejected",
                                metadata={"reason": why, "lang": lang})
-                log_chat(user_query, refusal, "text", "refuse", score,
-                         sel_tokens + cls_tokens + tokens,
-                         sel_cost + cls_cost + cost,
-                         conversation_id=conversation_id)
+                _log_turn(user_query, refusal, "text", "refuse", score,
+                          sel_tokens + cls_tokens + tokens,
+                          sel_cost + cls_cost + cost,
+                          conversation_id=conversation_id)
                 # 200, not 503: we DID answer — we said we cannot answer this.
                 return ChatResponse(
                     type="text", text=refusal, video_url=None,
                     confidence=score, source="refuse",
                 )
-            log_chat(user_query, gpt_response, "text", "openai", score,
-                     sel_tokens + cls_tokens + tokens,
-                     sel_cost + cls_cost + cost,
-                     conversation_id=conversation_id)
+            _log_turn(user_query, gpt_response, "text", "openai", score,
+                      sel_tokens + cls_tokens + tokens,
+                      sel_cost + cls_cost + cost,
+                      conversation_id=conversation_id)
             return ChatResponse(
                 type="text", text=gpt_response, video_url=None,
                 confidence=score, source="openai",
@@ -682,28 +841,44 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             # AI unavailable — fall back to a *strong* local match only, else 503.
             if score >= LOCAL_FALLBACK_THRESHOLD and best_match:
                 return _answer_from_entry(best_match, score, "local", user_query, lang=lang,
-                                  visitor=request.visitor,
+                                  visitor=visitor,
                                   conversation_id=conversation_id)
             if question_match and q_score >= QUESTIONS_FALLBACK_THRESHOLD:
                 return _answer_from_entry(question_match, q_score, "local_questions", user_query,
-                                  lang=lang, visitor=request.visitor,
+                                  lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
-            log_chat(user_query, "ai_unavailable_no_strong_match", "text", "system",
-                     score, conversation_id=conversation_id)
+            # An HONEST 503, and the only one left in this endpoint: the AI
+            # tier was asked and it is genuinely down, and no local match was
+            # strong enough to stand in for it. static/chat/core.js turns this
+            # into "the AI service is unavailable", which is true here.
+            # `answered=False` records the question with no answer beside it.
+            _log_turn(user_query, "ai_unavailable_no_strong_match", "text",
+                      "system", score, conversation_id=conversation_id,
+                      answered=False)
             raise HTTPException(status_code=503, detail="AI service unavailable")
 
     # OpenAI disabled — answer only from a reasonably strong local match.
     if score >= LOCAL_FALLBACK_THRESHOLD and best_match:
         return _answer_from_entry(best_match, score, "local", user_query, lang=lang,
-                                  visitor=request.visitor,
+                                  visitor=visitor,
                                   conversation_id=conversation_id)
     if question_match and q_score >= QUESTIONS_FALLBACK_THRESHOLD:
         return _answer_from_entry(question_match, q_score, "local_questions", user_query,
-                                  lang=lang, visitor=request.visitor,
+                                  lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
 
-    log_chat(user_query, "no_confident_match", "text", "system", score,
-             conversation_id=conversation_id)
+    # Nothing answered this question. That is NOT an outage, and for a long
+    # time this line said it was: it raised 503, and static/chat/core.js turns
+    # any 503 into "the AI service is unavailable" — so a visitor who asked
+    # something we simply have no record for was told the machine was broken.
+    # It was not. We looked, and we have nothing.
+    #
+    # 200 with a sentence, exactly like the grounding refusal above: we DID
+    # answer — we said we cannot answer this. The wording is a setting
+    # (app/services/scope.py) so a customer can change it without a deploy.
+    no_answer = scope.no_answer_text(lang)
+    _log_turn(user_query, no_answer, "text", "no_answer", score,
+              conversation_id=conversation_id)
     from app.services.search import report_empty_retrieval
     report_empty_retrieval(user_query, score)
     applog.warning("chat", "conversation.answer.failed",
@@ -711,7 +886,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                    outcome="no_match",
                    duration_ms=int((_perf.perf_counter() - _chat_started) * 1000),
                    metadata={"score": round(float(score or 0), 3)})
-    raise HTTPException(status_code=503, detail="AI service unavailable")
+    return ChatResponse(type="text", text=no_answer, video_url=None,
+                        confidence=score, source="no_answer")
 
 
 @router.post("/api/chat/new-conversation")

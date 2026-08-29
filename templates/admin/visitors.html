@@ -1,0 +1,150 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}بازدیدکنندگان{% endblock %}
+
+{% block page_content %}
+{#
+  The people who registered at the kiosk. This screen shows real personal
+  data — names, phone numbers, what each person said they care about — so it
+  lives behind the admin session like every other page here, and its CSV
+  export writes an audit row before the file leaves the server.
+#}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">بازدیدکنندگان</h2>
+      <div class="text-muted mt-1">
+        کسانی که شمارهٔ خود را ثبت کرده‌اند. روی هر نفر بزنید تا گفتگوهایش را ببینید.
+      </div>
+    </div>
+    <div class="col-auto">
+      <button type="button" class="btn btn-outline-primary" id="btn-csv">
+        <i class="fas fa-file-csv ms-1"></i> خروجی CSV
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body">
+    <form id="visitors-filter" class="row g-2">
+      <div class="col-md-2">
+        <label class="form-label" for="f-since">از تاریخ</label>
+        <input type="date" id="f-since" class="form-control" dir="ltr">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-until">تا تاریخ</label>
+        <input type="date" id="f-until" class="form-control" dir="ltr">
+      </div>
+
+      {# A dropdown when the registration taxonomy is readable, a text box when
+         it is not. An empty dropdown would be a filter nobody can use. #}
+      <div class="col-md-2">
+        <label class="form-label" for="f-job">شغل</label>
+        {% if jobs %}
+        <select id="f-job" class="form-select">
+          <option value="">همه</option>
+          {% for job in jobs %}<option value="{{ job }}">{{ job }}</option>{% endfor %}
+        </select>
+        {% else %}
+        <input type="text" id="f-job" class="form-control">
+        {% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="f-interest">علاقه‌مندی</label>
+        {% if interests %}
+        <select id="f-interest" class="form-select">
+          <option value="">همه</option>
+          {% for item in interests %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+        </select>
+        {% else %}
+        <input type="text" id="f-interest" class="form-control">
+        {% endif %}
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label" for="f-q">جستجو</label>
+        <input type="text" id="f-q" class="form-control" placeholder="نام یا شمارهٔ تماس">
+      </div>
+      <div class="col-md-1 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">اعمال</button>
+      </div>
+      <div class="col-md-1 d-flex align-items-end">
+        <button type="button" class="btn btn-outline-secondary w-100" id="btn-reset">پاک‌سازی</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table table-hover">
+      <thead>
+        <tr>
+          <th>نام</th>
+          <th>شمارهٔ تماس</th>
+          <th>شغل</th>
+          <th>سمت</th>
+          <th>زمینه‌های مورد علاقه</th>
+          <th>گفتگوها</th>
+          <th>آخرین بازدید</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="visitors-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card-footer d-flex align-items-center">
+    <div class="d-flex align-items-center gap-2">
+      <label class="form-label mb-0" for="page-size">تعداد در صفحه</label>
+      <select id="page-size" class="form-select form-select-sm" style="width:auto">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+      </select>
+      <span class="text-muted" id="visitors-range">—</span>
+    </div>
+    <div class="ms-auto">
+      <button class="btn btn-outline-secondary" id="btn-prev">قبلی</button>
+      <button class="btn btn-outline-secondary" id="btn-next">بعدی</button>
+    </div>
+  </div>
+</div>
+
+<div class="offcanvas offcanvas-start" tabindex="-1" id="visitor-panel" style="width:460px">
+  <div class="offcanvas-header">
+    <h2 class="offcanvas-title">اطلاعات بازدیدکننده</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="بستن"></button>
+  </div>
+  <div class="offcanvas-body" id="visitor-body"></div>
+
+  {#
+    The "their phone was stolen" button. It has to be here, on the screen the
+    operator is already looking at when somebody comes to the booth and says
+    it, or the fix does not exist for the person who needs it.
+
+    The label says what happens to the VISITOR, not what happens to a row in a
+    table. No database words: an operator should not have to know what a
+    session or a token is to use this. The line under it says what the person
+    will have to do afterwards, so nobody presses this expecting it to be
+    undoable. The confirmation lives in the JS, because a click that ends
+    somebody's access must never be one click.
+  #}
+  <div class="border-top p-3">
+    <button type="button" class="btn btn-outline-danger w-100" id="btn-revoke-sessions">
+      <i class="fas fa-mobile-alt ms-1"></i> خروج این نفر از همهٔ دستگاه‌ها
+    </button>
+    <div class="text-muted small mt-2">
+      اگر گوشی‌اش گم یا دزدیده شده، با این کار روی همهٔ دستگاه‌ها از حساب خارج
+      می‌شود و برای ادامهٔ گفتگو باید دوباره شماره‌اش را تأیید کند.
+    </div>
+    <div class="small mt-2" id="revoke-msg"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+  import { initVisitors } from '/static/admin/js/visitors.js?v={{ js_version }}';
+  initVisitors();
+</script>
+{% endblock %}

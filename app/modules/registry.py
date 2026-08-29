@@ -54,6 +54,19 @@ MODULES: dict[str, ModuleDef] = {
         is_core=True,
         router_module="app.routers.themes",
     ),
+    # Core, not optional. It is the admin's only view of the visitors,
+    # conversations and messages the CORE chat module always writes: an
+    # install able to switch it off would still collect names, phone numbers
+    # and everything people typed, with nobody able to read, check or export
+    # any of it. The rule that a new feature is optional protects installs
+    # from paying for what they did not order; this is the reading end of
+    # something every install already records.
+    "conversations": ModuleDef(
+        name="conversations",
+        description="Visitors, conversation transcripts and the wrong-answer queue",
+        is_core=True,
+        router_module="app.routers.conversations_admin",
+    ),
     # Optional modules — enabled via ENABLED_MODULES
     "voice": ModuleDef(
         name="voice",

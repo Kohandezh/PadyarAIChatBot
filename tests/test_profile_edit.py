@@ -1,8 +1,13 @@
 """Editing a visitor's work profile after verification.
 
 The loop this closes: register → plan → change your mind → new plan. The
-security question it answers: can a challenge id that never passed a code be
-used to write into that row? It must not.
+security question it answers: can somebody who never passed a code write into
+that row? It must not.
+
+Identity is the session cookie `POST /api/auth/otp/verify` mints, so `client`
+here is one browser and the cookie it is holding. The `challenge_id` these
+tests used to post as proof is gone from both endpoints — see
+tests/test_visitor_auth_otp.py for what it can and cannot do now.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +28,11 @@ def outbox(monkeypatch):
 
 @pytest.fixture()
 def client():
+    # A browser sends Origin and User-Agent; TestClient sends neither, and
+    # every endpoint that acts on the visitor cookie validates the origin.
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost",
+                          "User-Agent": "pytest-agent/1.0"})
         yield c
 
 
@@ -39,13 +48,18 @@ def _cleanup():
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM otp_challenges WHERE destination LIKE '+9891200000%'")
+        # A verified challenge is now promoted to a durable `visitors`
+        # row (app/routers/otp.py). These three OTP files run against
+        # the ambient database, so their test numbers have to be swept
+        # out of that table too or they pile up in a real install.
+        conn.execute("DELETE FROM visitors WHERE phone LIKE '+9891200000%'")
         conn.commit()
     finally:
         conn.close()
 
 
 def _verified(client, outbox, **profile):
-    """A challenge that has passed its code — the only editable state."""
+    """Register for real, so the client ends up holding a session cookie."""
     body = {"destination": DEST, "first_name": "علی", "last_name": "احمدی"}
     body.update(profile)
     r = client.post("/api/auth/otp/request", json=body)
@@ -57,55 +71,76 @@ def _verified(client, outbox, **profile):
     return cid
 
 
+def _stored():
+    """The durable row — where the profile actually lives now.
+
+    It used to be read back off `otp_challenges`, a table built to expire. The
+    edit writes `app.visitors`, which is the copy the exhibition keeps.
+    """
+    from app.services import conversations
+    row = conversations.find_visitor_by_phone(DEST)
+    assert row, "no visitor row was written"
+    return row
+
+
 # ── The loop ─────────────────────────────────────────────────────────────
 
 def test_edit_replaces_the_profile_and_the_plan_follows(client, outbox):
-    cid = _verified(client, outbox, job="خبرنگار", interests="رسانه")
+    _verified(client, outbox, job="خبرنگار", interests="رسانه")
 
-    before = client.post("/api/visit-plan", json={"challenge_id": cid}).json()
+    # Empty body on purpose: the plan follows the STORED profile, which the
+    # session cookie identifies. Nothing in the request names this visitor.
+    before = client.post("/api/visit-plan", json={}).json()
     assert "media-hub" in [s["id"] for s in before["sections"]]
 
     r = client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "سرمایه‌گذار", "position": "", "interests": "جذب سرمایه",
+        "job": "سرمایه‌گذار", "position": "", "interests": "جذب سرمایه",
     })
     assert r.status_code == 200, r.text
     assert r.json()["profile"]["job"] == "سرمایه‌گذار"
 
-    after = client.post("/api/visit-plan", json={"challenge_id": cid}).json()
+    after = client.post("/api/visit-plan", json={}).json()
     ids = [s["id"] for s in after["sections"]]
     assert "capital-cafe" in ids
     assert "media-hub" not in [s["id"] for s in after["sections"] if not s["general"]]
 
 
 def test_edit_cannot_change_name_or_number(client, outbox):
-    cid = _verified(client, outbox, job="خبرنگار")
-    masked_before = otp_service.profile_for(cid)["destination_masked"]
+    _verified(client, outbox, job="خبرنگار")
+    masked_before = client.get("/api/auth/session").json()["profile"]["destination_masked"]
+    assert masked_before
 
     client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "مدیرعامل", "position": "", "interests": "",
+        "job": "مدیرعامل", "position": "", "interests": "",
     })
 
-    after = otp_service.profile_for(cid)
+    after = client.get("/api/auth/session").json()["profile"]
     assert after["first_name"] == "علی"
     assert after["last_name"] == "احمدی"
     assert after["destination_masked"] == masked_before
+    assert _stored()["job"] == "مدیرعامل"
 
 
 def test_clearing_the_profile_is_allowed(client, outbox):
     """Removing every interest must be possible — consent runs both ways."""
-    cid = _verified(client, outbox, job="خبرنگار", interests="رسانه")
+    _verified(client, outbox, job="خبرنگار", interests="رسانه")
     r = client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "", "position": "", "interests": "",
+        "job": "", "position": "", "interests": "",
     })
     assert r.status_code == 200
-    assert otp_service.profile_for(cid)["interests"] == ""
-    assert client.post("/api/visit-plan", json={"challenge_id": cid}).json()["matched"] is False
+    assert _stored()["interests"] == ""
+    assert client.post("/api/visit-plan", json={}).json()["matched"] is False
 
 
 # ── The boundary ─────────────────────────────────────────────────────────
 
-def test_unverified_challenge_cannot_be_edited(client, outbox):
-    """A code that was never entered must not unlock the row."""
+def test_a_challenge_that_never_passed_its_code_unlocks_nothing(client, outbox):
+    """A code that was never entered must not unlock anything.
+
+    It used to be the whole credential, so this is the same boundary the file
+    always guarded — only the answer moved from 403 to 401, because the
+    request is now simply not signed in.
+    """
     r = client.post("/api/auth/otp/request",
                     json={"destination": DEST, "first_name": "ب", "last_name": "ج"})
     cid = r.json()["challenge_id"]
@@ -113,25 +148,24 @@ def test_unverified_challenge_cannot_be_edited(client, outbox):
     resp = client.post("/api/auth/profile", json={
         "challenge_id": cid, "job": "مدیرعامل", "position": "", "interests": "همه چیز",
     })
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
-    conn = get_db_connection()
-    row = conn.execute("SELECT job FROM otp_challenges WHERE id = ?", (cid,)).fetchone()
-    conn.close()
-    assert (row["job"] or "") == "", "an unverified row was written"
+    from app.services import conversations
+    assert not conversations.find_visitor_by_phone(DEST), (
+        "an unverified registration became a durable visitor")
 
 
-def test_unknown_challenge_is_refused(client):
+def test_an_unknown_challenge_is_refused(client):
     r = client.post("/api/auth/profile", json={
         "challenge_id": "z" * 40, "job": "x", "position": "", "interests": "",
     })
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 def test_oversized_input_is_refused(client, outbox):
-    cid = _verified(client, outbox)
+    _verified(client, outbox)
     r = client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "x" * 500, "position": "", "interests": "",
+        "job": "x" * 500, "position": "", "interests": "",
     })
     assert r.status_code == 422
 
@@ -152,13 +186,13 @@ def test_options_endpoint_serves_the_taxonomy(client):
 
 def test_position_survives_a_profile_edit(client, outbox):
     """سمت is a real field, not a placeholder — it must round-trip."""
-    cid = _verified(client, outbox, job="کارمند", position="کارشناس")
-    assert otp_service.profile_for(cid)["position"] == "کارشناس"
+    _verified(client, outbox, job="کارمند", position="کارشناس")
+    assert _stored()["position"] == "کارشناس"
 
     client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "کارمند", "position": "مدیر بخش", "interests": "",
+        "job": "کارمند", "position": "مدیر بخش", "interests": "",
     })
-    assert otp_service.profile_for(cid)["position"] == "مدیر بخش"
+    assert _stored()["position"] == "مدیر بخش"
 
 
 def test_options_endpoint_is_bilingual(client):

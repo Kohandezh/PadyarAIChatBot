@@ -36,11 +36,40 @@
        row of maxlength="1" boxes.
 
    The flow never depends on either; typing always works.
+
+   WHO THE VISITOR IS IS NOT THIS FILE'S DECISION.
+
+   A successful verification makes the SERVER set an HttpOnly session cookie
+   (app/auth/visitor.py). This script cannot read it, cannot write it and
+   cannot forge it, which is the entire point. "Am I signed in" is answered by
+   GET /api/auth/session and by nothing else — the answer is cached in memory
+   for the page and re-read at the two moments it changes, verification and
+   logout.
+
+   What this replaced, and why: the challenge id from the OTP step used to be
+   written into localStorage and re-sent in the body of /api/auth/profile and
+   /api/visit-plan as proof of identity. That is a bearer token that never
+   expires, sitting where any injected script can read it. And isSignedIn()
+   used to mean "localStorage has a name in it", so the gate below was a
+   suggestion. Both are gone. localStorage now holds one thing, a display name,
+   so the header does not flicker; see KEY_NAME.
 */
 (function () {
     'use strict';
 
-    const KEY_SESSION = 'inotex-visitor';
+    /* A DISPLAY NAME AND NOTHING ELSE.
+       This key is never proof of anything. Whether someone is signed in is
+       answered by GET /api/auth/session, which reads the HttpOnly cookie the
+       server issued — a cookie this script cannot read, write or forge. All
+       this remembers is the name to print in the header, so it does not
+       flicker in the moment between the page painting and that answer
+       arriving. Editing it by hand changes a label, not an identity.
+
+       The key it replaces, `inotex-visitor`, held the whole profile AND the
+       challenge id, and the challenge id was treated as the login. That blob
+       is deleted at boot from every browser that still has one. */
+    const KEY_NAME = 'padyar-visitor-name';
+    const KEY_LEGACY = 'inotex-visitor';
     const OTP_LENGTH = 6;
 
     /* Ask about interests in the chat? The owner may decide these belong on
@@ -156,50 +185,141 @@
     };
     const t = function () { return isFa() ? T.fa : T.en; };
 
-    // ── Session ──────────────────────────────────────────────────────
-    function session() {
-        try { return JSON.parse(localStorage.getItem(KEY_SESSION) || 'null'); }
-        catch (e) { return null; }
+    // ── Who the server says you are ──────────────────────────────────
+    /* The ONE answer to "am I signed in", and it is not this browser's to give.
+       GET /api/auth/session reads the HttpOnly session cookie and reports back.
+
+       Cached in memory for the life of the page: the send gate below runs on
+       every message, and a request per keystroke at an exhibition, over a hall
+       full of phones on one access point, is not a cost worth paying for an
+       answer that changes exactly twice — at verification and at logout. Both
+       of those call refreshServerSession() themselves.
+
+       `known` matters as much as `signed_in`. Before the first answer arrives,
+       and after a failed probe, this browser does not know; it must not guess.
+       See gate(). */
+    let server = { known: false, signed_in: false, profile: {} };
+
+    function refreshServerSession() {
+        return fetch('/api/auth/session', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d) return server;   // no such endpoint: module is off here
+                server = {
+                    known: true,
+                    signed_in: !!d.signed_in,
+                    profile: d.profile || {}
+                };
+                if (server.signed_in) rememberName(server.profile);
+                else forgetName();
+                paintSession();
+                return server;
+            })
+            .catch(function () { return server; });
     }
-    function saveSession(profile) {
-        localStorage.setItem(KEY_SESSION, JSON.stringify(profile));
-        paintSession();
+
+    // ── The name in the header (a label, never a credential) ─────────
+    function storedName() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(KEY_NAME) || 'null');
+            return raw && typeof raw === 'object' ? raw : null;
+        } catch (e) { return null; }
     }
-    function clearSession() {
-        localStorage.removeItem(KEY_SESSION);
-        paintSession();
+    function rememberName(profile) {
+        try {
+            localStorage.setItem(KEY_NAME, JSON.stringify({
+                first_name: (profile || {}).first_name || '',
+                last_name: (profile || {}).last_name || ''
+            }));
+        } catch (e) { /* private mode — the header just will not preload */ }
+    }
+    function forgetName() {
+        try { localStorage.removeItem(KEY_NAME); } catch (e) { }
     }
 
     function displayName(p) {
         return [p.first_name, p.last_name].filter(Boolean).join(' ').trim();
     }
 
+    /* Draw the logout button for anyone who is signed in.
+
+       KEYED ON THE SESSION, NOT ON A NAME. It used to be keyed on the name,
+       and the /verify page posts only { destination }: those visitors have
+       first_name = '' and last_name = '', so displayName() was '' and this
+       function REMOVED the button. They were signed in for weeks with no way
+       to sign out anywhere in the UI. The button says «خروج» / "Log out",
+       which needs no name to make sense.
+
+       displayName() stays in the condition as the second half: before the server
+       answers, a remembered name is enough to paint the button, so a returning
+       visitor does not watch their own header appear late. The moment the
+       server answers, that answer wins: an anonymous reply erases the name and
+       the button with it. */
     function paintSession() {
-        const p = session();
+        // A mirror of the server's answer, for anything that has to look at
+        // it from outside this closure: a theme styling a signed-in header, a
+        // test waiting for the probe to land. It is a REFLECTION and never the
+        // source — editing this attribute in a console changes a stylesheet,
+        // not a session. "unknown" until the server has answered.
+        document.documentElement.dataset.visitor = server.known
+            ? (server.signed_in ? 'in' : 'out')
+            : 'unknown';
+
+        const p = server.known
+            ? (server.signed_in ? server.profile : null)
+            : storedName();
         // The account row at the bottom of the hamburger drawer — one fixed
         // anchor present on every theme, instead of the old `.header-tools`
         // lookup (a class only two of four themes ever had, so this control
         // silently never appeared on the other two).
         const section = document.getElementById('menu-account-section');
-        let logout = document.getElementById('visitor-logout');
+        let logoutBtn = document.getElementById('visitor-logout');
 
-        if (p && displayName(p)) {
-            if (!logout && section) {
-                logout = document.createElement('button');
-                logout.type = 'button';
-                logout.id = 'visitor-logout';
-                logout.className = 'visitor-logout menu-account-btn';
-                logout.addEventListener('click', clearSession);
-                section.append(logout);
+        if (p && (server.signed_in || displayName(p))) {
+            if (!logoutBtn && section) {
+                logoutBtn = document.createElement('button');
+                logoutBtn.type = 'button';
+                logoutBtn.id = 'visitor-logout';
+                logoutBtn.className = 'visitor-logout menu-account-btn';
+                logoutBtn.addEventListener('click', logout);
+                section.append(logoutBtn);
             }
-            if (logout) {
-                logout.textContent = t().logout;
-                logout.title = t().logout;
-                logout.setAttribute('aria-label', t().logout);
+            if (logoutBtn) {
+                logoutBtn.textContent = t().logout;
+                logoutBtn.title = t().logout;
+                logoutBtn.setAttribute('aria-label', t().logout);
             }
         } else {
-            if (logout) logout.remove();
+            if (logoutBtn) logoutBtn.remove();
         }
+    }
+
+    /* Signing out is the server's job. Deleting the local name only hid the
+       button: the session row and its cookie survived, so /chat still answered
+       and the next person on a shared booth phone inherited the last one's
+       identity. The row has to die, and only the server can kill it. */
+    function logout() {
+        post('/api/auth/logout', {})
+            .then(function () {
+                /* The session is dead, so the words on the screen have to go
+                   too. Sign-out used to revoke and reload, and nothing else:
+                   the bubbles stayed, and static/chat/core.js loadHistory()
+                   replayed them from localStorage on the next page load. On a
+                   shared booth phone the next person read the last person's
+                   conversation. The "New chat" button already forgot both;
+                   the strongest leaving gesture in the product forgot less.
+
+                   Only on success, for the same reason New chat only clears
+                   on success: a wiped screen while the session is still live
+                   looks exactly like signing out and is not.
+
+                   forgetTranscript() lives in core.js, which the theme footer
+                   loads BEFORE this file. The guard is for a page that loads
+                   this script without the chat. */
+                if (typeof forgetTranscript === 'function') forgetTranscript();
+            })
+            .catch(function () { /* offline: nothing was revoked, so say nothing */ })
+            .then(function () { return refreshServerSession(); });
     }
 
     // ── Modal ────────────────────────────────────────────────────────
@@ -617,15 +737,17 @@
             e.preventDefault();
             submit.disabled = true;
             say('…');
+            // No identity in this body. The endpoint knows who is asking from
+            // the session cookie, so all that travels is what changed.
             post('/api/auth/profile', {
-                challenge_id: state.challenge || (session() || {}).challenge_id || '',
                 job: jobSel.value.trim().slice(0, MAX_JOB),
                 position: (posField ? posField.value.trim() : '').slice(0, MAX_POSITION),
                 interests: collect().slice(0, MAX_INTERESTS)
             })
                 .then(function (data) {
-                    const merged = Object.assign({}, session(), data.profile || {});
-                    saveSession(merged);
+                    server.profile = Object.assign({}, server.profile, data.profile || {});
+                    rememberName(server.profile);
+                    paintSession();
                     renderPlanStep();
                 })
                 .catch(function (err) {
@@ -649,9 +771,13 @@
         setHead(t().planTitle, t().planSub);
         say('…');
 
-        const p = session() || {};
+        // The three descriptive fields, and no identity. They are plan input,
+        // the same input an unregistered visitor may type for themselves — the
+        // plan is public, so nothing here unlocks anything. They come from the
+        // server's own copy of the profile rather than from localStorage,
+        // because localStorage is now a name cache and nothing more.
+        const p = server.profile || {};
         post('/api/visit-plan', {
-            challenge_id: state.challenge || p.challenge_id || '',
             job: p.job || '', position: p.position || '', interests: p.interests || '',
             lang: isFa() ? 'fa' : 'en'
         })
@@ -690,7 +816,7 @@
                 const actions = el('div', 'reg-actions');
                 const edit = el('button', 'reg-link', t().editProfile);
                 edit.type = 'button';
-                edit.addEventListener('click', function () { renderEditStep(session() || {}); });
+                edit.addEventListener('click', function () { renderEditStep(server.profile || {}); });
                 actions.append(edit);
                 state.body.append(actions);
 
@@ -884,13 +1010,18 @@
             .then(function (data) {
                 stopTimer(); abortOtpListener();
                 const profile = data.profile || state.profile || {};
-                // Kept so the visitor can edit their profile later without a new
-                // code. It is an unguessable id that only unlocks their own
-                // descriptive fields — when this app grows a real session layer,
-                // that becomes the right home for it.
-                profile.challenge_id = state.challenge;
-                saveSession(profile);
+                // The challenge id is deliberately NOT kept. It used to be
+                // stored and re-sent as proof of who this was, which made a
+                // never-expiring bearer token out of a value that lives in
+                // localStorage, where any injected script can read it. The
+                // real credential is the HttpOnly cookie this response just
+                // set; nothing on this side of the wire touches it.
+                rememberName(profile);
                 say(data.message || '', 'ok');
+                // Re-read from the server rather than assuming the mint
+                // worked. If the cookie did not arrive, the gate must know it
+                // now, not at the visitor's next message.
+                refreshServerSession();
                 // Verified. The rest of the conversation belongs in the chat,
                 // not in a modal: close the card and let the assistant ask.
                 setTimeout(function () {
@@ -922,14 +1053,27 @@
     function post(url, body) {
         return fetch(url, {
             method: 'POST',
+            // Spelled out because these endpoints now act on the session
+            // cookie: the browser has to be told to send it.
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function (r) {
             return r.json().catch(function () { return {}; }).then(function (data) {
-                if (!r.ok) throw { status: r.status, detail: data.detail };
+                if (!r.ok) throw { status: r.status, detail: readable(data.detail) };
                 return data;
             });
         });
+    }
+
+    /* Every caller does `say(err.detail || t().network, 'error')`, so `detail`
+       has to be a STRING. The 401 these endpoints now raise carries an object
+       instead — {code, message} — because the code is what the browser acts
+       on. Left alone, a visitor would read "[object Object]". The sentence is
+       what belongs on screen; the code is for the gate, not for a person. */
+    function readable(detail) {
+        if (detail && typeof detail === 'object') return detail.message || '';
+        return detail;
     }
 
     // ── In the chat: a welcome, then the questions ───────────────────
@@ -965,6 +1109,10 @@
 
     const ask = { steps: [], index: -1, answers: {}, box: null, watcher: null };
     let heldMessage = '';
+    // True when the held message is ALREADY a bubble in the transcript, which
+    // happens when the server refused it rather than the gate holding it. See
+    // serverGate() and deliverHeld().
+    let heldEchoed = false;
 
     function chatInput() { return document.getElementById('user-input'); }
 
@@ -995,9 +1143,11 @@
         input.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
+    /* Signed in means the SERVER said so on this page load. It used to mean
+       "localStorage has a name in it", which anyone could type into a console
+       in four seconds. Nothing here reads storage. */
     function isSignedIn() {
-        const p = session();
-        return !!(p && displayName(p));
+        return server.known && server.signed_in;
     }
 
     function startChatQuestions(profile) {
@@ -1113,7 +1263,7 @@
     }
 
     function saveChatAnswers() {
-        const stored = session() || {};
+        const stored = server.profile || {};
         /* The sign-up checkbox is stored in the SAME field as the interests
            (that is the existing schema), so it is merged back in here —
            answering the interests question must never silently untick it. */
@@ -1126,14 +1276,16 @@
             return first === i;
         }).join('، ').slice(0, MAX_INTERESTS);
 
+        // Again, no identity in the body — the cookie carries it.
         post('/api/auth/profile', {
-            challenge_id: stored.challenge_id || state.challenge || '',
             job: ask.answers.job || '',
             position: ask.answers.position || '',
             interests: interests
         })
             .then(function (data) {
-                saveSession(Object.assign({}, stored, data.profile || {}));
+                server.profile = Object.assign({}, stored, data.profile || {});
+                rememberName(server.profile);
+                paintSession();
                 botSay(t().profileSaved);
             })
             .catch(function () {
@@ -1149,9 +1301,14 @@
     function deliverHeld() {
         if (heldMessage) {
             const text = heldMessage;
+            const echoed = heldEchoed;
             heldMessage = '';
+            heldEchoed = false;
             setInput(text);
-            if (typeof sendMessage === 'function') sendMessage(true);
+            // A message the SERVER refused is already on screen. Re-sending it
+            // must not print it a second time, or the transcript reads as if
+            // the visitor asked twice.
+            if (typeof sendMessage === 'function') sendMessage(true, { echo: !echoed });
             return;
         }
         // Nobody was waiting on an answer — this visitor came in through the
@@ -1165,26 +1322,72 @@
         // An open question owns the message box until it is answered.
         if (ask.steps[ask.index]) { acceptAnswer(text); return true; }
         if (isSignedIn()) return false;
+        // Session unknown (the probe failed, or has not answered yet). Do not
+        // guess in either direction: send it and let the server rule. A signed
+        // in visitor gets their answer, and a stranger gets the 401 that
+        // serverGate() below turns into this same card.
+        if (!server.known) return false;
         // First message from a stranger: hold it, do not answer it, and ask
         // them to sign up. Nothing they typed is thrown away.
-        heldMessage = text;
-        setInput('');
-        botSay(t().held);
-        openModal(renderSignupStep);
+        holdAndAsk(text, false);
         return true;
     }
 
+    /** ChatConfig.signInRequiredFn — see static/chat/core.js.
+        The server refused the message: this visitor has no session. The gate
+        above normally catches that first, so reaching here means the client
+        was wrong — the page loaded before the module knew, the session expired
+        mid-conversation, or someone reached /chat with the gate disabled.
+        Either way the visitor sees the sign-up card, never a raw error. */
+    function serverGate(info) {
+        // Whatever this browser believed is stale by definition: the server
+        // has just said no. Correcting it here means the NEXT message is held
+        // by the gate instead of making the same round trip.
+        server = { known: true, signed_in: false, profile: {} };
+        forgetName();
+        paintSession();
+        holdAndAsk((info && info.text) || '', true);
+        return true;
+    }
+
+    function holdAndAsk(text, alreadyEchoed) {
+        heldMessage = text;
+        heldEchoed = !!alreadyEchoed;
+        setInput('');
+        botSay(t().held);
+        openModal(renderSignupStep);
+    }
+
     // ── Boot ─────────────────────────────────────────────────────────
+    // The old identity blob, wherever it survives. It held a challenge id that
+    // used to work as a password, so it is removed on sight rather than left
+    // to rot in a booth phone.
+    try { localStorage.removeItem(KEY_LEGACY); } catch (e) { }
+
     // The sign-up gate is installed ONLY once the server confirms the
     // registration module is switched on. With the admin switch off, nothing
     // is installed and the chat behaves exactly as it does on an install that
     // never had the module: the first message is answered, not held.
+    //
+    // The 401 handler is installed either way. It costs nothing on an install
+    // that can never send that status, and it is the safety net for the case
+    // the gate cannot cover: registration switched on after this page loaded.
+    if (typeof ChatConfig !== 'undefined') ChatConfig.signInRequiredFn = serverGate;
+
     fetch('/api/auth/registration-status')
         .then(function (r) { return r.ok ? r.json() : { enabled: false }; })
         .then(function (s) {
-            if (s.enabled && typeof ChatConfig !== 'undefined') ChatConfig.sendGateFn = gate;
+            if (!s.enabled || typeof ChatConfig === 'undefined') return;
+            // Ask WHO before gating on it. Installing the gate first would
+            // hold a signed-in visitor's message for the length of one round
+            // trip and open a sign-up card they do not need.
+            return refreshServerSession().then(function () {
+                ChatConfig.sendGateFn = gate;
+            });
         })
         .catch(function () { /* status unknown — leave the chat ungated */ });
 
+    // Paint from the remembered name straight away, before any request. The
+    // server's answer replaces it moments later.
     paintSession();
 })();

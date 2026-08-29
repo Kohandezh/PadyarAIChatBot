@@ -27,7 +27,13 @@ def outbox(monkeypatch):
 
 @pytest.fixture()
 def client():
+    # Origin + User-Agent on every request: /api/auth/otp/verify mints the
+    # visitor session cookie, so it runs validate_request_origin like the rest
+    # of the public surface. A real browser always sends both; TestClient
+    # sends neither, so the fixture supplies them once.
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost",
+                          "User-Agent": "pytest-agent/1.0"})
         yield c
 
 
@@ -47,6 +53,11 @@ def _cleanup():
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM otp_challenges WHERE destination LIKE '+9891200000%'")
+        # A verified challenge is now promoted to a durable `visitors`
+        # row (app/routers/otp.py). These three OTP files run against
+        # the ambient database, so their test numbers have to be swept
+        # out of that table too or they pile up in a real install.
+        conn.execute("DELETE FROM visitors WHERE phone LIKE '+9891200000%'")
         conn.commit()
     except sqlite3.OperationalError:
         pass

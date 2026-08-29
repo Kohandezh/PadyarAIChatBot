@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import prodcheck
 from app.config import (logger, BASE_DIR, ENABLED_MODULES, COOKIE_SECURE,
                         ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS)
 from app.auth.csrf import PROTECTED_PREFIXES
@@ -24,6 +25,7 @@ async def _retention_loop():
     """
     from app.services import applog
     from app.db import queries
+    from app.auth import visitor as visitor_auth
     while True:
         try:
             await asyncio.sleep(6 * 3600)
@@ -35,6 +37,12 @@ async def _retention_loop():
             # same dial applog has always had. Default 0 = keep forever, so no
             # existing install loses data by upgrading.
             queries.purge_chat_logs()
+            # visitor_sessions grows by one row per registered person per
+            # browser and keeps it for 30 days. resolve() deletes an expired
+            # row only when its owner comes back, and most visitors never come
+            # back, so nothing swept them: the dead rows outnumber the live
+            # ones on an install that runs for years. This is the sweep.
+            visitor_auth.purge_expired()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -150,7 +158,52 @@ def _mount_themes(app: FastAPI):
         logger.warning(f"Theme discovery failed: {e}")
 
 
-app = FastAPI(title="دستیار پادیار", lifespan=lifespan)
+def _api_docs_enabled() -> bool:
+    """Should this install publish /openapi.json, /docs and /redoc?
+
+    WHAT WAS WRONG. FastAPI serves all three to anybody, with no session and
+    no token. On a production install that handed a stranger the full route
+    table: the obscured admin path (/secure-panel-inotex), every
+    /admin/api/... endpoint, and the exact request body each one takes. The
+    Referrer-Policy header in security_headers() below exists to keep that
+    panel path out of other people's logs, which is wasted work while one
+    unauthenticated GET prints it.
+
+    WHICH MARKER. PADYAR_ENV, read through app/prodcheck.py. NOT COOKIE_SECURE:
+    prodcheck explains at length why deriving "is this production" from a
+    setting that production itself must set is unsound. A host that forgot
+    COOKIE_SECURE would classify itself as development and publish its whole
+    API. PADYAR_ENV describes what the install IS, so it cannot be switched
+    off by the mistake it is guarding against.
+
+    STAGING COUNTS AS PRODUCTION HERE, which is why this asks for the
+    environment rather than calling is_production(). prodcheck.audit() runs
+    every other security rule with `strict = env in (STAGING, PRODUCTION)`,
+    because staging is reachable from the internet and is built to look like
+    the real thing. A staging box that published the route table would hand
+    over the same obscured admin path production uses.
+
+    An unrecognised PADYAR_ENV hides the docs. That value stops the boot a
+    moment later in enforce_at_startup(), and swallowing it here rather than
+    raising keeps that clearer error the one the operator sees.
+    """
+    try:
+        return prodcheck.environment() not in (prodcheck.STAGING,
+                                               prodcheck.PRODUCTION)
+    except prodcheck.InvalidEnvironment:
+        return False
+
+
+_DOCS = _api_docs_enabled()
+
+app = FastAPI(
+    title="دستیار پادیار", lifespan=lifespan,
+    # None removes the route entirely, so the path 404s like any address that
+    # was never registered. Nothing tells a scanner the endpoint exists here.
+    openapi_url="/openapi.json" if _DOCS else None,
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
+)
 
 # --- Middleware ---
 # allow_credentials=False makes the "*" origin safe: browsers refuse to expose
@@ -165,6 +218,91 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Asset traffic that must never pay for a session lookup. Every one of these
+# is a mount, and a mount still passes through http middleware, so without this
+# a page with forty images costs forty pooled connections and forty queries.
+# Same set (and same reason) as _NO_API_LOG_PREFIXES below, kept separate
+# because that one also excludes /admin/api/logs, which is not asset traffic.
+_NO_VISITOR_PREFIXES = ("/static", "/themes", "/media", "/favicon", "/LOGO")
+
+
+@app.middleware("http")
+async def resolve_visitor(request, call_next):
+    """Decide WHO is asking, from the session cookie and nothing else.
+
+    IT READS `request.cookies` ONLY. Not a header, not a body field, not a
+    query parameter, not a path segment. That is the entire point: identity
+    has to come from a credential the server minted, so that passing a few
+    extra fields in a request can never make you somebody. Every other way in
+    was the hole this closes.
+
+    A middleware and not a dependency, because a dependency is opt-in per
+    route and the next endpoint somebody adds would be silently anonymous.
+    Here it runs on every request and sets, unconditionally and before
+    anything else can fail:
+
+        request.state.visitor_id  -> str, "" when anonymous
+        request.state.visitor     -> VisitorProfile or None
+
+    so no downstream reader ever needs a getattr default.
+
+    IT NEVER RAISES. An unknown, expired, malformed or unreadable cookie means
+    anonymous, not an error — app/auth/visitor.py swallows storage faults for
+    the same reason app/services/conversations.py does. A resolver that raised
+    would turn a database blip into a site-wide 500 on `GET /`.
+
+    NO request.state HANDSHAKE, unlike slide_admin_cookie. That pair exists
+    because verify_admin is a DEPENDENCY and a dependency has no handle on the
+    response, so it can slide the row but not re-issue the cookie. This is
+    already a middleware: it holds the cookie on the way in and the response on
+    the way out, so it does both halves itself. Two guards are kept from the
+    admin version, both earned: an error response is not activity, and a
+    response that already carries this cookie is one that just minted it (OTP
+    verify) or just cleared it (logout) — re-issuing there would overwrite a
+    fresh token with the stale one the request came in with.
+
+    WHERE IT SITS: registered here, straight after CORS, which makes it the
+    INNERMOST of the six (Starlette wraps in reverse registration order). So it
+    runs inside request_correlation and its log rows carry a request id; inside
+    csrf_protection and reject_oversized_bodies, so a 403 or 413 short-circuits
+    before paying for a lookup; and its response half runs first, so neither
+    security_headers nor slide_admin_cookie can strip the Set-Cookie it adds.
+    """
+    from app.auth import visitor as visitor_auth
+
+    request.state.visitor_id = ""
+    request.state.visitor = None
+
+    if request.url.path.startswith(_NO_VISITOR_PREFIXES):
+        return await call_next(request)
+
+    token = request.cookies.get(visitor_auth.VISITOR_COOKIE_NAME, "")
+    session = visitor_auth.resolve(token) if token else None
+    if session:
+        request.state.visitor_id = session["visitor_id"]
+        request.state.visitor = session["profile"]
+
+    response = await call_next(request)
+
+    if session and response.status_code < 400 \
+            and not _sets_visitor_cookie(response):
+        visitor_auth.set_cookie(response, token)
+    return response
+
+
+def _sets_visitor_cookie(response) -> bool:
+    """Did the handler already write this cookie itself?
+
+    True on the OTP verify response (which just minted a NEW token) and on the
+    logout response (which just deleted one). `request.cookies` still holds the
+    OLD value on both, so re-issuing would undo what the endpoint just did.
+    """
+    from app.auth.visitor import VISITOR_COOKIE_NAME
+    prefix = (VISITOR_COOKIE_NAME + "=").encode()
+    return any(key.lower() == b"set-cookie" and value.startswith(prefix)
+               for key, value in response.raw_headers)
 
 
 # Backstop on request size, from the Content-Length header. Generous by design

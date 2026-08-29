@@ -7,8 +7,20 @@ Three audiences, three doors, and no shared credential between them:
   /secure-panel-inotex/leads  an administrator, on the existing admin session
 
 Nothing here trusts anything the browser says about who it is. The visitor
-cookie carries only an id, and `active` is re-read on every request, so
-revoking a visitor takes effect on their next tap rather than at cookie expiry.
+cookie carries the visitor's CODE, the same secret their personal link is
+made of, and both `active` and the code itself are re-read on every request.
+So revoking a visitor, and rotating their link, each take effect on the next
+tap rather than at cookie expiry. It used to carry `lead_visitors.id`, the
+row's primary key, which never changes: a lost phone survived a rotation for
+the rest of its 12 hour session. A row id the client hands back is not a
+credential.
+
+That change costs one thing, once. The day it ships, every staff member with
+a /v panel already open is signed out, because their cookie holds an id and
+nothing answers to an id any more. They open their own personal link again
+and carry on. Tell the operator before the deploy, not after: mid-exhibition
+this looks like the panel breaking for the whole booth at the same minute.
+
 The invite token in the URL is the contact's whole credential: the row it hashes
 to names the single company it may touch, so no company id is ever taken from a
 request body, and the token stops existing the moment an edit is accepted.
@@ -93,8 +105,15 @@ def _dead_page(message: str, status: int) -> HTMLResponse:
 # ── Visitor session ──────────────────────────────────────────────────────
 
 def current_visitor(request: Request) -> dict:
-    visitor_id = request.cookies.get(leads_service.VISITOR_COOKIE, "")
-    visitor = leads_service.visitor_by_id(visitor_id) if visitor_id else None
+    """Who is holding this phone, re-read from the database every request.
+
+    The cookie is the visitor's code, never their row id. Rotating the code
+    is then the same thing as ending every live session on that visitor, with
+    no session table and no extra column: the old cookie names a code that no
+    longer exists in `lead_visitors`.
+    """
+    code = request.cookies.get(leads_service.VISITOR_COOKIE, "")
+    visitor = leads_service.visitor_by_code(code) if code else None
     if visitor is None:
         raise HTTPException(status_code=401, detail="دسترسی ندارید.")
     return visitor
@@ -105,14 +124,18 @@ async def visitor_link(code: str, request: Request):
     """The visitor's personal link. Exchanges the code for a session cookie.
 
     The code leaves the URL immediately: a redirect means it is not sitting in
-    the phone's history, in a screenshot, or in a referrer header.
+    the phone's history, in a screenshot, or in a referrer header. It moves
+    into an HttpOnly cookie, so it is still out of reach of page scripts.
     """
     visitor = leads_service.visitor_by_code(code)
     if visitor is None:
         return HTMLResponse(_brand(_page("denied.html")), status_code=403)
     response = RedirectResponse(url="/v", status_code=303)
     response.set_cookie(
-        key=leads_service.VISITOR_COOKIE, value=visitor["id"], httponly=True,
+        # The code, not visitor["id"]. The id never changes, so a cookie
+        # holding it outlived "give this staff member a new link" by up to
+        # 12 hours, on the very phone the rotation was answering.
+        key=leads_service.VISITOR_COOKIE, value=code, httponly=True,
         secure=COOKIE_SECURE, samesite="lax",
         max_age=leads_service.VISITOR_SESSION_TTL_SECONDS,
     )
@@ -121,8 +144,8 @@ async def visitor_link(code: str, request: Request):
 
 @router.get("/v", response_class=HTMLResponse)
 async def visitor_panel(request: Request):
-    visitor_id = request.cookies.get(leads_service.VISITOR_COOKIE, "")
-    visitor = leads_service.visitor_by_id(visitor_id) if visitor_id else None
+    code = request.cookies.get(leads_service.VISITOR_COOKIE, "")
+    visitor = leads_service.visitor_by_code(code) if code else None
     if visitor is None:
         return HTMLResponse(_brand(_page("denied.html")), status_code=403)
     page = _brand(_page("panel.html"))
@@ -180,12 +203,17 @@ async def verify(body: VerifyBody, request: Request,
                  visitor: dict = Depends(current_visitor)):
     check_rate_limit(request, key=f"visitor:{visitor['id']}")
     try:
-        # The visitor's session goes in so the invite remembers who minted it.
+        # The visitor's ID goes in so the invite remembers who minted it.
         # What comes back is a QR image or a delivery report, never the token:
         # the person who captured the lead may not edit the company's answer.
+        #
+        # The id and not the cookie, even though the cookie identifies the
+        # same person. The cookie now holds the visitor's live code, and this
+        # value is written to edit_invites.issued_by_session in the clear;
+        # a table read, an export or a backup would hand out a working /v link.
         return leads_service.verify_contact(
             body.lead_id, body.code, _base_url(request),
-            visitor_session=request.cookies.get(leads_service.VISITOR_COOKIE, ""),
+            visitor_session=visitor["id"],
         )
     except LeadError as e:
         raise _fail(e)
@@ -252,10 +280,25 @@ def _only_text(payload: dict) -> str:
 async def save_edit(token: str, request: Request, payload: dict = Body(default={})):
     check_rate_limit(request)
     text = _only_text(payload)
+    # Is this the booth's own phone, submitting the answer it was supposed to
+    # hand to the company? The cookie carries a code, so it is turned back
+    # into a visitor id here, matching what verify() wrote on the invite.
+    # There is no login on this page: a stranger with no cookie gets "", and
+    # "" refuses nothing.
+    #
+    # `from_booth_phone` is sent separately because the two "" answers mean
+    # opposite things. A contact has no cookie at all, and must be let through.
+    # A booth phone whose link was rotated still HAS the cookie, and the code
+    # in it no longer matches any row, so it also maps to "". Without this flag
+    # the rotated phone reads as a contact and the guard below falls open,
+    # which is the lost-phone story rotation exists for.
+    visitor_code = request.cookies.get(leads_service.VISITOR_COOKIE, "")
     try:
         return leads_service.submit_edit(
             token, text,
-            visitor_session=request.cookies.get(leads_service.VISITOR_COOKIE, ""),
+            visitor_session=(leads_service.visitor_id_for_session(visitor_code)
+                             if visitor_code else ""),
+            from_booth_phone=bool(visitor_code),
             ip=client_ip(request),
         )
     except LeadError as e:
