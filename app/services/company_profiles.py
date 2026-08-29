@@ -159,6 +159,105 @@ def upsert_profile(dataset_id: str, values: dict) -> dict:
     return get_profile(dataset_id)
 
 
+def get_video(dataset_id: str) -> str:
+    """A company's intro video URL, or "" — kept out of get_profile()'s
+    PROFILE_FIELDS/{} contract for the same reason set_video() below is a
+    separate write path."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT video_url FROM companies WHERE id = ?", (dataset_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return (row["video_url"] or "") if row else ""
+
+
+def set_video(dataset_id: str, video_url: str) -> str:
+    """Set a company's intro video — the same `video_url` column `dataset`
+    rows use, per migrations/0013_companies.sql.
+
+    This is deliberately NOT part of upsert_profile()/PROFILE_FIELDS: video is
+    dataset-style public content (what the chatbot shows), not organizer
+    knowledge about the company, so it needs its own write path rather than
+    folding into the profile form's semantics — and, unlike PROFILE_FIELDS,
+    it must not affect get_profile()'s "any field filled in" check.
+    """
+    from app.db.connection import get_db_connection
+    clean = (video_url or "").strip()
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE companies SET video_url = ? WHERE id = ?", (clean, dataset_id)
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            raise ProfileError("این شرکت در دانش‌نامه نیست.", status=404)
+    finally:
+        conn.close()
+    return clean
+
+
+# The public-content columns — the chatbot's own words about a company, the
+# same title/title_en/text/text_en a `dataset` row carries. Before
+# migrations/0013_companies.sql these were edited on the dataset admin page;
+# a company can no longer reach that page (it queries `dataset` only), so
+# get_public_content()/set_public_content() below are the only way an admin
+# can change what the chatbot says about a company now.
+PUBLIC_CONTENT_FIELDS = ("title", "title_en", "text", "text_en")
+
+
+def get_public_content(dataset_id: str) -> dict:
+    """A company's public content, always all four fields — kept out of
+    get_profile()'s PROFILE_FIELDS/{} contract for the same reason
+    get_video() above is: this is dataset-style public content, not
+    organizer knowledge about the company, so "nothing filled in yet" does
+    not apply to it the way it does to a profile."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT " + ", ".join(PUBLIC_CONTENT_FIELDS)
+            + " FROM companies WHERE id = ?", (dataset_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {f: "" for f in PUBLIC_CONTENT_FIELDS}
+    return {f: (row[f] or "") for f in PUBLIC_CONTENT_FIELDS}
+
+
+def set_public_content(dataset_id: str, values: dict) -> dict:
+    """Set a company's public content — the same title/title_en/text/text_en
+    columns the dataset editor sets for a normal dataset row (see
+    update_dataset_item() in app/routers/dataset.py).
+
+    Deliberately NOT part of upsert_profile()/PROFILE_FIELDS, for the same
+    reason set_video() above is not: this writes dataset-style public
+    content (what the chatbot says), not organizer knowledge about the
+    company, so it must not affect get_profile()'s "any field filled in"
+    check. Unknown keys in `values` are simply never read, since each field
+    is pulled by name rather than iterated from the input dict.
+    """
+    from app.db.connection import get_db_connection
+    clean = {f: str(values.get(f) or "").strip() for f in PUBLIC_CONTENT_FIELDS}
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE companies SET "
+            + ", ".join(f"{f} = ?" for f in PUBLIC_CONTENT_FIELDS)
+            + " WHERE id = ?",
+            (*clean.values(), dataset_id),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            raise ProfileError("این شرکت در دانش‌نامه نیست.", status=404)
+    finally:
+        conn.close()
+    return get_public_content(dataset_id)
+
+
 def sync_from_lead(lead: dict) -> None:
     """Fold a verified capture's contact data into the company's profile.
 
@@ -235,7 +334,8 @@ def list_companies(query: str = "", limit: int = 500) -> list:
         else:
             where, args = "", []
         rows = conn.execute(
-            "SELECT c.id, c.title, c.title_en, " + ", ".join(f"c.{f}" for f in PROFILE_FIELDS) + ","
+            "SELECT c.id, c.title, c.title_en, c.video_url, "
+            + ", ".join(f"c.{f}" for f in PROFILE_FIELDS) + ","
             " o.status AS lead_status, o.id AS lead_id"
             " FROM companies c"
             " LEFT JOIN company_leads o ON o.dataset_id = c.id AND " + _live_owner("o")
