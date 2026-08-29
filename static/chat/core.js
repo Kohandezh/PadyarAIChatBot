@@ -86,7 +86,6 @@ const I18N = {
         videoTab: "ویدیو",
         textTab: "چت",
         videoReady: "ویدیوهای راهنمای اینوتکس در این بخش نمایش داده می‌شوند",
-        startVideo: "شروع",
         videoReadyHint: "برای گفتگو یا دریافت راهنمایی، تب چت را انتخاب کنید.",
         placeholder: "سوال خود را بنویسید...",
         sendTitle: "ارسال پیام",
@@ -125,7 +124,6 @@ const I18N = {
         videoTab: "Video",
         textTab: "Chat",
         videoReady: "INOTEX guide videos will appear here",
-        startVideo: "Start",
         videoReadyHint: "Choose the Chat tab to start a conversation or get help.",
         placeholder: "Type your question...",
         sendTitle: "Send message",
@@ -964,15 +962,21 @@ function initVideoState() {
 }
 
 // ── Idle avatar rotation ────────────────────────────────────────────────
-// While nobody is chatting, the avatar can rotate between a main idle clip
-// and up to 3 administrator-uploaded extras (Admin → دستیار هوشمند) instead
-// of looping one clip forever — an avatar that looks like it is genuinely
-// waiting for a question. `data-idle-pool` holds every configured clip; a
-// pool of 0 or 1 clips means nothing to rotate to, so this is a no-op for
-// every install that has not set up extras.
+// While nobody is chatting, the avatar mostly rests on the main idle clip —
+// that is the one the visitor is meant to recognize — but every 2-3 rotation
+// ticks it plays one random extra (Admin → دستیار هوشمند, up to 3 uploads)
+// for a single tick before returning to the main clip. `data-idle-pool` is
+// [main, ...extras]; a pool of 0 or 1 clips means nothing to rotate to, so
+// this is a no-op for every install that has not set up extras.
 
 const IDLE_POOL_ROTATION_MS = 30000;
 let idlePoolRotationTimer = null;
+let idleRotationCounter = 0;
+let idleRotationThreshold = 2;
+
+function nextIdleRotationThreshold() {
+    return 2 + Math.floor(Math.random() * 2); // every 2nd or 3rd tick
+}
 
 function getIdlePool() {
     if (!avatarVideo) return [];
@@ -990,14 +994,27 @@ function startIdlePoolRotation() {
     if (idlePoolRotationTimer) clearInterval(idlePoolRotationTimer);
     if (getIdlePool().length < 2) return;
 
+    idleRotationCounter = 0;
+    idleRotationThreshold = nextIdleRotationThreshold();
+
     idlePoolRotationTimer = setInterval(() => {
         // Never interrupt an actual answer — only swap the idle loop.
         if (isResponsePlaying) return;
         const pool = getIdlePool();
         if (pool.length < 2) return;
+        const main = pool[0];
+        const extras = pool.slice(1);
+
+        idleRotationCounter++;
+        let next = main;
+        if (idleRotationCounter >= idleRotationThreshold) {
+            next = extras[Math.floor(Math.random() * extras.length)];
+            idleRotationCounter = 0;
+            idleRotationThreshold = nextIdleRotationThreshold();
+        }
+
         const current = avatarVideo.getAttribute('data-waiting-src') || '';
-        const choices = pool.filter((u) => u !== current);
-        const next = choices.length ? choices[Math.floor(Math.random() * choices.length)] : pool[0];
+        if (next === current) return;
         try {
             avatarVideo.setAttribute('data-waiting-src', next);
             avatarVideo.src = next;
