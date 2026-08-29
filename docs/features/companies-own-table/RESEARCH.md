@@ -80,6 +80,22 @@ Then mirror the table in `init_db()` in `app/db/connection.py` for the SQLite
 test backend, and delete the `company_profiles` block from `_TABLES` in
 `app/services/leads.py` (around line 218).
 
+**Backend divergence that would silently wipe test data.** In PostgreSQL
+(`migrations/0001_initial.sql:52-58`), `app.questions.dataset_id` is a plain
+`TEXT NOT NULL` with an index — no foreign key. In SQLite
+(`app/db/connection.py:252-258`), the same column IS a foreign key with
+`ON DELETE CASCADE`. Step 3 of the migration (`DELETE FROM dataset WHERE id
+IN (SELECT id FROM companies)`) is safe on production — nothing references
+`dataset` by FK — but mirrored verbatim against the current SQLite schema it
+would CASCADE-DELETE every one of the 840-equivalent company-linked
+`questions` rows in the test backend the moment the dataset cleanup runs.
+Tests would then pass locally while quietly testing a `questions` table that
+no longer has any company rows in it — the opposite of what section 2 above
+just spent a trace establishing. **Drop the `ON DELETE CASCADE` FK (or the FK
+entirely) from the SQLite `questions.dataset_id` definition in the same
+change**, so both backends behave identically: a dataset/company row's
+removal never touches `questions`.
+
 **There is no downgrade.** Rolling back means restoring a backup
 (`app/services/pg_backup.py`). Take one before the deploy.
 
