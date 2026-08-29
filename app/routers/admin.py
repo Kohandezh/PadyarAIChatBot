@@ -120,9 +120,11 @@ async def admin_login(creds: LoginRequest, request: Request):
                 conn.close()
                 logger.info(f"Upgraded security-answer hash to bcrypt for: {creds.username}")
     else:
-        # A real username costs a bcrypt verify; an invented one must too, or
-        # the response time itself tells an attacker which usernames exist.
-        await asyncio.to_thread(timing_equalize, creds.password)
+        # A real username costs TWO bcrypt verifies, one for the password and
+        # one for the security answer. An invented one has to cost the same,
+        # or the response time itself tells an attacker which usernames exist.
+        await asyncio.to_thread(
+            timing_equalize, creds.password, creds.sec_answer)
 
     if not auth_success:
         # The REASON is recorded, never the submitted password or answer.
