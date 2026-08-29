@@ -4,7 +4,7 @@
 |-------|-------|
 | Created | 2026-08-29 |
 | Updated | 2026-08-29 |
-| Status | Phase 1 implemented and verified (browser-checked on all 4 themes, full test suite green) — Phase 2 blocked on Open Questions |
+| Status | Implemented (both phases). Phase 1 verified on all 4 themes, full test suite green. Phase 2 unblocked once `origin/main` independently shipped a real visitor-session system (see Open Questions below) — implemented on top of it, see `docs/features/visitor-chat-history/`. |
 | Domain | chat |
 | Author | Sina Shamsizadeh (requested), drafted by Claude |
 
@@ -65,9 +65,9 @@ The alternative — building a brand-new settings state/store and re-wiring ever
 
 **P2 — Phase 2, blocked on Open Questions A and B:**
 
-- REQ-008: `list_conversations_for_visitor()` and `delete_conversation()` in `app/services/conversations.py`, plus router endpoints with ownership checks.
-- REQ-009: A persistent visitor-identity cookie set at OTP-verify time; `chat.py` wired to actually persist every message via the existing (currently unused) `conversations.py` write functions.
-- REQ-010: Drawer history section lists real conversations, click reopens one, and each has a delete action a visitor can only use on their own conversation.
+- REQ-008 — **Done, see `docs/features/visitor-chat-history/`.** `list_conversations_for_visitor()` and `delete_conversation_for_visitor()` in `app/services/conversations.py`, plus `GET/DELETE /api/chat/conversations[/…]` router endpoints with ownership checks.
+- REQ-009 — **Superseded, done independently.** A separate security-remediation effort (unrelated to this feature) shipped `app/auth/visitor.py`'s HttpOnly session cookie and wired `chat.py` to `conversations.py`'s write functions before this requirement was ever picked up. Phase 2 built on top of that rather than building it.
+- REQ-010 — **Done, see `docs/features/visitor-chat-history/`.** Drawer history section lists real conversations, click reopens one (and makes it the active conversation server-side), and each has a delete action a visitor can only use on their own conversation.
 
 ## Non-Functional Requirements
 
@@ -172,6 +172,6 @@ None in Phase 1. Phase 2 would reuse the existing `visitors`/`conversations`/`me
 
 ## Open Questions
 
-- **OQ-A/OQ-B — RESOLVED 2026-08-29** (product owner chose "Kuchik shoru kon" / start small): Phase 2 stays small for now — today's client-side-only login/logout display keeps working as relocated in Phase 1, and the drawer's chat-history section stays hidden until there's a real reason to build the persistent-identity/`chat.py`-rewiring project it would need. No new backend work is planned.
+- **OQ-A/OQ-B — RESOLVED 2026-08-29, then REVISED 2026-08-29.** Product owner first chose "start small" (Phase 2 deferred indefinitely — that project sounded like a large, security-relevant build). Hours later, a separate, unrelated security-remediation effort landed on `main` and independently built exactly the persistent-identity/session system that decision was deferring (`app/auth/visitor.py`, `chat.py` wired to `conversations.py`'s writes). With that risk already retired by someone else's work, the product owner revisited the decision and asked for Phase 2 after all — see `docs/features/visitor-chat-history/` for what was actually built once the calculus changed.
 - **OQ-C — RESOLVED 2026-08-29** (product owner chose "Ezafe kon" / add it): dark/light mode added to `base`/`minimal` too, matching the other three themes — same `inotex-light-mode` storage key as inotex's own toggle (one install only ever runs one active theme, so sharing the key is not a real conflict), `theme-btn` row added to a new `themes/minimal/partials/menu.html`, light-mode variable overrides added to `themes/minimal/static/style.css`. Verified live in the browser (round-trips light→dark→light correctly).
 - **OQ-D — RESOLVED** (implemented as originally requested): the speaker button's full removal — both the read-aloud feature and the only working video-unmute control — was confirmed as intended by the original request's wording ("hazvesh kon kolan" / remove it completely) and shipped as-is in Phase 1.
