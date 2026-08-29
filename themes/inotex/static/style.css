@@ -73,6 +73,7 @@ div#text-view {
     width: var(--chat-measure);
     max-width: 100%;
     margin: 0 auto;
+    height: calc(100% - 117px);
     position: relative;
 }
 

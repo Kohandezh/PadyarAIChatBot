@@ -905,9 +905,9 @@ html[dir="ltr"] .haj-theme-toggle[aria-checked="true"] .haj-theme-knob {
     overflow: hidden;
 }
 
-/* base.css pins the text view to 100lvh; inside this shell it fills its row. */
+/* base.css pins the text view to calc(100% - 117px); inside this shell it fills its row. */
 div#text-view {
-    height: 100%;
+    height: calc(100% - 117px);
     min-height: 0;
 }
 
