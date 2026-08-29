@@ -330,6 +330,13 @@ button:disabled {
 }
 
 
+/* ── Header tools group ── */
+.header-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 /* ── Accessibility Controls ── */
 .accessibility-controls {
     position: relative;
@@ -467,5 +474,27 @@ button:disabled {
 
 #new-chat-btn:hover,
 #new-chat-btn:focus-visible {
+    opacity: 1;
+}
+
+/* Signed-in visitor's logout control — same reasoning as #new-chat-btn above:
+   one shared plain pill so every theme without its own themed override still
+   gets a readable button instead of an unstyled default. */
+.visitor-logout {
+    background: transparent;
+    color: currentColor;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font: inherit;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    cursor: pointer;
+    opacity: 0.85;
+    white-space: nowrap;
+}
+
+.visitor-logout:hover,
+.visitor-logout:focus-visible {
     opacity: 1;
 }
