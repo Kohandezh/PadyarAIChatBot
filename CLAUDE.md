@@ -156,10 +156,18 @@ PadyarAIChatbot/
       public.py                  # Public pages + health check
       chat.py                    # /chat endpoint (core chatbot logic)
       admin.py                   # Admin login, stats, settings, export
+      admin_ai.py                # Admin API for the AI provider control plane
       voice.py                   # /api/transcribe (Whisper)
       synonyms.py                # Synonym CRUD
       dataset.py                 # Dataset + questions + video CRUD
+      conversations_admin.py     # Admin read side: visitors, transcripts, wrong-answer queue
+      dbadmin.py                 # Admin API for Infrastructure -> Database + Storage
+      backups.py                 # Admin API for Infrastructure -> Backups
+      ops.py                     # Admin Operations & Control Center
+      logs.py                    # Admin API for the central log store
+      tts.py                     # Admin panel -> AI -> Text to speech (proxy to Chatterbox)
       otp.py                     # /verify page, /api/auth/otp/*, /api/visit-plan
+      leads.py                   # Exhibition lead capture: visitor, company edit, admin queue
       themes.py                  # Theme listing and activation
 
     services/                    # Business logic
@@ -171,14 +179,32 @@ PadyarAIChatbot/
       intent.py                  # Trained intent classifier over local embeddings
       rerank.py                  # Feature reranker fusing dense + lexical candidates
       providers.py               # Model-provider seam (local → OpenAI-compatible)
+      ai/                        # AI provider control plane (per-provider clients)
       openai.py                  # GPT classification, chat, Whisper
+      conversations.py           # Write side: visitors, conversations, messages
       otp.py                     # OTP issue/verify/resend, otp_challenges table
       sms.py                     # SMS gateway providers (Asanak)
       taxonomy.py                # Loads/validates data/visit-taxonomy.json (hot-reload)
       visit_plan.py              # Matches a visitor profile to INOTEX sections
+      leads.py                   # Lead capture business logic (visitor/company/admin doors)
+      company_profiles.py        # Company records behind the leads module
+      company_search.py          # Company lookup for the leads module
       themes.py                  # Theme discovery from themes/ dir
+      branding.py                # White-label defaults (WL_DEFAULTS) + branding context
       menu_settings.py           # Hamburger-drawer row visibility (admin-toggleable)
       backup.py                  # DB backup scheduler + operations
+      backup_center.py           # Infrastructure -> Backups business logic
+      pg_backup.py                # PostgreSQL backup/restore primitives
+      pg_admin.py                 # PostgreSQL diagnostics for Infrastructure -> Database
+      dbadmin.py                  # Infrastructure -> Database/Storage business logic
+      storage.py                  # Storage usage/diagnostics
+      resources.py                # System resource diagnostics (Ops)
+      health.py                   # Health checks surfaced in Ops
+      service_control.py          # Allowlisted service actions (Ops)
+      maintenance.py              # Maintenance-mode enforcement
+      applog.py                   # Central log/audit writer behind the logs module
+      secure_store.py             # Encrypted-at-rest secrets (`enc:` Fernet tokens)
+      tts_lexicon.py               # Pronunciation lexicon for the tts module
 
     db/                          # Database layer
       connection.py              # get_db_connection() routing, init_db(), seeding
@@ -372,27 +398,40 @@ All features are implemented as **modules**. Each module has its own router, ser
 
 | Category                               | Behavior                                                                                         | Members (see `app/modules/registry.py`)             |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| **Core modules** (`is_core=True`)      | Always enabled. Ship with every installation. Cannot be disabled.                                | `chat`, `admin`, `search`, `dataset`, `theme`       |
-| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `registration`                    |
+| **Core modules** (`is_core=True`)      | Always enabled. Ship with every installation. Cannot be disabled.                                | `chat`, `admin`, `search`, `dataset`, `theme`, `conversations` |
+| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `infra`, `backups`, `ops`, `logs`, `tts`, `registration`, `leads` |
 
 The registry is the authoritative list — `MODULES` in `app/modules/registry.py`:
 
-| Module         | Core | Router                | What the customer gets                                          |
-| -------------- | ---- | --------------------- | --------------------------------------------------------------- |
-| `chat`         | Yes  | `app.routers.chat`    | Chatbot engine (local retrieval + GPT fallback)                  |
-| `admin`        | Yes  | `app.routers.admin`   | Admin dashboard and API                                          |
-| `search`       | Yes  | `app.routers.synonyms`| Synonym management API                                           |
-| `dataset`      | Yes  | `app.routers.dataset` | Dataset and questions CRUD                                       |
-| `theme`        | Yes  | `app.routers.themes`  | Theme management and switching                                   |
-| `voice`        | No   | `app.routers.voice`   | Voice input via Whisper API                                      |
-| `video`        | No   | `app.routers.dataset` | Video upload and serving (endpoints live in the dataset router)  |
-| `registration` | No   | `app.routers.otp`     | Visitor registration + SMS verification, and the targeted visit plan |
+| Module          | Core | Router                            | What the customer gets                                          |
+| --------------- | ---- | ---------------------------------- | --------------------------------------------------------------- |
+| `chat`          | Yes  | `app.routers.chat`                 | Chatbot engine (local retrieval + GPT fallback)                  |
+| `admin`         | Yes  | `app.routers.admin`                | Admin dashboard and API                                          |
+| `search`        | Yes  | `app.routers.synonyms`             | Synonym management API                                           |
+| `dataset`       | Yes  | `app.routers.dataset`              | Dataset and questions CRUD                                       |
+| `theme`         | Yes  | `app.routers.themes`               | Theme management and switching                                   |
+| `conversations` | Yes  | `app.routers.conversations_admin`  | Read side of who visited, what they said, and where the bot was wrong |
+| `voice`         | No   | `app.routers.voice`                | Voice input via Whisper API                                      |
+| `video`         | No   | `app.routers.dataset`              | Video upload and serving (endpoints live in the dataset router)  |
+| `infra`         | No   | `app.routers.dbadmin`              | Infrastructure centre: database diagnostics and storage tools    |
+| `backups`       | No   | `app.routers.backups`              | Infrastructure -> Backups: create, download, restore (typed confirmation) |
+| `ops`           | No   | `app.routers.ops`                  | Admin operations centre: dashboard, service health, session control |
+| `logs`          | No   | `app.routers.logs`                 | Central log store and audit trail                                |
+| `tts`           | No   | `app.routers.tts`                  | Persian text-to-speech control panel + voice cloning              |
+| `registration`  | No   | `app.routers.otp`                  | Visitor registration + SMS verification, and the targeted visit plan |
+| `leads`         | No   | `app.routers.leads`                | Exhibition lead capture: field visitor, company contact, admin queue |
+
+**The `conversations` module** is the only way a human sees what the `chat` module (core, always on) already writes to the database — visitors, conversation transcripts, and the wrong-answer queue. It is core, not optional: an install able to switch it off would still collect names, phone numbers and everything people typed, with nobody able to read, check or export any of it.
 
 **The `registration` module** bundles the visitor-facing signup flow: the `/verify` page, the OTP endpoints (`/api/auth/otp/request|verify|resend|status`), the profile step (`/api/auth/profile`), the taxonomy-driven form options (`/api/registration/options`), and the targeted visit planner (`/api/visit-plan`). It owns the `otp_challenges` table, reads its form/planner vocabulary from `data/visit-taxonomy.json` via `app/services/taxonomy.py`, and delivers codes through `app/services/sms.py`. Gateway credentials come from the `settings` table first (entered in the admin panel), then env — see `.env.example`.
 
+**The `leads` module** covers exhibition lead capture through three separate doors with no shared credential: `/v/{code}` for a field visitor identified by their own link, `/edit/{token}` for a company contact holding a one-time invite from the booth, and the admin queue for review.
+
+**The `infra`, `backups`, `ops`, `logs` and `tts` modules** are the operator-facing side of running an install: database/storage diagnostics, backup create/restore (restore requires the operator to type `RESTORE BACKUP <id>`, compared exactly), a dashboard with allowlisted service actions and session revocation, a central log/audit store, and a thin authenticated proxy to the loopback-only Chatterbox TTS service. All are admin-only.
+
 **How it works:**
 
-- At install time, set `ENABLED_MODULES=voice,video,registration` to enable specific optional modules
+- At install time, set `ENABLED_MODULES=voice,video,registration` to enable specific optional modules (add more names, comma-separated, as needed)
 - If `ENABLED_MODULES` is empty → all optional modules load (full-featured install)
 - Core modules always load regardless of the env var
 - Every **new feature** must be implemented as an optional module (`is_core=False`) — only promote to core if every customer needs it
