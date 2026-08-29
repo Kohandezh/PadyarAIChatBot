@@ -135,11 +135,12 @@ CONV_COOKIE_MAX_AGE = 24 * 3600
 # a body field or a query parameter never counts.
 #
 # NOT "padyar_visitor". That name is already taken by the leads module
-# (app/services/leads.py VISITOR_COOKIE), where it carries a lead_visitors.id
-# for booth STAFF on path "/" with a 12 hour lifetime. Two different tables,
-# two different people, one unfortunate English word. Shipping both under one
-# name means a staff member who also chats loses their /v panel and hands
-# their capture id to the session lookup. Do not "fix" this back.
+# (app/services/leads.py VISITOR_COOKIE), where it carries a booth STAFF
+# member's personal link code on path "/" with a 12 hour lifetime. Two
+# different tables, two different people, one unfortunate English word.
+# Shipping both under one name means a staff member who also chats loses
+# their /v panel and hands their staff credential to the session lookup.
+# Do not "fix" this back.
 VISITOR_COOKIE_NAME = "padyar_vs"
 
 # How long a registered visitor stays signed in, in days. The expiry slides on
@@ -151,14 +152,35 @@ VISITOR_COOKIE_NAME = "padyar_vs"
 # Env-overridable so an install that shares one kiosk between strangers can
 # shorten it without a deploy.
 #
-# NOTE: app/auth/visitor.py binds both of these at import
-# (`from app.config import VISITOR_COOKIE_NAME, VISITOR_SESSION_DAYS`), so a
-# test must patch the ENFORCING module's binding — app.auth.visitor.X — not
-# app.config's copy. Same trap CHAT_TOKEN_TTL documents above.
+# NOTE: app/auth/visitor.py binds all three of these at import
+# (`from app.config import VISITOR_COOKIE_NAME, VISITOR_SESSION_DAYS,
+# VISITOR_SESSION_MAX_HOURS`), so a test must patch the ENFORCING module's
+# binding (app.auth.visitor.X), not app.config's copy. Same trap
+# CHAT_TOKEN_TTL documents above.
 try:
     VISITOR_SESSION_DAYS = max(1, int(os.getenv("VISITOR_SESSION_DAYS", "30")))
 except ValueError:
     VISITOR_SESSION_DAYS = 30
+
+# The HARD cap on one session, in hours, counted from the row's `created_at`
+# and never extended. The setting above is INACTIVITY, and lowering it does
+# not help a booth kiosk, because a kiosk in continuous use never goes
+# inactive: it is the NEXT person's traffic that slides the expiry, so the
+# person who sits down second stays signed in as the person who sat down
+# first. This is the only bound a kiosk can actually reach.
+#
+# 12 hours is one exhibition day. A visitor who comes back tomorrow types
+# their SMS code again, which costs them seconds; inheriting a stranger's
+# identity costs them their name on somebody else's conversation.
+#
+# Env-overridable and clamped to at least 1 hour, like the days above: a
+# customer with a private handset per visitor can raise it, and a value of 0
+# would sign every single visitor out on their next request.
+try:
+    VISITOR_SESSION_MAX_HOURS = max(
+        1, int(os.getenv("VISITOR_SESSION_MAX_HOURS", "12")))
+except ValueError:
+    VISITOR_SESSION_MAX_HOURS = 12
 
 # Rate limiting is per VISITOR IDENTITY — the nonce inside the signed chat
 # token — with a loose per-IP backstop. At an exhibition a whole hall of

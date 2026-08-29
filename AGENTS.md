@@ -400,6 +400,8 @@ All config in `app/config.py`:
 | `CHAT_RATE_LIMIT`       | 2       | Max requests per window        |
 | `CHAT_RATE_WINDOW`      | 30      | Rate limit window (seconds)    |
 | `CHAT_TOKEN_TTL`        | 3600    | HMAC token lifetime (seconds)  |
+| `VISITOR_SESSION_DAYS`  | 30      | Visitor sign-in, slides on use |
+| `VISITOR_SESSION_MAX_HOURS` | 12  | Hard cap from mint; the kiosk bound |
 
 ## Use the Tooling That Ships With This Repo
 

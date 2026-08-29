@@ -87,6 +87,12 @@ def _history_for(conversation_id: str, lang: str) -> list:
     given up to make room for it — the block the model reads is capped, and a
     summary that pushed the newest turn out would be a trade in the wrong
     direction.
+
+    BOTH HALVES ARE BOUNDED BY HISTORY_WINDOW_MINUTES. recent_turns() drops
+    old turns, and get_summary() drops the summary of a conversation that went
+    quiet. On a shared kiosk everything said before that gap was said by
+    somebody who has walked away, and a summary is those same words, only
+    compressed.
     """
     turns = [t for t in recent_turns(conversation_id, limit=HISTORY_TURNS)
              if t.get("source") != "no_answer"]

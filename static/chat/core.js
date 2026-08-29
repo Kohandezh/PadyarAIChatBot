@@ -237,6 +237,33 @@ function loadHistory() {
     });
 }
 
+/* Forget this browser's copy of the conversation. The exact inverse of the two
+   functions above, and BOTH halves are required.
+
+   A booth kiosk is one browser shared by strangers. The transcript is stored
+   in localStorage AND it is on the screen, so clearing only the store leaves
+   the previous person's bubbles sitting there, and clearing only the screen
+   lets loadHistory() replay them on the next page load, which at a kiosk is
+   the next visitor.
+
+   Called by the "New chat" button and by the registration module's sign-out
+   (static/companion/registration.js). It used to be inline in the new-chat
+   handler only, which is how sign-out, the strongest "I am leaving" gesture
+   in the product, ended up forgetting less than New chat did. */
+function forgetTranscript() {
+    try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch (e) { /* private mode */ }
+    if (!chatContent) return;
+    // NOT every .message. #welcome-message and #loading-bubble are part of
+    // the theme's static markup and carry that same class, and addMessage()
+    // inserts before #loading-bubble, so removing it made the very next
+    // addMessage() throw NotFoundError and the chat was dead until someone
+    // reloaded the page. The reset button bricked the thing it was there to
+    // reset.
+    chatContent
+        .querySelectorAll('.message:not(#welcome-message):not(#loading-bubble)')
+        .forEach(m => m.remove());
+}
+
 
 // ── Tab Logic ──────────────────────────────────────────────────────────
 
@@ -1019,21 +1046,9 @@ function initChat() {
 
         // The transcript is stored in TWO places and forgetting either one
         // hands the next stranger the previous one's words. The cookie is the
-        // server's copy; this is the browser's, and loadHistory() replays it
-        // on the next page load — which at a kiosk is the next visitor.
-        try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch (e) { /* private mode */ }
-
-        if (chatContent) {
-            // NOT every .message. #welcome-message and #loading-bubble are
-            // part of the theme's static markup and carry that same class, and
-            // addMessage() inserts before #loading-bubble — so removing it
-            // made the very next addMessage() throw NotFoundError and the chat
-            // was dead until someone reloaded the page. The reset button
-            // bricked the thing it was there to reset.
-            chatContent
-                .querySelectorAll('.message:not(#welcome-message):not(#loading-bubble)')
-                .forEach(m => m.remove());
-        }
+        // server's copy, dropped by the request above; forgetTranscript()
+        // drops the browser's, both the store and the bubbles on screen.
+        forgetTranscript();
         switchTab('text');
         addMessage(t().newChatDone, 'bot');
         showQuestions();

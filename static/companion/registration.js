@@ -241,12 +241,20 @@
         return [p.first_name, p.last_name].filter(Boolean).join(' ').trim();
     }
 
-    /* Draw the logout button when there is a name to show.
+    /* Draw the logout button for anyone who is signed in.
 
-       Before the server answers, a remembered name is enough to paint it, so a
-       returning visitor does not watch their own header appear late. The
-       moment the server answers, that answer wins: an anonymous reply erases
-       the name and the button with it. */
+       KEYED ON THE SESSION, NOT ON A NAME. It used to be keyed on the name,
+       and the /verify page posts only { destination }: those visitors have
+       first_name = '' and last_name = '', so displayName() was '' and this
+       function REMOVED the button. They were signed in for weeks with no way
+       to sign out anywhere in the UI. The button says «خروج» / "Log out",
+       which needs no name to make sense.
+
+       displayName() stays in the condition as the second half: before the server
+       answers, a remembered name is enough to paint the button, so a returning
+       visitor does not watch their own header appear late. The moment the
+       server answers, that answer wins: an anonymous reply erases the name and
+       the button with it. */
     function paintSession() {
         // A mirror of the server's answer, for anything that has to look at
         // it from outside this closure: a theme styling a signed-in header, a
@@ -263,7 +271,7 @@
         const header = document.querySelector('.header-tools');
         let logoutBtn = document.getElementById('visitor-logout');
 
-        if (p && displayName(p)) {
+        if (p && (server.signed_in || displayName(p))) {
             if (!logoutBtn && header) {
                 logoutBtn = document.createElement('button');
                 logoutBtn.type = 'button';
@@ -292,6 +300,24 @@
        identity. The row has to die, and only the server can kill it. */
     function logout() {
         post('/api/auth/logout', {})
+            .then(function () {
+                /* The session is dead, so the words on the screen have to go
+                   too. Sign-out used to revoke and reload, and nothing else:
+                   the bubbles stayed, and static/chat/core.js loadHistory()
+                   replayed them from localStorage on the next page load. On a
+                   shared booth phone the next person read the last person's
+                   conversation. The "New chat" button already forgot both;
+                   the strongest leaving gesture in the product forgot less.
+
+                   Only on success, for the same reason New chat only clears
+                   on success: a wiped screen while the session is still live
+                   looks exactly like signing out and is not.
+
+                   forgetTranscript() lives in core.js, which the theme footer
+                   loads BEFORE this file. The guard is for a page that loads
+                   this script without the chat. */
+                if (typeof forgetTranscript === 'function') forgetTranscript();
+            })
             .catch(function () { /* offline: nothing was revoked, so say nothing */ })
             .then(function () { return refreshServerSession(); });
     }
