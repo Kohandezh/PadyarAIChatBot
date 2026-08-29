@@ -83,6 +83,55 @@ async def infra_backups_page(request: Request):
 
 # ── API ─────────────────────────────────────────────────────────────────
 
+def _pg_row(manifest: dict) -> dict:
+    """Normalize a pg_backup manifest into the shape backup_center.list_sets()
+    returns, so the admin table (built for the SQLite set shape: kind, files,
+    total_bytes, verification.state) can render a PostgreSQL install's
+    backups too, instead of throwing on the missing keys and never rendering
+    any row."""
+    if manifest.get("error"):
+        return {
+            "backup_id": manifest.get("backup_id", ""),
+            "created_at": None, "created_by": "", "kind": "",
+            "files": [], "total_bytes": 0,
+            "verification": {"state": "unknown", "checked_at": None, "problems": []},
+        }
+    reason = manifest.get("reason", "manual")
+    kind = "safety" if reason.startswith("safety-before-restore-of-") else reason
+    verification = manifest.get("verification") or {}
+    file_name = manifest.get("file", "padyar.dump")
+    return {
+        "backup_id": manifest.get("backup_id", ""),
+        "created_at": manifest.get("created_at"),
+        "created_by": manifest.get("created_by", ""),
+        "kind": kind,
+        "files": [{
+            "name": file_name,
+            "label": "پایگاه‌دادهٔ پستگرس (pg_dump)",
+            "bytes": manifest.get("bytes", 0),
+        }],
+        "total_bytes": manifest.get("bytes", 0),
+        "verification": {
+            "state": verification.get("status", "unknown"),
+            "checked_at": verification.get("checked_at"),
+            "problems": verification.get("problems", []),
+        },
+    }
+
+
+def _pg_verify_view(manifest: dict) -> dict:
+    """Normalize pg_backup.verify()'s manifest return into the {ok, problems,
+    checked_at} verdict shape backup_center.verify() returns — the frontend
+    reads `data.ok` regardless of engine."""
+    verification = manifest.get("verification") or {}
+    return {
+        "backup_id": manifest.get("backup_id", ""),
+        "ok": verification.get("status") == "verified",
+        "problems": verification.get("problems", []),
+        "checked_at": verification.get("checked_at"),
+    }
+
+
 @router.get("/admin/api/infra/backups", dependencies=[Depends(verify_admin)])
 def list_backups():
     from app.services.backup import get_schedule
@@ -91,10 +140,12 @@ def list_backups():
     except Exception as exc:  # noqa: BLE001 — the list must render regardless
         logger.warning("Backup schedule unreadable: %s", type(exc).__name__)
         schedule = {}
+    engine, is_pg = _engine()
+    rows = ([_pg_row(m) for m in engine.list_backups()] if is_pg
+             else backup_center.list_sets())
     return {
-        "backups": (_engine()[0].list_backups() if _engine()[1]
-                    else backup_center.list_sets()),
-        "engine": "postgresql" if _engine()[1] else "sqlite",
+        "backups": rows,
+        "engine": "postgresql" if is_pg else "sqlite",
         "schedule": schedule,
         "labels": backup_center.ROLE_LABELS,
     }
@@ -115,8 +166,9 @@ def create_backup(username: str = Depends(verify_admin)):
              dependencies=[Depends(verify_admin)])
 def verify_backup(backup_id: str, username: str = Depends(verify_admin)):
     try:
-        engine, _ = _engine()
-        return engine.verify(backup_id, actor=username)
+        engine, is_pg = _engine()
+        result = engine.verify(backup_id, actor=username)
+        return _pg_verify_view(result) if is_pg else result
     except backup_center.UnknownBackup:
         raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
     except Exception as exc:  # noqa: BLE001
@@ -130,21 +182,28 @@ def download_backup(backup_id: str, file: str = "",
                     username: str = Depends(verify_admin)):
     """Serve ONE file from a set — only a name the set's manifest lists.
 
-    `file` is never joined onto a path directly: backup_center.member_path()
+    `file` is never joined onto a path directly: each engine's member_path()
     accepts only the fixed member names and re-checks containment, and the name
-    additionally has to appear in this set's manifest."""
-    rows = [r for r in backup_center.list_sets() if r["backup_id"] == backup_id]
-    if not rows:
-        raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
-    manifest_files = rows[0]["files"]
-    if not manifest_files:
-        raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
+    additionally has to appear in this backup's manifest."""
+    engine, is_pg = _engine()
+    if is_pg:
+        rows = [m for m in engine.list_backups() if m.get("backup_id") == backup_id]
+        if not rows or rows[0].get("error"):
+            raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
+        manifest_files = [{"name": rows[0].get("file", "padyar.dump")}]
+    else:
+        rows = [r for r in backup_center.list_sets() if r["backup_id"] == backup_id]
+        if not rows:
+            raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
+        manifest_files = rows[0]["files"]
+        if not manifest_files:
+            raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
 
     wanted = file or manifest_files[0]["name"]
     if wanted not in {f["name"] for f in manifest_files}:
         raise HTTPException(status_code=404, detail=FA_FILE_GONE)
 
-    path = backup_center.member_path(backup_id, wanted)
+    path = engine.member_path(backup_id, wanted)
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=FA_FILE_GONE)
 
