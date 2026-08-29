@@ -279,6 +279,106 @@ function forgetTranscript() {
 }
 
 
+// ── Hamburger drawer: "my chats" ──────────────────────────────────────
+// Only ever populated for a signed-in visitor. static/companion/registration.js
+// writes document.documentElement.dataset.visitor ('in' | 'out' | 'unknown')
+// once the server has answered GET /api/auth/session; this reads that instead
+// of asking the server itself a second time. See
+// docs/features/hamburger-menu/SPEC.md for why this stayed hidden until now.
+
+const TRASH_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>' +
+    '<path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/></svg>';
+
+function renderMenuHistory(items) {
+    const section = document.getElementById('menu-history');
+    const list = document.getElementById('menu-history-list');
+    if (!section || !list) return;
+    const fa = document.documentElement.lang !== 'en';
+    list.textContent = '';
+    items.forEach(function (conv) {
+        const li = document.createElement('li');
+        li.className = 'menu-history-item';
+
+        const title = document.createElement('span');
+        title.className = 'menu-history-item-title';
+        title.textContent = conv.preview || (fa ? 'گفتگو' : 'Conversation');
+        title.addEventListener('click', function () { openMenuHistoryItem(conv.id); });
+        li.appendChild(title);
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'menu-history-delete';
+        const delLabel = fa ? 'حذف گفتگو' : 'Delete conversation';
+        del.title = delLabel;
+        del.setAttribute('aria-label', delLabel);
+        del.innerHTML = TRASH_ICON;
+        del.addEventListener('click', function (e) {
+            e.stopPropagation();
+            deleteMenuHistoryItem(conv.id, li);
+        });
+        li.appendChild(del);
+
+        list.appendChild(li);
+    });
+    section.hidden = items.length === 0;
+}
+
+function refreshMenuHistory() {
+    const section = document.getElementById('menu-history');
+    if (!section) return;
+    if (document.documentElement.dataset.visitor !== 'in') {
+        section.hidden = true;
+        return;
+    }
+    fetch('/api/chat/conversations', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
+        .then(function (data) { renderMenuHistory(data.conversations || []); })
+        .catch(function () { /* offline — leave the section as it was */ });
+}
+
+/** Click a history row: replace the visible chat with that conversation's
+    messages, and make it the ACTIVE conversation server-side (the endpoint
+    rebinds the padyar_conv cookie), so typing right after continues it. */
+function openMenuHistoryItem(conversationId) {
+    fetch('/api/chat/conversations/' + encodeURIComponent(conversationId),
+         { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+            if (!data) return;
+            forgetTranscript();
+            (data.messages || []).forEach(function (m) {
+                addMessage(m.text, m.role === 'assistant' ? 'bot' : 'user', true, true);
+            });
+            switchTab('text');
+            const drawer = document.getElementById('menu-drawer');
+            const backdrop = document.getElementById('menu-backdrop');
+            const toggle = document.getElementById('menu-toggle');
+            if (drawer) drawer.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        })
+        .catch(function () { /* offline — nothing to show */ });
+}
+
+function deleteMenuHistoryItem(conversationId, rowEl) {
+    const fa = document.documentElement.lang !== 'en';
+    const sure = fa ? 'این گفتگو حذف شود؟' : 'Delete this conversation?';
+    if (!window.confirm(sure)) return;
+    fetch('/api/chat/conversations/' + encodeURIComponent(conversationId),
+         { method: 'DELETE', credentials: 'same-origin' })
+        .then(function (r) {
+            if (!r.ok) return;
+            if (rowEl) rowEl.remove();
+            const section = document.getElementById('menu-history');
+            const list = document.getElementById('menu-history-list');
+            if (section && list && !list.children.length) section.hidden = true;
+        })
+        .catch(function () { /* offline — nothing changed, list stays as shown */ });
+}
+
+
 // ── Tab Logic ──────────────────────────────────────────────────────────
 
 function switchTab(tabName) {
@@ -1108,6 +1208,7 @@ function initChat() {
             menuDrawer.classList.add('open');
             if (menuBackdrop) menuBackdrop.classList.add('open');
             menuToggle.setAttribute('aria-expanded', 'true');
+            refreshMenuHistory();
         };
         menuToggle.addEventListener('click', (e) => {
             e.stopPropagation();

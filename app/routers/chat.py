@@ -1,5 +1,5 @@
-from fastapi import (APIRouter, BackgroundTasks, HTTPException, Request,
-                     Response)
+from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException,
+                     Request, Response)
 
 from app.models import ChatRequest, ChatResponse
 from app.config import (
@@ -905,6 +905,64 @@ async def new_conversation(http_request: Request, response: Response):
     validate_chat_token(http_request)
     response.delete_cookie(key="padyar_conv", httponly=True,
                            secure=COOKIE_SECURE, samesite="lax")
+    return {"ok": True}
+
+
+@router.get("/api/chat/conversations",
+           dependencies=[Depends(validate_request_origin)])
+async def list_my_conversations(visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """A signed-in visitor's own past conversations — the hamburger drawer's
+    "my chats" list. Anonymous gets a 401 carrying the registration_required
+    marker (from require_visitor), which is what opens the signup card.
+
+    Origin-checked like the other per-visitor endpoints even though it only
+    reads: this is one visitor's private transcript list, not public data.
+    Declared via `dependencies=` (not an in-body call) so it shows up in the
+    dependency graph — tests/test_visitor_auth_otp.py walks every route that
+    requires a visitor session and asserts each one also checks origin.
+    """
+    return {"conversations": conversations.list_conversations_for_visitor(visitor_id)}
+
+
+@router.get("/api/chat/conversations/{conversation_id}",
+           dependencies=[Depends(validate_request_origin)])
+async def get_my_conversation(conversation_id: str, response: Response,
+                              visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """One of the visitor's own conversations, replayed — "click to reopen".
+
+    Ownership is checked in the service layer against the SESSION's visitor
+    id, never the id in the URL: a signed-in visitor guessing another
+    conversation's id gets the same 404 as a conversation that never existed.
+
+    Opening a conversation also makes it the ACTIVE one: the padyar_conv
+    cookie is rebound to it, the same cookie /chat itself sets. A message
+    typed right after clicking a history item continues THAT thread — /chat's
+    own continuable_conversation_id() already lets an owned conversation keep
+    going, so nothing there needs to change for this to work.
+    """
+    result = conversations.get_conversation_for_visitor(conversation_id, visitor_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="گفتگویی یافت نشد.")
+    response.set_cookie(
+        key="padyar_conv", value=conversation_id,
+        httponly=True, secure=COOKIE_SECURE, samesite="lax",
+        max_age=CONV_COOKIE_MAX_AGE,
+    )
+    return result
+
+
+@router.delete("/api/chat/conversations/{conversation_id}",
+              dependencies=[Depends(validate_request_origin)])
+async def delete_my_conversation(conversation_id: str,
+                                 visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """Let a visitor delete one of their own past conversations.
+
+    Same ownership rule as the read above: the id in the URL only ever
+    matches something to delete when it also belongs to this session's
+    visitor_id.
+    """
+    if not conversations.delete_conversation_for_visitor(conversation_id, visitor_id):
+        raise HTTPException(status_code=404, detail="گفتگویی یافت نشد.")
     return {"ok": True}
 
 
