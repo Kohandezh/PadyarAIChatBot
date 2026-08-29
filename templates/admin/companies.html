@@ -47,10 +47,11 @@
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>
                             <th class="ps-4">شرکت</th><th>مسئول</th><th>تماس</th>
-                            <th>استان</th><th>حوزهٔ فعالیت</th><th>سرنخ</th><th>پرونده</th><th></th>
+                            <th>استان</th><th>حوزهٔ فعالیت</th><th>سرنخ</th><th>پرونده</th>
+                            <th>ویدیو</th><th></th>
                         </tr></thead>
                         <tbody id="companies">
-                            <tr><td colspan="7" class="text-center text-muted py-4">در حال بارگذاری…</td></tr>
+                            <tr><td colspan="9" class="text-center text-muted py-4">در حال بارگذاری…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -69,9 +70,30 @@
             </div>
             <div class="modal-body">
                 <div class="text-muted small mb-3">
-                    متن معرفی و نام شرکت روی صفحهٔ «مدیریت دانش‌نامه» ویرایش می‌شوند،
-                    چون همان چیزی است که چت‌بات به بازدیدکننده می‌گوید.
+                    متن معرفی، نام شرکت و ویدیوی معرفی همان چیزی است که چت‌بات
+                    به بازدیدکننده می‌گوید. همه از همین فرم قابل ویرایش‌اند.
                 </div>
+                <fieldset>
+                    <legend class="small fw-bold text-muted">متن نمایش‌داده‌شده به بازدیدکننده</legend>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small" for="c-content-title">نام شرکت</label>
+                            <input class="form-control form-control-sm" id="c-content-title">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="c-content-title_en">نام شرکت (انگلیسی)</label>
+                            <input class="form-control form-control-sm" id="c-content-title_en" dir="ltr">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="c-content-text">متن معرفی</label>
+                            <textarea class="form-control form-control-sm" id="c-content-text" rows="3"></textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="c-content-text_en">متن معرفی (انگلیسی)</label>
+                            <textarea class="form-control form-control-sm" id="c-content-text_en" rows="3" dir="ltr"></textarea>
+                        </div>
+                    </div>
+                </fieldset>
                 <fieldset>
                     <legend class="small fw-bold text-muted">مسئول شرکت</legend>
                     <div class="row g-2 mb-3">
@@ -152,6 +174,24 @@
                     <legend class="small fw-bold text-muted">یادداشت</legend>
                     <textarea class="form-control form-control-sm" id="f-notes" rows="3"></textarea>
                 </fieldset>
+                {# The `video` module governs upload/management, not the field
+                   itself — same idiom as templates/admin/dataset.html. An
+                   install without the module has no upload/browse API, so
+                   the picker is hidden rather than a dead 404 button. #}
+                {% if 'video' in (enabled_modules or []) %}
+                <fieldset>
+                    <legend class="small fw-bold text-muted">ویدیوی معرفی</legend>
+                    <input type="hidden" id="c-edit-video">
+                    <div id="c-video-preview" class="mb-2" style="display:none">
+                        <video id="c-preview-player" style="max-width:100%;max-height:160px;border-radius:8px;background:#000" controls></video>
+                        <button type="button" class="btn btn-sm btn-outline-danger mt-1" onclick="window.removeCompanyVideo()"><i class="fas fa-times me-1"></i>حذف ویدیو</button>
+                    </div>
+                    <div id="c-video-empty" class="text-center py-3 border rounded" style="cursor:pointer;border-style:dashed!important" onclick="window.openCompanyMediaBrowser()">
+                        <i class="fas fa-film fa-2x text-muted"></i>
+                        <p class="text-muted mb-0 mt-1 small">انتخاب از کتابخانه یا آپلود ویدیو جدید</p>
+                    </div>
+                </fieldset>
+                {% endif %}
                 <div id="profile-msg" class="fw-bold mt-2 small"></div>
             </div>
             <div class="modal-footer">
@@ -163,6 +203,36 @@
         </div>
     </div>
 </div>
+
+{# Media Browser — reachable only from the picker above, so it hides with
+   the same `video` gate; without the module its listing/upload/delete APIs
+   are 404s. Same modal templates/admin/dataset.html uses. #}
+{% if 'video' in (enabled_modules or []) %}
+<!-- Media Browser Modal -->
+<div class="modal fade" id="mediaBrowserModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-film me-2"></i>کتابخانه ویدیوها</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <input type="text" id="media-search" class="form-control" placeholder="جستجو..." style="width:250px">
+                    <div>
+                        <button class="btn btn-primary" onclick="document.getElementById('media-upload-input').click()">
+                            <i class="fas fa-upload me-1"></i> آپلود ویدیو جدید
+                        </button>
+                        <input type="file" id="media-upload-input" accept="video/mp4,video/webm,video/quicktime,video/avi" style="display:none" onchange="window.uploadFromCompanyMediaBrowser(this)">
+                    </div>
+                </div>
+                <div id="media-upload-status" class="mb-2"></div>
+                <div id="media-grid" class="row g-2" style="max-height:400px;overflow-y:auto"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block page_js %}

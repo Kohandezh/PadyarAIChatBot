@@ -155,6 +155,102 @@ def test_a_verified_capture_becomes_the_profile_and_shows_in_the_list(admin_clie
     assert profile["source"] == "booth"
 
 
+def test_company_video_round_trip_and_isolation_from_profile(admin_client):
+    """The video is dataset-style content, not a profile field: setting it
+    must not flip has_profile, and get_profile()'s {} contract must stay
+    untouched by it (see app/services/company_profiles.py:set_video)."""
+    base_content = {"title": "شرکت آ", "title_en": "", "text": "متن آ", "text_en": ""}
+
+    r = admin_client.get("/admin/api/company-profiles/co-a")
+    assert r.status_code == 200
+    assert r.json() == {"profile": {}, "video_url": "", "content": base_content}
+
+    r = admin_client.put("/admin/api/company-profiles/co-a/video",
+                         json={"video_url": "/media/videos/co-a.mp4"})
+    assert r.status_code == 200
+    assert r.json() == {"video_url": "/media/videos/co-a.mp4"}
+
+    r = admin_client.get("/admin/api/company-profiles/co-a")
+    assert r.json() == {"profile": {}, "video_url": "/media/videos/co-a.mp4",
+                        "content": base_content}
+
+    # The list endpoint (companies.js's "ویدیو" column) sees it too, and the
+    # profile badge is still "ندارد" — a video is not a profile.
+    rows = admin_client.get("/admin/api/company-profiles").json()["companies"]
+    co_a = next(c for c in rows if c["id"] == "co-a")
+    assert co_a["video_url"] == "/media/videos/co-a.mp4"
+    assert co_a["has_profile"] is False
+
+    # Clearing it round-trips to empty.
+    r = admin_client.put("/admin/api/company-profiles/co-a/video",
+                         json={"video_url": ""})
+    assert r.status_code == 200 and r.json()["video_url"] == ""
+
+
+def test_company_video_refuses_unknown_company(admin_client):
+    r = admin_client.put("/admin/api/company-profiles/nope/video",
+                         json={"video_url": "/media/videos/x.mp4"})
+    assert r.status_code == 404
+
+
+def test_company_content_round_trip_and_isolation_from_profile(admin_client):
+    """title/title_en/text/text_en are the chatbot's own words about the
+    company — dataset-style content, not a profile field. Setting them must
+    not flip has_profile, and get_profile()'s {} contract must stay
+    untouched (see app/services/company_profiles.py:set_public_content)."""
+    r = admin_client.put("/admin/api/company-profiles/co-a/content", json={
+        "title": "نام تازه", "title_en": "New Name",
+        "text": "متن تازه", "text_en": "New text",
+    })
+    assert r.status_code == 200
+    assert r.json() == {"content": {
+        "title": "نام تازه", "title_en": "New Name",
+        "text": "متن تازه", "text_en": "New text",
+    }}
+
+    r = admin_client.get("/admin/api/company-profiles/co-a")
+    assert r.json()["content"] == {
+        "title": "نام تازه", "title_en": "New Name",
+        "text": "متن تازه", "text_en": "New text",
+    }
+    assert r.json()["profile"] == {}
+
+    # The profile badge stays "ندارد" — content is not a profile.
+    rows = admin_client.get("/admin/api/company-profiles").json()["companies"]
+    co_a = next(c for c in rows if c["id"] == "co-a")
+    assert co_a["has_profile"] is False
+    # The list's own title column reflects the write too.
+    assert co_a["title"] == "نام تازه"
+
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT title, text FROM companies"
+                           " WHERE id = 'co-a'").fetchone()
+    finally:
+        conn.close()
+    assert row["title"] == "نام تازه" and row["text"] == "متن تازه"
+
+
+def test_company_content_drops_unknown_fields_and_refuses_unknown_companies(admin_client):
+    r = admin_client.put("/admin/api/company-profiles/co-a/content",
+                         json={"title": "x", "video_url": "hacked", "id": "co-z"})
+    assert r.status_code == 200
+    assert r.json()["content"]["title"] == "x"
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT id, video_url FROM companies"
+                           " WHERE id = 'co-a'").fetchone()
+    finally:
+        conn.close()
+    assert row["id"] == "co-a" and row["video_url"] != "hacked"
+
+    r = admin_client.put("/admin/api/company-profiles/nope/content",
+                         json={"title": "x"})
+    assert r.status_code == 404
+
+
 def test_the_page_and_apis_require_an_admin(tmp_path, monkeypatch):
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "profiles_anon.db"))
@@ -164,6 +260,10 @@ def test_the_page_and_apis_require_an_admin(tmp_path, monkeypatch):
         assert anon.get("/admin/api/company-profiles").status_code in (401, 403)
         assert anon.put("/admin/api/company-profiles/co-a",
                         json={}).status_code in (401, 403)
+        assert anon.put("/admin/api/company-profiles/co-a/video",
+                        json={"video_url": "x"}).status_code in (401, 403)
+        assert anon.put("/admin/api/company-profiles/co-a/content",
+                        json={"title": "x"}).status_code in (401, 403)
         page = anon.get("/secure-panel-inotex/companies",
                         follow_redirects=False)
         assert page.status_code in (302, 303, 401, 403)

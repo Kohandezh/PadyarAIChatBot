@@ -375,7 +375,11 @@ async def admin_company_profiles(q: str = ""):
             dependencies=[Depends(verify_admin)])
 async def admin_company_profile(dataset_id: str):
     from app.services import company_profiles
-    return {"profile": company_profiles.get_profile(dataset_id)}
+    return {
+        "profile": company_profiles.get_profile(dataset_id),
+        "video_url": company_profiles.get_video(dataset_id),
+        "content": company_profiles.get_public_content(dataset_id),
+    }
 
 
 @router.put("/admin/api/company-profiles/{dataset_id}")
@@ -384,6 +388,37 @@ async def admin_save_company_profile(dataset_id: str, payload: dict = Body(defau
     from app.services import company_profiles
     try:
         return {"profile": company_profiles.upsert_profile(dataset_id, payload)}
+    except company_profiles.ProfileError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+class CompanyVideoBody(BaseModel):
+    video_url: str = Field(default="", max_length=500)
+
+
+@router.put("/admin/api/company-profiles/{dataset_id}/video",
+            dependencies=[Depends(verify_admin)])
+async def admin_set_company_video(dataset_id: str, body: CompanyVideoBody):
+    """Set a company's intro video, the same way a dataset entry's video is
+    set — see app/services/company_profiles.py:set_video for why this is
+    separate from the profile form."""
+    from app.services import company_profiles
+    try:
+        return {"video_url": company_profiles.set_video(dataset_id, body.video_url)}
+    except company_profiles.ProfileError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@router.put("/admin/api/company-profiles/{dataset_id}/content",
+            dependencies=[Depends(verify_admin)])
+async def admin_set_company_content(dataset_id: str, payload: dict = Body(default={})):
+    """Set a company's public content — the title/title_en/text/text_en the
+    dataset editor sets for a normal dataset row; see
+    app/services/company_profiles.py:set_public_content for why this is
+    separate from the profile form and from the video endpoint above."""
+    from app.services import company_profiles
+    try:
+        return {"content": company_profiles.set_public_content(dataset_id, payload)}
     except company_profiles.ProfileError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
 
