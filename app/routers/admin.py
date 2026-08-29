@@ -13,6 +13,7 @@ from app.models import (
     LoginRequest, ToggleRequest, ChangePasswordRequest,
     ChangeSecurityQuestionRequest, BackupScheduleRequest,
     AssistantContentRequest, AIConnectionRequest, WhitelabelBrandingRequest,
+    IdleVideosRequest,
 )
 from app.services import embeddings as embeddings_service
 from app.services import applog
@@ -20,6 +21,7 @@ from app.services import secure_store
 from app.config import (
     logger, MAX_LOGIN_ATTEMPTS, BLOCK_TIME_MINUTES,
     SESSION_TIMEOUT_HOURS, ADMIN_COOKIE_NAME, COOKIE_SECURE,
+    is_module_enabled,
 )
 from app.auth.security import (
     verify_admin, login_block_active, record_failed_login, clear_login_attempts,
@@ -714,6 +716,43 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
     # changed, never the operator's raw paste.
     applog.audit("settings.branding.updated",
                  "برندینگ نصب به‌روزرسانی شد",
+                 actor=username, target="settings")
+    return {"status": "updated"}
+
+
+@router.get("/admin/api/idle-videos", dependencies=[Depends(verify_admin)])
+async def get_idle_videos_api():
+    if not is_module_enabled("video"):
+        raise HTTPException(status_code=404, detail="Video module is not enabled")
+    from app.services import idle_video
+    return idle_video.get_idle_videos()
+
+
+@router.post("/admin/api/idle-videos", dependencies=[Depends(verify_admin)])
+async def save_idle_videos_api(req: IdleVideosRequest, username: str = Depends(verify_admin)):
+    if not is_module_enabled("video"):
+        raise HTTPException(status_code=404, detail="Video module is not enabled")
+    from app.services import idle_video
+
+    main = req.main.strip()
+    extra = [u.strip() for u in req.extra if u and u.strip()]
+    if len(extra) > idle_video.IDLE_VIDEO_EXTRA_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"حداکثر {idle_video.IDLE_VIDEO_EXTRA_MAX} ویدیوی اضافه مجاز است.")
+
+    # Every value must name a file actually uploaded through
+    # /admin/api/upload_video — this is emitted raw into the public chat page,
+    # so it can never be an arbitrary URL.
+    for url in ([main] if main else []) + extra:
+        if not idle_video.is_valid_video_url(url):
+            raise HTTPException(
+                status_code=400,
+                detail=f"ویدیوی «{url}» یافت نشد. ابتدا آن را آپلود کنید.")
+
+    idle_video.set_idle_videos(main, extra)
+    applog.audit("settings.idle_videos.updated",
+                 "ویدیوهای حالت انتظار دستیار به‌روزرسانی شد",
                  actor=username, target="settings")
     return {"status": "updated"}
 

@@ -126,6 +126,12 @@ async def delete_video(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     os.remove(filepath)
     logger.info(f"Video deleted: {safe_name}")
+
+    # A deleted file can never linger as a broken idle-avatar clip on the
+    # public page — drop it from the idle-video setup if it was in use there.
+    from app.services import idle_video
+    idle_video.forget_video(f"{VIDEO_BASE_URL}/{safe_name}")
+
     return {"status": "deleted", "filename": safe_name}
 
 

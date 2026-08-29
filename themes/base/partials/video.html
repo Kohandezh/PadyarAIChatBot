@@ -8,6 +8,8 @@
                 <span data-i18n="videoReadyHint">برای گفتگو یا دریافت راهنمایی، تب چت را انتخاب کنید.</span>
             </div>
         </div>
-        <video id="avatar-video" muted loop playsinline data-waiting-src=""></video>
+        <video id="avatar-video" muted loop playsinline
+            data-waiting-src="{{ idle_video_main }}"
+            data-idle-pool="{{ idle_video_pool_json or '[]' }}"></video>
     </div>
 </div>

@@ -1,5 +1,127 @@
 import { fetchAuth, showMsg } from './utils.js';
 
+// --- Idle-time avatar videos (Settings → دستیار هوشمند) ------------------
+// One main clip plus up to 3 extras that core.js rotates through at random
+// while nobody is chatting. `extra` is always kept compact (no gaps) — the 3
+// boxes are "the next N clips", not fixed slots, so removing one shifts the
+// rest left; the boxes past the first empty one are locked until it fills.
+
+const IDLE_EXTRA_MAX = 3;
+let idleVideoState = { main: '', extra: [] };
+
+function _idleSlot(key) {
+    return document.querySelector(`#idle-video-slots [data-slot="${key}"]`);
+}
+
+function _renderIdleVideoSlots() {
+    const keys = ['main', 'extra-0', 'extra-1', 'extra-2'];
+    keys.forEach((key, i) => {
+        const slot = _idleSlot(key);
+        if (!slot) return;
+        const url = key === 'main' ? idleVideoState.main : (idleVideoState.extra[i - 1] || '');
+        const video = slot.querySelector('.idle-video-preview');
+        const removeBtn = slot.querySelector('.idle-video-remove-btn');
+        if (url) {
+            video.src = url;
+            slot.classList.add('has-video');
+            removeBtn.style.display = '';
+        } else {
+            video.src = '';
+            slot.classList.remove('has-video');
+            removeBtn.style.display = 'none';
+        }
+        // Extra slots fill in order: box N is locked until box N-1 has a clip.
+        if (key !== 'main') {
+            const extraIndex = i - 1;
+            const locked = extraIndex > idleVideoState.extra.length;
+            slot.classList.toggle('locked', locked && !url);
+        }
+    });
+}
+
+async function _loadIdleVideos() {
+    try {
+        const res = await fetchAuth('/admin/api/idle-videos');
+        if (!res.ok) return; // video module disabled — card stays empty
+        const data = await res.json();
+        idleVideoState = { main: data.main || '', extra: (data.extra || []).slice(0, IDLE_EXTRA_MAX) };
+        _renderIdleVideoSlots();
+    } catch {
+        // ignore — card stays empty and still usable
+    }
+}
+
+async function _saveIdleVideos() {
+    try {
+        const res = await fetchAuth('/admin/api/idle-videos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ main: idleVideoState.main || '', extra: idleVideoState.extra }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showMsg('idle-video-msg', data.detail || 'خطا در ذخیره', 'danger');
+        }
+    } catch {
+        showMsg('idle-video-msg', 'خطای ارتباط با سرور', 'danger');
+    }
+}
+
+export function initIdleVideos() {
+    const container = document.getElementById('idle-video-slots');
+    if (!container) return;
+
+    ['main', 'extra-0', 'extra-1', 'extra-2'].forEach((key, i) => {
+        const slot = _idleSlot(key);
+        if (!slot) return;
+        const input = slot.querySelector('.idle-video-input');
+        const removeBtn = slot.querySelector('.idle-video-remove-btn');
+        const extraIndex = i - 1; // -1 for the main slot, unused there
+
+        input.addEventListener('change', async () => {
+            const file = input.files[0];
+            input.value = '';
+            if (!file) return;
+            showMsg('idle-video-msg', 'در حال آپلود...', 'muted');
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetchAuth('/admin/api/upload_video', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) {
+                    showMsg('idle-video-msg', data.detail || 'خطا در آپلود', 'danger');
+                    return;
+                }
+                if (key === 'main') {
+                    idleVideoState.main = data.video_url;
+                } else if (extraIndex < idleVideoState.extra.length) {
+                    idleVideoState.extra[extraIndex] = data.video_url; // replacing an existing clip
+                } else {
+                    idleVideoState.extra.push(data.video_url); // filling the next open slot
+                }
+                _renderIdleVideoSlots();
+                await _saveIdleVideos();
+                showMsg('idle-video-msg', 'ذخیره شد', 'success');
+            } catch {
+                showMsg('idle-video-msg', 'خطای ارتباط با سرور', 'danger');
+            }
+        });
+
+        removeBtn.addEventListener('click', async () => {
+            if (key === 'main') {
+                idleVideoState.main = '';
+            } else {
+                idleVideoState.extra.splice(extraIndex, 1); // compacts — the rest shift left
+            }
+            _renderIdleVideoSlots();
+            await _saveIdleVideos();
+            showMsg('idle-video-msg', 'حذف شد', 'success');
+        });
+    });
+
+    _loadIdleVideos();
+}
+
 export async function loadProfile() {
     try {
         const res = await fetchAuth('/admin/api/profile');

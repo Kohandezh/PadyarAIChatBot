@@ -2,6 +2,26 @@
 
 {% block title %}محتوای دستیار هوشمند{% endblock %}
 
+{% block extra_css %}
+<style>
+    .idle-video-box { display: flex; flex-direction: column; }
+    .idle-video-preview-wrap {
+        position: relative; width: 100%; padding-top: 100%;
+        background: #10162b; border-radius: 8px; overflow: hidden;
+    }
+    .idle-video-preview {
+        position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    }
+    .idle-video-empty {
+        position: absolute; inset: 0; display: flex; align-items: center;
+        justify-content: center; padding: 0.5rem;
+    }
+    .idle-video-slot.has-video .idle-video-empty { display: none; }
+    .idle-video-slot:not(.has-video) .idle-video-preview { display: none; }
+    .idle-video-slot.locked .idle-video-upload-btn { opacity: 0.4; pointer-events: none; }
+</style>
+{% endblock %}
+
 {% block page_content %}
 <!-- Topbar -->
 <div class="topbar">
@@ -117,6 +137,88 @@
             </div>
         </div>
 
+        {% if 'video' in (enabled_modules or []) %}
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-video me-2"></i>ویدیوهای حالت انتظار</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    وقتی کسی با دستیار صحبت نمی‌کند، این ویدیو پخش می‌شود؛ انگار آواتار منتظر سؤال شماست.
+                    یک ویدیوی اصلی انتخاب کنید. اگر دوست دارید، تا ۳ ویدیوی دیگر هم اضافه کنید تا
+                    هر بار یکی از آن‌ها به صورت تصادفی پخش شود.
+                </p>
+                <div class="row g-3" id="idle-video-slots">
+                    <div class="col-6 col-md-3 idle-video-slot" data-slot="main">
+                        <div class="idle-video-box">
+                            <div class="idle-video-preview-wrap">
+                                <video class="idle-video-preview" muted loop playsinline></video>
+                                <div class="idle-video-empty text-center text-muted small">بدون ویدیو</div>
+                            </div>
+                            <label class="form-label small fw-bold mt-2 mb-1">ویدیوی اصلی</label>
+                            <label class="btn btn-sm btn-outline-primary w-100 idle-video-upload-btn">
+                                <i class="fas fa-upload me-1"></i>آپلود
+                                <input type="file" accept="video/*" class="d-none idle-video-input">
+                            </label>
+                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1 idle-video-remove-btn" style="display:none">
+                                <i class="fas fa-times me-1"></i>حذف
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 idle-video-slot" data-slot="extra-0">
+                        <div class="idle-video-box">
+                            <div class="idle-video-preview-wrap">
+                                <video class="idle-video-preview" muted loop playsinline></video>
+                                <div class="idle-video-empty text-center text-muted small">بدون ویدیو</div>
+                            </div>
+                            <label class="form-label small mt-2 mb-1">ویدیوی اضافه ۱</label>
+                            <label class="btn btn-sm btn-outline-secondary w-100 idle-video-upload-btn">
+                                <i class="fas fa-upload me-1"></i>آپلود
+                                <input type="file" accept="video/*" class="d-none idle-video-input">
+                            </label>
+                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1 idle-video-remove-btn" style="display:none">
+                                <i class="fas fa-times me-1"></i>حذف
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 idle-video-slot" data-slot="extra-1">
+                        <div class="idle-video-box">
+                            <div class="idle-video-preview-wrap">
+                                <video class="idle-video-preview" muted loop playsinline></video>
+                                <div class="idle-video-empty text-center text-muted small">بدون ویدیو</div>
+                            </div>
+                            <label class="form-label small mt-2 mb-1">ویدیوی اضافه ۲</label>
+                            <label class="btn btn-sm btn-outline-secondary w-100 idle-video-upload-btn">
+                                <i class="fas fa-upload me-1"></i>آپلود
+                                <input type="file" accept="video/*" class="d-none idle-video-input">
+                            </label>
+                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1 idle-video-remove-btn" style="display:none">
+                                <i class="fas fa-times me-1"></i>حذف
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 idle-video-slot" data-slot="extra-2">
+                        <div class="idle-video-box">
+                            <div class="idle-video-preview-wrap">
+                                <video class="idle-video-preview" muted loop playsinline></video>
+                                <div class="idle-video-empty text-center text-muted small">بدون ویدیو</div>
+                            </div>
+                            <label class="form-label small mt-2 mb-1">ویدیوی اضافه ۳</label>
+                            <label class="btn btn-sm btn-outline-secondary w-100 idle-video-upload-btn">
+                                <i class="fas fa-upload me-1"></i>آپلود
+                                <input type="file" accept="video/*" class="d-none idle-video-input">
+                            </label>
+                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1 idle-video-remove-btn" style="display:none">
+                                <i class="fas fa-times me-1"></i>حذف
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="idle-video-msg" class="text-center fw-bold mt-3"></div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="content-card mt-4">
             <div class="card-header">
                 <span><i class="fas fa-plug me-2"></i>اتصال هوش مصنوعی</span>
@@ -227,7 +329,8 @@
 
 {% block page_js %}
 <script type="module">
-    import { initAi } from '/static/admin/js/settings.js';
+    import { initAi, initIdleVideos } from '/static/admin/js/settings.js';
     initAi();
+    initIdleVideos();
 </script>
 {% endblock %}

@@ -132,6 +132,10 @@ def render_theme_index(theme_name: str, context: dict) -> str:
     # Brand identity of this render (absent for callers that pass none — e.g.
     # a bare test render — and then None keeps the key shape stable).
     wl_key = context.get("wl_cache_key")
+    # Same contract for the avatar's idle-video setup: baked into the cached
+    # shell, so an admin save must flip the key or every visitor keeps seeing
+    # the old clip until a theme file happens to change (see idle_video.py).
+    idle_key = context.get("idle_video_cache_key")
 
     # Legacy mode: theme has index.html but no partials/
     if not os.path.isdir(theme_partials):
@@ -141,7 +145,7 @@ def render_theme_index(theme_name: str, context: dict) -> str:
                 mtime = int(os.path.getmtime(index_path))
             except OSError:
                 mtime = 0
-            key = ("legacy", theme_name, mtime, wl_key)
+            key = ("legacy", theme_name, mtime, wl_key, idle_key)
             html = _PAGE_CACHE.get(key)
             if html is None:
                 with open(index_path, "r", encoding="utf-8") as f:
@@ -174,7 +178,7 @@ def render_theme_index(theme_name: str, context: dict) -> str:
     if os.path.isdir(base_partials):
         search_path.append(base_partials)
 
-    key = ("partials", theme_name, _fingerprint(search_path), wl_key)
+    key = ("partials", theme_name, _fingerprint(search_path), wl_key, idle_key)
     html = _PAGE_CACHE.get(key)
     if html is None:
         loader = jinja2.FileSystemLoader(search_path)

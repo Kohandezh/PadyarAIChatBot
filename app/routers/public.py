@@ -155,18 +155,21 @@ async def read_root(request: Request):
     try:
         from app.services.themes import get_active_theme, render_theme_index
         from app.services.branding import chat_branding_context
+        from app.services.idle_video import idle_video_context
         active_theme = get_active_theme()
         token = generate_chat_token()
         # Branding is baked into the (cached) shell: same bytes for every
         # visitor, so the only per-visitor splice stays the token. The cache
         # key carries wl_cache_key for exactly this reason — see
-        # app/services/themes.py.
+        # app/services/themes.py. The avatar's idle-video setup rides the
+        # same cached-shell contract, so it carries idle_video_cache_key too.
         context = {
             "theme_name": active_theme,
             "chat_token": token,
             "asset_version": _asset_version(active_theme),
         }
         context.update(chat_branding_context())
+        context.update(idle_video_context())
         html = render_theme_index(active_theme, context)
         return html
     except Exception:
