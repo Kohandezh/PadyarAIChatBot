@@ -158,6 +158,26 @@ async def companies(q: str = "", visitor: dict = Depends(current_visitor)):
     return {"companies": leads_service.search_companies(q)}
 
 
+class ProposeCompanyBody(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/api/leads/companies")
+async def propose_company(body: ProposeCompanyBody, request: Request,
+                          visitor: dict = Depends(current_visitor)):
+    """The visitor's booth is not in the list — add it.
+
+    Same rate-limit key as register(): keyed on the visitor, not the address,
+    so one exhibition hall sharing a NAT'd IP cannot lock each other out.
+    """
+    check_rate_limit(request, key=f"visitor:{visitor['id']}")
+    try:
+        return leads_service.propose_company(visitor["id"], body.title, body.text)
+    except LeadError as e:
+        raise _fail(e)
+
+
 class RegisterBody(BaseModel):
     dataset_id: str = Field(min_length=1, max_length=120)
     first_name: str = Field(default="", max_length=60)

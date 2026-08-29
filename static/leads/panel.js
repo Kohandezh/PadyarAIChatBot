@@ -87,6 +87,47 @@
     show('step-company');
   });
 
+  /* "My company isn't in this list" — a tiny inline form, not a second search.
+     On success it behaves exactly like picking a search result: `choose()`
+     moves straight to step 2 so the visitor can register the contact right
+     away, without waiting on the admin approval this company still needs. */
+  el('not-listed').addEventListener('click', function () {
+    var open = el('new-company').hidden;
+    el('new-company').hidden = !open;
+    if (open) { el('new-title').focus(); }
+  });
+
+  el('new-company-save').addEventListener('click', function () {
+    var btn = this;
+    var title = el('new-title').value.trim();
+    var text = el('new-text').value.trim();
+    el('new-company-error').textContent = '';
+    if (!title) {
+      el('new-company-error').textContent = 'نام شرکت را وارد کنید.';
+      el('new-title').focus();
+      return;
+    }
+    if (!text) {
+      el('new-company-error').textContent = 'متن پاسخ نمی‌تواند خالی باشد.';
+      el('new-text').focus();
+      return;
+    }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'در حال ثبت…';
+    api('/api/leads/companies', { title: title, text: text }).then(function (data) {
+      el('new-title').value = '';
+      el('new-text').value = '';
+      el('new-company').hidden = true;
+      choose({ id: data.id, title: data.title });
+    }).catch(function (e) {
+      el('new-company-error').textContent = e.message;
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = label;
+    });
+  });
+
   /* --- Step 2: the contact ------------------------------------------- */
 
   function hideDuplicateAsk() {
@@ -196,6 +237,11 @@
     el('q').value = '';
     el('qr').innerHTML = '';
     ['reg-error', 'code-error'].forEach(function (id) { el(id).textContent = ''; });
+    /* Kiosk hygiene: the next visitor at this shared phone must not inherit a
+       half-typed company proposal from whoever used it before them. */
+    el('new-company').hidden = true;
+    ['new-title', 'new-text'].forEach(function (id) { el(id).value = ''; });
+    el('new-company-error').textContent = '';
     show('step-company');
     el('q').focus();
     search();
