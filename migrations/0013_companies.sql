@@ -1,7 +1,7 @@
 -- Companies get their own table.
 --
 -- See docs/features/companies-own-table/RESEARCH.md for the full survey
--- (ADR-019). One paragraph here:
+-- (ADR-021). One paragraph here:
 --
 -- A `dataset` row USED TO BE a company when `company_profiles` held a row
 -- keyed to the same id — "is this a company?" was a JOIN, and every reader

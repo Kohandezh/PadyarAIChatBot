@@ -778,6 +778,82 @@ def register_visitor(conversation_id: str, profile: dict) -> str:
     return visitor_id
 
 
+# ── Visitor-facing reads / writes ───────────────────────────────────────
+# Everything below is scoped to exactly ONE visitor_id — the caller's own,
+# read from the session (see app/auth/visitor.py::require_visitor). Never
+# accept a visitor_id from the request body/query here: that is exactly the
+# self-asserted-identity hole app/auth/visitor.py's docstring describes.
+
+def list_conversations_for_visitor(visitor_id: str, *, limit: int = 30) -> list:
+    """A visitor's own conversations, newest first, with a short preview.
+
+    Thin wrapper over list_conversations(), scoped to one visitor_id, plus a
+    `preview` per row — the first message's text, trimmed — so a "my chats"
+    list has something to show besides a timestamp. One extra read per row on
+    top of the admin version: this list is short (one visitor's own history,
+    not a paginated scan of everyone), the same trade-off
+    app/routers/conversations_admin.py already makes for /conversations/weak.
+    """
+    if not visitor_id:
+        return []
+    rows = list_conversations(visitor_id=visitor_id,
+                              limit=max(1, min(int(limit), 100)))
+    for row in rows:
+        first = conversation_messages(row["id"], limit=1)
+        text = (first[0]["text"] if first else "").strip()
+        row["preview"] = (text[:60] + "…") if len(text) > 60 else text
+    return rows
+
+
+def get_conversation_for_visitor(conversation_id: str, visitor_id: str) -> dict:
+    """One conversation's messages, but only if `visitor_id` actually owns it.
+
+    Returns {} for a conversation_id that does not exist, or exists but
+    belongs to someone else — the caller cannot tell those two apart from
+    this, which is the point: a signed-in visitor guessing another
+    conversation's id must not be able to read a stranger's transcript.
+    """
+    if not conversation_id or not visitor_id:
+        return {}
+    conv = get_conversation(conversation_id)
+    if not conv or conv.get("visitor_id") != visitor_id:
+        return {}
+    return {"conversation": conv, "messages": conversation_messages(conversation_id)}
+
+
+def delete_conversation_for_visitor(conversation_id: str, visitor_id: str) -> bool:
+    """Delete one conversation, but only if `visitor_id` actually owns it.
+
+    Messages go first and conversations second, same as purge_expired():
+    PostgreSQL would cascade, SQLite does not enforce foreign keys at all, so
+    doing both explicitly is the only version that behaves the same on both
+    backends. The ownership check happens once, up front, on the same
+    connection as the deletes — good enough for a visitor deleting their own
+    data; this is not a contested resource two processes race over.
+    """
+    if not conversation_id or not visitor_id:
+        return False
+    conn = get_db_connection()
+    try:
+        owned = conn.execute(
+            "SELECT 1 FROM conversations WHERE id = ? AND visitor_id = ?",
+            (conversation_id, visitor_id)).fetchone()
+        if not owned:
+            return False
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?",
+                     (conversation_id,))
+        conn.execute("DELETE FROM conversations WHERE id = ?",
+                     (conversation_id,))
+        conn.commit()
+        return True
+    except Exception as e:  # noqa: BLE001 — see the module docstring
+        logger.error("[conversations] delete_conversation_for_visitor failed:"
+                     " %s: %s", type(e).__name__, e)
+        return False
+    finally:
+        conn.close()
+
+
 # ── Admin reads ──────────────────────────────────────────────────────────
 
 def list_conversations(*, since=None, until=None, has_visitor=None,

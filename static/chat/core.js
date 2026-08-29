@@ -106,6 +106,13 @@ const I18N = {
         a11yTitle: "تنظیمات دسترسی‌پذیری",
         fontInc: "افزایش سایز متن",
         fontDec: "کاهش سایز متن",
+        menuTitle: "منو",
+        closeMenu: "بستن منو",
+        historyLabel: "گفتگوهای من",
+        languageLabel: "زبان",
+        themeLabel: "روشن / تاریک",
+        textSizeLabel: "اندازه متن",
+        accountLabel: "حساب کاربری",
     },
     en: {
         html_lang: 'en', html_dir: 'ltr',
@@ -138,6 +145,13 @@ const I18N = {
         a11yTitle: "Accessibility settings",
         fontInc: "Increase font size",
         fontDec: "Decrease font size",
+        menuTitle: "Menu",
+        closeMenu: "Close menu",
+        historyLabel: "My chats",
+        languageLabel: "Language",
+        themeLabel: "Light / Dark",
+        textSizeLabel: "Text size",
+        accountLabel: "Account",
     },
 };
 
@@ -262,6 +276,106 @@ function forgetTranscript() {
     chatContent
         .querySelectorAll('.message:not(#welcome-message):not(#loading-bubble)')
         .forEach(m => m.remove());
+}
+
+
+// ── Hamburger drawer: "my chats" ──────────────────────────────────────
+// Only ever populated for a signed-in visitor. static/companion/registration.js
+// writes document.documentElement.dataset.visitor ('in' | 'out' | 'unknown')
+// once the server has answered GET /api/auth/session; this reads that instead
+// of asking the server itself a second time. See
+// docs/features/hamburger-menu/SPEC.md for why this stayed hidden until now.
+
+const TRASH_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>' +
+    '<path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/></svg>';
+
+function renderMenuHistory(items) {
+    const section = document.getElementById('menu-history');
+    const list = document.getElementById('menu-history-list');
+    if (!section || !list) return;
+    const fa = document.documentElement.lang !== 'en';
+    list.textContent = '';
+    items.forEach(function (conv) {
+        const li = document.createElement('li');
+        li.className = 'menu-history-item';
+
+        const title = document.createElement('span');
+        title.className = 'menu-history-item-title';
+        title.textContent = conv.preview || (fa ? 'گفتگو' : 'Conversation');
+        title.addEventListener('click', function () { openMenuHistoryItem(conv.id); });
+        li.appendChild(title);
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'menu-history-delete';
+        const delLabel = fa ? 'حذف گفتگو' : 'Delete conversation';
+        del.title = delLabel;
+        del.setAttribute('aria-label', delLabel);
+        del.innerHTML = TRASH_ICON;
+        del.addEventListener('click', function (e) {
+            e.stopPropagation();
+            deleteMenuHistoryItem(conv.id, li);
+        });
+        li.appendChild(del);
+
+        list.appendChild(li);
+    });
+    section.hidden = items.length === 0;
+}
+
+function refreshMenuHistory() {
+    const section = document.getElementById('menu-history');
+    if (!section) return;
+    if (document.documentElement.dataset.visitor !== 'in') {
+        section.hidden = true;
+        return;
+    }
+    fetch('/api/chat/conversations', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
+        .then(function (data) { renderMenuHistory(data.conversations || []); })
+        .catch(function () { /* offline — leave the section as it was */ });
+}
+
+/** Click a history row: replace the visible chat with that conversation's
+    messages, and make it the ACTIVE conversation server-side (the endpoint
+    rebinds the padyar_conv cookie), so typing right after continues it. */
+function openMenuHistoryItem(conversationId) {
+    fetch('/api/chat/conversations/' + encodeURIComponent(conversationId),
+         { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+            if (!data) return;
+            forgetTranscript();
+            (data.messages || []).forEach(function (m) {
+                addMessage(m.text, m.role === 'assistant' ? 'bot' : 'user', true, true);
+            });
+            switchTab('text');
+            const drawer = document.getElementById('menu-drawer');
+            const backdrop = document.getElementById('menu-backdrop');
+            const toggle = document.getElementById('menu-toggle');
+            if (drawer) drawer.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        })
+        .catch(function () { /* offline — nothing to show */ });
+}
+
+function deleteMenuHistoryItem(conversationId, rowEl) {
+    const fa = document.documentElement.lang !== 'en';
+    const sure = fa ? 'این گفتگو حذف شود؟' : 'Delete this conversation?';
+    if (!window.confirm(sure)) return;
+    fetch('/api/chat/conversations/' + encodeURIComponent(conversationId),
+         { method: 'DELETE', credentials: 'same-origin' })
+        .then(function (r) {
+            if (!r.ok) return;
+            if (rowEl) rowEl.remove();
+            const section = document.getElementById('menu-history');
+            const list = document.getElementById('menu-history-list');
+            if (section && list && !list.children.length) section.hidden = true;
+        })
+        .catch(function () { /* offline — nothing changed, list stays as shown */ });
 }
 
 
@@ -1069,11 +1183,6 @@ function initChat() {
             }
             const petVoice = document.getElementById('pet-voice');
             if (petVoice && !data.voice_enabled) petVoice.style.display = 'none';
-            if (data.tts_enabled === false) {
-                const tts = document.getElementById('tts-btn') || document.querySelector('.tts-btn');
-                if (tts) tts.style.display = 'none';
-                if ('speechSynthesis' in window) speechSynthesis.cancel();
-            }
             // Admin-chosen first-visit language; a visitor's own choice
             // (stored on toggle) always wins over the default.
             if (!localStorage.getItem(LANG_KEY) && data.default_lang === 'en' && currentLang !== 'en') {
@@ -1082,20 +1191,43 @@ function initChat() {
         })
         .catch(() => { if (micBtn) micBtn.disabled = true; });
 
-    // Hamburger menu
-    const a11yHamburger = document.getElementById('a11y-hamburger');
-    const a11yDropdown = document.getElementById('a11y-dropdown');
-    if (a11yHamburger && a11yDropdown) {
-        a11yHamburger.addEventListener('click', (e) => {
+    // Hamburger drawer menu — one toggle, one panel, shared by every theme.
+    // Everything that used to be scattered across the header (language, dark/
+    // light, text size, account) lives inside #menu-drawer now; this is the
+    // only place that opens or closes it.
+    const menuToggle = document.getElementById('menu-toggle');
+    const menuDrawer = document.getElementById('menu-drawer');
+    const menuBackdrop = document.getElementById('menu-backdrop');
+    if (menuToggle && menuDrawer) {
+        const closeMenu = () => {
+            menuDrawer.classList.remove('open');
+            if (menuBackdrop) menuBackdrop.classList.remove('open');
+            menuToggle.setAttribute('aria-expanded', 'false');
+        };
+        const openMenu = () => {
+            menuDrawer.classList.add('open');
+            if (menuBackdrop) menuBackdrop.classList.add('open');
+            menuToggle.setAttribute('aria-expanded', 'true');
+            refreshMenuHistory();
+        };
+        menuToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            const isOpen = a11yDropdown.classList.toggle('open');
-            a11yHamburger.setAttribute('aria-expanded', isOpen);
+            if (menuDrawer.classList.contains('open')) closeMenu(); else openMenu();
+        });
+        if (menuBackdrop) menuBackdrop.addEventListener('click', closeMenu);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && menuDrawer.classList.contains('open')) closeMenu();
         });
         document.addEventListener('click', (e) => {
-            if (!a11yDropdown.contains(e.target) && !a11yHamburger.contains(e.target)) {
-                a11yDropdown.classList.remove('open');
-                a11yHamburger.setAttribute('aria-expanded', 'false');
+            if (menuDrawer.classList.contains('open') &&
+                !menuDrawer.contains(e.target) && !menuToggle.contains(e.target)) {
+                closeMenu();
             }
+        });
+        // A row that navigates (e.g. a future history item) should close the
+        // drawer behind it rather than leave it open over the new view.
+        menuDrawer.querySelectorAll('[data-menu-close]').forEach((el) => {
+            el.addEventListener('click', closeMenu);
         });
     }
 

@@ -371,10 +371,10 @@ header > .liquidGlass-text {
 
 
 /* ── Accessibility + language + theme controls ── */
-.a11y-hamburger,
 .a11y-btn,
 .lang-btn,
-.theme-btn {
+.theme-btn,
+.menu-toggle {
   width: 2.7rem; height: 2.7rem;
   flex: none;
   position: relative; overflow: hidden;
@@ -385,15 +385,15 @@ header > .liquidGlass-text {
   border-radius: 25px !important;
   border: 2px solid transparent;
 }
-.a11y-hamburger { z-index: 110; }
-.a11y-hamburger .liquidGlass-shine,
+.menu-toggle { z-index: 110; }
 .a11y-btn .liquidGlass-shine,
 .lang-btn .liquidGlass-shine,
-.theme-btn .liquidGlass-shine { background: transparent; }
-.a11y-hamburger .liquidGlass-text,
+.theme-btn .liquidGlass-shine,
+.menu-toggle .liquidGlass-shine { background: transparent; }
 .a11y-btn .liquidGlass-text,
 .lang-btn .liquidGlass-text,
-.theme-btn .liquidGlass-text {
+.theme-btn .liquidGlass-text,
+.menu-toggle .liquidGlass-text {
   display: flex; justify-content: center; align-items: center;
 }
 
@@ -406,17 +406,6 @@ header > .liquidGlass-text {
 .theme-btn .theme-icon-moon { display: flex; }
 body.light-mode .theme-btn .theme-icon-moon { display: none; }
 body.light-mode .theme-btn .theme-icon-sun { display: flex; }
-
-.a11y-dropdown-content {
-  display: flex; flex-direction: column;
-  gap: 10px; padding: 12px; border-radius: 16px;
-  position: relative; overflow: hidden;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--dropdown-bg);
-  border: 1px solid var(--panel-border);
-  box-shadow: var(--panel-shadow);
-}
 
 
 /* ── Liquid Glass Switcher ──────────────────────────────────────────────
@@ -795,7 +784,7 @@ html[dir="ltr"] .ai-loader-label {
   /* The controls sit on the physical left in RTL (as in the original) and
      mirror to the right in LTR — so the reserved space tracks inline-end. */
   padding: 12px 20px;
-  padding-inline-end: 152px;
+  padding-inline-end: 104px;
   border-radius: 20px; border: none;
   background-color: transparent;
   font-family: var(--font-family);
@@ -807,8 +796,7 @@ html[dir="ltr"] .ai-loader-label {
 #user-input::placeholder { color: var(--text-on-glass) !important; opacity: 0.75; }
 
 #send-btn,
-.mic-btn,
-.tts-btn {
+.mic-btn {
   position: absolute; bottom: 9px;
   border-radius: 50%; border: none;
   cursor: pointer; z-index: 10;
@@ -844,18 +832,6 @@ html[dir="ltr"] #send-btn:not(.stop-mode) svg { transform: none; }
 }
 .mic-btn:hover:not(:disabled) { background-color: var(--accent-light); }
 .mic-btn.recording { background-color: var(--color-accent); color: white; }
-
-.tts-btn {
-  inset-inline-end: 104px;
-  width: 42px; height: 42px; bottom: 10px;
-  color: var(--mic-fg); background: var(--icon-btn-bg);
-  box-shadow: 0 0 0 1px var(--icon-btn-ring);
-}
-.tts-btn:hover:not(:disabled) { background-color: var(--accent-light); }
-.tts-btn .tts-wave { opacity: 0.28; transition: opacity 0.2s ease; }
-.tts-btn.active { background-color: var(--color-accent); color: var(--text-on-accent); }
-.tts-btn.active .tts-wave { opacity: 1; }
-.tts-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .dot { background-color: var(--color-primary); }
 body:not(.video-mode) .dot { background-color: var(--text-on-glass); }
@@ -1548,17 +1524,22 @@ body.video-mode .pet-companion {
 
 /* ── Header tools cluster ── */
 .header-tools { display: flex; align-items: center; gap: 8px; flex: none; }
-.accessibility-controls { position: relative; }
-/* base.css pins this with a physical `left: 0`. Left alone, LTR would also get
-   `right: 0` from inset-inline-end and the dropdown would stretch across the
-   header, so the start edge is explicitly released. */
-.a11y-dropdown {
-  position: absolute; top: calc(100% + 8px);
-  inset-inline-start: auto; inset-inline-end: 0;
-  width: max-content;
-  display: none; z-index: 120;
+
+/* Hamburger drawer — --dropdown-bg/--panel-border/--panel-shadow already
+   redefine for light mode (see the second :root block), so this adapts for
+   free. */
+.menu-drawer {
+    background: var(--dropdown-bg);
+    color: var(--text-on-glass);
+    border-inline-start: 1px solid var(--panel-border);
+    box-shadow: var(--panel-shadow);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
-.a11y-dropdown.open { display: block; }
+
+.menu-section {
+    border-color: var(--panel-border);
+}
 
 
 /* ── Rayen credit — anchored under the input, never over the chat ── */
@@ -1608,7 +1589,7 @@ body.video-mode .pet-companion {
 
 
 /* ── Layout Overrides ── */
-div#text-view { width: var(--chat-measure); max-width: 100%; margin: 0 auto; padding: 0; position: relative; }
+div#text-view { width: var(--chat-measure); max-width: 100%; margin: 0 auto; padding: 0; height: calc(100% - 117px); position: relative; }
 
 /* The header is fixed, so the conversation must start below it — and the input
    bar is fixed too, so the last message must clear it. */
@@ -1629,12 +1610,6 @@ div#text-view { width: var(--chat-measure); max-width: 100%; margin: 0 auto; pad
    ResizeObserver comparing scrollHeight to clientHeight — no flexbox edge case
    to rely on, and trivially verifiable. */
 #chat-view-content.is-short { justify-content: center; }
-
-/* base.css reserves 80px under the last message to clear the input bar. This
-   theme already reserves --input-reserve for exactly that, so that margin is
-   pure dead space — but it must become `auto`, not `0`, or it out-specifies
-   the centring rule above and pins the conversation to the bottom again. */
-#chat-view-content .message:last-child { margin-bottom: 0; }
 
 /* The chips are part of the same composition as the message above them, not a
    detached block floating in the gap. */
@@ -1709,7 +1684,7 @@ body:not(.video-mode) .app-layout { background: var(--canvas-bg); }
   .the-slogan { display: none; }
 
   .header-tools { gap: 6px; }
-  .a11y-hamburger, .a11y-btn, .lang-btn, .theme-btn { width: 2.5rem; height: 2.5rem; }
+  .menu-toggle, .a11y-btn, .lang-btn, .theme-btn { width: 2.5rem; height: 2.5rem; }
 
   .action-btn { padding: 11px 20px; font-size: 16px; }
   #user-input { min-height: 45px; font-size: 16px; }
@@ -1733,7 +1708,7 @@ body:not(.video-mode) .app-layout { background: var(--canvas-bg); }
     --panel-max-h: 400px;
   }
   .header-tools { gap: 4px; }
-  .a11y-hamburger, .a11y-btn, .lang-btn, .theme-btn { width: 2.4rem; height: 2.4rem; }
+  .menu-toggle, .a11y-btn, .lang-btn, .theme-btn { width: 2.4rem; height: 2.4rem; }
 }
 
 /* Small / older phones */
@@ -1749,7 +1724,7 @@ body:not(.video-mode) .app-layout { background: var(--canvas-bg); }
     --panel-max-h: 360px;
   }
   header { padding: 6px; gap: 6px; }
-  .a11y-hamburger, .a11y-btn, .lang-btn, .theme-btn { width: 2.2rem; height: 2.2rem; }
+  .menu-toggle, .a11y-btn, .lang-btn, .theme-btn { width: 2.2rem; height: 2.2rem; }
   .the-logo { width: 34px; height: 34px; }
   .suggest-chip { font-size: 0.78rem; padding: 7px 12px; }
   .rayen-sidebar-foot { font-size: 0.6rem; }
@@ -1779,11 +1754,9 @@ body:not(.video-mode) .app-layout { background: var(--canvas-bg); }
   /* Slimmer input bar */
   #user-input {
     min-height: 40px; max-height: 44px;
-    padding: 8px 16px; padding-inline-end: 128px;
+    padding: 8px 16px; padding-inline-end: 88px;
   }
-  .mic-btn, .tts-btn { width: 34px; height: 34px; bottom: 8px; }
-  .mic-btn { inset-inline-end: 48px; }
-  .tts-btn { inset-inline-end: 88px; }
+  .mic-btn { width: 34px; height: 34px; bottom: 8px; inset-inline-end: 48px; }
   #send-btn { width: 2.1rem; height: 2.1rem; bottom: 8px; }
   .rayen-sidebar-foot { padding-top: 2px; padding-bottom: 2px; font-size: 0.62rem; }
   .rayen-sidebar-foot img { width: 13px; height: 13px; }

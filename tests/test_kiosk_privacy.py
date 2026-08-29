@@ -640,14 +640,15 @@ def test_every_theme_header_localises_the_new_chat_button(theme):
     browser test run against the DEFAULT theme, and the customer running that
     theme gets a Persian word in an English interface.
 
-    Both attributes, because they feed different things: `data-i18n` sets the
-    visible label and `data-i18n-title` sets `title` AND `aria-label`, which
-    is what an English screen reader reads out.
+    The button is icon-only now (docs/features/hamburger-menu/SPEC.md,
+    REQ-001) — no visible text label, just a "+" — so only `data-i18n-title`
+    still applies: it sets `title` AND `aria-label`, which is what an English
+    screen reader reads out. There is no text node left for `data-i18n` to
+    localize.
     """
     header = (ROOT / "themes" / theme / "partials" / "header.html").read_text(
         encoding="utf-8")
     assert 'id="new-chat-btn"' in header, theme
     button = header[header.index('id="new-chat-btn"'):]
     button = button[:button.index(">")]
-    assert 'data-i18n="newChat"' in button, button
     assert 'data-i18n-title="newChat"' in button, button

@@ -1,7 +1,7 @@
 # Companies get their own table
 
 **Status:** implemented and verified against a restored production dump, not
-yet deployed. Approved by the product owner on 2026-08-29. See ADR-019 in
+yet deployed. Approved by the product owner on 2026-08-29. See ADR-021 in
 `docs/engineering/DECISIONS.md`.
 **Written by:** the session that surveyed the surface, so the next session does
 not have to survey it again.
@@ -248,14 +248,14 @@ knowing before the follow-up work.
    `find_similar_question()` from section 2.~~ Done 2026-08-30. Two more
    readers needed the same fallback, found by testing, not by the file:line
    survey above: `resolve_named_entity()` and the `_corpus_vocab` builder in
-   `app/services/search.py` — see ADR-019 for why.
+   `app/services/search.py` — see ADR-021 for why.
 5. ~~Delete `_company_dataset_ids()` and the subtraction.~~ Done 2026-08-30.
 6. ~~Re-run the eval and record both numbers.~~ Done 2026-08-30 — recall@8
    unchanged at 0.952, because the local golden set still has zero company
    queries (see the measurement section above). This does NOT demonstrate the
    improvement the migration is for; that still needs company queries added
    to the golden set, or a production measurement.
-7. ~~Record the decision in `docs/engineering/DECISIONS.md` as ADR-019.~~ Done
+7. ~~Record the decision in `docs/engineering/DECISIONS.md` as ADR-021.~~ Done
    2026-08-30.
 
 **Left for deploy, not done by this session:** take a FRESH backup

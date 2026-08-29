@@ -54,7 +54,7 @@ body {
 }
 
 #text-view {
-    height: 100lvh;
+    height: calc(100% - 117px);
 }
 
 
@@ -79,10 +79,6 @@ body {
     flex-direction: column;
     animation: fadeIn 0.3s ease-in-out;
     position: relative;
-}
-
-.message:last-child {
-    margin-bottom: 80px;
 }
 
 .message.bot {
@@ -274,6 +270,16 @@ body {
     max-height: 100px;
 }
 
+/* The room (dir="rtl") never mirrors — see core.js setLang() — but the text
+   INSIDE the box should still read the way the active UI language reads.
+   dir="auto" on the textarea already gets this right once there is content
+   (or, in modern browsers, from the placeholder), but an empty field before
+   that resolution kicks in has fallen back to the room's own rtl in the
+   past. Keying text-align off the UI language directly makes it deterministic
+   instead of relying on that per-browser heuristic. */
+html[lang="fa"] #user-input { text-align: right; }
+html[lang="en"] #user-input { text-align: left; }
+
 #user-input:focus {
     outline: none;
 }
@@ -328,42 +334,6 @@ button:disabled {
     70%  { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(214, 69, 69, 0); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(214, 69, 69, 0); }
 }
-
-
-/* ── Header tools group ── */
-.header-tools {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* ── Accessibility Controls ── */
-.accessibility-controls {
-    position: relative;
-}
-
-.a11y-dropdown {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-8px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 200;
-    pointer-events: none;
-}
-
-.a11y-dropdown.open {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-    pointer-events: auto;
-}
-
-/* The video tab used to hide the two text-size buttons and leave only the
-   contrast toggle in the menu. With the contrast toggle gone that rule would
-   empty the menu completely, so text size now stays available on both tabs. */
 
 
 /* ── Mobile Responsive ── */
@@ -445,31 +415,45 @@ button:disabled {
     .video-actions {
         bottom: 134px;
     }
-
-    .accessibility-controls {
-        display: flex;
-        justify-content: end;
-        position: relative;
-        width: 108px;
-    }
 }
+
+/* ── Header tools cluster ──
+   Groups the header's icon buttons (new-chat, hamburger). Already defined
+   per-theme in inotex/liquid-glass's own style.css (identically) — shared
+   here too so base/minimal/haj get the same layout without copying it a
+   third and fourth time. */
+.header-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 
 /* New chat — the shared-kiosk escape hatch.
    Styled here, in the file every theme loads, instead of four times in four
-   theme stylesheets: it is a plain text label, it must be readable in all of
-   them, and currentColor makes it take each theme's own header colour. */
+   theme stylesheets: it is one icon, it must be readable in all of them, and
+   currentColor makes it take each theme's own header colour. The accessible
+   name lives entirely in title/aria-label (data-i18n-title="newChat") — no
+   visible text label, so it reads as a single, obvious "+" everywhere. */
 #new-chat-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     color: currentColor;
     border: 1px solid currentColor;
-    border-radius: 999px;
-    padding: 4px 12px;
-    font: inherit;
-    font-size: 0.85rem;
-    line-height: 1.6;
+    border-radius: 50%;
     cursor: pointer;
     opacity: 0.85;
-    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+#new-chat-btn svg {
+    width: 18px;
+    height: 18px;
 }
 
 #new-chat-btn:hover,
@@ -477,24 +461,213 @@ button:disabled {
     opacity: 1;
 }
 
-/* Signed-in visitor's logout control — same reasoning as #new-chat-btn above:
-   one shared plain pill so every theme without its own themed override still
-   gets a readable button instead of an unstyled default. */
-.visitor-logout {
+/* ── Hamburger Drawer Menu ──
+   Shared structural shell for every theme (base, minimal, inotex,
+   liquid-glass, haj). Each theme's own style.css overrides only colour
+   (background/text/border), same convention as everything else in this
+   file — see the header comment. The rows/controls inside the drawer keep
+   their own existing ids and CSS classes; only their container moved. */
+.menu-toggle {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: currentColor;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.menu-toggle svg {
+    width: 20px;
+    height: 20px;
+}
+
+.menu-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease;
+    z-index: 300;
+}
+
+.menu-backdrop.open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.menu-drawer {
+    position: fixed;
+    top: 0;
+    /* Physical right, not a logical edge: the page direction is always rtl
+       (core.js never mirrors the room — only the words change, see
+       setLang()), so "right" here is not conditional on anything. */
+    right: 0;
+    height: 100dvh;
+    width: min(320px, 86vw);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 18px 16px;
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 301;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15);
+    /* Structural-only file: a plain, reasonably dark default so the drawer is
+       never invisible on a theme that forgets to override it (base/minimal
+       included). Every other theme replaces this with its own surface
+       colour — see the "Theme CSS files load AFTER this" note at the top of
+       this file. */
+    background: #14172a;
+    color: #f0f1f5;
+}
+
+.menu-drawer.open {
+    transform: translateX(0);
+}
+
+.menu-drawer-close {
+    align-self: flex-end;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: currentColor;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.menu-drawer-close:hover,
+.menu-drawer-close:focus-visible {
+    opacity: 1;
+}
+
+.menu-section {
+    padding: 10px 0;
+    border-top: 1px solid currentColor;
+    border-color: rgba(128, 128, 128, 0.2);
+}
+
+.menu-section:first-of-type {
+    border-top: none;
+}
+
+.menu-section-label {
+    font-size: 0.78rem;
+    opacity: 0.65;
+    margin-bottom: 8px;
+}
+
+.menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 40px;
+}
+
+.menu-row + .menu-row {
+    margin-top: 4px;
+}
+
+.menu-row-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.92rem;
+}
+
+.menu-row-label svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.menu-a11y-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.menu-account-btn {
+    width: 100%;
+    text-align: center;
+    padding: 9px 12px;
+    border-radius: 10px;
     background: transparent;
     color: currentColor;
     border: 1px solid currentColor;
-    border-radius: 999px;
-    padding: 4px 12px;
-    font: inherit;
-    font-size: 0.85rem;
-    line-height: 1.6;
-    cursor: pointer;
     opacity: 0.85;
-    white-space: nowrap;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.92rem;
 }
 
-.visitor-logout:hover,
-.visitor-logout:focus-visible {
+.menu-account-btn:hover,
+.menu-account-btn:focus-visible {
     opacity: 1;
+}
+
+/* History rows (Phase 2 — see docs/features/hamburger-menu/SPEC.md).
+   #menu-history stays hidden until that work is scoped; the rules exist so
+   the section doesn't need re-styling when it is filled in. */
+.menu-history-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.menu-history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.menu-history-item-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.88rem;
+}
+
+.menu-history-delete {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: currentColor;
+    opacity: 0.55;
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+.menu-history-delete:hover,
+.menu-history-delete:focus-visible {
+    opacity: 1;
+}
+
+@media (min-width: 769px) {
+    .menu-drawer {
+        width: 300px;
+    }
 }

@@ -186,13 +186,20 @@ async def test_the_faq_block_is_still_rebuilt_in_the_new_language(chat_page):
 # ── Defect 13: the new-chat button speaks the visitor's language ─────────
 
 async def test_the_new_chat_button_is_localised_like_every_other_control(chat_page):
-    """An English screen reader must not announce a Persian label."""
+    """An English screen reader must not announce a Persian label.
+
+    The button is icon-only (docs/features/hamburger-menu/SPEC.md, REQ-001) —
+    a plain "+", no visible text — so its accessible name lives entirely in
+    title/aria-label, not text content.
+    """
     button = chat_page.locator("#new-chat-btn")
-    assert (await button.text_content()).strip() == "گفتگوی جدید"
+    assert (await button.text_content()).strip() == ""
+    assert await button.get_attribute("title") == "گفتگوی جدید"
+    assert await button.get_attribute("aria-label") == "گفتگوی جدید"
 
     await _tap_language_switch(chat_page)
     await chat_page.wait_for_function("document.documentElement.lang === 'en'")
 
-    assert (await button.text_content()).strip() == "New chat"
+    assert (await button.text_content()).strip() == ""
     assert await button.get_attribute("title") == "New chat"
     assert await button.get_attribute("aria-label") == "New chat"

@@ -94,24 +94,25 @@ def test_companion_is_live_but_desktop_only():
     assert 'id="pet-canvas"' in otp_visible, "otp page companion should be live"
 
 
-def test_one_sound_control_for_the_surface_in_view():
-    """A single speaker button owns sound, and says which sound it owns.
-
-    Two separate sound controls on one screen (a composer button for
-    text-to-speech plus a floating one for the video) leaves the visitor
-    guessing which is "the" sound button, so the composer button switches
-    meaning with the tab and re-labels itself.
+def test_composer_has_no_sound_control():
+    """The composer's speaker button (#tts-btn) — read-aloud on the chat tab,
+    video mute/unmute on the video tab — was removed at the product owner's
+    request (docs/features/hamburger-menu/SPEC.md, REQ-005): it conflated two
+    unrelated jobs behind one icon. Nothing should remain wired to it: the
+    button, its per-theme CSS, and the localStorage-driven speak/toggle logic
+    (a stale "on" preference must not produce unstoppable narration with no
+    control left to turn it off — REL-001).
     """
-    footer = read(ROOT / "themes" / "inotex" / "partials" / "footer.html")
-    video = read(ROOT / "themes" / "inotex" / "partials" / "video.html")
+    for theme in ("inotex", "liquid-glass", "haj"):
+        input_html = read(ROOT / "themes" / theme / "partials" / "input.html")
+        footer = read(ROOT / "themes" / theme / "partials" / "footer.html")
+        css = read(ROOT / "themes" / theme / "static" / "style.css")
+        assert 'id="tts-btn"' not in input_html, theme
+        assert "toggleVideoSound" not in footer, theme
+        assert ".tts-btn" not in css, theme
 
-    assert 'id="video-sound"' not in video, "no second, competing sound control"
-    assert "toggleVideoSound" in footer
-    assert "video-mode" in footer, "the button must know which surface is in view"
-    # Both meanings are spelled out for assistive tech, not implied by an icon.
-    for label in ("پخش صدای ویدیو", "قطع صدای ویدیو", "خواندن پاسخ‌ها با صدا"):
-        assert label in footer, f"missing sound-button label: {label}"
-    assert "aria-pressed" in footer
+    video = read(ROOT / "themes" / "inotex" / "partials" / "video.html")
+    assert 'id="video-sound"' not in video, "no floating sound control either"
 
 
 def test_inotex_theme_uses_official_palette_tokens():
@@ -212,17 +213,20 @@ def test_core_js_has_fa_en_i18n_and_switch():
     assert "const I18N" in js
     assert "function setLang" in js
     assert "'fa'" in js and "'en'" in js
-    assert 'id="lang-btn"' in read(LIQUID / "partials" / "header.html")
+    # lang-btn moved from the header into the hamburger drawer (see
+    # docs/features/hamburger-menu/SPEC.md) — same id, same setLang() wiring,
+    # different partial.
+    assert 'id="lang-btn"' in read(LIQUID / "partials" / "menu.html")
     # EN suggested questions exist
     assert "What is INOTEX?" in js
 
 
 def test_every_theme_localises_the_new_chat_button():
-    """The button shipped with its Persian label, title and aria-label baked
-    into all four headers while I18N.en.newChat existed and was never read. An
-    English visitor read Persian and an English screen reader announced
-    Persian. `data-i18n` / `data-i18n-title` are the same hooks setLang()
-    already uses for every other static control.
+    """The button is icon-only now (docs/features/hamburger-menu/SPEC.md,
+    REQ-001) — a plain "+", no visible text label — so its accessible name
+    lives entirely in title/aria-label. `data-i18n-title` is the hook
+    setLang() uses to keep that name localized; there is no more text node
+    for `data-i18n` to drive.
 
     Checked in ALL FOUR headers, not just the active theme: the four files are
     copies of one another, so a theme left behind is the way this comes back.
@@ -230,8 +234,8 @@ def test_every_theme_localises_the_new_chat_button():
     for theme in ("base", "inotex", "liquid-glass", "haj"):
         header = read(ROOT / "themes" / theme / "partials" / "header.html")
         button = header.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
-        assert 'data-i18n="newChat"' in button, theme
         assert 'data-i18n-title="newChat"' in button, theme
+        assert "<svg" in button, f"{theme}: icon-only button needs an icon"
 
 
 def test_core_js_keeps_video_and_chat_with_null_guards_avatar():

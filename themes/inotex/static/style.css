@@ -73,6 +73,7 @@ div#text-view {
     width: var(--chat-measure);
     max-width: 100%;
     margin: 0 auto;
+    height: calc(100% - 117px);
     position: relative;
 }
 
@@ -220,9 +221,19 @@ header.inx-header::after {
 /* ── Header tools ─────────────────────────────────────────────────── */
 .header-tools { display: flex; align-items: center; gap: 8px; }
 
+/* Hamburger drawer — --color-surface-primary already has a light-mode
+   redefinition (see body.light-mode below), so this adapts for free. */
+.menu-drawer {
+    background: var(--color-surface-primary);
+    color: var(--color-text-primary);
+}
+
+.menu-section {
+    border-color: var(--color-border-subtle);
+}
+
 .theme-btn,
 .lang-btn,
-.a11y-hamburger,
 .a11y-btn {
     display: inline-flex;
     align-items: center;
@@ -242,26 +253,14 @@ header.inx-header::after {
 
 .theme-btn:hover,
 .lang-btn:hover,
-.a11y-hamburger:hover,
 .a11y-btn:hover { background: var(--color-surface-interactive); }
 
 .theme-btn:focus-visible,
 .lang-btn:focus-visible,
-.a11y-hamburger:focus-visible,
 .a11y-btn:focus-visible,
 .switcher__input:focus-visible {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
-}
-
-.a11y-dropdown-content {
-    display: flex;
-    gap: 6px;
-    padding: 8px;
-    background: var(--color-surface-primary);
-    border: var(--border-width) solid var(--color-border-subtle);
-    border-radius: var(--compact-radius);
-    box-shadow: var(--raised-depth);
 }
 
 /* ── Chat bubbles: stacked brick cards ────────────────────────────── */
@@ -442,11 +441,9 @@ header.inx-header::after {
     background: var(--inotex-blue);
 }
 
-/* Composer buttons: ONE size for mic, tts and send — the three controls sit
-   in a row and must read as one family (they previously drifted: tts had no
-   explicit size and mic/send inherited 36px from base.css). */
+/* Composer buttons: ONE size for mic and send — they sit in a row and must
+   read as one family. */
 .mic-btn,
-.tts-btn,
 #send-btn {
     width: 42px;
     height: 42px;
@@ -457,14 +454,13 @@ header.inx-header::after {
     justify-content: center;
 }
 
-.mic-btn svg, .tts-btn svg, #send-btn svg {
+.mic-btn svg, #send-btn svg {
     width: 19px;
     height: 19px;
 }
 
-/* mic + tts: blue circular brick buttons */
-.mic-btn,
-.tts-btn {
+/* mic: blue circular brick button */
+.mic-btn {
     background: var(--color-surface-interactive);
     color: var(--color-text-primary);
     border: none;
@@ -473,8 +469,8 @@ header.inx-header::after {
     transition: background var(--motion-fast) ease, transform var(--motion-instant) ease;
 }
 
-.mic-btn:hover, .tts-btn:hover { background: #3A6FC2; }
-.mic-btn:active, .tts-btn:active { transform: translateY(1px); }
+.mic-btn:hover { background: #3A6FC2; }
+.mic-btn:active { transform: translateY(1px); }
 
 .mic-btn.recording {
     background: var(--inotex-primary);
@@ -485,10 +481,6 @@ header.inx-header::after {
 @keyframes inx-rec-pulse {
     0%, 100% { box-shadow: 0 0 0 0 #FCB71566; }
     50% { box-shadow: 0 0 0 9px #FCB71500; }
-}
-
-.tts-btn.active {
-    background: var(--color-accent-success);
 }
 
 /* send: the yellow primary action */
@@ -510,7 +502,7 @@ header.inx-header::after {
     box-shadow: none;
 }
 
-.mic-btn:focus-visible, .tts-btn:focus-visible, #send-btn:focus-visible {
+.mic-btn:focus-visible, #send-btn:focus-visible {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
 }
@@ -1833,7 +1825,6 @@ body.light-mode .switcher__option:has(.switcher__input:checked) {
 
 body.light-mode .lang-btn,
 body.light-mode .theme-btn,
-body.light-mode .a11y-hamburger,
 body.light-mode .a11y-btn,
 body.light-mode .visitor-logout {
     background: #FFFFFFD9;
