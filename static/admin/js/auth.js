@@ -1,7 +1,17 @@
 import { API_BASE } from './state.js';
+import { fetchAuth, resetCsrfToken } from './utils.js';
 
 export async function logout() {
-    await fetch('/admin/logout', { method: 'POST', credentials: 'include' });
+    // fetchAuth, not fetch. POST /admin/logout is inside PROTECTED_PREFIXES
+    // (app/auth/csrf.py) and is not exempt, so a plain fetch sends no
+    // X-CSRF-Token and the middleware answers 403 before the route runs. The
+    // session row was never deleted and the cookie was never cleared, while
+    // this function redirected anyway — so "log out" left the operator fully
+    // logged in, on machines that sit in an exhibition hall. Found 2026-08-29.
+    await fetchAuth('/admin/logout', { method: 'POST' });
+    // The token is derived from the session that just died. Drop the cached
+    // copy so the next login does not reuse a token bound to a dead session.
+    resetCsrfToken();
     window.location.href = '/secure-panel-inotex/login';
 }
 
@@ -14,7 +24,10 @@ export async function reloadDataset() {
     msg.className = 'text-center fw-bold mt-2 text-warning';
     msg.innerText = '⏳ در حال بارگذاری مجدد دیتاست...';
 
-    const res = await fetch(API_BASE + '/reload_dataset', { method: 'POST', credentials: 'include' });
+    // Same CSRF bug as logout had: this POST is under /admin/ too, so a plain
+    // fetch was rejected with 403 and the sidebar's dataset button never
+    // reloaded anything. It just showed the red failure message.
+    const res = await fetchAuth(API_BASE + '/reload_dataset', { method: 'POST' });
     if (res.ok) {
         msg.className = 'text-center fw-bold mt-2 text-success';
         msg.innerText = '✅ دیتاست با موفقیت آپدیت شد';

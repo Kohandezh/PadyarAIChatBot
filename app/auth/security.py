@@ -100,15 +100,40 @@ def is_legacy_answer_hash(stored_hash: str) -> bool:
 _dummy_bcrypt_hash = ""
 
 
-def timing_equalize(password: str) -> None:
-    """Spend the same bcrypt cost an unknown username would have spent."""
+def timing_equalize(password: str, sec_answer: str = "") -> None:
+    """Spend the same bcrypt cost a KNOWN username would have spent.
+
+    TWO checks, not one. app/routers/admin.py verifies a password AND a
+    security answer for a real user, so one dummy bcrypt here left the
+    unknown-username path costing about half as much CPU as the known one.
+    An unauthenticated caller could time login attempts and learn which admin
+    usernames exist. The username is one of the three secrets the form asks
+    for, and deploy/env/*.template tells the operator to pick a non-obvious
+    one, so confirming it removes an unknown from the credential triple.
+
+    The equalizer was correct when the login had a single secret. It was not
+    updated when the security answer was added. Found by audit 2026-08-29.
+
+    `sec_answer` defaults to "" so the function still equalizes a one-secret
+    login, but the admin route passes both.
+
+    HONEST LIMIT. A row whose security answer is still a legacy SHA-256 hash
+    costs one bcrypt plus one cheap digest, so against THAT row this path is
+    now slightly slower rather than equal. Perfect equalization would need the
+    stored hash format, and knowing the format means knowing the user exists,
+    which is the thing being hidden. Two bcrypts matches the shipped case:
+    hash_security_answer() is bcrypt, and verify upgrades any legacy row on
+    the first successful login.
+    """
     global _dummy_bcrypt_hash
     if not _dummy_bcrypt_hash:
         _dummy_bcrypt_hash = hash_password(secrets.token_hex(16))
-    try:
-        bcrypt.checkpw(password.encode("utf-8"), _dummy_bcrypt_hash.encode("utf-8"))
-    except ValueError:
-        pass
+    dummy = _dummy_bcrypt_hash.encode("utf-8")
+    for secret in (password, sec_answer):
+        try:
+            bcrypt.checkpw(secret.encode("utf-8"), dummy)
+        except ValueError:
+            pass
 
 
 # --- Client IP ---
