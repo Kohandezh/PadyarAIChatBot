@@ -956,6 +956,52 @@ function initVideoState() {
             avatarVideo.play().catch(() => { /* autoplay prevented — fine */ });
         } catch (e) { /* ignore */ }
     }
+    startIdlePoolRotation();
+}
+
+// ── Idle avatar rotation ────────────────────────────────────────────────
+// While nobody is chatting, the avatar can rotate between a main idle clip
+// and up to 3 administrator-uploaded extras (Admin → دستیار هوشمند) instead
+// of looping one clip forever — an avatar that looks like it is genuinely
+// waiting for a question. `data-idle-pool` holds every configured clip; a
+// pool of 0 or 1 clips means nothing to rotate to, so this is a no-op for
+// every install that has not set up extras.
+
+const IDLE_POOL_ROTATION_MS = 30000;
+let idlePoolRotationTimer = null;
+
+function getIdlePool() {
+    if (!avatarVideo) return [];
+    let pool;
+    try {
+        pool = JSON.parse(avatarVideo.getAttribute('data-idle-pool') || '[]');
+    } catch (e) {
+        return [];
+    }
+    return Array.isArray(pool) ? pool.filter((u) => typeof u === 'string' && u) : [];
+}
+
+function startIdlePoolRotation() {
+    if (!avatarVideo) return;
+    if (idlePoolRotationTimer) clearInterval(idlePoolRotationTimer);
+    if (getIdlePool().length < 2) return;
+
+    idlePoolRotationTimer = setInterval(() => {
+        // Never interrupt an actual answer — only swap the idle loop.
+        if (isResponsePlaying) return;
+        const pool = getIdlePool();
+        if (pool.length < 2) return;
+        const current = avatarVideo.getAttribute('data-waiting-src') || '';
+        const choices = pool.filter((u) => u !== current);
+        const next = choices.length ? choices[Math.floor(Math.random() * choices.length)] : pool[0];
+        try {
+            avatarVideo.setAttribute('data-waiting-src', next);
+            avatarVideo.src = next;
+            avatarVideo.loop = true;
+            avatarVideo.muted = true;
+            avatarVideo.play().catch(() => { /* autoplay prevented — fine */ });
+        } catch (e) { /* ignore */ }
+    }, IDLE_POOL_ROTATION_MS);
 }
 
 async function checkVideoUrl(url) {

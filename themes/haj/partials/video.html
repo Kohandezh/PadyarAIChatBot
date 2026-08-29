@@ -28,7 +28,8 @@
         </div>
 
         <video id="avatar-video" muted loop playsinline
-            data-waiting-src="/media/videos/idle.mp4"
+            data-waiting-src="{{ idle_video_main or '/media/videos/idle.mp4' }}"
+            data-idle-pool="{{ idle_video_pool_json or '[]' }}"
             data-welcome-src="/media/videos/welcome.mp4"></video>
 
         <!-- Start: plays the introduction once, then hands back to the idle

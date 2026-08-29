@@ -180,6 +180,15 @@ class MenuSettingsRequest(BaseModel):
     show_logout: bool = True
 
 
+class IdleVideosRequest(BaseModel):
+    """The avatar's idle loop: one main clip plus up to
+    idle_video.IDLE_VIDEO_EXTRA_MAX random extras. Every URL must already be a
+    file uploaded through /admin/api/upload_video — the router checks that
+    with idle_video.is_valid_video_url before saving."""
+    main: str = ""
+    extra: list[str] = []
+
+
 class SmsSettingsRequest(BaseModel):
     """Registration/SMS settings.
 
