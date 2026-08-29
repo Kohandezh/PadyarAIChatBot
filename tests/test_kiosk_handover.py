@@ -576,7 +576,7 @@ async def test_a_visitor_with_no_name_still_gets_a_sign_out_button(
     # It has to say something a person with no technical knowledge reads as
     # "leave". A button labelled with a name they never gave says nothing.
     label = (await button.inner_text()).strip()
-    assert label in ("خروج", "Log out"), label
+    assert label in ("خروج از سیستم", "Log out"), label
     assert await button.get_attribute("aria-label")
     assert kiosk.errors == [], kiosk.errors
 

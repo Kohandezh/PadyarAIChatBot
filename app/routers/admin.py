@@ -13,6 +13,7 @@ from app.models import (
     LoginRequest, ToggleRequest, ChangePasswordRequest,
     ChangeSecurityQuestionRequest, BackupScheduleRequest,
     AssistantContentRequest, AIConnectionRequest, WhitelabelBrandingRequest,
+    MenuSettingsRequest,
     IdleVideosRequest,
 )
 from app.services import embeddings as embeddings_service
@@ -716,6 +717,30 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
     # changed, never the operator's raw paste.
     applog.audit("settings.branding.updated",
                  "برندینگ نصب به‌روزرسانی شد",
+                 actor=username, target="settings")
+    return {"status": "updated"}
+
+
+# ── Hamburger-drawer row visibility ─────────────────────────────────────
+
+@router.get("/admin/api/menu-settings", dependencies=[Depends(verify_admin)])
+async def get_menu_settings_api():
+    from app.services.menu_settings import get_menu_settings
+    return get_menu_settings()
+
+
+@router.post("/admin/api/menu-settings", dependencies=[Depends(verify_admin)])
+async def save_menu_settings_api(req: MenuSettingsRequest,
+                                 username: str = Depends(verify_admin)):
+    from app.services.menu_settings import set_menu_settings
+    set_menu_settings({
+        "menu_show_language": req.show_language,
+        "menu_show_theme_toggle": req.show_theme_toggle,
+        "menu_show_text_size": req.show_text_size,
+        "menu_show_logout": req.show_logout,
+    })
+    applog.audit("settings.menu.updated",
+                 "نمایش موارد منوی همبرگری به‌روزرسانی شد",
                  actor=username, target="settings")
     return {"status": "updated"}
 

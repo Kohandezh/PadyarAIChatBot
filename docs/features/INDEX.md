@@ -15,8 +15,8 @@ Central tracking for all features.
 | rate-limit-identity | Implemented | Ready | infrastructure | 2026-08-25 | 2026-08-25 |
 | grounded-selection | Implemented | Ready | chat | 2026-08-28 | 2026-08-28 |
 | companies-own-table | Implemented | In review | chat | 2026-08-29 | 2026-08-30 |
-| hamburger-menu | Implemented (both phases) | Ready | chat | 2026-08-29 | 2026-08-29 |
-| visitor-chat-history | Implemented | Ready | chat | 2026-08-29 | 2026-08-29 |
+| hamburger-menu | Implemented (all 3 phases) | Ready | chat | 2026-08-29 | 2026-08-30 |
+| visitor-chat-history | Implemented | Ready | chat | 2026-08-29 | 2026-08-30 |
 | idle-time-avatar-video | Implemented | Ready | chat | 2026-08-30 | 2026-08-30 |
 
 ## Quick Features

@@ -909,12 +909,24 @@ async def new_conversation(http_request: Request, response: Response):
     return {"ok": True}
 
 
+MENU_HISTORY_PAGE_SIZE = 10
+
+
 @router.get("/api/chat/conversations",
            dependencies=[Depends(validate_request_origin)])
-async def list_my_conversations(visitor_id: str = Depends(visitor_auth.require_visitor)):
+async def list_my_conversations(offset: int = 0,
+                                visitor_id: str = Depends(visitor_auth.require_visitor)):
     """A signed-in visitor's own past conversations — the hamburger drawer's
     "my chats" list. Anonymous gets a 401 carrying the registration_required
     marker (from require_visitor), which is what opens the signup card.
+
+    Paginated 10 at a time (MENU_HISTORY_PAGE_SIZE): the drawer shows the
+    first page immediately and fetches the next one as the visitor scrolls
+    the list, rather than loading a visitor's entire history up front.
+    `has_more` is computed by asking for one extra row and trimming it off,
+    which is cheap enough here (the ORDER BY / LIMIT / OFFSET query this
+    reuses is the same one the admin panel's conversations list already
+    runs) and needs no separate COUNT query.
 
     Origin-checked like the other per-visitor endpoints even though it only
     reads: this is one visitor's private transcript list, not public data.
@@ -922,7 +934,11 @@ async def list_my_conversations(visitor_id: str = Depends(visitor_auth.require_v
     dependency graph — tests/test_visitor_auth_otp.py walks every route that
     requires a visitor session and asserts each one also checks origin.
     """
-    return {"conversations": conversations.list_conversations_for_visitor(visitor_id)}
+    offset = max(0, offset)
+    rows = conversations.list_conversations_for_visitor(
+        visitor_id, limit=MENU_HISTORY_PAGE_SIZE + 1, offset=offset)
+    has_more = len(rows) > MENU_HISTORY_PAGE_SIZE
+    return {"conversations": rows[:MENU_HISTORY_PAGE_SIZE], "has_more": has_more}
 
 
 @router.get("/api/chat/conversations/{conversation_id}",

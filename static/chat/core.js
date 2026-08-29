@@ -285,57 +285,104 @@ function forgetTranscript() {
 // once the server has answered GET /api/auth/session; this reads that instead
 // of asking the server itself a second time. See
 // docs/features/hamburger-menu/SPEC.md for why this stayed hidden until now.
+//
+// Paginated: the drawer shows the first MENU_HISTORY_PAGE_SIZE conversations
+// and loads the next page when the visitor scrolls #menu-history (the one
+// internally-scrolling region, see static/chat/base.css) near its bottom —
+// not the whole drawer, and not a "load more" button. GET /api/chat/conversations
+// (app/routers/chat.py) does the actual paging server-side and reports
+// has_more so the frontend knows when to stop asking.
 
 const TRASH_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>' +
     '<path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/></svg>';
 
-function renderMenuHistory(items) {
+const MENU_HISTORY_PAGE_SIZE = 10;
+const MENU_HISTORY_SCROLL_THRESHOLD_PX = 48;
+
+let menuHistoryOffset = 0;
+let menuHistoryHasMore = true;
+let menuHistoryLoading = false;
+
+function renderMenuHistoryRow(conv, list) {
+    const fa = document.documentElement.lang !== 'en';
+    const li = document.createElement('li');
+    li.className = 'menu-history-item';
+
+    const title = document.createElement('span');
+    title.className = 'menu-history-item-title';
+    title.textContent = conv.preview || (fa ? 'گفتگو' : 'Conversation');
+    title.addEventListener('click', function () { openMenuHistoryItem(conv.id); });
+    li.appendChild(title);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'menu-history-delete';
+    const delLabel = fa ? 'حذف گفتگو' : 'Delete conversation';
+    del.title = delLabel;
+    del.setAttribute('aria-label', delLabel);
+    del.innerHTML = TRASH_ICON;
+    del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteMenuHistoryItem(conv.id, li);
+    });
+    li.appendChild(del);
+
+    list.appendChild(li);
+}
+
+/** `append`: false replaces the visible list (a fresh drawer-open), true adds
+    a page on top of what is already shown (scrolled-in-more). */
+function renderMenuHistory(items, append) {
     const section = document.getElementById('menu-history');
     const list = document.getElementById('menu-history-list');
     if (!section || !list) return;
-    const fa = document.documentElement.lang !== 'en';
-    list.textContent = '';
-    items.forEach(function (conv) {
-        const li = document.createElement('li');
-        li.className = 'menu-history-item';
-
-        const title = document.createElement('span');
-        title.className = 'menu-history-item-title';
-        title.textContent = conv.preview || (fa ? 'گفتگو' : 'Conversation');
-        title.addEventListener('click', function () { openMenuHistoryItem(conv.id); });
-        li.appendChild(title);
-
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'menu-history-delete';
-        const delLabel = fa ? 'حذف گفتگو' : 'Delete conversation';
-        del.title = delLabel;
-        del.setAttribute('aria-label', delLabel);
-        del.innerHTML = TRASH_ICON;
-        del.addEventListener('click', function (e) {
-            e.stopPropagation();
-            deleteMenuHistoryItem(conv.id, li);
-        });
-        li.appendChild(del);
-
-        list.appendChild(li);
-    });
-    section.hidden = items.length === 0;
+    if (!append) list.textContent = '';
+    items.forEach(function (conv) { renderMenuHistoryRow(conv, list); });
+    if (!append) section.hidden = items.length === 0;
 }
 
+/** Fetch and show page 1. Resets pagination state — called once per drawer
+    open, so a conversation started/deleted elsewhere is never stale. */
 function refreshMenuHistory() {
     const section = document.getElementById('menu-history');
     if (!section) return;
+    menuHistoryOffset = 0;
+    menuHistoryHasMore = true;
+    menuHistoryLoading = false;
     if (document.documentElement.dataset.visitor !== 'in') {
         section.hidden = true;
         return;
     }
-    fetch('/api/chat/conversations', { credentials: 'same-origin' })
-        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
-        .then(function (data) { renderMenuHistory(data.conversations || []); })
-        .catch(function () { /* offline — leave the section as it was */ });
+    menuHistoryLoading = true;
+    fetch('/api/chat/conversations?offset=0', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { conversations: [], has_more: false }; })
+        .then(function (data) {
+            const items = data.conversations || [];
+            renderMenuHistory(items, false);
+            menuHistoryOffset = items.length;
+            menuHistoryHasMore = !!data.has_more;
+        })
+        .catch(function () { /* offline — leave the section as it was */ })
+        .then(function () { menuHistoryLoading = false; });
+}
+
+/** Fetch and append the next page, if there is one and nothing is already
+    in flight. Bound to #menu-history's own scroll, not the page's. */
+function loadMoreMenuHistory() {
+    if (menuHistoryLoading || !menuHistoryHasMore) return;
+    menuHistoryLoading = true;
+    fetch('/api/chat/conversations?offset=' + menuHistoryOffset, { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { conversations: [], has_more: false }; })
+        .then(function (data) {
+            const items = data.conversations || [];
+            renderMenuHistory(items, true);
+            menuHistoryOffset += items.length;
+            menuHistoryHasMore = !!data.has_more;
+        })
+        .catch(function () { /* offline — try again on the next scroll tick */ })
+        .then(function () { menuHistoryLoading = false; });
 }
 
 /** Click a history row: replace the visible chat with that conversation's
@@ -1270,6 +1317,20 @@ function initChat() {
                 closeMenu();
             }
         });
+        // "My chats" pagination: bound once here (not per drawer-open, which
+        // would stack duplicate listeners) to #menu-history's OWN scroll —
+        // that element is the one that actually scrolls (base.css), not the
+        // drawer or the page. Fires loadMoreMenuHistory() near the bottom.
+        const menuHistorySection = document.getElementById('menu-history');
+        if (menuHistorySection) {
+            menuHistorySection.addEventListener('scroll', () => {
+                const distanceFromBottom = menuHistorySection.scrollHeight
+                    - menuHistorySection.scrollTop - menuHistorySection.clientHeight;
+                if (distanceFromBottom <= MENU_HISTORY_SCROLL_THRESHOLD_PX) {
+                    loadMoreMenuHistory();
+                }
+            });
+        }
         // A row that navigates (e.g. a future history item) should close the
         // drawer behind it rather than leave it open over the new view.
         menuDrawer.querySelectorAll('[data-menu-close]').forEach((el) => {

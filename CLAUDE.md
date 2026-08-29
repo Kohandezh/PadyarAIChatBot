@@ -191,6 +191,7 @@ PadyarAIChatbot/
       company_search.py          # Company lookup for the leads module
       themes.py                  # Theme discovery from themes/ dir
       branding.py                # White-label defaults (WL_DEFAULTS) + branding context
+      menu_settings.py           # Hamburger-drawer row visibility (admin-toggleable)
       idle_video.py              # Avatar idle-loop setup: main + up to 3 random extras
       backup.py                  # DB backup scheduler + operations
       backup_center.py           # Infrastructure -> Backups business logic
@@ -598,6 +599,7 @@ Active theme is stored in the `settings` table (key `active_theme`) and switchab
 | `app/services/otp.py`     | OTP lifecycle + `otp_challenges` schema — read before touching auth |
 | `app/services/sms.py`     | SMS gateways — credential precedence (settings → env → default) |
 | `app/services/taxonomy.py`| Registration/planner vocabulary — validates + hot-reloads the JSON |
+| `app/services/menu_settings.py` | Hamburger-drawer row visibility (language/theme/text-size/logout), admin-toggleable |
 | `app/services/idle_video.py` | Avatar idle-loop setup — main + up to 3 random extras, gated on the `video` module |
 | `app/db/connection.py`    | Database schema — table definitions, seeding                    |
 | `app/auth/security.py`    | All security — tokens, rate limits, admin auth                  |

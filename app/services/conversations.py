@@ -784,20 +784,26 @@ def register_visitor(conversation_id: str, profile: dict) -> str:
 # accept a visitor_id from the request body/query here: that is exactly the
 # self-asserted-identity hole app/auth/visitor.py's docstring describes.
 
-def list_conversations_for_visitor(visitor_id: str, *, limit: int = 30) -> list:
+def list_conversations_for_visitor(visitor_id: str, *, limit: int = 30,
+                                   offset: int = 0) -> list:
     """A visitor's own conversations, newest first, with a short preview.
 
     Thin wrapper over list_conversations(), scoped to one visitor_id, plus a
     `preview` per row — the first message's text, trimmed — so a "my chats"
     list has something to show besides a timestamp. One extra read per row on
-    top of the admin version: this list is short (one visitor's own history,
-    not a paginated scan of everyone), the same trade-off
+    top of the admin version: each page is short (10 rows at a time from the
+    drawer, see app/routers/chat.py), the same trade-off
     app/routers/conversations_admin.py already makes for /conversations/weak.
+
+    `offset` pages through a visitor's history 10 at a time (the drawer's
+    infinite scroll) — capped the same way `limit` is, at 100, since letting
+    either grow unbounded turns one request into a full-table scan.
     """
     if not visitor_id:
         return []
     rows = list_conversations(visitor_id=visitor_id,
-                              limit=max(1, min(int(limit), 100)))
+                              limit=max(1, min(int(limit), 100)),
+                              offset=max(0, min(int(offset), 10_000)))
     for row in rows:
         first = conversation_messages(row["id"], limit=1)
         text = (first[0]["text"] if first else "").strip()
