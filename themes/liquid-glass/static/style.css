@@ -1589,7 +1589,7 @@ body.video-mode .pet-companion {
 
 
 /* ── Layout Overrides ── */
-div#text-view { width: var(--chat-measure); max-width: 100%; margin: 0 auto; padding: 0; position: relative; }
+div#text-view { width: var(--chat-measure); max-width: 100%; margin: 0 auto; padding: 0; height: calc(100% - 117px); position: relative; }
 
 /* The header is fixed, so the conversation must start below it — and the input
    bar is fixed too, so the last message must clear it. */
@@ -1610,12 +1610,6 @@ div#text-view { width: var(--chat-measure); max-width: 100%; margin: 0 auto; pad
    ResizeObserver comparing scrollHeight to clientHeight — no flexbox edge case
    to rely on, and trivially verifiable. */
 #chat-view-content.is-short { justify-content: center; }
-
-/* base.css reserves 80px under the last message to clear the input bar. This
-   theme already reserves --input-reserve for exactly that, so that margin is
-   pure dead space — but it must become `auto`, not `0`, or it out-specifies
-   the centring rule above and pins the conversation to the bottom again. */
-#chat-view-content .message:last-child { margin-bottom: 0; }
 
 /* The chips are part of the same composition as the message above them, not a
    detached block floating in the gap. */
