@@ -15,6 +15,7 @@ Central tracking for all features.
 | rate-limit-identity | Implemented | Ready | infrastructure | 2026-08-25 | 2026-08-25 |
 | grounded-selection | Implemented | Ready | chat | 2026-08-28 | 2026-08-28 |
 | companies-own-table | Approved | Not started | chat | 2026-08-29 | 2026-08-29 |
+| hamburger-menu | Implemented (Phase 1 only — Phase 2 blocked, see SPEC.md) | Ready | chat | 2026-08-29 | 2026-08-29 |
 
 ## Quick Features
 

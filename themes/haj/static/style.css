@@ -788,19 +788,15 @@ html[dir="ltr"] .haj-theme-toggle[aria-checked="true"] .haj-theme-knob {
 }
 
 
-/* a11y menu */
-.haj-a11y {
-    position: relative;
+/* Hamburger drawer — --haj-surface-raised/--haj-line already redefine under
+   body.haj-dark, so this adapts to the light/dark toggle for free. */
+.menu-drawer {
+    background: var(--haj-surface-raised);
+    color: var(--haj-ink);
 }
 
-.haj-a11y-menu .a11y-dropdown-content {
-    display: flex;
-    gap: var(--haj-s-1);
-    padding: var(--haj-s-1);
-    background: var(--haj-surface-raised);
-    border: var(--haj-bw) solid var(--haj-line);
-    border-radius: var(--haj-r-soft);
-    box-shadow: var(--haj-shadow-lg);
+.menu-section {
+    border-color: var(--haj-line);
 }
 
 .haj-a11y-btn {
@@ -1459,9 +1455,9 @@ body.haj-dark .bubble-text a:hover {
 .haj-composer {
     display: flex;
     flex-direction: row-reverse;
-    /* DOM order is mic → speaker → keyboard → input → send, which under RTL
-       reads right-to-left; reversing the row restores the drawn order
-       (voice controls on one side, send on the other). */
+    /* DOM order is mic → keyboard → input → send, which under RTL reads
+       right-to-left; reversing the row restores the drawn order (voice
+       controls on one side, send on the other). */
     align-items: center;
     gap: var(--haj-s-1);
     width: 100%;
@@ -1584,16 +1580,6 @@ html[dir="ltr"] #send-btn.haj-send svg {
     background: var(--haj-navy);
 }
 
-/* Speaker on */
-#tts-btn.is-on {
-    border-color: var(--haj-primary);
-    background: rgba(23, 142, 172, 0.12);
-}
-
-#tts-btn:not(.is-on) .haj-tts-wave {
-    opacity: .35;
-}
-
 /* Voice states — spelled out in #haj-composer-hint as well as shown. */
 .haj-composer[data-voice="listening"] {
     border-width: var(--haj-bw-active);
@@ -1607,12 +1593,6 @@ html[dir="ltr"] #send-btn.haj-send svg {
 .haj-composer[data-voice="processing"] #mic-btn,
 .haj-composer[data-voice="processing"] #send-btn {
     opacity: .6;
-}
-
-.haj-composer[data-voice="speaking"] #tts-btn {
-    border-color: var(--haj-primary);
-    background: rgba(23, 142, 172, 0.12);
-    animation: haj-pulse 2s infinite;
 }
 
 /* base.css pulses the mic with its own red shadow; the theme replaces it. */
@@ -2434,10 +2414,8 @@ body.haj-dark :focus-visible {
         height: 52px;
     }
 
-    /* Four controls plus the input do not fit one phone line; the speaker
-       and keyboard buttons are the ones with alternatives elsewhere (the
-       speaker toggles from the answer card, the keyboard opens on focus). */
-    #tts-btn,
+    /* Three controls plus the input do not fit one phone line; the keyboard
+       button has an alternative elsewhere (the field opens it on focus). */
     #haj-keyboard-btn {
         display: none;
     }

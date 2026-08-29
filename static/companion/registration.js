@@ -268,21 +268,21 @@
         const p = server.known
             ? (server.signed_in ? server.profile : null)
             : storedName();
-        const header = document.querySelector('.header-tools');
+        // The account row at the bottom of the hamburger drawer — one fixed
+        // anchor present on every theme, instead of the old `.header-tools`
+        // lookup (a class only two of four themes ever had, so this control
+        // silently never appeared on the other two).
+        const section = document.getElementById('menu-account-section');
         let logoutBtn = document.getElementById('visitor-logout');
 
         if (p && (server.signed_in || displayName(p))) {
-            if (!logoutBtn && header) {
+            if (!logoutBtn && section) {
                 logoutBtn = document.createElement('button');
                 logoutBtn.type = 'button';
                 logoutBtn.id = 'visitor-logout';
-                logoutBtn.className = 'visitor-logout';
+                logoutBtn.className = 'visitor-logout menu-account-btn';
                 logoutBtn.addEventListener('click', logout);
-                // Beside the hamburger: leaving is an account action, and the
-                // account controls live at that end of the header.
-                const a11y = header.querySelector('.accessibility-controls');
-                if (a11y) a11y.insertAdjacentElement('afterend', logoutBtn);
-                else header.append(logoutBtn);
+                section.append(logoutBtn);
             }
             if (logoutBtn) {
                 logoutBtn.textContent = t().logout;

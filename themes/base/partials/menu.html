@@ -1,0 +1,66 @@
+<!-- Hamburger drawer menu — everything that used to sit in the header, in one
+     place. Base/minimal: language + text size + account only. No dark/light
+     row — this theme has no dark mode today (see
+     docs/features/hamburger-menu/SPEC.md, Open Question C, before adding one). -->
+<div class="menu-backdrop" id="menu-backdrop"></div>
+<nav class="menu-drawer" id="menu-drawer" data-i18n-aria-label="menuTitle" aria-label="منو">
+    <button type="button" class="menu-drawer-close" id="menu-close"
+        data-i18n-title="closeMenu" title="بستن منو" aria-label="بستن منو" data-menu-close>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+    </button>
+
+    <!-- My chats — Phase 2, not built yet. Hidden until a visitor's
+         conversations can actually be listed/deleted server-side; see
+         docs/features/hamburger-menu/SPEC.md (Open Questions A/B). -->
+    <div class="menu-section" id="menu-history" hidden>
+        <div class="menu-section-label" data-i18n="historyLabel">گفتگوهای من</div>
+        <ul class="menu-history-list" id="menu-history-list"></ul>
+    </div>
+
+    <div class="menu-section">
+        <div class="menu-row">
+            <span class="menu-row-label">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
+                </svg>
+                <span data-i18n="languageLabel">زبان</span>
+            </span>
+            <div class="lang-switch">
+                <button class="lang-btn" id="lang-btn" type="button" aria-label="Switch to English"
+                    title="Switch to English">EN</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="menu-section">
+        <div class="menu-row">
+            <span class="menu-row-label">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 7V4h16v3" />
+                    <path d="M9 20h6" />
+                    <path d="M12 4v16" />
+                </svg>
+                <span data-i18n="textSizeLabel">اندازه متن</span>
+            </span>
+            <div class="menu-a11y-buttons">
+                <button class="a11y-btn" type="button" onclick="adjustFontSize(1)" title="افزایش سایز متن"
+                    data-i18n-title="fontInc" aria-label="Increase font size">A+</button>
+                <button class="a11y-btn" type="button" onclick="adjustFontSize(-1)" title="کاهش سایز متن"
+                    data-i18n-title="fontDec" aria-label="Decrease font size">A-</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account (login/logout) — populated by static/companion/registration.js
+         only when the registration module is enabled for this install and a
+         visitor is signed in. Empty and invisible otherwise. -->
+    <div class="menu-section" id="menu-account-section"></div>
+</nav>
