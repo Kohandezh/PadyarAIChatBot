@@ -124,7 +124,6 @@ COMPANION-OFF (end) -->
                     'مدارک، هزینه‌ها و خدمات سفر دارید، همین‌جا بپرسید.',
                 placeholder: 'سؤال خود را درباره خدمات حج و زیارت بپرسید...',
                 typing: 'در حال آماده‌کردن پاسخ…',
-                videoStart: 'پخش معرفی',
                 micTitle: 'پرسیدن با صدا',
                 micStop: 'پایان دادن به ضبط صدا',
                 sendTitle: 'ارسال پرسش',
@@ -163,7 +162,6 @@ COMPANION-OFF (end) -->
             var c = s();
             text('haj-welcome', c.welcome);
             text('haj-typing-label', c.typing);
-            text('haj-video-start-label', c.videoStart);
             text('haj-pet-eyebrow', c.petEyebrow);
             text('pet-panel-title', c.petTitle);
             label('haj-keyboard-btn', c.keyboard);
@@ -340,7 +338,7 @@ COMPANION-OFF (end) -->
                 typeWriter(textLayer, content);
             } else {
                 // renderMarkdown() from static/chat/core.js escapes before it parses; a bare
-                   marked.parse into innerHTML runs whatever a visitor typed.
+                // marked.parse into innerHTML runs whatever a visitor typed.
                 renderMarkdown(textLayer, content);
                 enrich(textLayer);
                 msg.classList.add('is-complete');
@@ -534,106 +532,24 @@ COMPANION-OFF (end) -->
     })();
 
 
-    /* ── Video tab: idle loop → introduction → idle loop ──────────────
-       The stage rests on the idle clip. Pressing Start plays the
-       introduction once, with sound (the press is the gesture browsers
-       require for audio), and when it ends the idle loop takes over again
-       and waits for the conversation. core.js owns `data-waiting-src`, so
-       an answered video question returns to exactly the same resting clip —
-       there is one definition of "resting", not two.
-
-       The placeholder is a fallback, not an overlay: it hides only once real
-       frames exist, so a missing clip leaves the explanatory card on screen
-       instead of a black rectangle, and Start removes itself rather than
-       promising a film that is not there. */
+    /* ── Video tab: the placeholder is a fallback, not a permanent overlay ──
+       core.js starts and loops the idle clip (initVideoState). This block
+       only hides the explanatory card once real frames exist, and brings it
+       back if the clip fails, so a missing clip leaves the card on screen
+       instead of a black rectangle. */
     (function () {
         var video = document.getElementById('avatar-video');
-        if (!video) return;
-
-        var startBtn = document.getElementById('video-start');
-        var welcomeSrc = video.getAttribute('data-welcome-src') || '';
-        var idleSrc = video.getAttribute('data-waiting-src') || '';
-        var playingWelcome = false;
-        var INTRO_SEEN = 'haj-intro-seen';
-        var introSeen = (function () {
-            try { return localStorage.getItem(INTRO_SEEN) === '1'; } catch (e) { return false; }
-        })();
-
-        // The card is a fallback UNDER the picture, not an overlay: it goes
-        // the instant real frames exist and comes back if the source fails.
-        // 'playing' alone is not enough — autoplay may be blocked, or the clip
-        // may already be buffered before this listener attaches, and either
-        // way the card would sit on top of a playing film.
         var placeholder = document.getElementById('video-placeholder');
-        function hideCard() { if (placeholder) placeholder.hidden = true; }
-        function showCard() { if (placeholder) placeholder.hidden = false; }
+        if (!video || !placeholder) return;
+
+        function hideCard() { placeholder.hidden = true; }
+        function showCard() { placeholder.hidden = false; }
         ['playing', 'loadeddata', 'canplay'].forEach(function (evt) {
             video.addEventListener(evt, hideCard);
         });
+        video.addEventListener('error', showCard);
         video.addEventListener('emptied', showCard);
         if (video.readyState >= 2) hideCard();   // buffered before we bound
-
-        // A clip that cannot load takes the Start button with it rather than
-        // offering a press that leads nowhere, and puts the card back so the
-        // tab explains itself instead of going black.
-        video.addEventListener('error', function () {
-            if (startBtn) startBtn.hidden = true;
-            showCard();
-        });
-
-        function toIdle() {
-            playingWelcome = false;
-            if (!idleSrc) return;
-            video.loop = true;
-            video.muted = true;
-            if (!video.currentSrc || video.currentSrc.indexOf(idleSrc) === -1) {
-                video.src = idleSrc;
-            }
-            video.play().catch(function () { });
-        }
-
-        function playWelcome() {
-            if (!welcomeSrc) return;
-            playingWelcome = true;
-            // Once, and once only — the choice is remembered, so the button
-            // does not come back on the next visit to invite a replay of an
-            // introduction this person has already watched.
-            if (startBtn) startBtn.hidden = true;
-            try { localStorage.setItem(INTRO_SEEN, '1'); } catch (e) { /* private mode */ }
-            video.loop = false;
-            video.src = welcomeSrc;
-            video.muted = false;
-            video.volume = 1;
-            video.play().catch(function () {
-                video.muted = true;          // sound refused — still show it
-                video.play().catch(function () { });
-            });
-        }
-
-        // Only the introduction ends (the idle clip loops), so this is the
-        // handover point.
-        video.addEventListener('ended', function () {
-            if (playingWelcome) toIdle();
-        });
-
-        if (startBtn) {
-            startBtn.addEventListener('click', playWelcome);
-            // Revealed only once the idle clip plays AND the introduction is
-            // confirmed to exist. Offering a button that leads to a 404 is
-            // worse than offering none: the visitor presses it, the stage
-            // goes blank, and they have no way to tell whose fault it was.
-            if (welcomeSrc && !introSeen) {
-                video.addEventListener('canplay', function () {
-                    if (playingWelcome) return;
-                    fetch(welcomeSrc, { method: 'HEAD' }).then(function (res) {
-                        if (res.ok && !playingWelcome) startBtn.hidden = false;
-                    }).catch(function () { /* no introduction on this install */ });
-                }, { once: true });
-            }
-        }
-
-        // Rest on the idle loop as soon as the tab has media to show.
-        toIdle();
     })();
 
 

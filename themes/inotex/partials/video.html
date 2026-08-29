@@ -16,23 +16,10 @@
                 <span data-i18n="videoReadyHint">برای گفتگو یا دریافت راهنمایی، تب چت را انتخاب کنید.</span>
             </div>
         </div>
-        <!-- Two clips, one element. `data-waiting-src` is the idle loop the
-             shared core.js returns to after any answer; the welcome clip is
-             played once on demand by the Start button below. -->
+        <!-- `data-waiting-src` is the idle loop the shared core.js plays as
+             soon as the tab is shown, and returns to after any answer. -->
         <video id="avatar-video" muted loop playsinline
             data-waiting-src="{{ idle_video_main or '/media/videos/idle.mp4' }}"
-            data-idle-pool="{{ idle_video_pool_json or '[]' }}"
-            data-welcome-src="/media/videos/welcome.mp4"></video>
-
-        <!-- Start: plays the welcome once, then hands back to the idle loop.
-             It is the visitor's first gesture on the page, which is also what
-             lets the browser play the welcome with sound. -->
-        <button type="button" class="video-start" id="video-start">
-            <span class="video-start-ring" aria-hidden="true"></span>
-            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
-                <path d="M8 5v14l11-7z" />
-            </svg>
-            <span class="video-start-label" data-i18n="startVideo">شروع</span>
-        </button>
+            data-idle-pool="{{ idle_video_pool_json or '[]' }}"></video>
     </div>
 </div>
