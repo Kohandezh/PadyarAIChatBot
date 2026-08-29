@@ -345,8 +345,9 @@ COMPANION-OFF (end) -->
                 }).observe(textLayer, { childList: true, subtree: true });
                 typeWriter(textLayer, content);
             } else {
-                if (typeof marked !== 'undefined') textLayer.innerHTML = marked.parse(content);
-                else textLayer.textContent = content;
+                // renderMarkdown() from static/chat/core.js escapes before it parses; a bare
+                   marked.parse into innerHTML runs whatever a visitor typed.
+                renderMarkdown(textLayer, content);
                 enrich(textLayer);
                 msg.classList.add('is-complete');
             }
