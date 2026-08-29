@@ -203,3 +203,66 @@ Not in the original scope; a follow-up request once Phase 1+2 were live.
 - **"My chats" pagination**: see `docs/features/visitor-chat-history/SPEC.md`
   — the list that shipped un-paginated in Phase 2 now pages 10 at a time,
   loading more as the visitor scrolls `#menu-history` itself.
+
+## Phase 4 — Desktop persistent sidebar (2026-08-30)
+
+A same-day follow-up to Phase 3, explicitly requested "daghighan mesle
+screenshot hai" (exactly like ChatGPT's own desktop layout: a collapsible
+sidebar beside the conversation, not an overlay over it).
+
+- **Scope: `base`/`inotex`/`minimal`/`liquid-glass` only.** `haj` keeps its
+  own bespoke full-width top-bar shell unchanged at every viewport width —
+  it is a deliberately different, customer-specific layout (calm blue,
+  large type, centered chatbox), and its `index.html`/`header.html`/
+  `menu.html` were not touched at all by this phase. Its own hamburger
+  overlay behavior is exactly what it was before Phase 4.
+- **Below 992px** (`static/chat/base.css`): unchanged — the drawer is a
+  `position: fixed` overlay, opened by the header's `#menu-toggle`
+  hamburger, dismissed by the X / outside click / Escape, exactly as
+  Phases 1–3 left it.
+- **At and above 992px**: the SAME `menu.html` markup becomes a persistent
+  sidebar. `body` becomes `flex-direction: row`; `#menu-drawer` leaves
+  `position: fixed` for `position: static` and a `flex: 0 0 300px` slot
+  beside `.app-layout` (`flex: 1 1 auto`). Included in the DOM BEFORE
+  `.app-layout` in `themes/base/partials/index.html` on purpose: `body`
+  stays `dir="rtl"`, so the first flex child renders at the physical right —
+  the same edge the mobile overlay already anchored to
+  (`.menu-drawer { right: 0 }`). Open by default (no admin/visitor action
+  needed); a visitor's own collapse choice persists per-browser in
+  `localStorage` (`inotex_sidebar_collapsed`, `static/chat/core.js`) and
+  nothing else's.
+- **Collapse control**: `#menu-sidebar-toggle`, a NEW element inside
+  `menu.html`'s new `.menu-sidebar-header` — entirely separate from the
+  mobile hamburger (`#menu-toggle`, `display: none` at this width) and from
+  the mobile close button (`#menu-drawer-close`, same). Expanded, the brand
+  mark and the toggle icon sit side by side. Collapsed (`.menu-drawer
+  .collapsed`, flex-basis 76px), the row/footer/history content hides and
+  ONLY this button remains, showing the brand mark at rest; hovering it
+  cross-fades to the rail-toggle icon ("hover the collapsed menu and the
+  logo becomes the toggle button", the exact behavior asked for) —
+  `.menu-sidebar-toggle-logo` / `.menu-sidebar-toggle-icon`, two stacked
+  `position: absolute` layers whose opacity the `:hover` selector swaps.
+  Brand mark: `wl_logo_url` if the admin set one, else the install's own
+  first letter (`(app_title or 'پ')[0]`) — no new theme-specific art asset.
+- **"New chat" moved into the sidebar**, replacing the old `گفتگوهای من`
+  section label rather than sitting beside it: `#new-chat-btn` (id
+  unchanged — `static/chat/core.js`'s handler is `getElementById`-driven, so
+  relocating it changed nothing there) now lives in `menu.html` as the
+  first row, always visible (signed in or not, mobile or desktop), WITH a
+  visible label ("گفتگوی جدید") for the first time — it used to be
+  icon-only in the header (Phase 1's REQ-001). Removed entirely from
+  `header.html` in the three themes that had it there
+  (`base`/`inotex`/`liquid-glass`; `minimal` inherits `base`'s). `haj` was
+  not touched (see Scope above) and keeps its own icon-only header copy.
+- **Tests updated for the new reality** (all in the same change):
+  `tests/test_public_ui.py::test_every_theme_localises_the_new_chat_button`,
+  `tests/test_kiosk_privacy.py::test_every_theme_sidebar_localises_the_new_chat_button`
+  (+ a new `test_haj_header_still_localises_the_new_chat_button`), and
+  `tests/e2e/test_chat_localisation.py::test_the_new_chat_button_is_localised_like_every_other_control`
+  now assert the button's visible text localizes too, not just title/
+  aria-label, and that it lives in `menu.html` for the four in-scope themes.
+- **Verification**: live browser check at 1280px (sidebar beside chat,
+  collapse/expand, hover-morph, "New chat" clears the transcript exactly
+  like before) and at mobile width (identical hamburger-overlay behavior to
+  before this phase) — both via a local dev server, not just the
+  automated suite.

@@ -739,8 +739,224 @@ button:disabled {
     opacity: 1;
 }
 
+/* "New chat" — always the first row, signed-in or not, mobile or desktop
+   (matches every ChatGPT-style sidebar). Its own row rather than a
+   .menu-section: it does not toggle, delete, or admin-hide like the rows
+   below it. */
+.menu-newchat-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 10px;
+    background: transparent;
+    color: currentColor;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.92rem;
+    text-align: start;
+}
+
+.menu-newchat-btn:hover,
+.menu-newchat-btn:focus-visible {
+    background: rgba(128, 128, 128, 0.14);
+}
+
+.menu-newchat-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
+/* liquid-glass wraps every control's real content in .liquidGlass-effect/
+   -shine/-text (see its own style.css); the first two are absolutely
+   positioned there, so only .liquidGlass-text needs the row layout the
+   button itself has everywhere else. A no-op selector on every theme that
+   never has this class on this button. */
+.menu-newchat-btn .liquidGlass-text {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
 @media (min-width: 769px) {
     .menu-drawer {
         width: 300px;
+    }
+}
+
+/* ── Desktop: persistent, collapsible sidebar ──────────────────────────
+   Below this width the drawer is what it has always been: a fixed overlay
+   the hamburger button opens and closes (.open), dismissed by the X, an
+   outside click, or Escape. At and above it, the SAME markup becomes a
+   sidebar that sits beside the chat instead of over it — part of the page's
+   own flex layout, not `position: fixed` — open by default, and collapsible
+   to a narrow logo-only rail via #menu-sidebar-toggle (a separate control
+   from the mobile hamburger, which is hidden here). Two independent state
+   machines on one element: `.open` (mobile slide) and `.collapsed` (desktop
+   rail) never both apply at the same viewport width, so they cannot
+   conflict — see static/chat/core.js for which one JS drives at which width.
+
+   Scope: base/inotex/minimal/liquid-glass only. haj keeps its own
+   full-width top-bar layout (a deliberately different, bespoke shell for
+   that install) unchanged at every width — its menu.html has none of the
+   markup these rules target, so this block is simply inert there. */
+@media (min-width: 992px) {
+    body {
+        flex-direction: row;
+    }
+
+    .app-layout {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0;
+    }
+
+    .menu-backdrop {
+        display: none;
+    }
+
+    .menu-drawer {
+        position: static;
+        height: 100dvh;
+        width: auto;
+        flex: 0 0 300px;
+        transform: none;
+        transition: flex-basis 0.18s ease;
+        box-shadow: none;
+        border-left: 1px solid rgba(128, 128, 128, 0.15);
+    }
+
+    .menu-drawer.collapsed {
+        flex-basis: 76px;
+    }
+
+    /* Mobile-only chrome, hidden once the sidebar is part of the layout. */
+    .menu-drawer-close {
+        display: none;
+    }
+
+    /* The header's own hamburger only makes sense for the mobile overlay;
+       the sidebar's own toggle (below) replaces it here. */
+    #menu-toggle {
+        display: none;
+    }
+
+    .menu-sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 14px;
+        margin-bottom: 4px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+    }
+
+    .menu-drawer.collapsed .menu-sidebar-header {
+        justify-content: center;
+    }
+
+    .menu-sidebar-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        overflow: hidden;
+        font-weight: 700;
+        font-size: 0.95rem;
+    }
+
+    .menu-sidebar-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .menu-drawer.collapsed .menu-sidebar-logo {
+        display: none;
+    }
+
+    .menu-sidebar-toggle-btn {
+        position: relative;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: transparent;
+        border: none;
+        color: currentColor;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.75;
+    }
+
+    .menu-sidebar-toggle-btn:hover,
+    .menu-sidebar-toggle-btn:focus-visible {
+        opacity: 1;
+        background: rgba(128, 128, 128, 0.14);
+    }
+
+    /* Expanded: the toggle is its own button next to the logo, always the
+       rail icon — no morphing needed, the logo already has its own slot. */
+    .menu-sidebar-toggle-logo {
+        display: none;
+    }
+
+    /* Collapsed: the logo's own slot is gone, so this SAME button carries a
+       copy of the logo at rest, and only reveals the rail icon on hover —
+       "hover the collapsed menu and the logo becomes the toggle button". */
+    .menu-drawer.collapsed .menu-sidebar-toggle-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        inset: 0;
+        border-radius: 8px;
+        overflow: hidden;
+        font-weight: 700;
+        font-size: 0.95rem;
+        opacity: 1;
+        transition: opacity 0.15s ease;
+    }
+
+    .menu-drawer.collapsed .menu-sidebar-toggle-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .menu-drawer.collapsed .menu-sidebar-toggle-icon {
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+
+    .menu-drawer.collapsed .menu-sidebar-toggle-btn:hover .menu-sidebar-toggle-logo {
+        opacity: 0;
+    }
+
+    .menu-drawer.collapsed .menu-sidebar-toggle-btn:hover .menu-sidebar-toggle-icon {
+        opacity: 1;
+    }
+
+    /* Collapsed rail: everything below the header hides — a "my chats" list,
+       language row, etc. cannot read as icons with no clutter, and ChatGPT's
+       own collapsed rail hides its equivalent rows too, not just labels. */
+    .menu-drawer.collapsed #menu-history,
+    .menu-drawer.collapsed .menu-footer,
+    .menu-drawer.collapsed .menu-newchat-btn span {
+        display: none;
+    }
+
+    .menu-drawer.collapsed .menu-newchat-btn {
+        justify-content: center;
+        padding: 8px;
     }
 }

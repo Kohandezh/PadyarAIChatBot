@@ -222,20 +222,30 @@ def test_core_js_has_fa_en_i18n_and_switch():
 
 
 def test_every_theme_localises_the_new_chat_button():
-    """The button is icon-only now (docs/features/hamburger-menu/SPEC.md,
-    REQ-001) — a plain "+", no visible text label — so its accessible name
-    lives entirely in title/aria-label. `data-i18n-title` is the hook
-    setLang() uses to keep that name localized; there is no more text node
-    for `data-i18n` to drive.
+    """Phase 3 (docs/features/hamburger-menu/SPEC.md) moved "New chat" out of
+    the header and into the drawer's sidebar as the always-first, labelled
+    row (base/inotex/minimal/liquid-glass) — matching a ChatGPT-style
+    sidebar, and no longer icon-only: `data-i18n` now drives a visible text
+    node, on top of the `data-i18n-title` accessible name it always had.
 
-    Checked in ALL FOUR headers, not just the active theme: the four files are
-    copies of one another, so a theme left behind is the way this comes back.
+    haj is the one deliberate exception: it keeps its own bespoke top-bar
+    layout unchanged at every width (see the SPEC's Phase 3 scoping note), so
+    its icon-only #new-chat-btn stays exactly where it was, in header.html.
     """
-    for theme in ("base", "inotex", "liquid-glass", "haj"):
-        header = read(ROOT / "themes" / theme / "partials" / "header.html")
-        button = header.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
+    for theme in ("base", "inotex", "minimal", "liquid-glass"):
+        menu = read(ROOT / "themes" / theme / "partials" / "menu.html")
+        button = menu.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
         assert 'data-i18n-title="newChat"' in button, theme
-        assert "<svg" in button, f"{theme}: icon-only button needs an icon"
+        assert 'data-i18n="newChat"' in button, f"{theme}: needs a visible, localized label"
+        assert "<svg" in button, f"{theme}: needs an icon"
+        header = read(ROOT / "themes" / theme / "partials" / "header.html") \
+            if (ROOT / "themes" / theme / "partials" / "header.html").exists() else ""
+        assert 'id="new-chat-btn"' not in header, f"{theme}: still duplicated in the header"
+
+    haj_header = read(ROOT / "themes" / "haj" / "partials" / "header.html")
+    haj_button = haj_header.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
+    assert 'data-i18n-title="newChat"' in haj_button
+    assert "<svg" in haj_button
 
 
 def test_core_js_keeps_video_and_chat_with_null_guards_avatar():
