@@ -289,6 +289,20 @@ def backup_dir(backup_id: str) -> str:
     return _safe_dir(backup_id)
 
 
+def member_path(backup_id: str, name: str):
+    """Absolute path of the dump file inside a backup, or None.
+
+    Mirrors backup_center.member_path()'s allowlist: `name` must be the fixed
+    dump filename — never trusted as a path fragment from the browser."""
+    if name != "padyar.dump":
+        return None
+    try:
+        path = _dump_path(backup_id)
+    except BackupError:
+        return None
+    return path if os.path.isfile(path) else None
+
+
 # How many backups prune keeps. Mirrors backup_center's KEEP so both engines
 # age the same whether an install is on SQLite today or PostgreSQL tomorrow.
 KEEP = 14

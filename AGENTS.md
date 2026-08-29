@@ -204,8 +204,8 @@ All features are modules. Each module has its own router and optional service la
 
 | Category                               | Behavior                                                                                         | Examples                                      |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------- |
-| **Core modules** (`is_core=True`)      | Always enabled. Ship with every installation. Cannot be disabled.                                | `chat`, `admin`, `search`, `dataset`, `theme` |
-| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `registration`              |
+| **Core modules** (`is_core=True`)      | Always enabled. Ship with every installation. Cannot be disabled.                                | `chat`, `admin`, `search`, `dataset`, `theme`, `conversations` |
+| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `infra`, `backups`, `ops`, `logs`, `tts`, `registration`, `leads` |
 
 `app/modules/registry.py` is authoritative. Note `whitelabel` is **not** a module — branding is a set of `whitelabel_*` rows in the `settings` table (see below).
 
