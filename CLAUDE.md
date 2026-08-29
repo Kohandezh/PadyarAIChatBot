@@ -632,17 +632,33 @@ Via the admin panel — that is now the only supported path. The knowledge base 
 
 ## Mandatory Checks Before Every Commit
 
+**Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
+the full pytest suite (`test` job) and the retrieval/safety eval
+(`evaluation` job) on every push and every PR — that run is the pass/fail
+signal, not a local one. This machine has 15 tests that always fail here and
+always pass on CI (env/network-only, see below) — a local `pytest` run is not
+a trustworthy gate on this box, so don't run the full suite locally before
+committing.
+
 After every code change, before committing:
 
 ```bash
 python -m py_compile app/main.py          # Verify Python syntax
 python -m py_compile app/routers/chat.py  # Verify core router
-.venv/bin/python -m pytest                # Run the test suite
+```
+
+After pushing, check CI instead of re-running tests locally:
+
+```bash
+gh run list --branch <branch> --limit 1
+gh run watch
 ```
 
 ### Testing
 
-The project uses **pytest**. Test-only dependencies (`pytest`, `pytest-asyncio`, `pytest-playwright`) live in **`requirements-dev.txt`** — kept separate from `requirements.txt` so customer installs don't pull in Playwright + browser binaries. Set up a dev/test environment with:
+The setup below is for local debugging (reproducing a CI failure, running one
+test file while writing it) — it is not a required pre-commit step; CI is the
+gate. The project uses **pytest**. Test-only dependencies (`pytest`, `pytest-asyncio`, `pytest-playwright`) live in **`requirements-dev.txt`** — kept separate from `requirements.txt` so customer installs don't pull in Playwright + browser binaries. Set up a dev/test environment with:
 
 ```bash
 .venv/bin/python -m pip install -r requirements-dev.txt
