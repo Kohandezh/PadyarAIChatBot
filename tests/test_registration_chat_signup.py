@@ -1,11 +1,11 @@
-"""Sign-up in front of the first answer, then three questions in the chat.
+"""Sign-in in front of the first answer, then the questions in the chat.
 
 Two halves:
 
-* the SERVER contract the new UI depends on — an account can be created from
-  a name, a number and the taxonomy's checkbox alone, and the answers given
-  in the chat afterwards go through the existing profile endpoint without
-  losing that checkbox;
+* the SERVER contract the new UI depends on — an account is created from a
+  number and the taxonomy's checkbox alone (the NAME is asked in the chat
+  afterwards, not on the card), and the answers given in the chat go through
+  the existing profile endpoint without losing that checkbox;
 * the FRONT-END invariants that make it usable on a phone. The chat UI is
   vanilla JS built at runtime, so these assert against the source. That is
   blunt, but the alternative is a browser on a handset for regressions that
@@ -86,13 +86,15 @@ def _stored():
 
 
 def _signed_up(client, outbox, interests=""):
-    """What the three-input card posts: a name, a number, and the checkbox.
+    """What the sign-in card posts: a number and the checkbox — no name.
 
-    Verifying leaves the session cookie in this client's jar, which is the only
-    thing the profile posts below carry as identity.
+    The name question moved into the chat; the request carries empty
+    first/last names and the endpoint accepts that. Verifying leaves the
+    session cookie in this client's jar, which is the only thing the
+    profile posts below carry as identity.
     """
     r = client.post("/api/auth/otp/request", json={
-        "destination": DEST, "first_name": "زهرا", "last_name": "کریمی",
+        "destination": DEST, "first_name": "", "last_name": "",
         "job": "", "position": "", "interests": interests,
     })
     assert r.status_code == 200, r.text
@@ -103,13 +105,36 @@ def _signed_up(client, outbox, interests=""):
     return cid
 
 
-def test_signup_needs_only_a_name_a_number_and_the_checkbox(client, outbox):
-    """The card no longer collects job, position or interests — the request
-    must still be accepted with those three fields empty."""
+def test_signup_needs_only_a_number_and_the_checkbox(client, outbox):
+    """The card no longer collects a name, a job, a position or interests —
+    the request must still be accepted with all of those empty."""
     _signed_up(client, outbox)
     profile = _stored()
-    assert profile["first_name"] == "زهرا"
+    assert profile["first_name"] == "" and profile["last_name"] == ""
     assert profile["job"] == "" and profile["position"] == ""
+
+
+def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
+    """The name is the FIRST in-chat question now. Its answer rides along on
+    the same /api/auth/profile save as the other three — one call, and the
+    stored row gains a name for the first time."""
+    _signed_up(client, outbox)
+    r = client.post("/api/auth/profile", json={
+        "first_name": "زهرا", "last_name": "کریمی",
+        "job": "خبرنگار / رسانه", "position": "کارشناس",
+        "interests": "رسانه و ارتباطات",
+    })
+    assert r.status_code == 200, r.text
+    stored = _stored()
+    assert stored["first_name"] == "زهرا"
+    assert stored["last_name"] == "کریمی"
+    # …and a later edit with no name in the body leaves the name alone.
+    client.post("/api/auth/profile", json={
+        "job": "سرمایه‌گذار", "position": "مدیر", "interests": "جذب سرمایه",
+    })
+    stored = _stored()
+    assert stored["first_name"] == "زهرا"
+    assert stored["job"] == "سرمایه‌گذار"
 
 
 def test_the_three_chat_answers_reach_the_existing_profile_endpoint(client, outbox):
@@ -271,16 +296,38 @@ def test_the_options_come_from_the_taxonomy_endpoint_not_from_js():
             f"«{item['label']}» is hardcoded in the front end")
 
 
-# ── The sign-up card: three inputs, no more ──────────────────────────────
+# ── The sign-in card: the number, no more ─────────────────────────────────
 
-def test_the_signup_card_has_exactly_three_inputs():
+def test_the_signin_card_has_exactly_one_input():
     signup = _function_source("renderSignupStep")
-    assert signup.count("= field(") == 2, "name and mobile — nothing else"
-    assert "t().fullName" in signup and "t().phone" in signup
+    assert signup.count("= field(") == 1, "mobile — nothing else"
+    assert "t().phone" in signup
+    assert "t().fullName" not in signup, "the name belongs in the chat now"
+    assert "'/api/auth/otp/request'" in signup
+    assert "first_name: ''" in signup, "the request sends an empty name"
     assert "type = 'checkbox'" in signup
     # The old form's controls must not have come back.
     for gone in ("multiSelect(", "reg-select", "o.jobs", "o.interests"):
         assert gone not in signup, f"{gone} belongs in the chat now, not the card"
+
+
+def test_the_card_title_is_sign_in_not_registration():
+    """«ثبت‌نام بازدید هوشمند» is gone — the card says «وارد شوید», and the
+    old subtitle («فقط دو کادر و یک تیک…») is deleted with it."""
+    assert "ثبت‌نام بازدید هوشمند" not in REGISTRATION_JS
+    assert "title: 'وارد شوید'" in REGISTRATION_JS
+    assert "فقط دو کادر" not in REGISTRATION_JS
+    assert "signupSub" not in REGISTRATION_JS
+
+
+def test_the_name_is_asked_in_the_chat_before_the_other_questions():
+    steps = _function_source("chatSteps")
+    assert steps.index("key: 'name'") < steps.index("key: 'job'"), (
+        "the name comes first — it replaced the card's name field")
+    # Free text: no option list to tap for a person's name.
+    assert "list: null" in steps
+    # Only asked when the stored profile has no name yet.
+    assert "if (!(known.first_name || known.last_name))" in steps
 
 
 def test_the_signup_card_still_asks_the_existing_otp_endpoints():

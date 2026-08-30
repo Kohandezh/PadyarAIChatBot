@@ -15,11 +15,12 @@
      * the whole module used to abort when the CTA was absent. It no longer
        depends on any markup, so it loads on every theme.
 
-   Sign-up is deliberately three inputs: name, mobile, and the taxonomy's own
-   checkbox. Everything else about the visitor is asked AFTERWARDS, in the
-   chat, one question at a time, answered by TAPPING options that write
-   themselves into the message box — a dropdown is a bad control on a phone,
-   and this is used on phones at an exhibition.
+   Sign-up is deliberately minimal: the mobile number and the taxonomy's own
+   checkbox — nothing else. The visitor's name, job, position and interests
+   are all asked AFTERWARDS, in the chat, one question at a time, answered
+   by TAPPING options that write themselves into the message box (the name
+   is free text) — a dropdown is a bad control on a phone, and this is used
+   on phones at an exhibition.
 
    The modal keeps only what must be a form: the two identity fields and the
    SMS code.
@@ -88,8 +89,7 @@
     const isFa = function () { return document.documentElement.lang !== 'en'; };
     const T = {
         fa: {
-            title: 'ثبت‌نام بازدید هوشمند',
-            sub: 'برای شروع، مشخصات خود را وارد کنید.',
+            title: 'وارد شوید',
             first: 'نام', last: 'نام خانوادگی', phone: 'شماره موبایل',
             job: 'شغل / حوزهٔ فعالیت', position: 'سمت',
             interests: 'زمینه‌های مورد علاقه',
@@ -120,27 +120,25 @@
             editTitle: 'ویرایش اطلاعات شما',
             editSub: 'نام و شماره ثابت است؛ شغل، سمت و علاقه‌مندی‌ها را می‌توانید تغییر دهید.',
             saveEdit: 'ذخیره و به‌روزرسانی پیشنهادها',
-            // Sign-up card (three inputs)
-            signupSub: 'فقط دو کادر و یک تیک — بعد پاسخ شما را می‌فرستم.',
-            fullName: 'نام و نام خانوادگی',
-            needName: 'لطفاً نام و نام خانوادگی خود را بنویسید.',
             // Holding the first message
             held: 'سؤال شما را نگه داشتم. اول در چند ثانیه ثبت‌نام کنید تا پاسخ را بفرستم.',
-            // The three in-chat questions
+            // The in-chat questions — the name first, then the three fields
             hello2: function (name) {
-                return 'خوش آمدید ' + name + '! سه سؤال کوتاه می‌پرسم تا بهتر راهنمایی‌تان کنم.';
+                return (name ? 'خوش آمدید ' + name + '!' : 'خوش آمدید!')
+                    + ' چند سؤال کوتاه می‌پرسم تا بهتر راهنمایی‌تان کنم.';
             },
+            askName: 'نام و نام خانوادگی شما چیست؟',
             askJob: 'شغل یا حوزهٔ فعالیت شما چیست؟',
             askPosition: 'سمت شما چیست؟',
             askInterests: 'به کدام زمینه‌ها علاقه دارید؟',
             tapOne: 'یکی را لمس کنید (یا خودتان بنویسید) و دکمهٔ ارسال را بزنید.',
             tapMany: 'هر چند مورد که خواستید لمس کنید و دکمهٔ ارسال را بزنید.',
+            typeAnswer: 'پاسخ را بنویسید و دکمهٔ ارسال را بزنید.',
             skip: 'رد کردن',
             profileSaved: 'ممنون! ثبت شد.'
         },
         en: {
-            title: 'Smart Visit registration',
-            sub: 'Enter your details to get started.',
+            title: 'Log in',
             first: 'First name', last: 'Last name', phone: 'Mobile number',
             job: 'Field of work', position: 'Job title',
             interests: 'Topics you care about',
@@ -171,18 +169,18 @@
             editTitle: 'Edit your details',
             editSub: 'Name and number stay fixed; your job, title and interests can change.',
             saveEdit: 'Save and update suggestions',
-            signupSub: 'Two boxes and one tick — then I will answer you.',
-            fullName: 'Full name',
-            needName: 'Please enter your full name.',
             held: 'I am holding your question. Sign up — it takes seconds — and I will answer it.',
             hello2: function (name) {
-                return 'Welcome ' + name + '! Three short questions so I can help you better.';
+                return 'Welcome' + (name ? ' ' + name : '') + '!'
+                    + ' A few short questions so I can help you better.';
             },
+            askName: 'What is your full name?',
             askJob: 'What is your field of work?',
             askPosition: 'What is your job title?',
             askInterests: 'Which topics do you care about?',
             tapOne: 'Tap one (or type your own), then press send.',
             tapMany: 'Tap as many as you like, then press send.',
+            typeAnswer: 'Type your answer and press send.',
             skip: 'Skip',
             profileSaved: 'Thank you — saved.'
         }
@@ -379,7 +377,9 @@
 
         const heading = el('h2', 'reg-title', t().title);
         heading.id = 'reg-title';
-        const sub = el('p', 'reg-sub', t().sub);
+        // Empty by default; each step sets its own. Hidden while empty
+        // (.reg-sub:empty in the theme CSS).
+        const sub = el('p', 'reg-sub');
         card.append(close, heading, sub);
 
         const body = el('div', 'reg-body');
@@ -524,13 +524,14 @@
         return String(text || '').split(/[،,]/).map(function (s) { return s.trim(); }).filter(Boolean);
     }
 
-    // ── Step 1: sign up — three inputs, nothing else ─────────────────
-    /* Name, mobile, and whatever checkbox the taxonomy defines. Job, position
-       and interests are deliberately NOT here: they are asked in the chat once
-       the number is verified, where each one is a single tap to answer. */
+    // ── Step 1: sign in — the number, nothing else ──────────────────
+    /* The card takes ONLY the mobile number and whatever checkbox the
+       taxonomy defines. The visitor's NAME is no longer asked here: it is
+       asked in the chat, right after the code is proved, as the first of
+       the in-chat questions (see chatSteps). */
     function renderSignupStep() {
         state.body.textContent = '';
-        setHead(t().title, t().signupSub);
+        setHead(t().title, '');
 
         const form = el('form', 'reg-form');
         state.body.append(form);
@@ -549,7 +550,6 @@
             return input;
         }
 
-        const nameInput = field('reg-name', t().fullName, 'text', 'name');
         const phoneInput = field('reg-phone', t().phone, 'tel', 'tel');
         phoneInput.dir = 'ltr';
         phoneInput.inputMode = 'tel';
@@ -583,25 +583,17 @@
 
         form.addEventListener('submit', function (e) {
             e.preventDefault();
-            const full = nameInput.value.trim().replace(/\s+/g, ' ');
             const phone = phoneInput.value.trim();
-            if (!full) { say(t().needName, 'error'); nameInput.focus(); return; }
             if (!phone) { say(t().badPhone, 'error'); phoneInput.focus(); return; }
-
-            // One field, two database columns: the first word is the given
-            // name, the rest the family name. A single-word name is accepted
-            // rather than refused — plenty of people have one.
-            // 60 characters each is what the endpoint stores; clamping here
-            // turns an over-long name into a shorter one rather than a 422.
-            const parts = full.split(' ');
-            const first = parts.shift().slice(0, 60);
-            const last = parts.join(' ').slice(0, 60);
 
             submit.disabled = true;
             say('…');
             const flags = checkedFlags();
+            // No name in this body any more: the name question moved into
+            // the chat, after the code is proved. The endpoint treats an
+            // empty first/last name as "ask later".
             post('/api/auth/otp/request', {
-                destination: phone, first_name: first, last_name: last,
+                destination: phone, first_name: '', last_name: '',
                 job: '', position: '', interests: flags.join('، ')
             })
                 .then(function (data) {
@@ -609,7 +601,7 @@
                     // are MERGED with the checkbox instead of replacing it —
                     // both live in the same stored field.
                     state.flags = flags;
-                    state.profile = { first_name: first, last_name: last };
+                    state.profile = { first_name: '', last_name: '' };
                     renderCodeStep(data);
                 })
                 .catch(function (err) {
@@ -618,7 +610,7 @@
                 });
         });
 
-        setTimeout(function () { nameInput.focus(); }, 60);
+        setTimeout(function () { phoneInput.focus(); }, 60);
     }
 
     // ── Editing a profile that already exists ────────────────────────
@@ -1057,10 +1049,15 @@
                     closeModal();
                     sessionReady.then(function (s) {
                         const known = (s && s.profile) || {};
-                        if (known.job && known.position && known.interests) {
+                        // Complete means the name too now: the card no longer
+                        // collects it, so a profile without a name still owes
+                        // the visitor one question — the name — in the chat.
+                        const complete = (known.first_name || known.last_name)
+                            && known.job && known.position && known.interests;
+                        if (complete) {
                             deliverHeld();
                         } else {
-                            startChatQuestions(profile);
+                            startChatQuestions(known);
                         }
                     });
                 }, 900);
@@ -1123,22 +1120,36 @@
        The three questions are the same three fields /api/auth/profile has
        always accepted; only the way they are asked has changed. */
 
-    function chatSteps() {
-        const steps = [
-            /* شغل and سمت take ONE answer each. They are single facts about a
-               person, and the endpoint stores each in its own 80-character
-               field — a joined list would be truncated mid-word and would make
-               the visit planner match on two contradictory jobs. Interests is
-               the opposite: a list is the honest answer, and the endpoint
-               gives it 400 characters. */
-            { key: 'job', list: 'jobs', prompt: t().askJob, multi: false, max: MAX_JOB },
-            { key: 'position', list: 'positions', prompt: t().askPosition, multi: false, max: MAX_POSITION }
-        ];
+    function chatSteps(known) {
+        known = known || {};
+        const steps = [];
+        /* The NAME question comes first and only when the profile has no
+           name yet — the sign-up card no longer asks it. It is free text:
+           no list, so renderChoices shows no chips, just the type-answer
+           hint. */
+        if (!(known.first_name || known.last_name)) {
+            steps.push({ key: 'name', list: null, prompt: t().askName, multi: false, max: 120 });
+        }
+        /* شغل and سمت take ONE answer each. They are single facts about a
+           person, and the endpoint stores each in its own 80-character
+           field — a joined list would be truncated mid-word and would make
+           the visit planner match on two contradictory jobs. Interests is
+           the opposite: a list is the honest answer, and the endpoint
+           gives it 400 characters. Each question is asked only when the
+           stored profile does not already carry its answer. */
+        if (!known.job) {
+            steps.push({ key: 'job', list: 'jobs', prompt: t().askJob, multi: false, max: MAX_JOB });
+        }
+        if (!known.position) {
+            steps.push({ key: 'position', list: 'positions', prompt: t().askPosition, multi: false, max: MAX_POSITION });
+        }
         if (ASK_INTERESTS) {
-            steps.push({
-                key: 'interests', list: 'interests', prompt: t().askInterests,
-                multi: true, max: MAX_INTERESTS
-            });
+            if (!known.interests) {
+                steps.push({
+                    key: 'interests', list: 'interests', prompt: t().askInterests,
+                    multi: true, max: MAX_INTERESTS
+                });
+            }
         }
         return steps;
     }
@@ -1186,11 +1197,14 @@
         return server.known && server.signed_in;
     }
 
-    function startChatQuestions(profile) {
+    function startChatQuestions(known) {
         if (typeof switchTab === 'function') { try { switchTab('text'); } catch (e) { } }
-        const who = (profile && profile.first_name) || displayName(profile || {});
+        // A first-timer has no name yet — the welcome reads fine without one,
+        // and the name is the very next thing asked.
+        const who = (known && (known.first_name || known.last_name))
+            ? displayName(known) : '';
         botSay(t().hello2(who));
-        ask.steps = chatSteps();
+        ask.steps = chatSteps(known);
         ask.answers = {};
         ask.index = -1;
         // The options are already cached from the sign-up card; this only
@@ -1218,7 +1232,7 @@
 
     function renderChoices(step) {
         clearChoices();
-        const items = (options && options[step.list]) || [];
+        const items = (step.list && options && options[step.list]) || [];
         // Deliberately NOT a `.message`: the companion's mini chat mirrors
         // messages as plain text, and a mirrored wall of option labels helps
         // nobody. This block is transient UI, so it is not saved to history
@@ -1236,7 +1250,10 @@
             box.append(list);
         }
 
-        box.append(el('p', 'reg-ask-hint', step.multi ? t().tapMany : t().tapOne));
+        // A step with no option list (the name) is typed, not tapped.
+        box.append(el('p', 'reg-ask-hint', items.length
+            ? (step.multi ? t().tapMany : t().tapOne)
+            : t().typeAnswer));
 
         if (!appendToChat(box)) return;
         ask.box = box;
@@ -1305,12 +1322,25 @@
             return first === i;
         }).join('، ').slice(0, MAX_INTERESTS);
 
+        // Fields that were NOT asked this time keep their stored value, so
+        // the endpoint's required-field validation still passes.
+        const body = {
+            job: ask.answers.job || stored.job || '',
+            position: ask.answers.position || stored.position || '',
+            interests: interests || stored.interests || ''
+        };
+        // The name answer is split the way the sign-up card used to split
+        // it: the first word is the given name, the rest the family name.
+        // 60 characters each is what the endpoint stores.
+        const fullName = (ask.answers.name || '').trim().replace(/\s+/g, ' ');
+        if (fullName) {
+            const parts = fullName.split(' ');
+            body.first_name = parts.shift().slice(0, 60);
+            body.last_name = parts.join(' ').slice(0, 60);
+        }
+
         // Again, no identity in the body — the cookie carries it.
-        post('/api/auth/profile', {
-            job: ask.answers.job || '',
-            position: ask.answers.position || '',
-            interests: interests
-        })
+        post('/api/auth/profile', body)
             .then(function (data) {
                 server.profile = Object.assign({}, stored, data.profile || {});
                 rememberName(server.profile);
