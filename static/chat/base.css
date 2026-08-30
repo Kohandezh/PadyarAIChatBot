@@ -355,15 +355,6 @@ button:disabled {
         gap: 10px;
     }
 
-    body.video-mode #video-view {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100dvh;
-        z-index: 50;
-    }
-
     body.video-mode #avatar-video {
         width: 100%;
         height: 100%;
