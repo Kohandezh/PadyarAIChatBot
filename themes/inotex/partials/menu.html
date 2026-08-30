@@ -18,7 +18,14 @@
         <!-- Moved from header.html — inotex no longer shows a header logo,
              the full brand mark + title now lives here instead. -->
         <div class="logo-container" aria-hidden="true">
-            <div class="the-logo">
+            <div class="the-slogan">
+                <div class="header-title" data-i18n="app_title">{{ app_title }}</div>
+                <div class="header-subtitle">INOTEX</div>
+            </div>
+        </div>
+        <button type="button" class="menu-sidebar-toggle-btn" id="menu-sidebar-toggle"
+            aria-expanded="true" aria-label="جمع کردن منو" title="جمع کردن منو">
+            <div class="menu-sidebar-toggle-logo">
                 <!-- A set whitelabel_logo_url REPLACES the hexagon mark (owner
                      decision): one identity, not two competing ones. Empty
                      default keeps the SVG mark — pixel-identical to today. -->
@@ -45,16 +52,6 @@
                 </svg>
                 {% endif %}
             </div>
-            <div class="the-slogan">
-                <div class="header-title" data-i18n="app_title">{{ app_title }}</div>
-                <div class="header-subtitle">INOTEX</div>
-            </div>
-        </div>
-        <button type="button" class="menu-sidebar-toggle-btn" id="menu-sidebar-toggle"
-            aria-expanded="true" aria-label="جمع کردن منو" title="جمع کردن منو">
-            <span class="menu-sidebar-toggle-logo" aria-hidden="true">
-                {% if wl_logo_url %}<img src="{{ wl_logo_url }}" alt="">{% else %}{{ (app_title or 'پ')[0] }}{% endif %}
-            </span>
             <span class="menu-sidebar-toggle-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
