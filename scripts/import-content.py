@@ -383,7 +383,7 @@ def main() -> int:
     # busy_timeout and died with "database is locked".
     for cid, ds, profile, anchors in companies:
         if profile:
-            company_profiles.upsert_profile(cid, profile)
+            company_profiles.upsert_profile(cid, profile, source="import")
 
     # Pass 3 — curated anchors and FAQ question variants, one writer, one
     # transaction.

@@ -120,7 +120,7 @@ def public_profile(dataset_id: str) -> dict:
             if v is not None and str(v).strip()}
 
 
-def upsert_profile(dataset_id: str, values: dict) -> dict:
+def upsert_profile(dataset_id: str, values: dict, source: str = "admin") -> dict:
     """Update the profile columns of an existing company row.
 
     Unknown keys are dropped rather than stored: the import path and the form
@@ -131,6 +131,11 @@ def upsert_profile(dataset_id: str, values: dict) -> dict:
     dataset_id; a company row always already exists in `companies` by the time
     this runs (companies are created on the dataset-style editor / by import,
     never by this form), so this is always an UPDATE.
+
+    `source` records who actually wrote this data — the admin panel form
+    never passes one, so it defaults to "admin"; scripts/import-content.py
+    passes "import" so the workbook's own writes stay distinguishable from a
+    human editing the profile afterward.
     """
     from datetime import datetime, timezone
     from app.db.connection import get_db_connection
@@ -150,8 +155,8 @@ def upsert_profile(dataset_id: str, values: dict) -> dict:
         conn.execute(
             "UPDATE companies SET "
             + ", ".join(f"{k} = ?" for k in clean)
-            + ", source = 'admin', updated_at = ? WHERE id = ?",
-            (*clean.values(), now, dataset_id),
+            + ", source = ?, updated_at = ? WHERE id = ?",
+            (*clean.values(), source, now, dataset_id),
         )
         conn.commit()
     finally:
