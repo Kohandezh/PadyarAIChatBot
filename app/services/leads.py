@@ -694,6 +694,10 @@ def register_contact(visitor_id: str, dataset_id: str, first_name: str,
         raise LeadError("شماره واردشده معتبر نیست.", code="bad_phone")
     if not (first_name or "").strip():
         raise LeadError("نام مخاطب را وارد کنید.", code="missing_name")
+    if not (last_name or "").strip():
+        raise LeadError("نام خانوادگی مخاطب را وارد کنید.", code="missing_last_name")
+    if not (position or "").strip():
+        raise LeadError("سمت مخاطب را وارد کنید.", code="missing_position")
 
     phone_hash = _digest(destination)
     lead_id = secrets.token_urlsafe(12)

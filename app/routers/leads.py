@@ -180,9 +180,9 @@ async def propose_company(body: ProposeCompanyBody, request: Request,
 
 class RegisterBody(BaseModel):
     dataset_id: str = Field(min_length=1, max_length=120)
-    first_name: str = Field(default="", max_length=60)
-    last_name: str = Field(default="", max_length=60)
-    position: str = Field(default="", max_length=80)
+    first_name: str = Field(min_length=1, max_length=60)
+    last_name: str = Field(min_length=1, max_length=60)
+    position: str = Field(min_length=1, max_length=80)
     phone: str = Field(min_length=8, max_length=20)
     # Set only by the second attempt, after the visitor has read the duplicate
     # warning and decided to go on. It is written down on the lead.
