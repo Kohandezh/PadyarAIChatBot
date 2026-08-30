@@ -140,17 +140,20 @@ def test_inotex_theme_uses_official_palette_tokens():
         assert banned not in css.lower()
 
 
-def test_credit_badge_present_with_exact_persian_text():
-    """The credit string must appear verbatim, carry the Rayen logo, and be
-    anchored in the layout rather than floating over the conversation."""
+def test_credit_badge_is_whitelabel_owned():
+    """The powered-by credit is the install's own (owner request, 2026-08-30):
+    the partial renders the whitelabel_footer_text setting and the colour
+    rides --wl-footer-color, so Settings > Branding owns both. The shipped
+    default keeps the exact Persian credit — asserted on the rendered page
+    in tests/test_branding.py — and the Rayen logo stays part of the mark."""
     partials = (INOTEX / "partials")
     markup = "".join(read(p) for p in partials.glob("*.html"))
     css = read(INOTEX / "static" / "style.css")
-    exact = "قدرت گرفته از سکوی ملی متن باز هوش مصنوعی"
-    assert exact in markup
+    assert "{{ wl_footer_text }}" in markup
     assert "rayen-sidebar-foot" in markup
     assert "rayen-logo.png" in markup
     assert "rayen-sidebar-foot" in css
+    assert "var(--wl-footer-color" in css
 
 
 def test_theme_json_matches_the_official_palette():
@@ -212,6 +215,25 @@ def test_video_placeholder_card_is_gone():
     assert "video-placeholder" not in footer
 
 
+def test_theme_shell_carries_no_hardcoded_event_name():
+    """Every visitor-visible brand string in the active theme reads the
+    white-label settings (owner request, 2026-08-30): the startup loader's
+    label is whitelabel_subtitle and its mark swaps for whitelabel_logo_url,
+    the companion panel's texts and the aria-labels follow the same brand
+    line. What the browser renders must not hardcode the event's Persian
+    name — an install rebrands itself from Settings > Branding alone."""
+    footer = read(INOTEX / "partials" / "footer.html")
+    menu = read(INOTEX / "partials" / "menu.html")
+    for name, markup in (("footer", footer), ("menu", menu)):
+        visible = _without_html_comments(markup)
+        assert "اینوتکس" not in visible, f"{name}: hardcoded event name in rendered markup"
+    assert '<p class="inx-loader-label">{{ wl_subtitle }}</p>' in footer
+    assert "{% if wl_logo_url %}" in footer, "loader mark must follow the logo setting"
+    assert 'class="inx-loader-mark" src="{{ wl_logo_url }}"' in footer
+    assert "از {{ wl_subtitle }} بپرسید" in footer
+    assert 'aria-label="{{ app_title }}"' in menu, "built-in mark named after the install"
+
+
 # ── R2: original video + chat structure, no remote media ───────────────
 
 def test_active_theme_inherits_video_and_chat_layout():
@@ -257,8 +279,13 @@ def test_core_js_has_fa_en_i18n_and_switch():
     # docs/features/hamburger-menu/SPEC.md) — same id, same setLang() wiring,
     # different partial.
     assert 'id="lang-btn"' in read(INOTEX / "partials" / "menu.html")
-    # EN suggested questions exist
-    assert "What is INOTEX?" in js
+    # The hardcoded EN suggestion list is gone (superseded by the admin
+    # question bank) and the EN welcome carries no event name either —
+    # it is assembled from the install's own brand payload. (Code comments
+    # may still mention the platform's INOTEX history; strings may not.)
+    assert "EN_SUGGESTED" not in js
+    assert "What is INOTEX?" not in js
+    assert "INOTEX exhibition" not in js
 
 
 def test_every_theme_localises_the_new_chat_button():

@@ -52,28 +52,17 @@ const QUESTIONS_PER_PAGE = 5;
 // absent = "open", the default this project's owner asked for.
 const SIDEBAR_COLLAPSED_KEY = 'inotex_sidebar_collapsed';
 
-// English suggested questions for the seeded INOTEX install. Superseded by the
-// title_en column, which getDisplayQuestions() reads, so nothing in the page
-// uses this list any more.
-const EN_SUGGESTED = [
-    { question: "What is INOTEX?", dataset_id: "inotex-overview" },
-    { question: "When is INOTEX 2026?", dataset_id: "inotex-date" },
-    { question: "Where is INOTEX held?", dataset_id: "inotex-venue" },
-    { question: "Visiting hours", dataset_id: "inotex-hours" },
-    { question: "Booth reservation", dataset_id: "inotex-booth" },
-    { question: "Programs & events", dataset_id: "inotex-programs" },
-    { question: "INOTEX Pitch", dataset_id: "inotex-pitch" },
-    { question: "Contact the secretariat", dataset_id: "inotex-contact" },
-    { question: "How big is INOTEX?", dataset_id: "inotex-stats" },
-    { question: "Latest announcements", dataset_id: "inotex-news" },
-];
+// English suggested questions used to live here as a hardcoded INOTEX list;
+// the admin-managed question bank (title_en column, read by
+// getDisplayQuestions()) replaced it — nothing referenced it, so it is gone.
 
 
 // ── Server-injected brand override ────────────────────────────────────
 // The page ships with the install's own name/welcome pre-rendered; this
 // object (emitted by app/services/branding.py into head.html) keeps setLang()
-// from reverting them to the hardcoded fa strings on load. Branding is
-// fa-only by owner decision — the en dict keeps its hardcoded strings.
+// from reverting them to the hardcoded fa strings on load. The Persian
+// welcome is fully owned by the setting; the English line is assembled from
+// the install's own name — no event name is hardcoded in either language.
 const BRAND = window.PADYAR_BRAND || {};
 
 
@@ -82,7 +71,7 @@ const I18N = {
     fa: {
         html_lang: 'fa', html_dir: 'rtl',
         app_title: BRAND.app_name || "دستیار پادیار",
-        welcome: BRAND.welcome || "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید.",
+        welcome: BRAND.welcome || "سلام! من دستیار پادیار هستم. هر سوالی دارید بپرسید.",
         videoTab: "ویدیو",
         textTab: "چت",
         placeholder: "سوال خود را بنویسید...",
@@ -118,7 +107,7 @@ const I18N = {
     en: {
         html_lang: 'en', html_dir: 'ltr',
         app_title: "Padyar Assistant",
-        welcome: "Hello! I'm the Padyar assistant. Ask me anything about the INOTEX exhibition.",
+        welcome: "Hello! I'm " + (BRAND.app_name || "the Padyar assistant") + ". How can I help you?",
         videoTab: "Video",
         textTab: "Chat",
         placeholder: "Type your question...",

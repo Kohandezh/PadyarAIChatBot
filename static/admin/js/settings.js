@@ -594,6 +594,8 @@ function applyBranding(d) {
     document.getElementById('brand-dark-teal').value = d.whitelabel_dark_teal_color || '#00644F';
     document.getElementById('brand-background').value = d.whitelabel_background_color || '#000000';
     document.getElementById('brand-white').value = d.whitelabel_white_color || '#FFFFFF';
+    document.getElementById('brand-footer-color').value = d.whitelabel_footer_color || '#B8C4DE';
+    document.getElementById('brand-footer-text').value = d.whitelabel_footer_text || '';
     document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
     document.getElementById('brand-logo').value = d.whitelabel_logo_url || '';
     document.getElementById('brand-chat-bg').value = d.whitelabel_chat_background_url || '';
@@ -701,6 +703,8 @@ export function initBranding() {
                     dark_teal_color: document.getElementById('brand-dark-teal').value,
                     background_color: document.getElementById('brand-background').value,
                     white_color: document.getElementById('brand-white').value,
+                    footer_color: document.getElementById('brand-footer-color').value,
+                    footer_text: document.getElementById('brand-footer-text').value.trim(),
                     welcome_text: document.getElementById('brand-welcome').value.trim(),
                     chat_background_url: document.getElementById('brand-chat-bg').value.trim(),
                     video_background_url: document.getElementById('brand-video-bg').value.trim(),
@@ -764,8 +768,7 @@ export function initMenuSettings() {
 }
 
 
-export function initAccount() {
-    loadProfile();
+export function initAccount() {    loadProfile();
 
     // Change Password form
     document.getElementById('change-password-form').addEventListener('submit', async (e) => {

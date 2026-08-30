@@ -179,6 +179,10 @@ class WhitelabelBrandingRequest(BaseModel):
     # logo_url: site-relative or absolute http(s), empty = shipped default.
     chat_background_url: str = ""
     video_background_url: str = ""
+    # Powered-by credit under the composer: text + colour. Empty text falls
+    # back to the shipped credit; the colour is hex like every other picker.
+    footer_text: str = ""
+    footer_color: str = ""
 
 
 class MenuSettingsRequest(BaseModel):

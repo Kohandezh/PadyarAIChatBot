@@ -51,6 +51,11 @@ WL_DEFAULTS = {
     # never opens the form renders today's pixels. Empty = the default.
     "whitelabel_chat_background_url": "/themes/inotex/static/bg-bricks.jpg",
     "whitelabel_video_background_url": "/themes/inotex/static/bg-bricks.jpg",
+    # The powered-by credit under the composer. Text + colour are the
+    # install's own; the defaults keep today's credit pixel-for-pixel.
+    # Empty text falls back to the default, like the welcome text.
+    "whitelabel_footer_text": "قدرت گرفته از سکوی ملی متن باز هوش مصنوعی",
+    "whitelabel_footer_color": "#B8C4DE",
 }
 
 # The stored form fields (admin API / form) map 1:1 onto the keys above.
@@ -69,6 +74,8 @@ WL_FIELD_TO_KEY = {
     "welcome_text": "whitelabel_welcome_text",
     "chat_background_url": "whitelabel_chat_background_url",
     "video_background_url": "whitelabel_video_background_url",
+    "footer_text": "whitelabel_footer_text",
+    "footer_color": "whitelabel_footer_color",
 }
 
 
@@ -144,6 +151,7 @@ def chat_branding_context() -> dict:
         "wl_subtitle": esc(b["whitelabel_subtitle"]),
         "wl_welcome": esc(b["whitelabel_welcome_text"]),
         "wl_logo_url": esc(b["whitelabel_logo_url"]),
+        "wl_footer_text": esc(b["whitelabel_footer_text"]),
         # Ready-made tags, emitted raw by head.html. One --wl-* custom
         # property per palette token plus the two background images; themes
         # map their own --{theme}-* tokens onto these (with the official
@@ -161,6 +169,7 @@ def chat_branding_context() -> dict:
             f"--wl-white:{esc(b['whitelabel_white_color'])};"
             f"--wl-chat-background:{_css_url(b['whitelabel_chat_background_url'])};"
             f"--wl-video-background:{_css_url(b['whitelabel_video_background_url'])};"
+            f"--wl-footer-color:{esc(b['whitelabel_footer_color'])};"
             "}</style>"
         ),
         "wl_brand_script": f"<script>window.PADYAR_BRAND={brand_json};</script>",

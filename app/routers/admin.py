@@ -748,8 +748,10 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         "dark_teal_color": req.dark_teal_color.strip(),
         "background_color": req.background_color.strip(),
         "white_color": req.white_color.strip(),
+        "footer_color": req.footer_color.strip(),
     }
     welcome = req.welcome_text.strip()
+    footer_text = req.footer_text.strip()
     chat_bg = req.chat_background_url.strip()
     video_bg = req.video_background_url.strip()
 
@@ -774,6 +776,10 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         raise HTTPException(
             status_code=400,
             detail="پیام خوش‌آمدگویی حداکثر می‌تواند ۳۰۰ نویسه باشد.")
+    if len(footer_text) > 120:
+        raise HTTPException(
+            status_code=400,
+            detail="متن پایین صفحه حداکثر می‌تواند ۱۲۰ نویسه باشد.")
     # Same URL rule for every image the form bakes into the public page.
     _require_safe_image_url(logo, "لوگو")
     _require_safe_image_url(chat_bg, "پس‌زمینهٔ چت")
@@ -783,7 +789,8 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
     values = {
         "app_name": name, "subtitle": subtitle, "logo_url": logo,
         "welcome_text": welcome, "chat_background_url": chat_bg,
-        "video_background_url": video_bg, **colors,
+        "video_background_url": video_bg, "footer_text": footer_text,
+        **colors,
     }
     for field, key in WL_FIELD_TO_KEY.items():
         set_setting(key, values[field])

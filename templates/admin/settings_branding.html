@@ -82,6 +82,19 @@
                             <input type="color" id="brand-white" class="form-control form-control-color w-100"
                                 value="{{ branding.whitelabel_white_color }}">
                         </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-footer-color">رنگ متن پایین صفحه</label>
+                            <input type="color" id="brand-footer-color" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_footer_color }}">
+                        </div>
+
+                        <div class="col-md-9">
+                            <label class="form-label" for="brand-footer-text">متن پایین صفحه</label>
+                            <input type="text" id="brand-footer-text" class="form-control" dir="rtl"
+                                maxlength="120"
+                                value="{{ branding.whitelabel_footer_text }}">
+                            <small class="text-muted">متن کوچکی که زیر محل تایپ دیده می‌شود. خالی بگذارید تا متن پیش‌فرض بماند.</small>
+                        </div>
 
                         <div class="col-12">
                             <label class="form-label" for="brand-welcome">پیام خوش‌آمدگویی</label>
