@@ -333,6 +333,10 @@ python -m py_compile app/main.py app/routers/chat.py
 .venv/bin/python -m pytest
 ```
 
+### CI/CD
+
+`.github/workflows/ci.yml` runs on every PR and push: `test`, `evaluation`, `dependency-audit` and `secret-scan` execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval.
+
 ## 🤝 Contributing
 
 1. Branch off the repo's main branch.
