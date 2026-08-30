@@ -288,7 +288,8 @@ def _load_companies() -> list:
             # company: the chip the visitor taps carries its booth clip, and a
             # title and its clip must never be looked up separately.
             "SELECT id, title, title_en, text, video_url,"
-            " activity_field, province, company_type FROM companies"
+            " activity_field, province, company_type, priority_boost"
+            " FROM companies"
             " WHERE text <> ''"
         ).fetchall()
     finally:
@@ -359,7 +360,11 @@ def answer_company_list(query: str, lang: str = "fa"):
         # رو میخوام»» is worse than no headline at all.
         filter_label = "، ".join(sorted(selected))
 
-    matched.sort(key=lambda c: c.get("title") or "")
+    # Boosted companies first (organizer-set sponsor placement), alphabetical
+    # within each group — a boost changes ORDER only, never WHICH companies
+    # matched above. See migrations/0014_company_priority_boost.sql.
+    matched.sort(key=lambda c: (0 if c.get("priority_boost") else 1,
+                                c.get("title") or ""))
 
     # The RENDERING is delegated, the SELECTION above is not. answer.render_options
     # is the single writer of the displayed slice and the single producer of
@@ -412,7 +417,20 @@ _WITHHELD_WORDS = {
 # query carrying two of them («استان ... کجاست») answers the more specific
 # one. «وب‌سایت» normalizes to the two tokens «وب سایت», so «سایت» catches
 # every spelling of it.
+#
+# `booth_number` MUST come before `company_phone`: «شماره غرفه» carries
+# «شماره», which company_phone's own word set also claims. Same precedence
+# problem as the WITHHELD check above, same fix — the more specific field
+# wins by being checked first.
+#
+# «پلاک» is deliberately NOT a trigger here even though it can colloquially
+# mean "booth number": it is also the ordinary Persian word for a STREET
+# number (an address ends in «... پلاک 12»), and «غرفه» alone already covers
+# every booth phrasing that matters («شماره غرفه», «پلاک غرفه»). Adding it
+# would risk answering an address question with a booth number instead.
 _FIELD_WORDS = (
+    ("booth_number", {"غرفه"}),
+    ("hall", {"سالن"}),
     ("company_phone", {"تلفن", "شماره", "تماس"}),
     ("website", {"سایت", "وبسایت"}),
     ("province", {"استان", "شهر"}),
@@ -421,6 +439,8 @@ _FIELD_WORDS = (
 )
 
 _FIELD_LABELS_FA = {
+    "booth_number": "شماره غرفه",
+    "hall": "سالن",
     "company_phone": "شماره تماس",
     "website": "وب‌سایت",
     "address": "نشانی",
@@ -429,6 +449,8 @@ _FIELD_LABELS_FA = {
     "activity_field": "زمینه فعالیت",
 }
 _FIELD_LABELS_EN = {
+    "booth_number": "Booth number",
+    "hall": "Hall",
     "company_phone": "Phone",
     "website": "Website",
     "address": "Address",

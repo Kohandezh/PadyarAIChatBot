@@ -21,7 +21,7 @@ const orDash = (v) => esc(v) || '<span class="text-muted">—</span>';
 const FIELDS = [
     'contact_name', 'contact_position', 'contact_mobile',
     'email', 'website', 'company_phone', 'fax',
-    'address', 'address_en', 'province',
+    'address', 'address_en', 'province', 'booth_number', 'hall',
     'company_type', 'org_stage', 'activity_field', 'participation',
     'notes',
 ];
@@ -156,7 +156,7 @@ function removeCompanyVideo() {
     updateVideoPreview();
 }
 
-function openModal(company, profile, videoUrl, content) {
+function openModal(company, profile, videoUrl, content, priorityBoost) {
     currentCompany = company;
     document.getElementById('profile-modal-title').textContent =
         `پروندهٔ «${company.title}»`;
@@ -167,6 +167,8 @@ function openModal(company, profile, videoUrl, content) {
         videoField.value = videoUrl || '';
         updateVideoPreview();
     }
+    const boostField = document.getElementById('c-priority-boost');
+    if (boostField) boostField.checked = !!priorityBoost;
     modal.show();
 }
 
@@ -303,7 +305,8 @@ export function initCompanies() {
             const id = row.dataset.id;
             const data = await post(`/admin/api/company-profiles/${encodeURIComponent(id)}`);
             if (!data) return;
-            openModal({ id, title: row.cells[0].textContent.trim() }, data.profile, data.video_url, data.content);
+            openModal({ id, title: row.cells[0].textContent.trim() }, data.profile,
+                     data.video_url, data.content, data.priority_boost);
         });
     });
 
@@ -360,8 +363,19 @@ export function initCompanies() {
                 });
             videoOk = !!videoData;
         }
+        let boostOk = true;
+        const boostField = document.getElementById('c-priority-boost');
+        if (data && boostField) {
+            const boostData = await post(
+                `/admin/api/company-profiles/${encodeURIComponent(currentCompany.id)}/priority-boost`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ priority_boost: boostField.checked }),
+                });
+            boostOk = !!boostData;
+        }
         btn.disabled = false;
-        if (!data || !contentOk || !videoOk) return;
+        if (!data || !contentOk || !videoOk || !boostOk) return;
         const msg = document.getElementById('profile-msg');
         msg.className = 'fw-bold mt-2 small text-success';
         msg.textContent = 'پرونده ذخیره شد.';

@@ -163,7 +163,8 @@ def test_company_video_round_trip_and_isolation_from_profile(admin_client):
 
     r = admin_client.get("/admin/api/company-profiles/co-a")
     assert r.status_code == 200
-    assert r.json() == {"profile": {}, "video_url": "", "content": base_content}
+    assert r.json() == {"profile": {}, "video_url": "", "content": base_content,
+                        "priority_boost": False}
 
     r = admin_client.put("/admin/api/company-profiles/co-a/video",
                          json={"video_url": "/media/videos/co-a.mp4"})
@@ -172,7 +173,7 @@ def test_company_video_round_trip_and_isolation_from_profile(admin_client):
 
     r = admin_client.get("/admin/api/company-profiles/co-a")
     assert r.json() == {"profile": {}, "video_url": "/media/videos/co-a.mp4",
-                        "content": base_content}
+                        "content": base_content, "priority_boost": False}
 
     # The list endpoint (companies.js's "ویدیو" column) sees it too, and the
     # profile badge is still "ندارد" — a video is not a profile.
@@ -190,6 +191,33 @@ def test_company_video_round_trip_and_isolation_from_profile(admin_client):
 def test_company_video_refuses_unknown_company(admin_client):
     r = admin_client.put("/admin/api/company-profiles/nope/video",
                          json={"video_url": "/media/videos/x.mp4"})
+    assert r.status_code == 404
+
+
+def test_company_priority_boost_round_trip_and_isolation_from_profile(admin_client):
+    """priority_boost is a sort-order pin, not organizer knowledge: setting
+    it must not flip has_profile, and get_profile()'s {} contract must stay
+    untouched (see app/services/company_profiles.py:set_priority_boost)."""
+    r = admin_client.get("/admin/api/company-profiles/co-a")
+    assert r.json()["priority_boost"] is False
+
+    r = admin_client.put("/admin/api/company-profiles/co-a/priority-boost",
+                         json={"priority_boost": True})
+    assert r.status_code == 200
+    assert r.json() == {"priority_boost": True}
+
+    r = admin_client.get("/admin/api/company-profiles/co-a")
+    assert r.json()["priority_boost"] is True
+    assert r.json()["profile"] == {}
+
+    r = admin_client.put("/admin/api/company-profiles/co-a/priority-boost",
+                         json={"priority_boost": False})
+    assert r.status_code == 200 and r.json()["priority_boost"] is False
+
+
+def test_company_priority_boost_refuses_unknown_company(admin_client):
+    r = admin_client.put("/admin/api/company-profiles/nope/priority-boost",
+                         json={"priority_boost": True})
     assert r.status_code == 404
 
 

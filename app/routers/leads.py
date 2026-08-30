@@ -403,6 +403,7 @@ async def admin_company_profile(dataset_id: str):
         "profile": company_profiles.get_profile(dataset_id),
         "video_url": company_profiles.get_video(dataset_id),
         "content": company_profiles.get_public_content(dataset_id),
+        "priority_boost": company_profiles.get_priority_boost(dataset_id),
     }
 
 
@@ -443,6 +444,25 @@ async def admin_set_company_content(dataset_id: str, payload: dict = Body(defaul
     from app.services import company_profiles
     try:
         return {"content": company_profiles.set_public_content(dataset_id, payload)}
+    except company_profiles.ProfileError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+class CompanyPriorityBoostBody(BaseModel):
+    priority_boost: bool = False
+
+
+@router.put("/admin/api/company-profiles/{dataset_id}/priority-boost",
+            dependencies=[Depends(verify_admin)])
+async def admin_set_company_priority_boost(dataset_id: str, body: CompanyPriorityBoostBody):
+    """Pin a company ahead of the alphabetical company-list order — a sort
+    flag, not organizer knowledge, so like video/content above it is its own
+    endpoint rather than a PROFILE_FIELDS key; see
+    app/services/company_profiles.py:set_priority_boost for why."""
+    from app.services import company_profiles
+    try:
+        return {"priority_boost":
+                company_profiles.set_priority_boost(dataset_id, body.priority_boost)}
     except company_profiles.ProfileError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
 

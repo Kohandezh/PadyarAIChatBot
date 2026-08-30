@@ -1,0 +1,12 @@
+-- A second location fact beside the booth number: which hall a company sits in.
+--
+-- WHY
+-- ---
+-- migrations/0015_company_booth_number.sql added the booth number itself.
+-- The exhibition halls have several exhibition halls (سالن), and "شماره غرفه"
+-- ("what's the booth number") and "کدام سالن" ("which hall") are two
+-- different visitor questions with two different answers — a booth number
+-- alone does not say which building it is in. Same reasoning as booth_number:
+-- public by construction (printed on the hall map), so it joins
+-- PUBLIC_PROFILE_FIELDS in the same commit.
+ALTER TABLE app.companies ADD COLUMN IF NOT EXISTS hall TEXT NOT NULL DEFAULT '';
