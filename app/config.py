@@ -30,6 +30,8 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar")
 VIDEO_DIR = os.path.join(BASE_DIR, "media", "videos")
+UPLOAD_DIR = os.path.join(BASE_DIR, "media", "uploads")
+LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 # --- Similarity thresholds ---
 # A local match (TF-IDF over titles, or the questions index) is only *trusted*

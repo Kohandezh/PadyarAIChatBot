@@ -1,6 +1,7 @@
 import io
 import asyncio
 import csv
+import os
 import re
 import secrets
 import datetime
@@ -722,6 +723,87 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
                  "برندینگ نصب به‌روزرسانی شد",
                  actor=username, target="settings")
     return {"status": "updated"}
+
+
+# Logo upload for the branding form. The file lands under /media/uploads and
+# the returned URL goes into whitelabel_logo_url via the normal save above.
+_LOGO_TYPES = {
+    ".png": ("image/png",),
+    ".jpg": ("image/jpeg", "image/pjpeg"),
+    ".jpeg": ("image/jpeg", "image/pjpeg"),
+    ".gif": ("image/gif",),
+    ".webp": ("image/webp",),
+}
+
+
+def _sniff_image_format(header: bytes) -> str:
+    """Return the canonical extension for known image magic bytes, or ''.
+
+    SVG is deliberately absent: an SVG can carry script and would then be
+    served to every visitor from our own origin — a stored-XSS vector, not
+    a logo format.
+    """
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
+@router.post("/admin/api/upload_logo", dependencies=[Depends(verify_admin)])
+async def upload_logo(file: UploadFile = File(...),
+                      username: str = Depends(verify_admin)):
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _LOGO_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="فقط تصویر (PNG، JPG، GIF، WebP) قابل بارگذاری است.")
+    if (file.content_type or "").lower() not in _LOGO_TYPES[ext]:
+        raise HTTPException(
+            status_code=400,
+            detail="نوع فایل اعلام‌شده با پسوند آن نمی‌خواند.")
+
+    from app.config import UPLOAD_DIR, LOGO_MAX_BYTES
+    data = await file.read(LOGO_MAX_BYTES + 1)
+    if len(data) > LOGO_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="حجم لوگو حداکثر می‌تواند ۲ مگابایت باشد.")
+    # The declared type is client-controlled; the magic bytes are the truth.
+    # A renamed text file or a polyglot stops here.
+    sniffed = _sniff_image_format(data[:32])
+    if not sniffed:
+        raise HTTPException(
+            status_code=400,
+            detail="محتوای فایل یک تصویر معتبر نیست.")
+    if sniffed != (".jpg" if ext in (".jpg", ".jpeg") else ext):
+        raise HTTPException(
+            status_code=400,
+            detail="محتوای فایل با پسوند آن نمی‌خواند.")
+
+    now = datetime.datetime.now()
+    folder = os.path.join(UPLOAD_DIR, f"{now:%Y/%m}")
+    url_path = f"/media/uploads/{now:%Y/%m}"
+    os.makedirs(folder, exist_ok=True)
+    name = f"logo_{secrets.token_hex(8)}{sniffed}"
+    save_path = os.path.join(folder, name)
+
+    def _write():
+        with open(save_path, "wb") as f:
+            f.write(data)
+        # World-readable like every other served asset: nginx serves /media
+        # as www-data, and a restrictive default umask would 403 the logo.
+        os.chmod(save_path, 0o644)
+
+    await asyncio.to_thread(_write)
+    applog.audit("settings.branding.logo_uploaded",
+                 "لوگوی برندینگ بارگذاری شد",
+                 actor=username, target=os.path.join(url_path, name))
+    return {"url": f"{url_path}/{name}"}
 
 
 # ── Hamburger-drawer row visibility ─────────────────────────────────────
