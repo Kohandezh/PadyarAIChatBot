@@ -147,6 +147,27 @@ header.inx-header::after {
     min-width: 0;
 }
 
+/* Now living in menu.html's sidebar header instead of the removed header
+   logo. Collapsed rail (76px, static/chat/base.css) has no room for the
+   full mark + title — .menu-sidebar-toggle-btn's own compact logo stands in
+   for it there, same as it always has. */
+.menu-drawer.collapsed .menu-sidebar-header .logo-container {
+    display: none;
+}
+
+/* .menu-sidebar-header's real layout (flex, space-between, the 32px logo
+   sizing it used to hold) only ever existed inside base.css's desktop
+   (min-width: 992px) rule — menu.html's own comment calls this block
+   "desktop-only... hidden below the 992px breakpoint", but nothing actually
+   hid it below that width. It went unnoticed while the slot held one small
+   icon-only span; the full brand mark + two-line title moved in above does
+   not fit unstyled, so enforce the documented intent here. */
+@media (max-width: 991.98px) {
+    .menu-sidebar-header {
+        display: none;
+    }
+}
+
 .the-logo { display: flex; align-items: center; }
 
 .brand-mark { filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .5)); }
@@ -422,11 +443,15 @@ header.inx-header::after {
 
 #user-input:focus { outline: none; }
 
+html[lang="fa"] #user-input { padding-right: 40px; }
+html[lang="en"] #user-input { padding-left: 38px; }
+
 /* composer stud cluster (decorative, like the reference sheet) */
 .composer-studs {
     position: absolute;
     top: 10px;
     inset-inline-start: 12px;
+    right: auto;
     display: grid;
     grid-template-columns: repeat(3, var(--stud-size));
     gap: 4px;
@@ -574,73 +599,6 @@ header.inx-header::after {
 .video-placeholder-card span {
     font-size: 12.5px;
     color: var(--color-text-muted);
-}
-
-/* ── Start button (centre of the video stage) ─────────────────────── */
-.video-start {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    translate: -50% -50%;
-    z-index: 8;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    width: 116px;
-    height: 116px;
-    border-radius: 50%;
-    border: 2px solid var(--color-action-primary);
-    background: #17233FD9;
-    color: var(--color-action-primary);
-    font-family: inherit;
-    font-size: 15px;
-    font-weight: 800;
-    cursor: pointer;
-    backdrop-filter: blur(6px);
-    box-shadow: 0 8px 26px rgba(0, 0, 0, .55);
-    transition: background var(--motion-fast) ease, transform var(--motion-instant) ease,
-        opacity var(--motion-normal) ease;
-}
-
-.video-start[hidden] { display: none; }
-
-.video-start:hover {
-    background: var(--color-action-primary);
-    color: var(--color-text-on-yellow);
-}
-
-.video-start:active { transform: translateY(1px) scale(.98); }
-
-.video-start:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 4px;
-}
-
-.video-start-label { letter-spacing: .04em; }
-
-/* A slow pulse marks it as the one thing to press, without demanding it. */
-.video-start-ring {
-    position: absolute;
-    inset: -6px;
-    border-radius: 50%;
-    border: 2px solid #FCB71566;
-    animation: inx-start-pulse 2.4s ease-out infinite;
-    pointer-events: none;
-}
-
-@keyframes inx-start-pulse {
-    0% { transform: scale(.94); opacity: .9; }
-    100% { transform: scale(1.18); opacity: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .video-start-ring { animation: none; opacity: .5; }
-}
-
-@media (max-width: 430px) {
-    .video-start { width: 96px; height: 96px; font-size: 13.5px; }
 }
 
 .action-btn {

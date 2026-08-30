@@ -1035,13 +1035,26 @@
                 say(data.message || '', 'ok');
                 // Re-read from the server rather than assuming the mint
                 // worked. If the cookie did not arrive, the gate must know it
-                // now, not at the visitor's next message.
-                refreshServerSession();
+                // now, not at the visitor's next message. It also carries the
+                // DURABLE profile (the `visitors` row), unlike the verify
+                // response above, which only ever knows this challenge's own
+                // blank fields — so it is what tells a returning visitor
+                // apart from a new one.
+                const sessionReady = refreshServerSession();
                 // Verified. The rest of the conversation belongs in the chat,
-                // not in a modal: close the card and let the assistant ask.
+                // not in a modal: close the card and let the assistant ask —
+                // unless this phone already answered before, in which case
+                // asking again would just be annoying.
                 setTimeout(function () {
                     closeModal();
-                    startChatQuestions(profile);
+                    sessionReady.then(function (s) {
+                        const known = (s && s.profile) || {};
+                        if (known.job && known.position) {
+                            deliverHeld();
+                        } else {
+                            startChatQuestions(profile);
+                        }
+                    });
                 }, 900);
             })
             .catch(function (err) {

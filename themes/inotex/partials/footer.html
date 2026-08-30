@@ -378,54 +378,6 @@
         video.addEventListener('emptied', show);
         if (video.readyState >= 2) hide();   // already buffered before we bound
 
-        // ── Welcome → idle cycle ──
-        // The idle clip loops as the resting state. Start plays the welcome
-        // ONCE (loop off), and its `ended` event hands control back to the
-        // idle loop. core.js owns `data-waiting-src`, so returning to idle
-        // reuses the same path an answered video question takes — there is
-        // one definition of "resting", not two.
-        const startBtn = document.getElementById('video-start');
-        const welcomeSrc = video.getAttribute('data-welcome-src') || '';
-        const idleSrc = video.getAttribute('data-waiting-src') || '';
-        let playingWelcome = false;
-
-        function toIdle() {
-            playingWelcome = false;
-            // The Start button is a one-time entry point: once the welcome has
-            // played, the stage simply idles and waits for the conversation to
-            // drive it. Bringing the button back would invite the visitor to
-            // replay an intro they have already seen instead of asking a
-            // question.
-            if (!idleSrc) return;
-            video.loop = true;
-            if (!video.currentSrc.endsWith(idleSrc)) video.src = idleSrc;
-            video.play().catch(function () { });
-        }
-
-        function playWelcome() {
-            if (!welcomeSrc) return;
-            playingWelcome = true;
-            if (startBtn) startBtn.hidden = true;
-            video.loop = false;
-            video.src = welcomeSrc;
-            // The click is a user gesture, so sound is permitted here.
-            video.muted = false;
-            video.volume = 1;
-            video.play().catch(function () {
-                // Sound refused for some other reason — still show the clip.
-                video.muted = true;
-                video.play().catch(function () { });
-            });
-            syncButton();
-        }
-
-        video.addEventListener('ended', function () {
-            // Only the welcome ends (the idle loops), so this is the handover.
-            if (playingWelcome) toIdle();
-        });
-
-        if (startBtn) startBtn.addEventListener('click', playWelcome);
-
         // Sound toggle. Muted is the only state autoplay allows, so the button
         // starts pressed-off and the visitor's click is what unlocks audio.
         // The choice is remembered, but a remembered "on" is only re-applied

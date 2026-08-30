@@ -32,6 +32,21 @@
       <span id="chosen-name"></span>
       <button type="button" id="change">تغییر</button>
     </div>
+
+    <!-- The booth is not in the list. A link, not a button beside the search
+         box, so it never reads as a second way to search. -->
+    <div style="margin-top:16px">
+      <button type="button" class="ghost" id="not-listed">شرکت من در این فهرست نیست</button>
+    </div>
+    <div id="new-company" hidden style="margin-top:16px">
+      <label for="new-title">عنوان شرکت</label>
+      <input type="text" id="new-title" autocomplete="off" maxlength="200">
+      <label for="new-text">متن پاسخ</label>
+      <p class="hint">این همان متنی است که چت‌بات نمایشگاه در پاسخ به بازدیدکننده‌ها دربارهٔ این شرکت می‌گوید. بعد از تأیید ادمین منتشر می‌شود.</p>
+      <textarea id="new-text" maxlength="4000" placeholder="متن معرفی شرکت…"></textarea>
+      <div class="note err" id="new-company-error"></div>
+      <div style="margin-top:16px"><button type="button" id="new-company-save">ثبت شرکت جدید</button></div>
+    </div>
   </section>
 
   <!-- Step 2 — the contact. -->

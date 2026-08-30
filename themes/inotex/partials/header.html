@@ -1,38 +1,4 @@
 <header class="inx-header">
-    <div class="logo-container">
-        <div class="the-logo">
-            <!-- A set whitelabel_logo_url REPLACES the hexagon mark (owner
-                 decision): one identity, not two competing ones. Empty
-                 default keeps the SVG mark — pixel-identical to today. -->
-            {% if wl_logo_url %}
-            <img class="brand-mark" src="{{ wl_logo_url }}" alt="{{ app_title }}" width="38" height="38">
-            {% else %}
-            <!-- INOTEX hexagon-cube interface motif (conceptual mark from the
-                 coordinated visual system — not the official event logo). -->
-            <svg class="brand-mark" viewBox="0 0 64 64" width="38" height="38"
-                role="img" aria-label="INOTEX">
-                <defs>
-                    <linearGradient id="inxHex" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0" stop-color="#2D5CA7" />
-                        <stop offset="0.72" stop-color="#1E2D52" />
-                        <stop offset="1" stop-color="#FCB715" />
-                    </linearGradient>
-                </defs>
-                <path d="M32 3 57 17.5v29L32 61 7 46.5v-29Z" fill="#1E2D52"
-                    stroke="url(#inxHex)" stroke-width="3" stroke-linejoin="round" />
-                <path d="M32 17 45 24.5v15L32 47 19 39.5v-15Z" fill="#2D5CA7" />
-                <path d="M32 17 45 24.5 32 32 19 24.5Z" fill="#5B8AD9" />
-                <path d="M32 32v15L19 39.5v-15Z" fill="#24487F" />
-                <path d="M32 47 45 39.5v-6.2L32 40.8Z" fill="#FCB715" />
-            </svg>
-            {% endif %}
-        </div>
-        <div class="the-slogan">
-            <div class="header-title" data-i18n="app_title">{{ app_title }}</div>
-            <div class="header-subtitle">INOTEX</div>
-        </div>
-    </div>
-
     <!-- Chat / Video segmented switcher (brick pill) -->
     <fieldset class="switcher" c-previous="1">
         <legend class="switcher__legend">انتخاب نما</legend>

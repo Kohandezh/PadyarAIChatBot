@@ -269,10 +269,16 @@ def _select_facets(tokens: list, companies: list):
 
 
 def _load_companies() -> list:
-    """Every company. See migrations/0013_companies.sql: a company used to be
-    a `dataset` row with a matching `company_profiles` row (this was a JOIN);
-    it is now one row of `companies`, so every row this reads back IS a
-    company, no join and no separate "is this one?" test needed.
+    """Every APPROVED company. See migrations/0013_companies.sql: a company
+    used to be a `dataset` row with a matching `company_profiles` row (this
+    was a JOIN); it is now one row of `companies`, so every row this reads
+    back IS a company, no join and no separate "is this one?" test needed.
+
+    `text <> ''` excludes a company a visitor just proposed at the booth (see
+    app/services/leads.py's `propose_company`): that row has a real title but
+    an empty `text` until an admin approves its first pending edit, and this
+    is a chatbot-facing read — a shell nobody has reviewed yet must not be
+    named in a "which companies..." answer.
     """
     from app.db.connection import get_db_connection
     conn = get_db_connection()
@@ -284,6 +290,7 @@ def _load_companies() -> list:
             "SELECT id, title, title_en, text, video_url,"
             " activity_field, province, company_type, priority_boost"
             " FROM companies"
+            " WHERE text <> ''"
         ).fetchall()
     finally:
         conn.close()

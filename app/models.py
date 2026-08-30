@@ -213,12 +213,16 @@ class SmsSettingsRequest(BaseModel):
     # with this set, the code is sent as a template parameter instead of free
     # text — see send_asanak_template. Empty = plain sendsms.
     template_id: str = ""
-    # Two more approved templates, both carrying a LINK instead of a code.
-    # They are separate ids because Asanak approves one template per text, and
-    # neither may stand in for the other: a contact told "your text was not
-    # approved" when they were only being invited is worse than no SMS at all.
-    invite_template_id: str = ""
-    reject_template_id: str = ""
+    # Free TEXT for the two link messages (invite, rejection notice), not a
+    # template id: the account's sender LINE — not a per-message template —
+    # was granted permission to carry a link in free text. Each must contain
+    # the literal placeholder `{magic_link}`, substituted with the real
+    # one-time link at send time. Two separate settings because the invite
+    # and the rejection notice are different sentences; neither falls back to
+    # the other, so a contact is never sent the wrong wording because one
+    # field was blank.
+    invite_text: str = ""
+    reject_text: str = ""
     # Messages allowed per day across every kind of SMS. "0" means no cap.
     # A string, like every other field here, so the whole form is one shape.
     # The router turns it into a number and refuses anything else.

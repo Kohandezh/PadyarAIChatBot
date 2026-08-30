@@ -463,8 +463,15 @@ def load_dataset_internal():
     # below, which still has to be able to name a company.
     try:
         conn = get_db_connection()
+        # `WHERE text <> ''` excludes a company a visitor just proposed at the
+        # booth (app/services/leads.py's `propose_company`): that row has a
+        # real title but an empty `text` until an admin approves its first
+        # pending edit. Without this filter the shell would resolve by name in
+        # `resolve_named_entity`/`get_entry` and answer nothing sensible —
+        # visible before any review, which is the whole leak this line closes.
         rows = conn.execute(
-            'SELECT id, title, text, video_url, title_en, text_en FROM companies'
+            "SELECT id, title, text, video_url, title_en, text_en FROM companies"
+            " WHERE text <> ''"
         ).fetchall()
         conn.close()
         _companies = [dict(r) for r in rows]
