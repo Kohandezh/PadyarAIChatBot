@@ -44,6 +44,8 @@ DEKIO_MOBILE = "09129998877"         # one person's mobile — WITHHELD
 DEKIO_EMAIL = "ceo@dekio-mail.ir"    # that person's email — WITHHELD
 DEKIO_CONTACT = "مریم رستمی"         # that person's name — WITHHELD
 DEKIO_NOTES = "یادداشت داخلی برگزارکننده"   # organizer-only — WITHHELD
+DEKIO_BOOTH = "24"                   # the booth number — PUBLIC
+DEKIO_HALL = "سالن 3"                 # which hall the booth is in — PUBLIC
 
 DEKIO_TEXT = (
     "اطلاعات درباره شرکت دکیو: دکیو سازنده سامانه های هوشمند اداری است "
@@ -65,6 +67,7 @@ COMPANIES = [
             "website": DEKIO_WEBSITE, "company_phone": DEKIO_PHONE,
             "fax": "02144556678", "address": DEKIO_ADDRESS,
             "address_en": "Tehran Valiasr St No 12", "province": "تهران",
+            "booth_number": DEKIO_BOOTH, "hall": DEKIO_HALL,
             "company_type": "خصوصی", "org_stage": "رشد",
             "activity_field": "نرم افزار اداری", "participation": "غرفه",
             "notes": DEKIO_NOTES,
@@ -98,7 +101,8 @@ EXTRA_DATASET = [
      "شماره تلفن و راه تماس با دبیرخانه نمایشگاه در دفتر اعلام می شود. "
      "آدرس و نشانی دبیرخانه در سایت و وبسایت نمایشگاه آمده است. "
      "مدیرعامل و مسئول و نماینده هر شرکت در غرفه حضور دارد "
-     "و ایمیل و موبایل و همراه شخصی افراد اعلام نمی شود."),
+     "و ایمیل و موبایل و همراه شخصی افراد اعلام نمی شود. "
+     "غرفه ها در چند سالن مختلف نمایشگاه قرار دارند."),
     ("faq-cities", "شهرهای حاضر در نمایشگاه",
      "شرکت هایی از استان اصفهان و استان تهران در نمایشگاه حضور دارند."),
 ]
@@ -215,6 +219,44 @@ def test_a_phone_question_answers_with_that_companys_public_phone(client, monkey
     body = r.json()
     assert body["source"] == "local_company_field", body
     assert DEKIO_PHONE in body["text"], body["text"]
+
+
+def test_a_booth_number_question_answers_with_that_companys_booth(client, monkeypatch):
+    """«شماره غرفه» must resolve to booth_number, not company_phone, even
+    though «شماره» is also company_phone's own trigger word — same
+    precedence problem as the WITHHELD مدیرعامل case above, same fix: the
+    more specific field (booth_number) is checked first."""
+    _seed()
+    _mock_ai(monkeypatch, forbid=True)
+    r = _ask(client, "شماره غرفه شرکت دکیو چیست؟")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_field", body
+    assert DEKIO_BOOTH in body["text"], body["text"]
+    assert DEKIO_PHONE not in body["text"], body["text"]
+
+
+def test_a_hall_question_answers_with_that_companys_hall(client, monkeypatch):
+    _seed()
+    _mock_ai(monkeypatch, forbid=True)
+    r = _ask(client, "سالن شرکت دکیو کجاست؟")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_field", body
+    assert DEKIO_HALL in body["text"], body["text"]
+
+
+def test_a_plain_phone_question_still_answers_the_phone_not_the_booth(client, monkeypatch):
+    """The precedence fix above must not swallow the plain phone question —
+    «شماره تماس» carries no «غرفه» and must still resolve to company_phone."""
+    _seed()
+    _mock_ai(monkeypatch, forbid=True)
+    r = _ask(client, "شماره تماس شرکت دکیو چیست؟")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_field", body
+    assert DEKIO_PHONE in body["text"], body["text"]
+    assert DEKIO_BOOTH not in body["text"], body["text"]
 
 
 def test_a_website_question_answers_with_that_companys_website(client, monkeypatch):

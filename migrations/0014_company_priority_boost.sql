@@ -1,0 +1,18 @@
+-- Let the organizer pin a company ahead of the alphabetical company list.
+--
+-- WHY
+-- ---
+-- app/services/company_search.py answers "which companies ..." questions by
+-- filtering app.companies on the matched facet and sorting the result
+-- `ORDER BY title` (alphabetically). That is a fair, content-only order, but
+-- it means a company whose title starts late in the Persian alphabet (e.g.
+-- «ک») can never appear near the top of a list a company whose title starts
+-- early (e.g. «آ») is also in, no matter how relevant both are — there was no
+-- lever to change that short of renaming the company.
+--
+-- `priority_boost` is that lever: a small, generic flag any company can carry
+-- (sponsor placement, a booth the organizer wants surfaced first), read only
+-- by the sort key in answer_company_list(). It changes ORDER, never WHICH
+-- companies match — the facet filter is untouched, so a boosted company still
+-- only appears in lists its own activity_field actually belongs to.
+ALTER TABLE app.companies ADD COLUMN IF NOT EXISTS priority_boost BOOLEAN NOT NULL DEFAULT FALSE;

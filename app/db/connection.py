@@ -267,6 +267,7 @@ def _create_sqlite_schema(cursor):
     ''')
 
     _create_companies_table(cursor)
+    ensure_companies_columns(cursor)
     _create_conversation_tables(cursor)
     _create_visitor_sessions_table(cursor)
 
@@ -326,9 +327,35 @@ def _create_companies_table(cursor):
         notes             TEXT NOT NULL DEFAULT '',
         source            TEXT NOT NULL DEFAULT 'import',
         created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        priority_boost    INTEGER NOT NULL DEFAULT 0,
+        booth_number      TEXT NOT NULL DEFAULT '',
+        hall              TEXT NOT NULL DEFAULT ''
     )
     ''')
+
+
+def ensure_companies_columns(cursor) -> None:
+    """Add columns introduced after `companies` first shipped (migration
+    0013) to an older SQLite table. CREATE TABLE IF NOT EXISTS above does
+    nothing once the table already exists, so an install that predates a
+    given column needs this ALTER pass — same shape as
+    ensure_dataset_columns() and ensure_chat_log_columns() above.
+
+    `priority_boost` is the SQLite mirror of migrations/0014: 0/1 stands in
+    for SQLite's absent BOOLEAN, same as `used` and `active` do elsewhere in
+    this file. `booth_number` mirrors migrations/0015, `hall` mirrors
+    migrations/0016. Safe to run on every boot.
+
+    SQLite-only helper: the caller passes a `sqlite3` cursor.
+    """
+    for column, ddl in (("priority_boost", "INTEGER NOT NULL DEFAULT 0"),
+                        ("booth_number", "TEXT NOT NULL DEFAULT ''"),
+                        ("hall", "TEXT NOT NULL DEFAULT ''")):
+        try:
+            cursor.execute(f"ALTER TABLE companies ADD COLUMN {column} {ddl}")
+        except sqlite3.OperationalError:
+            pass  # column already present
 
 
 def _create_conversation_tables(cursor):
