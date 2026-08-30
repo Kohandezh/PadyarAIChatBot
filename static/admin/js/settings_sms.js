@@ -180,7 +180,7 @@ export function initSms() {
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
                 msg.className = 'fw-bold mt-3 text-success';
-                msg.textContent = `✅ اتصال درست است. اعتبار باقی‌مانده: ${data.credit} پیامک`;
+                msg.textContent = `✅ اتصال درست است. اعتبار فعلی: ${data.credit} ریال`;
             } else {
                 // The gateway's own reason — expired password, no credit, ...
                 msg.className = 'fw-bold mt-3 text-danger';
