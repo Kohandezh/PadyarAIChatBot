@@ -28,12 +28,17 @@
         <button class="btn btn-primary" onclick="window.openDatasetModal()"><i class="fas fa-plus me-1"></i> افزودن مورد جدید</button>
     </div>
 </div>
+<div id="dataset-bulk-toolbar" class="d-none d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded border">
+    <span id="dataset-bulk-count" class="small fw-bold text-muted">0 مورد انتخاب شده</span>
+    <button class="btn btn-outline-danger btn-sm" onclick="window.bulkDeleteDatasetItems()"><i class="fas fa-trash me-1"></i> حذف انتخاب‌شده‌ها</button>
+</div>
 <div class="content-card">
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead class="bg-light">
                     <tr>
+                        <th style="width:40px"><input type="checkbox" id="dataset-select-all" class="form-check-input"></th>
                         <th style="width:50px">#</th>
                         <th style="width:120px">شناسه</th>
                         <th>عنوان</th>

@@ -160,7 +160,7 @@ PadyarAIChatbot/
       voice.py                   # /api/transcribe (Whisper)
       synonyms.py                # Synonym CRUD
       dataset.py                 # Dataset + questions + video CRUD
-      conversations_admin.py     # Admin read side: visitors, transcripts, wrong-answer queue
+      conversations_admin.py     # Admin: visitors, transcripts, wrong-answer queue
       dbadmin.py                 # Admin API for Infrastructure -> Database + Storage
       backups.py                 # Admin API for Infrastructure -> Backups
       ops.py                     # Admin Operations & Control Center

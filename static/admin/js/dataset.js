@@ -1,7 +1,8 @@
 import { API_BASE, getDatasetItems, setDatasetItems } from './state.js';
-import { fetchAuth, showMsg, escapeHtml, exportResource, openImportModal, submitImportResource } from './utils.js';
+import { fetchAuth, showMsg, escapeHtml, exportResource, openImportModal, submitImportResource, initBulkSelection } from './utils.js';
 
 let mediaBrowserModal = null;
+let bulkSelection = null;
 
 async function loadDatasetTable() {
     const res = await fetchAuth(API_BASE + '/dataset');
@@ -27,6 +28,7 @@ function renderDatasetTable(items) {
         const textPreview = item.text.length > 80 ? item.text.substring(0, 80) + '...' : item.text;
         const hasVideo = item.video_url ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>';
         tr.innerHTML = `
+            <td><input type="checkbox" class="form-check-input row-check" value="${escapeHtml(item.id)}"></td>
             <td>${i + 1}</td>
             <td><code>${escapeHtml(item.id)}</code></td>
             <td class="fw-bold">${escapeHtml(item.title)}</td>
@@ -38,6 +40,8 @@ function renderDatasetTable(items) {
             </td>`;
         tbody.appendChild(tr);
     });
+
+    if (bulkSelection) bulkSelection.clear();
 }
 
 function openDatasetModal(item_id = null) {
@@ -264,7 +268,33 @@ async function deleteDatasetItem(item_id) {
     }
 }
 
+async function bulkDeleteDatasetItems() {
+    const ids = bulkSelection.getSelected();
+    if (ids.length === 0) return;
+    if (!confirm(`آیا از حذف ${ids.length} مورد انتخاب‌شده مطمئن هستید؟ این عمل قابل بازگشت نیست.`)) return;
+
+    const res = await fetchAuth(API_BASE + '/dataset/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+    });
+    if (res.ok) {
+        showMsg('dataset-msg', '✅ موارد انتخاب‌شده حذف شدند', 'success');
+        loadDatasetTable();
+    } else {
+        const data = await res.json().catch(() => ({}));
+        showMsg('dataset-msg', '❌ خطا: ' + (data.detail || 'عملیات ناموفق'), 'danger');
+    }
+}
+
 export function initDataset() {
+    bulkSelection = initBulkSelection({
+        selectAllEl: document.getElementById('dataset-select-all'),
+        toolbarEl: document.getElementById('dataset-bulk-toolbar'),
+        countEl: document.getElementById('dataset-bulk-count'),
+    });
+    bulkSelection.attach(document.getElementById('dataset-table'));
+
     loadDatasetTable();
 
     // Search handler
@@ -285,6 +315,7 @@ export function initDataset() {
     window.openDatasetModal = openDatasetModal;
     window.saveDatasetItem = saveDatasetItem;
     window.deleteDatasetItem = deleteDatasetItem;
+    window.bulkDeleteDatasetItems = bulkDeleteDatasetItems;
     window.removeVideo = removeVideo;
     window.openMediaBrowser = openMediaBrowser;
     window.selectVideo = selectVideo;

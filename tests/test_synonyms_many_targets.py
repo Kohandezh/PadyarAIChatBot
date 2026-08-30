@@ -196,3 +196,80 @@ def test_a_single_target_expands_deduped(client):
     load_synonyms_from_db()
 
     assert normalize_persian("پردیس") == "پردیس پارک فناوری"
+
+
+# --- Bulk delete -------------------------------------------------------
+
+@pytest.fixture
+def anon_client(tmp_path, monkeypatch):
+    """A client that never overrides verify_admin — for the auth check.
+
+    A separate fixture rather than reusing `client`: the module-level
+    `client` fixture always bypasses admin auth, which is exactly what a
+    401/403 test must NOT do.
+    """
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "test_synonyms_anon.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        yield c
+
+    import app.utils.normalizer as normalizer
+    normalizer.active_synonyms = []
+
+
+def test_bulk_delete_removes_every_pair_and_bumps_index_once(client, monkeypatch):
+    for source, target in (("لیزیک", "لیزر"), ("لیزیک", "فمتو"), ("بلیط", "بلیت")):
+        client.post("/api/synonyms", json={"source": source, "target": target})
+
+    calls = []
+    import app.services.search as search
+    monkeypatch.setattr(search, "bump_index_version", lambda: calls.append(1))
+
+    res = client.post("/api/synonyms/bulk-delete", json={"pairs": [
+        {"source": "لیزیک", "target": "لیزر"},
+        {"source": "بلیط", "target": "بلیت"},
+    ]})
+    assert res.status_code == 200
+    assert res.json() == {"status": "success", "deleted": 2}
+    assert len(calls) == 1
+
+    assert _rows(client, "لیزیک") == ["فمتو"]
+    assert _rows(client, "بلیط") == []
+
+
+def test_bulk_delete_skips_pairs_that_are_not_there(client):
+    client.post("/api/synonyms", json={"source": "لیزیک", "target": "لیزر"})
+
+    res = client.post("/api/synonyms/bulk-delete", json={"pairs": [
+        {"source": "لیزیک", "target": "لیزر"},
+        {"source": "لیزیک", "target": "این وجود ندارد"},
+    ]})
+    assert res.status_code == 200
+    assert res.json()["deleted"] == 1
+    assert _rows(client, "لیزیک") == []
+
+
+def test_bulk_delete_rejects_an_empty_list(client):
+    res = client.post("/api/synonyms/bulk-delete", json={"pairs": []})
+    assert res.status_code == 400
+
+
+def test_bulk_delete_rejects_a_pair_missing_a_word(client):
+    client.post("/api/synonyms", json={"source": "لیزیک", "target": "لیزر"})
+
+    res = client.post("/api/synonyms/bulk-delete", json={"pairs": [
+        {"source": "لیزیک", "target": ""},
+    ]})
+    assert res.status_code == 400
+    assert _rows(client, "لیزیک") == ["لیزر"]
+
+
+def test_bulk_delete_rejects_an_unauthenticated_caller(anon_client):
+    res = anon_client.post("/api/synonyms/bulk-delete", json={"pairs": [
+        {"source": "لیزیک", "target": "لیزر"},
+    ]})
+    assert res.status_code in (401, 403)

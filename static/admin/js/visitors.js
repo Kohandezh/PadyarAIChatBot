@@ -6,12 +6,13 @@
  * session, so it NEVER goes in with innerHTML. textContent or createElement,
  * always. Same rule, same reason, as static/admin/js/logs.js.
  */
-import { fetchAuth } from './utils.js';
+import { fetchAuth, initBulkSelection } from './utils.js';
 
 const el = (id) => document.getElementById(id);
 const FILTER_KEYS = ['since', 'until', 'job', 'interest', 'q'];
 
 let state = { limit: 50, offset: 0, hasMore: false };
+let bulkSelection = null;
 
 /* Who the side panel is showing right now. The "sign out everywhere" button
  * lives in the template and is bound once, so it has to read the visitor from
@@ -93,13 +94,22 @@ function render(rows) {
   const body = el('visitors-body');
   body.replaceChildren();
   if (!rows.length) {
-    body.append(emptyRow('هیچ بازدیدکننده‌ای با این فیلترها پیدا نشد.', 8));
+    body.append(emptyRow('هیچ بازدیدکننده‌ای با این فیلترها پیدا نشد.', 9));
     return;
   }
   rows.forEach((r) => {
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
     tr.addEventListener('click', () => openVisitor(r));
+
+    const checkCell = document.createElement('td');
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'form-check-input row-check';
+    check.value = r.id;
+    check.addEventListener('click', (e) => e.stopPropagation());
+    checkCell.append(check);
+    tr.append(checkCell);
 
     const name = [r.first_name, r.last_name].filter(Boolean).join(' ');
     tr.append(td(name));
@@ -122,6 +132,27 @@ function render(rows) {
 
     body.append(tr);
   });
+
+  if (bulkSelection) bulkSelection.clear();
+}
+
+/* ── Bulk delete ────────────────────────────────────────────────────── */
+
+async function bulkDeleteVisitors() {
+  const ids = bulkSelection.getSelected();
+  if (ids.length === 0) return;
+  if (!confirm(`${ids.length} بازدیدکننده و همهٔ گفتگوهای آن‌ها برای همیشه حذف شود؟ این عمل قابل بازگشت نیست.`)) return;
+
+  const res = await fetchAuth('/admin/api/visitors/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (res.ok) {
+    load();
+  } else {
+    alert('خطا در حذف بازدیدکنندگان');
+  }
 }
 
 /* ── One person, in full ───────────────────────────────────────────── */
@@ -133,10 +164,16 @@ const FIELD_FA = {
 };
 
 function openVisitor(row) {
-  const panel = el('visitor-body');
-  panel.replaceChildren();
   openRow = row;
   el('revoke-msg').textContent = '';   // last person's result is not this one's
+  el('delete-visitor-msg').textContent = '';
+  renderVisitorView(row);
+  new bootstrap.Offcanvas(el('visitor-panel')).show();
+}
+
+function renderVisitorView(row) {
+  const panel = el('visitor-body');
+  panel.replaceChildren();
 
   const table = document.createElement('table');
   table.className = 'table table-sm';
@@ -175,13 +212,117 @@ function openVisitor(row) {
     panel.append(head, extra);
   }
 
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'btn btn-outline-secondary w-100 mt-3';
+  editBtn.textContent = 'ویرایش اطلاعات';
+  editBtn.addEventListener('click', () => renderVisitorEditForm(row));
+  panel.append(editBtn);
+
   const go = document.createElement('a');
-  go.className = 'btn btn-primary w-100 mt-3';
+  go.className = 'btn btn-primary w-100 mt-2';
   go.textContent = 'گفتگوهای این نفر';
   go.href = '/secure-panel-inotex/conversations?visitor_id=' + encodeURIComponent(row.id);
   panel.append(go);
+}
 
-  new bootstrap.Offcanvas(el('visitor-panel')).show();
+/* ── Editing a visitor's own profile fields ────────────────────────────
+ *
+ * Phone is intentionally not here: it is the OTP identity key
+ * (phone_hash), and letting an operator change it would desync a person's
+ * record from the number they actually verified.
+ */
+const EDITABLE_FIELDS = [
+  ['first_name', 'نام'],
+  ['last_name', 'نام خانوادگی'],
+  ['job', 'شغل'],
+  ['position', 'سمت'],
+  ['interests', 'زمینه‌های مورد علاقه'],
+];
+
+function renderVisitorEditForm(row) {
+  const panel = el('visitor-body');
+  panel.replaceChildren();
+
+  const inputs = {};
+  EDITABLE_FIELDS.forEach(([key, label]) => {
+    const group = document.createElement('div');
+    group.className = 'mb-2';
+    const lbl = document.createElement('label');
+    lbl.className = 'form-label';
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-control';
+    input.value = row[key] || '';
+    inputs[key] = input;
+    group.append(lbl, input);
+    panel.append(group);
+  });
+
+  const msg = document.createElement('div');
+  msg.className = 'small mt-2';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'btn btn-primary w-100 mt-2';
+  saveBtn.textContent = 'ذخیره';
+  saveBtn.addEventListener('click', async () => {
+    const payload = {};
+    EDITABLE_FIELDS.forEach(([key]) => { payload[key] = inputs[key].value.trim(); });
+    saveBtn.disabled = true;
+    msg.className = 'small mt-2 text-muted';
+    msg.textContent = 'در حال ذخیره…';
+    try {
+      const res = await fetchAuth('/admin/api/visitors/' + encodeURIComponent(row.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('http ' + res.status);
+      const data = await res.json();
+      openVisitor(data.visitor);
+      load();
+    } catch (e) {
+      msg.className = 'small mt-2 text-danger';
+      msg.textContent = 'ذخیره نشد. دوباره تلاش کنید.';
+      saveBtn.disabled = false;
+    }
+  });
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn btn-outline-secondary w-100 mt-2';
+  cancelBtn.textContent = 'انصراف';
+  cancelBtn.addEventListener('click', () => renderVisitorView(row));
+
+  panel.append(saveBtn, cancelBtn, msg);
+}
+
+/* ── Delete this visitor ─────────────────────────────────────────────── */
+
+async function deleteVisitor() {
+  if (!openRow) return;
+  const name = [openRow.first_name, openRow.last_name].filter(Boolean).join(' ')
+    || 'این بازدیدکننده';
+  if (!confirm(`${name} و همهٔ گفتگوهایش برای همیشه حذف شود؟ این عمل قابل بازگشت نیست.`)) return;
+
+  const msg = el('delete-visitor-msg');
+  const button = el('btn-delete-visitor');
+  button.disabled = true;
+  msg.className = 'small mt-2 text-muted';
+  msg.textContent = 'در حال حذف…';
+  try {
+    const res = await fetchAuth(
+      '/admin/api/visitors/' + encodeURIComponent(openRow.id), { method: 'DELETE' });
+    if (!res.ok) throw new Error('http ' + res.status);
+    bootstrap.Offcanvas.getInstance(el('visitor-panel'))?.hide();
+    load();
+  } catch (e) {
+    msg.className = 'small mt-2 text-danger';
+    msg.textContent = 'حذف نشد. دوباره تلاش کنید.';
+    button.disabled = false;
+  }
 }
 
 /* ── Sign this person out everywhere ───────────────────────────────────
@@ -229,6 +370,14 @@ async function revokeSessions() {
 
 export function initVisitors() {
   applyUrlToForm();
+  bulkSelection = initBulkSelection({
+    selectAllEl: el('visitors-select-all'),
+    toolbarEl: el('visitors-bulk-toolbar'),
+    countEl: el('visitors-bulk-count'),
+  });
+  bulkSelection.attach(el('visitors-body'));
+  el('btn-bulk-delete-visitors').addEventListener('click', bulkDeleteVisitors);
+  el('btn-delete-visitor').addEventListener('click', deleteVisitor);
   el('visitors-filter').addEventListener('submit', (e) => {
     e.preventDefault(); state.offset = 0; load();
   });

@@ -7,10 +7,11 @@
  * DOM through innerHTML — textContent or createElement, always. Same rule,
  * same reason, as static/admin/js/logs.js.
  */
-import { fetchAuth } from './utils.js';
+import { fetchAuth, initBulkSelection } from './utils.js';
 
 const el = (id) => document.getElementById(id);
 const FILTER_KEYS = ['since', 'until', 'registered', 'source', 'q'];
+let bulkSelection = null;
 
 let state = {
   view: 'list',
@@ -155,13 +156,22 @@ function renderList(rows) {
   const body = el('conv-body');
   body.replaceChildren();
   if (!rows.length) {
-    body.append(emptyRow('هیچ گفتگویی با این فیلترها پیدا نشد.', 6));
+    body.append(emptyRow('هیچ گفتگویی با این فیلترها پیدا نشد.', 7));
     return;
   }
   rows.forEach((r) => {
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
     tr.addEventListener('click', () => openTranscript(r.id));
+
+    const checkCell = document.createElement('td');
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'form-check-input row-check';
+    check.value = r.id;
+    check.addEventListener('click', (e) => e.stopPropagation());
+    checkCell.append(check);
+    tr.append(checkCell);
 
     tr.append(td(when(r.last_message_at), { ltr: true }));
 
@@ -191,6 +201,27 @@ function renderList(rows) {
 
     body.append(tr);
   });
+
+  if (bulkSelection) bulkSelection.clear();
+}
+
+/* ── Bulk delete ────────────────────────────────────────────────────── */
+
+async function bulkDeleteConversations() {
+  const ids = bulkSelection.getSelected();
+  if (ids.length === 0) return;
+  if (!confirm(`${ids.length} گفتگوی انتخاب‌شده برای همیشه حذف شود؟ این عمل قابل بازگشت نیست.`)) return;
+
+  const res = await fetchAuth('/admin/api/conversations/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (res.ok) {
+    loadList();
+  } else {
+    alert('خطا در حذف گفتگوها');
+  }
 }
 
 /* ── View 2: the wrong answers ──────────────────────────────────────── */
@@ -319,6 +350,16 @@ async function openTranscript(conversationId) {
     sub.textContent = `${when(c.started_at)} · ${c.message_count || 0} پیام`
                       + (c.phone ? ' · ' + c.phone : '');
     head.append(title, sub);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn btn-sm btn-outline-danger mt-2';
+    const delIcon = document.createElement('i');
+    delIcon.className = 'fas fa-trash ms-1';
+    del.append(delIcon, document.createTextNode('حذف این گفتگو'));
+    del.addEventListener('click', () => deleteConversation(conversationId, name));
+    head.append(del);
+
     panel.append(head);
 
     const weakBelow = data.weak_below || state.bounds.weak;
@@ -421,10 +462,32 @@ async function saveFix() {
   }
 }
 
+/* ── Deleting one conversation ──────────────────────────────────────── */
+
+async function deleteConversation(conversationId, name) {
+  if (!confirm(`${name || 'این گفتگو'} برای همیشه حذف شود؟ این عمل قابل بازگشت نیست.`)) return;
+  const res = await fetchAuth(
+    '/admin/api/conversations/' + encodeURIComponent(conversationId), { method: 'DELETE' });
+  if (res.ok) {
+    bootstrap.Offcanvas.getInstance(el('transcript-panel'))?.hide();
+    loadList();
+  } else {
+    alert('خطا در حذف گفتگو');
+  }
+}
+
 /* ── Wiring ─────────────────────────────────────────────────────────── */
 
 export function initConversations() {
   applyUrlToForm();
+
+  bulkSelection = initBulkSelection({
+    selectAllEl: el('conv-select-all'),
+    toolbarEl: el('conv-bulk-toolbar'),
+    countEl: el('conv-bulk-count'),
+  });
+  bulkSelection.attach(el('conv-body'));
+  el('btn-bulk-delete-conversations').addEventListener('click', bulkDeleteConversations);
 
   el('conv-filter').addEventListener('submit', (e) => {
     e.preventDefault(); state.offset = 0; loadList();

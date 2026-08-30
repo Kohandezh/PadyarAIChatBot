@@ -427,3 +427,130 @@ def test_export_defuses_a_spreadsheet_formula(client):
                             phone="09120000001", job="")
     _header, rows = _csv_rows(client.get("/admin/api/visitors/export"))
     assert rows[0][0].startswith("'="), "an exported cell can still run in Excel"
+
+
+# ── Visitor delete / edit ────────────────────────────────────────────────
+#
+# These routes turn the module from read-only (plus the one deliberate
+# sessions/revoke write) into a screen that can also delete and edit. Every
+# one of them still has to refuse an anonymous caller for the same reason the
+# read routes do: these responses, and the deletions themselves, touch names,
+# phone numbers and everything a visitor typed.
+
+def test_anonymous_cannot_delete_or_edit_visitors_or_conversations(anon):
+    placeholder = "does-not-matter"
+    assert anon.delete(f"/admin/api/visitors/{placeholder}").status_code in (401, 403)
+    assert anon.put(f"/admin/api/visitors/{placeholder}", json={}).status_code in (401, 403)
+    assert anon.post("/admin/api/visitors/bulk-delete",
+                     json={"ids": [placeholder]}).status_code in (401, 403)
+    assert anon.delete(f"/admin/api/conversations/{placeholder}").status_code in (401, 403)
+    assert anon.post("/admin/api/conversations/bulk-delete",
+                     json={"ids": [placeholder]}).status_code in (401, 403)
+
+
+def test_delete_visitor_removes_them_and_their_conversations(client):
+    """Deleting a visitor is not just the row — everything of theirs goes,
+    same explicit order the service function documents."""
+    seeded = _seed(client)
+    ali = seeded["ali"]
+
+    res = client.delete(f"/admin/api/visitors/{ali}")
+    assert res.status_code == 200, res.text
+    assert res.json() == {"status": "deleted"}
+
+    assert _store().get_visitor(ali) == {}
+    assert _store().get_conversation("c-mid") == {}
+    assert _store().conversation_messages("c-mid") == []
+
+
+def test_delete_visitor_is_404_for_an_unknown_id(client):
+    """A mistyped id must not answer 'done' — same rule as sessions/revoke."""
+    assert client.delete("/admin/api/visitors/no-such-visitor").status_code == 404
+
+
+def test_delete_visitor_writes_an_audit_row_without_pii(client):
+    from app.services import applog
+    applog._recent.clear()
+    seeded = _seed(client)
+    sara = seeded["sara"]
+
+    client.delete(f"/admin/api/visitors/{sara}")
+
+    row = _audit("admin.visitor.deleted")
+    assert row, "the deletion left no audit trail"
+    assert row.get("target") == sara
+    assert "09354445566" not in str(dict(row))
+    assert "کریمی" not in str(dict(row))
+
+
+def test_update_visitor_changes_only_the_editable_fields(client):
+    """The phone is the OTP identity key. It must survive even when the
+    caller tries to send one, and unknown keys like 'id' are ignored."""
+    seeded = _seed(client)
+    ali = seeded["ali"]
+    original = _store().get_visitor(ali)
+
+    res = client.put(f"/admin/api/visitors/{ali}", json={
+        "first_name": "علیرضا",
+        "last_name": "رضایی",
+        "job": "مهندس",
+        "position": "مدیر فنی",
+        "interests": "پردازش زبان طبیعی",
+        "phone": "09999999999",
+        "id": "should-be-ignored",
+    })
+    assert res.status_code == 200, res.text
+    updated = res.json()["visitor"]
+    assert updated["first_name"] == "علیرضا"
+    assert updated["job"] == "مهندس"
+    assert updated["phone"] == original["phone"], "phone must never change through this route"
+    assert updated["id"] == ali
+
+
+def test_update_visitor_is_404_for_an_unknown_id(client):
+    res = client.put("/admin/api/visitors/no-such-visitor", json={"first_name": "x"})
+    assert res.status_code == 404
+
+
+def test_bulk_delete_visitors_skips_unknown_ids(client):
+    seeded = _seed(client)
+    res = client.post("/admin/api/visitors/bulk-delete",
+                      json={"ids": [seeded["ali"], seeded["sara"], "no-such-id"]})
+    assert res.status_code == 200
+    assert res.json()["deleted"] == 2
+    assert _store().get_visitor(seeded["ali"]) == {}
+    assert _store().get_visitor(seeded["sara"]) == {}
+
+
+def test_bulk_delete_visitors_rejects_an_empty_list(client):
+    assert client.post("/admin/api/visitors/bulk-delete", json={"ids": []}).status_code == 400
+    assert client.post("/admin/api/visitors/bulk-delete", json={}).status_code == 400
+
+
+# ── Conversation delete ──────────────────────────────────────────────────
+
+def test_delete_conversation_removes_it_and_its_messages(client):
+    _seed(client)
+    res = client.delete("/admin/api/conversations/c-old")
+    assert res.status_code == 200
+    assert res.json() == {"status": "deleted"}
+    assert _store().get_conversation("c-old") == {}
+    assert _store().conversation_messages("c-old") == []
+
+
+def test_delete_conversation_is_404_for_an_unknown_id(client):
+    assert client.delete("/admin/api/conversations/nope").status_code == 404
+
+
+def test_bulk_delete_conversations_happy_path(client):
+    _seed(client)
+    res = client.post("/admin/api/conversations/bulk-delete",
+                      json={"ids": ["c-old", "c-mid", "no-such-id"]})
+    assert res.status_code == 200
+    assert res.json()["deleted"] == 2
+    assert _store().get_conversation("c-old") == {}
+    assert _store().get_conversation("c-mid") == {}
+
+
+def test_bulk_delete_conversations_rejects_an_empty_list(client):
+    assert client.post("/admin/api/conversations/bulk-delete", json={"ids": []}).status_code == 400

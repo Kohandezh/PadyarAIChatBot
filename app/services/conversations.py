@@ -860,6 +860,113 @@ def delete_conversation_for_visitor(conversation_id: str, visitor_id: str) -> bo
         conn.close()
 
 
+# ── Admin writes ─────────────────────────────────────────────────────────
+# Unlike the visitor-facing writes above, these are NOT swallowed on failure.
+# An admin who just clicked "delete" needs to know if it did not happen, not
+# see a friendly no-op. Same reasoning the module docstring gives for reads.
+
+def delete_visitor(visitor_id: str) -> bool:
+    """Delete one visitor, their conversations, their messages and sessions.
+
+    Explicit order, same reasoning as delete_conversation_for_visitor and
+    purge_expired below: PostgreSQL enforces the visitor_id foreign keys on
+    conversations, messages and visitor_sessions (migrations/0012 added the
+    last one); SQLite does not enforce foreign keys at all. Doing all three
+    deletes by hand, on one connection with one commit, is the only version
+    that behaves the same on both backends.
+
+    Returns False when the visitor does not exist, so the caller can answer
+    404 instead of a quiet "done".
+    """
+    visitor_id = (visitor_id or "").strip()
+    if not visitor_id:
+        return False
+    conn = get_db_connection()
+    try:
+        exists = conn.execute("SELECT 1 FROM visitors WHERE id = ?",
+                              (visitor_id,)).fetchone()
+        if not exists:
+            return False
+        conv_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM conversations WHERE visitor_id = ?",
+            (visitor_id,)).fetchall()]
+        if conv_ids:
+            placeholders = ",".join("?" * len(conv_ids))
+            conn.execute(
+                f"DELETE FROM messages WHERE conversation_id IN ({placeholders})",
+                conv_ids)
+            conn.execute(
+                f"DELETE FROM conversations WHERE id IN ({placeholders})",
+                conv_ids)
+        conn.execute("DELETE FROM visitor_sessions WHERE visitor_id = ?",
+                     (visitor_id,))
+        conn.execute("DELETE FROM visitors WHERE id = ?", (visitor_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def update_visitor_profile(visitor_id: str, *, first_name: str = "",
+                           last_name: str = "", job: str = "",
+                           position: str = "", interests: str = ""):
+    """Update exactly the visitor's own profile fields. The phone is never
+    touched here — it is the identity key behind phone_hash and OTP
+    verification, and changing it through this door would desync that
+    identity from the number the person actually verified.
+
+    Same length caps as upsert_visitor (_clip/_LIMITS), so an admin edit
+    cannot make a field longer than the visitor's own edit could have.
+    Returns the updated visitor row, or None if the id does not exist.
+    """
+    visitor_id = (visitor_id or "").strip()
+    if not visitor_id:
+        return None
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE visitors SET first_name = ?, last_name = ?, job = ?,"
+            " position = ?, interests = ? WHERE id = ?",
+            (_clip(first_name, "first_name"), _clip(last_name, "last_name"),
+             _clip(job, "job"), _clip(position, "position"),
+             _clip(interests, "interests"), visitor_id))
+        conn.commit()
+        if not cur.rowcount:
+            return None
+        row = conn.execute("SELECT * FROM visitors WHERE id = ?",
+                           (visitor_id,)).fetchone()
+    finally:
+        conn.close()
+    return _visitor_row(row) if row else None
+
+
+def delete_conversation(conversation_id: str) -> bool:
+    """Delete one conversation and its messages, any owner.
+
+    Same explicit order as delete_conversation_for_visitor: messages first,
+    conversation second, because SQLite does not enforce the foreign key.
+    Unlike that function this is an admin action reachable on ANY
+    conversation id, so there is no visitor_id in the WHERE clause.
+    """
+    conversation_id = (conversation_id or "").strip()
+    if not conversation_id:
+        return False
+    conn = get_db_connection()
+    try:
+        exists = conn.execute("SELECT 1 FROM conversations WHERE id = ?",
+                              (conversation_id,)).fetchone()
+        if not exists:
+            return False
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?",
+                     (conversation_id,))
+        conn.execute("DELETE FROM conversations WHERE id = ?",
+                     (conversation_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 # ── Admin reads ──────────────────────────────────────────────────────────
 
 def list_conversations(*, since=None, until=None, has_visitor=None,
