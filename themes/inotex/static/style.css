@@ -139,7 +139,7 @@ header.inx-header {
     justify-content: center;
     gap: var(--panel-gap);
     padding: 10px 18px;
-    background: linear-gradient(180deg, #223258F2, #1E2D52E6);
+    background: var(--color-surface-primary);
     border-bottom: var(--border-width) solid var(--color-border-subtle);
     box-shadow: 0 4px 18px rgba(0, 0, 0, .5);
     position: relative;
@@ -585,7 +585,9 @@ html[lang="en"] #user-input { padding-left: 38px; }
     outline-offset: 2px;
 }
 
-/* powered-by credit */
+/* powered-by credit. Text AND colour are the install's (Settings >
+   Branding → متن/رنگ پایین صفحه); the var() fallback is the palette's
+   muted text so a bare theme file still looks right. */
 .rayen-sidebar-foot {
     display: flex;
     align-items: center;
@@ -593,7 +595,7 @@ html[lang="en"] #user-input { padding-left: 38px; }
     gap: 7px;
     margin-top: 8px;
     font-size: 11.5px;
-    color: var(--color-text-muted);
+    color: var(--wl-footer-color, var(--color-text-muted));
 }
 
 .rayen-sidebar-foot img { border-radius: 4px; }
@@ -1082,7 +1084,7 @@ body.video-mode .pet-panel { bottom: 96px; }
 .inx-loader {
     position: fixed;
     inset: 0;
-    z-index: 100;
+    z-index: 999;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1097,6 +1099,18 @@ body.video-mode .pet-panel { bottom: 96px; }
     flex-direction: column;
     align-items: center;
     gap: 16px;
+}
+
+/* A set whitelabel_logo_url replaces the animated hexagon (see footer.html).
+   The brick animation lives on the svg's own paths, so the img simply sits
+   there — no animation to carry over, by design: the operator's logo is the
+   brand, not a toy. */
+img.inx-loader-mark {
+    display: block;
+    width: 84px;
+    height: 84px;
+    object-fit: contain;
+    border-radius: var(--panel-radius);
 }
 
 .inx-hex-outline {
@@ -1728,15 +1742,16 @@ body.light-mode .view-container {
         var(--color-page-background);
 }
 
+/* The header surface is --color-surface-primary in BOTH modes (the base
+   rule above reads it; light mode re-points the token below), so no
+   background override is needed here — only the frosted extras. */
 body.light-mode header.inx-header {
-    background: linear-gradient(180deg, #FFFFFFE6, #F2F6FDE6);
     backdrop-filter: blur(14px);
     border-bottom-color: var(--color-border-subtle);
     box-shadow: 0 4px 18px rgba(20, 40, 90, .10);
 }
 
 body.light-mode .header-title { color: var(--color-text-primary); }
-body.light-mode .header-subtitle { color: #B07E06; }
 
 body.light-mode .switcher {
     background: #FFFFFFCC;

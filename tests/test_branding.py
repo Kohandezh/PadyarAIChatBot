@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 DEFAULT_NAME = "دستیار پادیار"
 DEFAULT_GREETING = "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید."
 DEFAULT_BG = "/themes/inotex/static/bg-bricks.jpg"
+DEFAULT_FOOTER = "قدرت گرفته از سکوی ملی متن باز هوش مصنوعی"
 
 _TOKEN_RE = re.compile(r'<meta name="chat-token" content="([^"]+)"')
 
@@ -77,6 +78,8 @@ def _post_branding(client, **overrides):
         "welcome_text": "سلام! به سامانهٔ ما خوش آمدید.",
         "chat_background_url": "",
         "video_background_url": "",
+        "footer_text": "",
+        "footer_color": "#B8C4DE",
     }
     body.update(overrides)
     return client.post("/admin/api/branding", json=body)
@@ -105,12 +108,15 @@ def test_branding_roundtrip_defaults_save_readback(client):
         "whitelabel_welcome_text": DEFAULT_GREETING,
         "whitelabel_chat_background_url": DEFAULT_BG,
         "whitelabel_video_background_url": DEFAULT_BG,
+        "whitelabel_footer_text": DEFAULT_FOOTER,
+        "whitelabel_footer_color": "#B8C4DE",
     }
 
     r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه الکامپ",
                        navy_color="#0A0F1E", background_color="#101010",
                        chat_background_url="/media/uploads/bg.jpg",
-                       video_background_url="https://cdn.example.com/v.jpg")
+                       video_background_url="https://cdn.example.com/v.jpg",
+                       footer_text="قدرت گرفته از پادیار", footer_color="#04A584")
     assert r.status_code == 200, r.text
 
     current = client.get("/admin/api/branding").json()
@@ -124,6 +130,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
     assert current["whitelabel_welcome_text"] == "سلام! به سامانهٔ ما خوش آمدید."
     assert current["whitelabel_chat_background_url"] == "/media/uploads/bg.jpg"
     assert current["whitelabel_video_background_url"] == "https://cdn.example.com/v.jpg"
+    assert current["whitelabel_footer_text"] == "قدرت گرفته از پادیار"
+    assert current["whitelabel_footer_color"] == "#04A584"
 
     # Rows really exist in the settings table — not just the API's defaults.
     from app.db.connection import get_db_connection
@@ -133,7 +141,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
     conn.close()
     assert rows["whitelabel_app_name"] == "دستیار سازمانی"
     assert rows["whitelabel_subtitle"] == "نمایشگاه الکامپ"
-    assert len(rows) == 14
+    assert len(rows) == 16
 
 
 # ── 2. Validation ───────────────────────────────────────────────────────
@@ -147,6 +155,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
     {"logo_url": "//evil.com/x.gif"},           # protocol-relative = external
     {"chat_background_url": "javascript:alert(1)"},
     {"video_background_url": "//evil.com/bg.jpg"},
+    {"footer_color": "red"},                   # footer colour is hex-only too
+    {"footer_text": "x" * 121},
     {"app_name": "   "},                        # whitespace-only = empty
     {"welcome_text": "x" * 301},
     {"app_name": "x" * 61},
@@ -180,6 +190,45 @@ def test_tab_backgrounds_render_as_css_url_tokens(client):
     html = client.get("/").text
     assert '--wl-chat-background:url("/media/uploads/booth.jpg");' in html
     assert f'--wl-video-background:url("{DEFAULT_BG}");' in html
+
+
+def test_footer_credit_follows_the_settings(client):
+    """The powered-by credit under the composer renders the settings on the
+    public page: default keeps the shipped Persian credit and colour token;
+    a custom save swaps both; an emptied text collapses back to the default."""
+    _login(client)
+    html = client.get("/").text
+    assert DEFAULT_FOOTER in html
+    assert "--wl-footer-color:#B8C4DE;" in html
+
+    assert _post_branding(client, footer_text="قدرت گرفته از پادیار",
+                          footer_color="#04A584").status_code == 200
+    html = client.get("/").text
+    assert "قدرت گرفته از پادیار" in html
+    assert "--wl-footer-color:#04A584;" in html
+
+    assert _post_branding(client, footer_text="").status_code == 200
+    assert DEFAULT_FOOTER in client.get("/").text
+
+
+def test_brand_line_and_marks_follow_the_settings(client):
+    """The startup loader and the brand marks are white-label driven: the
+    loader label renders whitelabel_subtitle, and a set logo replaces BOTH
+    the animated hexagon and the sidebar SVG mark with the install's image.
+    With no logo the built-in marks stay (pixel-identical default)."""
+    _login(client)
+    html = client.get("/").text
+    assert '<p class="inx-loader-label">INOTEX</p>' in html  # wl_subtitle default
+    assert "inx-hex-outline" in html
+    assert '<img class="brand-mark"' not in html
+
+    assert _post_branding(client, logo_url="/LOGO/brand.png",
+                          subtitle="ELECOMP").status_code == 200
+    html = client.get("/").text
+    assert '<p class="inx-loader-label">ELECOMP</p>' in html
+    assert '<img class="inx-loader-mark" src="/LOGO/brand.png"' in html
+    assert '<img class="brand-mark" src="/LOGO/brand.png"' in html
+    assert "inx-hex-outline" not in html  # hexagon swapped out, not doubled
 
 
 # ── 3. Chat renders branding ────────────────────────────────────────────

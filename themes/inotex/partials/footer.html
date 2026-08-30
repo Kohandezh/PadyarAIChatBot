@@ -1,7 +1,13 @@
-<!-- INOTEX startup loader: modular bricks assembling the hexagon mark.
-     Shown from first paint until the app is interactive. -->
+<!-- Startup loader: modular bricks assembling the hexagon mark — or the
+     install's own logo when Settings > Branding has one (same rule as the
+     sidebar mark: one identity, not two). The label is the install's brand
+     line (whitelabel_subtitle), never a hardcoded event name. Shown from
+     first paint until the app is interactive. -->
 <div id="inx-loader" class="inx-loader" role="status" aria-live="polite" aria-busy="true">
     <div class="inx-loader-inner">
+        {% if wl_logo_url %}
+        <img class="inx-loader-mark" src="{{ wl_logo_url }}" alt="{{ app_title }}" width="84" height="84">
+        {% else %}
         <svg class="inx-loader-mark" viewBox="0 0 64 64" width="84" height="84" aria-hidden="true">
             <path class="inx-hex-outline" d="M32 3 57 17.5v29L32 61 7 46.5v-29Z" fill="none"
                 stroke="#2D5CA7" stroke-width="3" stroke-linejoin="round" />
@@ -9,8 +15,9 @@
             <path class="inx-brick inx-brick-2" d="M32 17 45 24.5 32 32 19 24.5Z" fill="#5B8AD9" />
             <path class="inx-brick inx-brick-3" d="M32 47 45 39.5v-6.2L32 40.8Z" fill="#FCB715" />
         </svg>
+        {% endif %}
         <div class="inx-loader-studs" aria-hidden="true"><i></i><i></i><i></i></div>
-        <p class="inx-loader-label">اینوتکس</p>
+        <p class="inx-loader-label">{{ wl_subtitle }}</p>
     </div>
 </div>
 
@@ -53,7 +60,7 @@
      composer. companion.js + companion-ui.js detect this markup and wire
      themselves up automatically. -->
 <div class="pet-slot" id="pet-slot" data-open="false" data-hidden="false">
-    <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه اینوتکس">
+    <div class="pet-rail" id="pet-rail" role="group" aria-label="تنظیمات همراه {{ wl_subtitle }}">
         <button type="button" class="pet-rail-btn" id="pet-eye" aria-pressed="false"
             title="مخفی‌کردن همراه" aria-label="مخفی‌کردن همراه">
             <svg class="eye-open" viewBox="0 0 24 24" width="15" height="15" fill="none"
@@ -72,13 +79,20 @@
         <button type="button" class="pet-rail-btn" id="pet-smaller" title="کوچک‌تر" aria-label="کوچک‌تر کردن همراه">−</button>
     </div>
 
+    <!-- The character (atlas, cell, columns, pose maps) comes from the
+         install's own choice — Settings > Branding → «شخصیت همراه» —
+         defaulting to the INOTEX mascot. companion.js reads exactly these
+         attributes; a host without them keeps its own defaults. -->
     <canvas id="pet-canvas" width="512" height="512" aria-hidden="true"
-        data-atlas="/static/otp/pet/inotex-pose-atlas-hd.webp" data-cell="512"
-        data-fallback="/static/otp/pet/inotex-fallback-hd.webp"
-        data-hide-strip="/static/otp/pet/inotex-hide-strip.webp"></canvas>
+        data-atlas="{{ pet_atlas_url }}" data-cell="{{ pet_cell }}"
+        data-columns="{{ pet_columns }}"
+        data-fallback="{{ pet_fallback_url }}"
+        data-hide-strip="{{ pet_hide_strip_url }}"
+        data-poses='{{ pet_state_poses_json }}'
+        data-pose-index='{{ pet_pose_index_json }}'></canvas>
 
     <button type="button" class="pet-hit" id="pet-hit" aria-expanded="false"
-        aria-controls="pet-panel" aria-label="گفت‌وگو با دستیار اینوتکس"></button>
+        aria-controls="pet-panel" aria-label="گفت‌وگو با دستیار {{ wl_subtitle }}"></button>
 
 </div>
 
@@ -86,8 +100,8 @@
 <section class="pet-panel" id="pet-panel" hidden aria-labelledby="pet-panel-title">
     <header class="pet-panel-head">
         <div>
-            <p class="pet-panel-eyebrow">راهنمای رسمی اینوتکس ۲۰۲۶</p>
-            <h2 class="pet-panel-title" id="pet-panel-title">از اینوتکس بپرسید</h2>
+            <p class="pet-panel-eyebrow">راهنمای رسمی {{ wl_subtitle }}</p>
+            <h2 class="pet-panel-title" id="pet-panel-title">از {{ wl_subtitle }} بپرسید</h2>
         </div>
         <button type="button" class="pet-panel-close" id="pet-close" title="بستن گفت‌وگو"
             aria-label="بستن گفت‌وگو">×</button>
@@ -99,7 +113,7 @@
         aria-label="تاریخچهٔ گفت‌وگو"></ol>
 
     <form class="pet-form" id="pet-form">
-        <label class="sr-only" for="pet-input">پرسش شما دربارهٔ اینوتکس</label>
+        <label class="sr-only" for="pet-input">پرسش شما دربارهٔ {{ wl_subtitle }}</label>
         <textarea id="pet-input" rows="1" maxlength="500" dir="auto" autocomplete="off"
             enterkeyhint="send" placeholder="سوال خود را بنویسید..."
             aria-describedby="pet-status"></textarea>

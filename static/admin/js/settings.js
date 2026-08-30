@@ -194,6 +194,14 @@ function toggleTimeVisibility() {
     document.getElementById('backup-time-wrap').style.display = interval >= 24 ? '' : 'none';
 }
 
+async function loadSchedule() {
+    try {
+        const res = await fetchAuth('/admin/api/backup-schedule');
+        if (!res.ok) return;
+        applySchedule(await res.json());
+    } catch { /* page still usable */ }
+}
+
 async function loadBackups() {
     try {
         const res = await fetchAuth('/admin/api/backups');
@@ -238,10 +246,12 @@ async function doRestore(fetchPromise) {
 
 export function initBackup() {
     loadProfile();
-    // On PostgreSQL this page shows only the schedule; the list/upload
-    // controls live on the infrastructure page. loadBackups() is what feeds
-    // them, so it is the one thing to skip — nothing below may assume the
-    // buttons exist.
+    // The schedule form ALWAYS loads its saved state — on PostgreSQL the
+    // list controls below don't exist, and this page used to skip loading
+    // entirely there, so the operator saved a schedule and saw the form
+    // reset to HTML defaults on every reload (the save worked; the
+    // read-back never ran). The list stays SQLite-page-only.
+    loadSchedule();
     const hasList = !!document.getElementById('backup-list');
     if (hasList) loadBackups();
 
@@ -594,6 +604,8 @@ function applyBranding(d) {
     document.getElementById('brand-dark-teal').value = d.whitelabel_dark_teal_color || '#00644F';
     document.getElementById('brand-background').value = d.whitelabel_background_color || '#000000';
     document.getElementById('brand-white').value = d.whitelabel_white_color || '#FFFFFF';
+    document.getElementById('brand-footer-color').value = d.whitelabel_footer_color || '#B8C4DE';
+    document.getElementById('brand-footer-text').value = d.whitelabel_footer_text || '';
     document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
     document.getElementById('brand-logo').value = d.whitelabel_logo_url || '';
     document.getElementById('brand-chat-bg').value = d.whitelabel_chat_background_url || '';
@@ -701,6 +713,8 @@ export function initBranding() {
                     dark_teal_color: document.getElementById('brand-dark-teal').value,
                     background_color: document.getElementById('brand-background').value,
                     white_color: document.getElementById('brand-white').value,
+                    footer_color: document.getElementById('brand-footer-color').value,
+                    footer_text: document.getElementById('brand-footer-text').value.trim(),
                     welcome_text: document.getElementById('brand-welcome').value.trim(),
                     chat_background_url: document.getElementById('brand-chat-bg').value.trim(),
                     video_background_url: document.getElementById('brand-video-bg').value.trim(),
@@ -764,8 +778,68 @@ export function initMenuSettings() {
 }
 
 
-export function initAccount() {
-    loadProfile();
+// ---- Companion (pet) character ----
+
+// The dropdown is filled from the server registry (a folder scan — the
+// admin never types a name). Each entry carries its own preview URL (the
+// character's fallback portrait, straight from character.json), so the
+// operator sees WHO they are picking.
+export async function initPetCharacter() {
+    const form = document.getElementById('pet-character-form');
+    const select = document.getElementById('pet-character');
+    if (!form || !select) return;
+
+    const preview = document.getElementById('pet-character-preview');
+    const previews = {};
+    const previewFor = (name) => {
+        const url = previews[name];
+        if (!url) { preview.hidden = true; return; }
+        preview.hidden = false;
+        preview.src = url;
+    };
+
+    try {
+        const res = await fetchAuth('/admin/api/pet-character');
+        if (res.ok) {
+            const d = await res.json();
+            select.innerHTML = '';
+            (d.characters || []).forEach((c) => {
+                const opt = document.createElement('option');
+                opt.value = c.name;
+                opt.textContent = c.display_name || c.name;
+                select.appendChild(opt);
+                if (c.preview) previews[c.name] = c.preview;
+            });
+            if (d.current) { select.value = d.current; previewFor(d.current); }
+        }
+    } catch { /* empty select — the operator sees there is nothing to pick */ }
+
+    select.addEventListener('change', () => previewFor(select.value));
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('save-pet-character-btn');
+        btn.disabled = true;
+        try {
+            const res = await fetchAuth('/admin/api/pet-character', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ character: select.value }),
+            });
+            let detail = '';
+            try { detail = (await res.json()).detail || ''; } catch { /* no body */ }
+            if (res.ok) showMsg('pet-character-msg', 'شخصیت ذخیره شد', 'success');
+            else showMsg('pet-character-msg', detail || 'خطا در ذخیره', 'danger');
+        } catch {
+            showMsg('pet-character-msg', 'خطای ارتباط با سرور', 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
+
+export function initAccount() {    loadProfile();
 
     // Change Password form
     document.getElementById('change-password-form').addEventListener('submit', async (e) => {

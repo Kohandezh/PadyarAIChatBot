@@ -742,6 +742,40 @@ def test_schedule_save_and_read_back_the_keep_cap(paths, client):
     assert listed.json()["schedule"]["keep"] == 3
 
 
+def test_schedule_get_reads_back_what_the_form_saves(paths, client):
+    """The schedule form's reader–writer pair must BOTH exist. The POST had
+    no GET for a year: the settings/backup page loaded its values only via
+    /admin/api/backups, which the PostgreSQL page never fetches (no list
+    there), so the form showed HTML defaults after every reload and looked
+    like "the save doesn't work". This pins the dedicated GET."""
+    _login(client)
+    saved = client.post("/admin/api/backup-schedule", json={
+        "enabled": True, "interval_hours": 6, "time": "04:30", "keep": 7,
+    })
+    assert saved.status_code == 200
+
+    r = client.get("/admin/api/backup-schedule")
+    assert r.status_code == 200
+    sched = r.json()
+    assert sched["enabled"] is True
+    assert sched["interval_hours"] == 6
+    assert sched["time"] == "04:30"
+    assert sched["keep"] == 7
+    assert sched["next_run"]
+
+
+def test_backup_page_js_loads_the_schedule_on_every_engine():
+    """The page script must fetch the schedule unconditionally — gating it
+    on the SQLite-only backup list is exactly the bug the GET above
+    closes."""
+    from pathlib import Path
+    js = (Path(__file__).resolve().parent.parent
+          / "static" / "admin" / "js" / "settings.js").read_text(encoding="utf-8")
+    init = js.split("export function initBackup()", 1)[1].split("export function", 1)[0]
+    assert "loadSchedule();" in init
+    assert "if (hasList) loadBackups();" in init  # only the LIST is gated
+
+
 def test_schedule_rejects_an_out_of_range_keep(paths, client):
     _login(client)
     for bad in (0, -1, 101):

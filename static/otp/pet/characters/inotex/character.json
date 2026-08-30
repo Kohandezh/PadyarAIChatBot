@@ -1,0 +1,34 @@
+{
+    "display_name": "اینوتکس",
+    "atlas": "/static/otp/pet/inotex-pose-atlas-hd.webp",
+    "cell": 512,
+    "columns": 4,
+    "fallback": "/static/otp/pet/inotex-fallback-hd.webp",
+    "hide_strip": "/static/otp/pet/inotex-hide-strip.webp",
+    "state_poses": {
+        "greet": "welcome-wave",
+        "idle": "idle-neutral",
+        "attentive": "attentive-hands",
+        "typing": "typing",
+        "ready": "idle-smile",
+        "working": "thinking",
+        "success": "success",
+        "error": "not-found",
+        "sleep": "sleep",
+        "flap": "run"
+    },
+    "pose_index": {
+        "idle-neutral": 0,
+        "idle-smile": 1,
+        "welcome-wave": 2,
+        "attentive-hands": 3,
+        "thinking": 4,
+        "not-found": 5,
+        "success": 6,
+        "sleep": 7,
+        "tablet-work": 8,
+        "typing": 9,
+        "walk": 10,
+        "run": 11
+    }
+}

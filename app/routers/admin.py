@@ -748,8 +748,10 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         "dark_teal_color": req.dark_teal_color.strip(),
         "background_color": req.background_color.strip(),
         "white_color": req.white_color.strip(),
+        "footer_color": req.footer_color.strip(),
     }
     welcome = req.welcome_text.strip()
+    footer_text = req.footer_text.strip()
     chat_bg = req.chat_background_url.strip()
     video_bg = req.video_background_url.strip()
 
@@ -774,6 +776,10 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         raise HTTPException(
             status_code=400,
             detail="پیام خوش‌آمدگویی حداکثر می‌تواند ۳۰۰ نویسه باشد.")
+    if len(footer_text) > 120:
+        raise HTTPException(
+            status_code=400,
+            detail="متن پایین صفحه حداکثر می‌تواند ۱۲۰ نویسه باشد.")
     # Same URL rule for every image the form bakes into the public page.
     _require_safe_image_url(logo, "لوگو")
     _require_safe_image_url(chat_bg, "پس‌زمینهٔ چت")
@@ -783,7 +789,8 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
     values = {
         "app_name": name, "subtitle": subtitle, "logo_url": logo,
         "welcome_text": welcome, "chat_background_url": chat_bg,
-        "video_background_url": video_bg, **colors,
+        "video_background_url": video_bg, "footer_text": footer_text,
+        **colors,
     }
     for field, key in WL_FIELD_TO_KEY.items():
         set_setting(key, values[field])
@@ -883,6 +890,39 @@ async def upload_logo(file: UploadFile = File(...),
 async def get_menu_settings_api():
     from app.services.menu_settings import get_menu_settings
     return get_menu_settings()
+
+
+# ── Companion (pet) character ────────────────────────────────────────────
+
+@router.get("/admin/api/pet-character", dependencies=[Depends(verify_admin)])
+async def get_pet_character_api():
+    """Current character + the registry, for the branding page dropdown."""
+    from app.services.pet_characters import discover_characters, get_pet_character
+    characters = discover_characters()
+    current = get_pet_character().get("name", "")
+    return {
+        "current": current,
+        "characters": [
+            {"name": name, "display_name": c["display_name"],
+             "preview": c.get("fallback", "")}
+            for name, c in sorted(characters.items())
+        ],
+    }
+
+
+@router.post("/admin/api/pet-character", dependencies=[Depends(verify_admin)])
+async def save_pet_character_api(body: dict,
+                                 username: str = Depends(verify_admin)):
+    from app.services.pet_characters import set_pet_character
+    name = str(body.get("character") or "").strip()
+    if not set_pet_character(name):
+        raise HTTPException(
+            status_code=400,
+            detail="چنین شخصیتی وجود ندارد.")
+    applog.audit("settings.pet_character.updated",
+                 "شخصیت همراه چت‌بات تغییر کرد",
+                 actor=username, target=f"pet_character:{name}")
+    return {"status": "updated", "current": name}
 
 
 @router.post("/admin/api/menu-settings", dependencies=[Depends(verify_admin)])
@@ -1162,6 +1202,17 @@ async def restore_backup_upload_api(file: UploadFile = File(...)):
     _reindex_after_restore()
     logger.info(f"Database restored from uploaded file: {file.filename} (safety backup: {safety})")
     return {"status": "restored", "safety_backup": safety}
+
+
+@router.get("/admin/api/backup-schedule", dependencies=[Depends(verify_admin)])
+async def get_backup_schedule():
+    """The schedule form's reader. The POST existed for a year with no GET:
+    on PostgreSQL the page has no backup list, so the one endpoint that
+    carried the schedule (/admin/api/backups) was never fetched and the
+    form showed HTML defaults after every reload — the save itself worked,
+    the read-back did not."""
+    from app.services.backup import get_schedule
+    return get_schedule()
 
 
 @router.post("/admin/api/backup-schedule", dependencies=[Depends(verify_admin)])

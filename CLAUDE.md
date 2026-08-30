@@ -193,6 +193,7 @@ PadyarAIChatbot/
       branding.py                # White-label defaults (WL_DEFAULTS) + branding context
       menu_settings.py           # Hamburger-drawer row visibility (admin-toggleable)
       idle_video.py              # Avatar idle-loop setup: main + up to 3 random extras
+      pet_characters.py          # Companion (pet) character registry: which mascot an install ships
       backup.py                  # DB backup scheduler + operations
       backup_center.py           # Infrastructure -> Backups business logic
       pg_backup.py                # PostgreSQL backup/restore primitives
@@ -475,6 +476,8 @@ White-label settings live in the `settings` table with prefixed keys (WordPress 
 | `whitelabel_welcome_text`          | (default Persian greeting)          | Chat welcome message                               |
 | `whitelabel_chat_background_url`   | `/themes/inotex/static/bg-bricks.jpg` | Background image behind the chat tab (`--wl-chat-background`, painted on `.view-container`) |
 | `whitelabel_video_background_url`  | `/themes/inotex/static/bg-bricks.jpg` | Background image behind the video tab (`--wl-video-background`, painted on `.view-container` in `body.video-mode`) |
+| `whitelabel_footer_text`           | `قدرت گرفته از سکوی ملی متن باز هوش مصنوعی` | Powered-by credit under the composer (empty = default) |
+| `whitelabel_footer_color`          | `#B8C4DE`                           | Credit text colour (`--wl-footer-color`)             |
 
 Colors are stored as **hex strings** (`#RRGGBB`); the two background URLs follow the logo rule (site-relative or absolute `http(s)`, validated server-side).
 

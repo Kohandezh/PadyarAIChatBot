@@ -157,14 +157,15 @@ async def read_root(request: Request):
         from app.services.branding import chat_branding_context
         from app.services.menu_settings import menu_settings_context
         from app.services.idle_video import idle_video_context
+        from app.services.pet_characters import pet_character_context
         active_theme = get_active_theme()
         token = generate_chat_token()
         # Branding is baked into the (cached) shell: same bytes for every
         # visitor, so the only per-visitor splice stays the token. The cache
         # key carries wl_cache_key for exactly this reason — see
-        # app/services/themes.py. The hamburger-drawer row visibility flags
-        # and the avatar's idle-video setup ride the same cached-shell
-        # contract, carrying menu_settings_cache_key / idle_video_cache_key.
+        # app/services/themes.py. The hamburger-drawer row visibility flags,
+        # the avatar's idle-video setup and the companion's character ride
+        # the same cached-shell contract, carrying their cache keys.
         context = {
             "theme_name": active_theme,
             "chat_token": token,
@@ -173,6 +174,7 @@ async def read_root(request: Request):
         context.update(chat_branding_context())
         context.update(menu_settings_context())
         context.update(idle_video_context())
+        context.update(pet_character_context())
         html = render_theme_index(active_theme, context)
         return html
     except Exception:
