@@ -10,13 +10,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  # GitHub-hosted runners (ubuntu-latest) need a working billing account.
-  # This repo's account has none, so every job here runs on the self-hosted
-  # runner already registered on gpuserver for `deploy` (see
-  # deploy/50-install-github-runner.sh) instead. One physical runner means
-  # jobs that used to run in parallel now queue — slower, not broken.
+  # The repo is public, so GitHub-hosted runners are free and unlimited.
+  # All checks run on ubuntu-latest and parallelize again. Only `deploy`
+  # stays on the self-hosted `padyar` runner on gpuserver (see below).
   test:
-    runs-on: [self-hosted, padyar]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -38,23 +36,11 @@ jobs:
       # this step CI reports a pass it did not earn. They are the only check
       # that sees a DOM defect: the "New chat" button once wiped #loading-bubble
       # and left a permanently dead chat screen, and every source-string
-      # assertion in the suite stayed green through it.
-      #
-      # No --with-deps here: the gh-runner system user has exactly one sudo
-      # privilege (running padyar-deploy) and --with-deps needs apt-get as
-      # root. Chromium's shared libraries must already be on gpuserver — run
-      # once, by hand, with sudo:
-      #   python -m playwright install-deps chromium
-      #
-      # PLAYWRIGHT_DOWNLOAD_HOST: gpuserver's IP is geo-blocked by the
-      # official cdn.playwright.dev (403 "not available in your location" —
-      # same reason this project proxies OpenAI through GapGPT). npmmirror's
-      # binary mirror is reachable and carries the same builds; verified
-      # 2026-08-30 against build cft/151.0.7922.34.
+      # assertion in the suite stayed green through it. Hosted runners have
+      # passwordless sudo and can reach the official playwright CDN, so
+      # --with-deps works and no mirror is needed.
       - name: Install chromium for the browser tests
-        env:
-          PLAYWRIGHT_DOWNLOAD_HOST: https://cdn.npmmirror.com/binaries/playwright
-        run: python -m playwright install chromium
+        run: python -m playwright install --with-deps chromium
 
       - name: Compile check
         run: |
@@ -74,7 +60,7 @@ jobs:
   #
   # Runs after `test` so a plain broken build fails on the cheap job first.
   evaluation:
-    runs-on: [self-hosted, padyar]
+    runs-on: ubuntu-latest
     needs: test
     steps:
       - uses: actions/checkout@v4
@@ -111,7 +97,7 @@ jobs:
   # on an unfixable finding is a build nobody can ship. A human reads this and
   # decides whether the finding is reachable.
   dependency-audit:
-    runs-on: [self-hosted, padyar]
+    runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +127,7 @@ jobs:
   # Cheap, blocking, and catches the class of mistake that actually happened on
   # this project: a secret pasted into a tracked file.
   secret-scan:
-    runs-on: [self-hosted, padyar]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -176,7 +162,11 @@ jobs:
   # ── Auto-deploy ────────────────────────────────────────────────────────
   # The production server runs a self-hosted runner (deploy/50-install-
   # github-runner.sh, label `padyar`) that dials OUT to GitHub, so nothing
-  # inbound opens on the server. This job runs ON that server.
+  # inbound opens on the server. This job runs ON that server. It stays
+  # self-hosted now that the repo is public: the `if` below limits it to
+  # push/dispatch on main (write access required), so fork pull requests
+  # can never schedule code onto the server runner — and the production
+  # environment approval is a second gate on top of that.
   #
   # Gate 1: every CI job above must be green.
   # Gate 2: the `production` environment holds a required-reviewer approval
