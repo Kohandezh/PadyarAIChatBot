@@ -1796,7 +1796,9 @@ body.light-mode .a11y-btn {
 /* Frosted message cards */
 body.light-mode .message.bot .bubble {
     background: linear-gradient(180deg, #FFFFFFE6, #F4F8FFE6);
-    border-color: #B9CDEC;
+    /* Brand-fed, not fixed: --inotex-blue rides --wl-primary, so the admin
+       primary color picker (رنگ اصلی) restyles this border per install. */
+    border-color: var(--inotex-blue);
     color: var(--color-text-primary);
     backdrop-filter: blur(12px);
 }
