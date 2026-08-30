@@ -49,7 +49,11 @@ REALERT_SECONDS = 1800
 # Asanak reports the wallet in rial; operators think and top up in toman.
 RIAL_PER_TOMAN = 10
 
-# run_cycle (Task 2) keeps the persisted state JSON here, outside the app
+# run_cycle (Task 2) keeps each install's state in
+# STATE_DIR/<install>/state.json — a per-install SUBDIRECTORY, not a flat
+# file. Why: two installs run as two different service users sharing this
+# root-owned parent; each user needs write access to its own state, so the
+# deployment gives each service user its own directory here. Outside the app
 # tree, so a broken install cannot also erase the watchdog's memory.
 STATE_DIR = "/var/lib/padyar-watchdog"
 
@@ -184,7 +188,12 @@ def _load_state(path: str, install: str) -> dict:
 
 def _persist(path: str, state: dict) -> None:
     """Write atomically: tmp file + os.replace, so a crash mid-write can
-    never leave a half-written JSON that the next cycle would choke on."""
+    never leave a half-written JSON that the next cycle would choke on.
+
+    The makedirs targets the PARENT of the state file, so it works both for
+    the default layout (STATE_DIR/<install>/state.json — the per-install
+    directory the service user owns) and for any explicit state_path.
+    """
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         tmp = path + ".tmp"
@@ -271,7 +280,12 @@ def run_cycle(
     credit_reader = _read_credit if credit_reader is None else credit_reader
     # os.fspath: tests pass a pathlib.Path, __main__ passes nothing — both
     # must land as a plain str because _persist does `path + ".tmp"`.
-    path = os.fspath(state_path) if state_path else os.path.join(STATE_DIR, install + ".json")
+    # Per-install subdirectory: each install's service user owns exactly its
+    # own dir under the (root-owned) STATE_DIR parent, so a persist that
+    # fails on permissions can NEVER happen by default — a silent persist
+    # failure would reset fail_count every oneshot run and mute all alerts.
+    path = (os.fspath(state_path) if state_path
+            else os.path.join(STATE_DIR, install, "state.json"))
     state = _load_state(path, install)
 
     try:

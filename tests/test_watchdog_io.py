@@ -117,3 +117,18 @@ def test_unknown_install_returns_none_without_raising(tmp_path):
         state_path=tmp_path / "nosuch.json",
     )
     assert result is None
+
+
+def test_default_state_lives_in_per_install_directory(tmp_path, monkeypatch):
+    # Production runs as a per-install service user; the state must land in
+    # STATE_DIR/<install>/state.json (a dir that user owns), not flat in the
+    # root-owned parent where every persist would fail silently.
+    monkeypatch.setattr(watchdog, "STATE_DIR", str(tmp_path))
+    result = watchdog.run_cycle(
+        "inotex", now=1000, probe=lambda port: True, sender=_send,
+        settings_reader=SETTINGS, credit_reader=RICH_CREDIT,
+    )
+    state_file = tmp_path / "inotex" / "state.json"
+    assert state_file.is_file()
+    assert result["fail_count"] == 0
+    assert json.loads(state_file.read_text(encoding="utf-8"))["fail_count"] == 0
