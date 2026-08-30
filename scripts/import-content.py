@@ -48,6 +48,12 @@ sys.path.insert(0, str(ROOT))
 # Same pin as run_eval.py, for the same reason: this tool is SQLite-driven
 # here and the app imports must not pick a production backend by accident.
 os.environ.setdefault("DB_BACKEND", "sqlite")
+# An import must never SEED, only import: init_db() with the default flag
+# would squeeze the INOTEX starter dataset into whatever database this tool
+# is pointed at — on a customer install that is cross-customer content
+# pollution, plus a default-credential admin row. Whoever wants the starter
+# content can run the app once without this script.
+os.environ.setdefault("SEED_DEFAULT_CONTENT", "false")
 
 import openpyxl  # noqa: E402
 
@@ -283,8 +289,27 @@ def main() -> int:
                        "orphans": [], "files": videos}))
 
     os.environ.setdefault("OPENAI_API_KEY", "import")
-    from app.db.connection import init_db, get_db_connection
-    init_db()
+    from app.db import connection as dbconn
+    from app.db.connection import get_db_connection
+    # An import must not create login accounts. init_db() unconditionally
+    # seeds an admin (correct for a fresh install's first boot, wrong for a
+    # tool aimed at a live customer database — it left a default-username
+    # row with an auto-generated password behind, i.e. an account nobody
+    # can audit). Disabled here, restored right after.
+    _real_seed_admin = dbconn._seed_admin
+    dbconn._seed_admin = lambda cursor: None
+    # Same rule for the starter CONTENT, set on the module attribute and
+    # not just the env: init_db() reads config.SEED_DEFAULT_CONTENT at call
+    # time, and anything that imported app.config before this script (a
+    # test, a wrapper) has already latched the env default to True.
+    import app.config as appconfig
+    _real_seed_content = appconfig.SEED_DEFAULT_CONTENT
+    appconfig.SEED_DEFAULT_CONTENT = False
+    try:
+        dbconn.init_db()
+    finally:
+        dbconn._seed_admin = _real_seed_admin
+        appconfig.SEED_DEFAULT_CONTENT = _real_seed_content
     conn = get_db_connection()
     existing = {r["id"] for r in conn.execute("SELECT id FROM dataset").fetchall()}
     existing_companies = {r["id"] for r in conn.execute("SELECT id FROM companies").fetchall()}
