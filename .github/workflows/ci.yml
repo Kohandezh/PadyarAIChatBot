@@ -10,8 +10,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  # GitHub-hosted runners (ubuntu-latest) need a working billing account.
+  # This repo's account has none, so every job here runs on the self-hosted
+  # runner already registered on gpuserver for `deploy` (see
+  # deploy/50-install-github-runner.sh) instead. One physical runner means
+  # jobs that used to run in parallel now queue — slower, not broken.
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, padyar]
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +39,14 @@ jobs:
       # that sees a DOM defect: the "New chat" button once wiped #loading-bubble
       # and left a permanently dead chat screen, and every source-string
       # assertion in the suite stayed green through it.
+      #
+      # No --with-deps here: the gh-runner system user has exactly one sudo
+      # privilege (running padyar-deploy) and --with-deps needs apt-get as
+      # root. Chromium's shared libraries must already be on gpuserver — run
+      # once, by hand, with sudo:
+      #   python -m playwright install-deps chromium
       - name: Install chromium for the browser tests
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install chromium
 
       - name: Compile check
         run: |
@@ -55,7 +66,7 @@ jobs:
   #
   # Runs after `test` so a plain broken build fails on the cheap job first.
   evaluation:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, padyar]
     needs: test
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +103,7 @@ jobs:
   # on an unfixable finding is a build nobody can ship. A human reads this and
   # decides whether the finding is reachable.
   dependency-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, padyar]
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +133,7 @@ jobs:
   # Cheap, blocking, and catches the class of mistake that actually happened on
   # this project: a secret pasted into a tracked file.
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, padyar]
     steps:
       - uses: actions/checkout@v4
 
