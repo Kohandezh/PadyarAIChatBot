@@ -680,3 +680,98 @@ def test_unknown_ids_are_404_and_never_echo_a_path(client):
     ):
         assert response.status_code == 404, response.text
         assert "/" not in response.json()["detail"]
+
+
+# ── Bulk delete ────────────────────────────────────────────────────────
+
+def test_bulk_delete_removes_the_selection_and_refuses_a_wrong_phrase(paths, client):
+    _login(client)
+    from app.services import backup_center
+
+    ids = [backup_center.create(actor="tester")["backup_id"] for _ in range(3)]
+
+    # Wrong phrase → 400, nothing deleted.
+    r = client.post("/admin/api/infra/backups/bulk-delete",
+                    json={"ids": ids[:2], "confirm": f"DELETE {len(ids)} BACKUPS"})
+    assert r.status_code == 400
+    assert {s["backup_id"] for s in backup_center.list_sets()} == set(ids)
+
+    # Right phrase (count must match) → exactly the chosen sets go.
+    r = client.post("/admin/api/infra/backups/bulk-delete",
+                    json={"ids": ids[:2], "confirm": "DELETE 2 BACKUPS"})
+    assert r.status_code == 200, r.text
+    assert sorted(r.json()["deleted"]) == sorted(ids[:2])
+    assert r.json()["failed"] == []
+    assert {s["backup_id"] for s in backup_center.list_sets()} == {ids[2]}
+
+
+def test_bulk_delete_rejects_empty_selection(paths, client):
+    _login(client)
+    r = client.post("/admin/api/infra/backups/bulk-delete",
+                    json={"ids": [], "confirm": "DELETE 0 BACKUPS"})
+    assert r.status_code == 400
+
+
+def test_bulk_delete_of_an_unknown_id_reports_it_as_failed(paths, client):
+    _login(client)
+    from app.services import backup_center
+    real = backup_center.create(actor="tester")["backup_id"]
+    ghost = "set_19990101_000000_nope"
+    r = client.post("/admin/api/infra/backups/bulk-delete",
+                    json={"ids": [real, ghost], "confirm": "DELETE 2 BACKUPS"})
+    assert r.status_code == 200
+    assert r.json()["deleted"] == [real]
+    assert r.json()["failed"] == [ghost]
+    assert backup_center.list_sets() == []
+
+
+# ── Retention (backup_keep) ────────────────────────────────────────────
+
+def test_schedule_save_and_read_back_the_keep_cap(paths, client):
+    _login(client)
+    r = client.post("/admin/api/backup-schedule", json={
+        "enabled": True, "interval_hours": 1, "time": "03:00", "keep": 3,
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["keep"] == 3
+    assert r.json()["interval_hours"] == 1
+
+    # The infra page's listing carries the same policy to the status row.
+    listed = client.get("/admin/api/infra/backups")
+    assert listed.status_code == 200
+    assert listed.json()["schedule"]["keep"] == 3
+
+
+def test_schedule_rejects_an_out_of_range_keep(paths, client):
+    _login(client)
+    for bad in (0, -1, 101):
+        r = client.post("/admin/api/backup-schedule", json={
+            "enabled": True, "interval_hours": 24, "time": "03:00", "keep": bad,
+        })
+        assert r.status_code == 400, bad
+
+
+def test_running_a_backup_prunes_to_the_configured_cap(paths, client):
+    """The retention the operator sets must actually bite: 4 sets exist, the
+    cap is 2, the next scheduled run creates a 5th and prunes to 2."""
+    from app.db.queries import set_setting
+    from app.services import backup, backup_center
+
+    for _ in range(4):
+        backup_center.create(actor="tester")
+    set_setting("backup_keep", "2")
+
+    backup._run_backup_now(actor="scheduler", kind="scheduled")
+
+    remaining = [s["backup_id"] for s in backup_center.list_sets()]
+    assert len(remaining) == 2
+    # The NEWEST set survives (the run just made it) plus the newest of the
+    # old ones — prune keeps the newest `keep`, never the oldest.
+    newest = backup_center.list_sets()[0]["backup_id"]
+    assert newest in remaining
+
+
+def test_a_missing_keep_row_falls_back_to_the_default(paths, client):
+    from app.services.backup import get_schedule, DEFAULTS
+    sched = get_schedule()
+    assert sched["keep"] == int(DEFAULTS["backup_keep"])

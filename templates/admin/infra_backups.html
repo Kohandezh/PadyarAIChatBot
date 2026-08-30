@@ -59,6 +59,7 @@
                     <span class="text-muted small">پشتیبان‌گیری خودکار:
                         <b id="sched-enabled">—</b></span>
                     <span class="text-muted small">هر: <b id="sched-interval">—</b></span>
+                    <span class="text-muted small">نگه‌داری: <b id="sched-keep">—</b></span>
                     <span class="text-muted small">آخرین اجرا: <b id="sched-last">—</b></span>
                     <span class="text-muted small">اجرای بعدی: <b id="sched-next">—</b></span>
                     <a class="small" href="/secure-panel-inotex/settings/backup">تغییر زمان‌بندی</a>
@@ -73,14 +74,21 @@
 
         <!-- The list -->
         <div class="content-card mt-4">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <span><i class="fas fa-box-archive me-2"></i>نسخه‌های پشتیبان</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulk-delete-btn" disabled>
+                    <i class="fas fa-trash me-1"></i>حذف انتخاب‌شده‌ها
+                </button>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle">
                         <thead>
                             <tr>
+                                <th style="width:2rem">
+                                    <input type="checkbox" id="select-all" class="form-check-input"
+                                        aria-label="انتخاب همهٔ نسخه‌ها">
+                                </th>
                                 <th>تاریخ</th>
                                 <th>شناسه</th>
                                 <th>حجم</th>
@@ -91,7 +99,7 @@
                         </thead>
                         <tbody id="backups-body">
                             <tr>
-                                <td colspan="6" class="text-center text-muted">در حال بارگذاری...</td>
+                                <td colspan="7" class="text-center text-muted">در حال بارگذاری...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -107,11 +115,11 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title text-danger"><i class="fas fa-triangle-exclamation me-1"></i>بازگردانی کامل پایگاه‌داده</h5>
+                <h5 class="modal-title text-warning"><i class="fas fa-triangle-exclamation me-1"></i>بازگردانی کامل پایگاه‌داده</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-danger fw-bold" role="alert">
+                <div class="alert alert-warning fw-bold" role="alert">
                     کل اطلاعات فعلی (سوال‌ها، تنظیمات، کاربران و گزارش‌ها) پاک می‌شود و
                     با این نسخهٔ قدیمی جایگزین می‌شود. از پنل خارج خواهید شد.
                     اگر فقط می‌خواهید نسخه را پاک کنید، «انصراف» را بزنید.
@@ -131,7 +139,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
-                <button type="button" class="btn btn-danger" id="restore-confirm-btn" disabled>
+                <button type="button" class="btn btn-warning" id="restore-confirm-btn" disabled>
                     بله، کل پایگاه‌داده را بازگردانی کن
                 </button>
             </div>
@@ -158,6 +166,31 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
                 <button type="button" class="btn btn-danger" id="delete-confirm-btn" disabled>حذف کن</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk delete confirmation -->
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">حذف چند نسخهٔ پشتیبان</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><b id="bulk-count">0</b> نسخهٔ پشتیبان انتخاب‌شده برای همیشه
+                    حذف می‌شوند و قابل بازیابی نیستند.</p>
+                <p class="mb-1 small">برای ادامه، عبارت زیر را دقیقاً بنویسید:</p>
+                <code class="confirm-phrase" id="bulk-phrase"></code>
+                <input type="text" class="form-control" id="bulk-input" dir="ltr" autocomplete="off"
+                    placeholder="عبارت بالا را اینجا بنویسید">
+                <div id="bulk-msg" class="text-center fw-bold mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-danger" id="bulk-confirm-btn" disabled>حذف کن</button>
             </div>
         </div>
     </div>

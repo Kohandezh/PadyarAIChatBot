@@ -228,6 +228,53 @@ def delete_backup(backup_id: str, username: str = Depends(verify_admin)):
                     backup_id, exc)
 
 
+class BulkDeleteRequest(BaseModel):
+    """ids chosen via the row checkboxes, plus the typed phrase.
+
+    The phrase embeds the COUNT (`DELETE 5 BACKUPS`), so a confirmation can
+    never authorize deleting a different number of sets than the operator
+    saw when they typed it."""
+    ids: list[str] = []
+    confirm: str = ""
+
+
+@router.post("/admin/api/infra/backups/bulk-delete",
+             dependencies=[Depends(verify_admin)])
+def bulk_delete_backups(body: BulkDeleteRequest,
+                        username: str = Depends(verify_admin)):
+    # Dedupe: the same id twice would make len(ids) disagree with the
+    # phrase's count after the fact, and delete is idempotent anyway.
+    ids = list(dict.fromkeys(body.ids))
+    if not ids:
+        raise HTTPException(status_code=400, detail="هیچ نسخه‌ای انتخاب نشده است.")
+    if len(ids) > 200:
+        raise HTTPException(status_code=400, detail="تعداد نسخه‌ها بیش از حد مجاز است.")
+    if (body.confirm or "").strip() != f"DELETE {len(ids)} BACKUPS":
+        applog.security("admin.backup.bulk_delete.bad_confirmation",
+                        "عبارت تأیید حذف گروهی نادرست بود",
+                        actor=username, outcome="refused")
+        raise HTTPException(status_code=400, detail=FA_BAD_CONFIRM)
+
+    engine, _ = _engine()
+    deleted, failed = [], []
+    for backup_id in ids:
+        try:
+            engine.delete(backup_id, actor=username)
+            deleted.append(backup_id)
+        except Exception as exc:  # noqa: BLE001 — one bad set must not stop the batch
+            failed.append(backup_id)
+            logger.warning("Bulk delete of %s failed for %s", backup_id, username)
+            applog.exception("backup", "backup.api.bulk_delete_one_failed", exc,
+                             "حذف یکی از نسخه‌های انتخاب‌شده ناموفق بود",
+                             actor=username, target=backup_id, outcome="error")
+    applog.audit("admin.backup.bulk_delete",
+                 f"حذف گروهی {len(deleted)} نسخهٔ پشتیبان",
+                 actor=username,
+                 target=",".join(deleted) if deleted else "-",
+                 outcome="ok" if not failed else "partial")
+    return {"deleted": deleted, "failed": failed}
+
+
 @router.post("/admin/api/infra/backups/{backup_id}/restore",
              dependencies=[Depends(verify_admin)])
 def restore_backup(backup_id: str, body: RestoreRequest,

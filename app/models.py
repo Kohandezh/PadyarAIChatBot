@@ -96,6 +96,9 @@ class BackupScheduleRequest(BaseModel):
     enabled: bool
     interval_hours: int
     time: str  # "HH:MM", used when interval >= 24h
+    # Retention cap: how many backups survive pruning. Optional so an older
+    # form (or API client) that doesn't know about it keeps the stored value.
+    keep: Optional[int] = None
 
 
 class AIConnectionRequest(BaseModel):

@@ -182,6 +182,8 @@ function applySchedule(s) {
     document.getElementById('backup-enabled-label').textContent = s.enabled ? 'روشن' : 'خاموش';
     document.getElementById('backup-interval').value = String(s.interval_hours);
     document.getElementById('backup-time').value = s.time || '03:00';
+    const keep = document.getElementById('backup-keep');
+    if (keep && s.keep) keep.value = String(s.keep);
     document.getElementById('backup-last').textContent = fmtDate(s.last_run);
     document.getElementById('backup-next').textContent = s.enabled ? fmtDate(s.next_run) : 'غیرفعال';
     toggleTimeVisibility();
@@ -273,6 +275,7 @@ export function initBackup() {
             enabled: document.getElementById('backup-enabled').checked,
             interval_hours: parseInt(document.getElementById('backup-interval').value, 10),
             time: document.getElementById('backup-time').value || '03:00',
+            keep: parseInt(document.getElementById('backup-keep').value, 10),
         };
         try {
             const res = await fetchAuth('/admin/api/backup-schedule', {
