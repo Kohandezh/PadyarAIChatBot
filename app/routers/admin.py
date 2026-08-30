@@ -347,6 +347,11 @@ async def get_sms_settings():
         "trim": get_setting("sms_asanak_trim", "true") != "false",
         "send_to_blacklist": get_setting("sms_asanak_send_to_blacklist", "1") != "0",
         "sms_host": get_setting("otp_sms_host", ""),
+        # The two critical-alert values the systemd watchdog reads from this
+        # database (deploy/watchdog/watchdog.py). Not secrets: the operator
+        # must be able to see and correct what is configured.
+        "alert_critical_phone": get_setting("alert_critical_phone", ""),
+        "alert_credit_threshold_toman": get_setting("alert_credit_threshold_toman", "300000"),
         # Booleans only. The values are encrypted at rest and never leave the
         # server — see app/services/secure_store.py.
         "has_password": bool((get_setting("sms_asanak_password", "") or "").strip()),
@@ -362,8 +367,13 @@ async def save_sms_settings(req: SmsSettingsRequest):
     The two secrets are encrypted before either store sees them, and an empty
     secret field means "keep the stored one" — so an operator can edit the
     sender number without re-entering the password.
+
+    The two `alert_*` fields are NOT gateway settings: they are stored with
+    `set_setting` alone, because the watchdog reads them from the database
+    and they must never be written into `.env`.
     """
     from app.services import sms as sms_service
+    from app.services.otp import normalize_destination
     # A budget that cannot be read is treated as 0 (no cap) by the sender, so a
     # typo here would silently remove the cap. Refuse it while the operator is
     # still looking at the form. int() also accepts Persian digits and returns
@@ -374,6 +384,30 @@ async def save_sms_settings(req: SmsSettingsRequest):
         raise HTTPException(
             status_code=400,
             detail="سقف روزانه پیامک باید یک عدد باشد. برای برداشتن سقف، ۰ بگذارید.")
+
+    # The watchdog's "service is down" destination. Shape-validated with the
+    # same normalizer the OTP flow uses, then rewritten into the canonical
+    # `+98…` form the watchdog (and every identity column here) expects.
+    phone = (req.alert_critical_phone or "").strip()
+    if phone:
+        phone = normalize_destination(phone)
+        if phone is None:
+            raise HTTPException(status_code=400, detail="شماره واردشده معتبر نیست.")
+        if not phone.startswith("+"):
+            # Local 09… → +98…; country-code 98… just gains the plus.
+            phone = "+98" + phone[1:] if phone.startswith("09") else "+" + phone
+
+    # int() accepts Persian digits and returns them as a plain number, so a
+    # threshold typed on a Persian keyboard is stored in ASCII. Negative and
+    # unreadable values are refused while the operator is still on the form.
+    try:
+        threshold = int((req.alert_credit_threshold_toman or "300000").strip() or "300000")
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="حد اعتبار هشدار پیامک باید یک عدد باشد.")
+    if threshold < 0:
+        raise HTTPException(
+            status_code=400, detail="حد اعتبار هشدار پیامک باید یک عدد باشد.")
 
     set_setting("registration_enabled", "true" if req.enabled else "false")
     try:
@@ -399,6 +433,10 @@ async def save_sms_settings(req: SmsSettingsRequest):
         # The one refusal save_settings can raise today is the production
         # dev-provider block; its detail is the sentence the operator reads.
         raise HTTPException(status_code=400, detail=e.detail)
+    # set_setting, NOT sms_service.save_settings: these are watchdog settings,
+    # not gateway fields, and must never be written to `.env`.
+    set_setting("alert_critical_phone", phone)
+    set_setting("alert_credit_threshold_toman", str(threshold))
     return {"status": "updated", "env_file": env_written}
 
 

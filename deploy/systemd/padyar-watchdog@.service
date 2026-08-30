@@ -1,0 +1,28 @@
+# WHY ONESHOT + TIMER, NOT A DAEMON: watchdog.py runs exactly one probe per
+# invocation and exits. There is no loop code to hang or drift, no schedule
+# to own, and no state to rebuild after a reboot — systemd (via
+# padyar-watchdog@.timer) owns the cadence, and one failed tick never stops
+# the next one from firing.
+[Unit]
+Description=Padyar critical watchdog — %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=padyar-%i
+Group=padyar-%i
+# CWD + .env of the guarded install: the cycle lazily imports the app's DB
+# layer (app.db.queries) to read the alert phone, and that import resolves
+# config relative to the install it belongs to.
+WorkingDirectory=/opt/padyar-%i
+EnvironmentFile=/opt/padyar-%i/.env
+ExecStart=/opt/padyar-%i/.venv/bin/python /opt/padyar-watchdog/watchdog.py --install %i
+# Hardening. The cycle writes only its state file under /var/lib/padyar-watchdog.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/padyar-watchdog
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=padyar-watchdog-%i

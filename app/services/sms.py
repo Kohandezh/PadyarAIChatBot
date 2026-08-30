@@ -68,6 +68,12 @@ Measured against the live account, 2026-08-17
   * `POST /webservice/v2rest/template` answers 1001 "Template is not
     valid/active" for arbitrary ids. If Asanak says the line is service-only,
     OTP has to go through an approved template rather than `sendsms`.
+  * CONFIRMED 2026-08-30 (owner, via Asanak support): free-text delivery has
+    since been ENABLED on this account — the Status-20 hold above was an
+    account-side matter and support lifted it. The critical watchdog
+    (deploy/watchdog/) texts its down-alerts as free text through
+    `send_asanak` and depends on this. The 2026-08-17 measurement above
+    remains true for that date; it is history, not the current state.
 
 Invite links, the rejection notice and the daily budget (added 2026-08-23)
 -----------------------------------------------------------------------------
@@ -506,10 +512,12 @@ def asanak_status(msgid: str):
 
 
 def asanak_credit() -> int:
-    """Remaining credit, in messages.
+    """Remaining credit, in RIAL (owner-confirmed 2026-08-30).
 
     A read-only call: it proves the username and password are right WITHOUT
     sending a real SMS, which is what an operator wants before an event.
+    The watchdog compares this rial figure against the toman threshold × 10
+    (RIAL_PER_TOMAN) before alerting.
     """
     data = _call(setting("sms_asanak_credit_url"), _credentials())
     applog.info("sms", "sms.credit.checked", "اعتبار پیامک بررسی شد",

@@ -209,7 +209,9 @@ class SmsSettingsRequest(BaseModel):
 
     One field here = one row in `ASANAK_FIELDS` (app/services/sms.py) = one
     input in templates/admin/settings_sms.html. That is the whole checklist
-    for adding a gateway field.
+    for adding a gateway field. The two `alert_*` fields below are the one
+    exception: they are watchdog settings, not gateway fields, so the router
+    stores them with `set_setting` and they never reach `.env`.
     """
     enabled: bool = False
     provider: str = "asanak"
@@ -246,6 +248,12 @@ class SmsSettingsRequest(BaseModel):
     # Asanak's own default is 1 (deliver to blacklisted numbers too).
     send_to_blacklist: bool = True
     sms_host: str = ""
+    # Where the systemd watchdog sends its "service is down" SMS. Stored
+    # canonical `+98…`; empty means alerts are off.
+    alert_critical_phone: str = ""
+    # SMS wallet floor in Toman — below it the watchdog reminds the operator
+    # once a day. A digits string like every other number on this form.
+    alert_credit_threshold_toman: str = "300000"
 
 
 class SmsTestRequest(BaseModel):

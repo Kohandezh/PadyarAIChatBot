@@ -79,6 +79,11 @@ async function loadSettings() {
         el('sms-send-to-blacklist').checked = d.send_to_blacklist !== false;
         el('sms-host').value = d.sms_host || '';
 
+        // Critical-alert card: the watchdog's settings, saved by the same
+        // button as the gateway form above.
+        el('alert-critical-phone').value = d.alert_critical_phone || '';
+        el('alert-credit-threshold').value = d.alert_credit_threshold_toman || '300000';
+
         // Booleans only — the secrets themselves never arrive here.
         setSecretState('sms-password-state', d.has_password);
         setSecretState('sms-api-key-state', d.has_api_key);
@@ -131,6 +136,8 @@ export function initSms() {
             trim: el('sms-trim').checked,
             send_to_blacklist: el('sms-send-to-blacklist').checked,
             sms_host: el('sms-host').value.trim(),
+            alert_critical_phone: el('alert-critical-phone').value.trim(),
+            alert_credit_threshold_toman: el('alert-credit-threshold').value.trim(),
         };
         try {
             const res = await fetchAuth('/admin/api/sms', {
@@ -173,7 +180,7 @@ export function initSms() {
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
                 msg.className = 'fw-bold mt-3 text-success';
-                msg.textContent = `✅ اتصال درست است. اعتبار باقی‌مانده: ${data.credit} پیامک`;
+                msg.textContent = `✅ اتصال درست است. اعتبار فعلی: ${data.credit} ریال`;
             } else {
                 // The gateway's own reason — expired password, no credit, ...
                 msg.className = 'fw-bold mt-3 text-danger';
