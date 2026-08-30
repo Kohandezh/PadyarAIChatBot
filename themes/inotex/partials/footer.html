@@ -79,10 +79,17 @@
         <button type="button" class="pet-rail-btn" id="pet-smaller" title="کوچک‌تر" aria-label="کوچک‌تر کردن همراه">−</button>
     </div>
 
+    <!-- The character (atlas, cell, columns, pose maps) comes from the
+         install's own choice — Settings > Branding → «شخصیت همراه» —
+         defaulting to the INOTEX mascot. companion.js reads exactly these
+         attributes; a host without them keeps its own defaults. -->
     <canvas id="pet-canvas" width="512" height="512" aria-hidden="true"
-        data-atlas="/static/otp/pet/inotex-pose-atlas-hd.webp" data-cell="512"
-        data-fallback="/static/otp/pet/inotex-fallback-hd.webp"
-        data-hide-strip="/static/otp/pet/inotex-hide-strip.webp"></canvas>
+        data-atlas="{{ pet_atlas_url }}" data-cell="{{ pet_cell }}"
+        data-columns="{{ pet_columns }}"
+        data-fallback="{{ pet_fallback_url }}"
+        data-hide-strip="{{ pet_hide_strip_url }}"
+        data-poses='{{ pet_state_poses_json }}'
+        data-pose-index='{{ pet_pose_index_json }}'></canvas>
 
     <button type="button" class="pet-hit" id="pet-hit" aria-expanded="false"
         aria-controls="pet-panel" aria-label="گفت‌وگو با دستیار {{ wl_subtitle }}"></button>

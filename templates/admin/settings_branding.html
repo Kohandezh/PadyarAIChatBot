@@ -175,6 +175,34 @@
 
         <div class="content-card mt-4">
             <div class="card-header">
+                <span><i class="fas fa-paw me-2"></i>شخصیت همراه</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    شخصیتی که در گوشهٔ صفحهٔ گفتگو همراه کاربر می‌آید. شخصیت
+                    جدید را مدیر سیستم در مسیر برنامه اضافه می‌کند و بعد از
+                    افزودن، همین‌جا انتخاب می‌شود.
+                </p>
+                <form id="pet-character-form">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-6">
+                            <label class="form-label" for="pet-character">شخصیت همراه</label>
+                            <select id="pet-character" class="form-select"></select>
+                        </div>
+                        <div class="col-md-6">
+                            <img id="pet-character-preview" src="" alt="" height="72"
+                                class="border rounded bg-light p-1" hidden
+                                onerror="this.hidden = true;">
+                        </div>
+                    </div>
+                    <button type="submit" id="save-pet-character-btn" class="btn btn-primary mt-3">ذخیره شخصیت</button>
+                    <div id="pet-character-msg" class="text-center fw-bold mt-2"></div>
+                </form>
+            </div>
+        </div>
+
+        <div class="content-card mt-4">
+            <div class="card-header">
                 <span><i class="fas fa-bars me-2"></i>نمایش موارد منو</span>
             </div>
             <div class="card-body">
@@ -215,8 +243,9 @@
 
 {% block page_js %}
 <script type="module">
-    import { initBranding, initMenuSettings } from '/static/admin/js/settings.js';
+    import { initBranding, initMenuSettings, initPetCharacter } from '/static/admin/js/settings.js';
     initBranding();
     initMenuSettings();
+    initPetCharacter();
 </script>
 {% endblock %}
