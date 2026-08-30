@@ -63,6 +63,7 @@ def _login(client):
 def _post_branding(client, **overrides):
     body = {
         "app_name": "دستیار سازمانی",
+        "subtitle": "INOTEX",
         "logo_url": "",
         "primary_color": "#123456",
         "accent_color": "#ABCDEF",
@@ -76,23 +77,25 @@ def _post_branding(client, **overrides):
 
 def test_branding_roundtrip_defaults_save_readback(client):
     _login(client)
-    # Fresh DB: the 5 keys come back with their Python defaults.
+    # Fresh DB: the keys come back with their Python defaults.
     r = client.get("/admin/api/branding")
     assert r.status_code == 200
     current = r.json()
     assert current == {
         "whitelabel_app_name": DEFAULT_NAME,
+        "whitelabel_subtitle": "INOTEX",
         "whitelabel_logo_url": "",
         "whitelabel_primary_color": "#2D5CA7",
         "whitelabel_accent_color": "#FCB715",
         "whitelabel_welcome_text": DEFAULT_GREETING,
     }
 
-    r = _post_branding(client, logo_url="/LOGO/x.png")
+    r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه الکامپ")
     assert r.status_code == 200, r.text
 
     current = client.get("/admin/api/branding").json()
     assert current["whitelabel_app_name"] == "دستیار سازمانی"
+    assert current["whitelabel_subtitle"] == "نمایشگاه الکامپ"
     assert current["whitelabel_logo_url"] == "/LOGO/x.png"
     assert current["whitelabel_primary_color"] == "#123456"
     assert current["whitelabel_accent_color"] == "#ABCDEF"
@@ -105,7 +108,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
             conn.execute("SELECT key, value FROM settings WHERE key LIKE 'whitelabel_%'").fetchall()}
     conn.close()
     assert rows["whitelabel_app_name"] == "دستیار سازمانی"
-    assert len(rows) == 5
+    assert rows["whitelabel_subtitle"] == "نمایشگاه الکامپ"
+    assert len(rows) == 6
 
 
 # ── 2. Validation ───────────────────────────────────────────────────────
@@ -118,6 +122,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
     {"app_name": "   "},                        # whitespace-only = empty
     {"welcome_text": "x" * 301},
     {"app_name": "x" * 61},
+    {"subtitle": "x" * 81},
 ])
 def test_branding_validation_rejects_bad_values(client, overrides):
     _login(client)
@@ -141,12 +146,14 @@ def test_branding_logo_accepts_relative_and_http(client):
 def test_chat_renders_branding(client):
     _login(client)
     name, welcome = "دستیار نمایشگاه", "به نمایشگاه ما خوش آمدید!"
+    subtitle = "نمایشگاه الکامپ ۲۰۲۶"
     assert _post_branding(client, app_name=name, primary_color="#0B7285",
-                          welcome_text=welcome).status_code == 200
+                          welcome_text=welcome, subtitle=subtitle).status_code == 200
 
     html = client.get("/").text
     assert f"<title>{name}</title>" in html
     assert f'data-i18n="app_title">{name}</div>' in html
+    assert f'class="header-subtitle">{subtitle}</div>' in html
     assert f'id="welcome-text" dir="auto">{welcome}</div>' in html
     assert "--wl-primary:#0B7285;" in html
     # The JS payload mirrors json.dumps(ensure_ascii=True) + the </ guard.
@@ -185,6 +192,9 @@ def test_defaults_render_inotex_identical(client):
     assert DEFAULT_GREETING in html
     assert "--wl-primary:#2D5CA7;" in html
     assert "--wl-accent:#FCB715;" in html
+    # The default subtitle keeps the pre-key pixels: the header line every
+    # theme used to hardcode.
+    assert 'class="header-subtitle">INOTEX</div>' in html
     # No logo set → no <img>; the built-in SVG mark is what renders.
     assert '<img class="brand-mark"' not in html
     assert 'class="brand-mark"' in html
@@ -196,8 +206,10 @@ def test_branding_values_are_escaped_in_chat_html(client):
     _login(client)
     malicious_name = "<script>alert(1)</script>"
     tricky_welcome = 'سلام "عزیز" <خوش‌آمد>'
+    malicious_subtitle = '<img src=x onerror="alert(1)">'
     assert _post_branding(client, app_name=malicious_name,
-                          welcome_text=tricky_welcome).status_code == 200
+                          welcome_text=tricky_welcome,
+                          subtitle=malicious_subtitle).status_code == 200
 
     html = client.get("/").text
     # The payload can never emit a terminating </script> of its own.
@@ -206,6 +218,8 @@ def test_branding_values_are_escaped_in_chat_html(client):
     # Text positions carry the html.escape'd forms.
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "سلام &quot;عزیز&quot; &lt;خوش‌آمد&gt;" in html
+    assert '<img src=x onerror="alert(1)">' not in html
+    assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in html
 
 
 # ── 7. Admin surface + auth ─────────────────────────────────────────────
@@ -213,13 +227,15 @@ def test_branding_values_are_escaped_in_chat_html(client):
 def test_admin_branding_page_shows_name_and_prefilled_form(client):
     _login(client)
     assert _post_branding(client, app_name="دستیار سازمانی",
-                          welcome_text="پیام جدید").status_code == 200
+                          welcome_text="پیام جدید",
+                          subtitle="سمینار سالانه").status_code == 200
     page = client.get("/secure-panel-inotex/settings/branding")
     assert page.status_code == 200
     # Sidebar carries the install's own name via {{ wl_app_name }}.
     assert "<span>دستیار سازمانی</span>" in page.text
     # The form is server-rendered pre-filled (no JS needed for first paint).
     assert 'value="دستیار سازمانی"' in page.text
+    assert 'value="سمینار سالانه"' in page.text
     assert "پیام جدید</textarea>" in page.text
     assert 'href="/secure-panel-inotex/settings/branding"' in page.text
 

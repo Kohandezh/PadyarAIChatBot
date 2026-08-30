@@ -582,6 +582,7 @@ export function initAi() {
 function applyBranding(d) {
     if (!d) return;
     document.getElementById('brand-app-name').value = d.whitelabel_app_name || '';
+    document.getElementById('brand-subtitle').value = d.whitelabel_subtitle || '';
     document.getElementById('brand-primary').value = d.whitelabel_primary_color || '#2D5CA7';
     document.getElementById('brand-accent').value = d.whitelabel_accent_color || '#FCB715';
     document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
@@ -664,6 +665,7 @@ export function initBranding() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     app_name: document.getElementById('brand-app-name').value.trim(),
+                    subtitle: document.getElementById('brand-subtitle').value.trim(),
                     logo_url: document.getElementById('brand-logo').value.trim(),
                     primary_color: document.getElementById('brand-primary').value,
                     accent_color: document.getElementById('brand-accent').value,

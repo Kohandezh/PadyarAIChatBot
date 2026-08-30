@@ -151,15 +151,17 @@ class AssistantContentRequest(BaseModel):
 
 
 class WhitelabelBrandingRequest(BaseModel):
-    """The 5 white-label keys (see app/services/branding.py for the contract).
+    """The 6 white-label keys (see app/services/branding.py for the contract).
 
     Field names are the admin-form / API names; the router maps them onto the
     `whitelabel_*` setting keys and validates every value server-side — the
     native color picker always emits #rrggbb, but the API is the backstop.
     All fields default to empty so a partial POST can never 422 on a missing
     key; the router rejects empties where empty is not legal (app_name).
+    An empty subtitle falls back to the default, like the welcome text.
     """
     app_name: str = ""
+    subtitle: str = ""
     logo_url: str = ""
     primary_color: str = ""
     accent_color: str = ""

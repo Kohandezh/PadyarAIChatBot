@@ -1,4 +1,4 @@
-"""White-label branding: the 5 real `whitelabel_*` keys, one source of truth.
+"""White-label branding: the 6 real `whitelabel_*` keys, one source of truth.
 
 This is a CMS installed per-customer, so the install's own name, colours,
 welcome text and optional logo live in the `settings` table — never in code
@@ -23,12 +23,15 @@ Escaping contract — read before touching anything here:
 import html
 import json
 
-# Exactly 5 keys — the whole white-label surface. Colors match the historical
+# Exactly 6 keys — the whole white-label surface. Colors match the historical
 # leads.py defaults (primary=blue / accent=yellow) so /v pages are unchanged;
 # the name is unified to the chat's own name per the owner decision (the three
 # surfaces used to hardcode three different names).
 WL_DEFAULTS = {
     "whitelabel_app_name": "دستیار پادیار",
+    # The small line under the chat title. The default keeps today's pixels:
+    # every theme header hardcoded "INOTEX" before this key existed.
+    "whitelabel_subtitle": "INOTEX",
     # Empty = the theme's built-in SVG brand mark; a set URL replaces it.
     "whitelabel_logo_url": "",
     "whitelabel_primary_color": "#2D5CA7",
@@ -39,6 +42,7 @@ WL_DEFAULTS = {
 # The stored form fields (admin API / form) map 1:1 onto the keys above.
 WL_FIELD_TO_KEY = {
     "app_name": "whitelabel_app_name",
+    "subtitle": "whitelabel_subtitle",
     "logo_url": "whitelabel_logo_url",
     "primary_color": "whitelabel_primary_color",
     "accent_color": "whitelabel_accent_color",
@@ -66,7 +70,7 @@ def wl_cache_key() -> tuple:
     Brand values are baked into the cached chat shell (same bytes for every
     visitor), so the cache key must flip the moment a value changes — or an
     admin save would keep serving the old shell until a theme file changed.
-    A tuple of the 5 values: cheap, order-stable, no hash collisions to reason
+    A tuple of the values: cheap, order-stable, no hash collisions to reason
     about. themes.py appends it to both cache keys; the per-visitor token
     splice is untouched by design.
     """
@@ -95,8 +99,9 @@ def chat_branding_context() -> dict:
         .replace("</", "<\\/")
     )
     return {
-        # Plain values (title/header/welcome/logo) — html-escaped.
+        # Plain values (title/subtitle/header/welcome/logo) — html-escaped.
         "app_title": esc(b["whitelabel_app_name"]),
+        "wl_subtitle": esc(b["whitelabel_subtitle"]),
         "wl_welcome": esc(b["whitelabel_welcome_text"]),
         "wl_logo_url": esc(b["whitelabel_logo_url"]),
         # Ready-made tags, emitted raw by head.html.

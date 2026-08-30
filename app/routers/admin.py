@@ -668,7 +668,7 @@ _SAFE_LOGO_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 @router.get("/admin/api/branding", dependencies=[Depends(verify_admin)])
 async def get_branding_settings():
-    """The 5 keys with defaults filled in, so the form always shows the
+    """The keys with defaults filled in, so the form always shows the
     active look — including on a fresh install that never saved anything."""
     from app.services.branding import get_branding
     return get_branding()
@@ -678,6 +678,7 @@ async def get_branding_settings():
 async def save_branding_settings(req: WhitelabelBrandingRequest,
                                  username: str = Depends(verify_admin)):
     name = req.app_name.strip()
+    subtitle = req.subtitle.strip()
     logo = req.logo_url.strip()
     primary = req.primary_color.strip()
     accent = req.accent_color.strip()
@@ -691,6 +692,10 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         raise HTTPException(
             status_code=400,
             detail="نام نمایشی دستیار نمی‌تواند خالی باشد و حداکثر ۶۰ نویسه است.")
+    if len(subtitle) > 80:
+        raise HTTPException(
+            status_code=400,
+            detail="زیرعنوان حداکثر می‌تواند ۸۰ نویسه باشد.")
     if not _HEX_COLOR_RE.match(primary) or not _HEX_COLOR_RE.match(accent):
         raise HTTPException(
             status_code=400,
@@ -711,8 +716,9 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
 
     from app.services.branding import WL_FIELD_TO_KEY
     values = {
-        "app_name": name, "logo_url": logo, "primary_color": primary,
-        "accent_color": accent, "welcome_text": welcome,
+        "app_name": name, "subtitle": subtitle, "logo_url": logo,
+        "primary_color": primary, "accent_color": accent,
+        "welcome_text": welcome,
     }
     for field, key in WL_FIELD_TO_KEY.items():
         set_setting(key, values[field])
