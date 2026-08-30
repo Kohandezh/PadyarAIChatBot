@@ -232,7 +232,7 @@ body {
 
 /* ── Input Area ── */
 .wrapper {
-    padding: 0.5rem 1rem;
+    padding: 0;
 }
 
 #input-area {
@@ -250,6 +250,7 @@ body {
     width: 100%;
     max-width: 800px;
     display: flex;
+    flex-direction: row-reverse;
     align-items: flex-end;
     gap: 8px;
     padding: 0.5rem;
@@ -277,7 +278,7 @@ body {
    that resolution kicks in has fallen back to the room's own rtl in the
    past. Keying text-align off the UI language directly makes it deterministic
    instead of relying on that per-browser heuristic. */
-html[lang="fa"] #user-input { text-align: right; }
+html[lang="fa"] #user-input { text-align: right; direction: rtl; }
 html[lang="en"] #user-input { text-align: left; }
 
 #user-input:focus {
