@@ -1387,6 +1387,19 @@ function initChat() {
     // no-ops unless the visitor is actually signed in.
     refreshMenuHistory();
 
+    // This first call almost always no-ops: registration.js loads AFTER this
+    // script (see footer.html) and still has to await GET /api/auth/session,
+    // so dataset.visitor is 'unknown' at this exact line, every time. Once
+    // registration.js paints the real answer ('in' or 'out'), nothing told
+    // the desktop sidebar to look again — mobile self-heals because opening
+    // the drawer re-calls refreshMenuHistory(), but the desktop sidebar has
+    // no such second chance. Watch the attribute itself (documented above as
+    // the single source other code reads) and re-run on every change, so a
+    // signed-in visitor's list appears the moment the server's answer lands,
+    // with no reload and no drawer toggle required.
+    new MutationObserver(refreshMenuHistory)
+        .observe(document.documentElement, { attributeFilter: ['data-visitor'] });
+
     // Load chat history
     loadHistory();
 
