@@ -386,9 +386,13 @@ async def admin_delete_company(dataset_id: str, admin: str = Depends(verify_admi
 # and `company_leads`, not a column of either.
 
 @router.get("/admin/api/company-profiles", dependencies=[Depends(verify_admin)])
-async def admin_company_profiles(q: str = ""):
+async def admin_company_profiles(q: str = "", limit: int = 25, offset: int = 0):
     from app.services import company_profiles
-    return {"companies": company_profiles.list_companies(q)}
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    rows = company_profiles.list_companies(q, limit=limit, offset=offset)
+    total = company_profiles.count_companies(q)
+    return {"companies": rows, "total": total, "has_more": offset + len(rows) < total}
 
 
 @router.get("/admin/api/company-profiles/{dataset_id}",
@@ -469,13 +473,21 @@ async def admin_funnel():
 
 
 @router.get("/admin/api/leads", dependencies=[Depends(verify_admin)])
-async def admin_leads(visitor_id: str = ""):
-    return {"leads": leads_service.list_leads(visitor_id)}
+async def admin_leads(visitor_id: str = "", limit: int = 25, offset: int = 0):
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    rows = leads_service.list_leads(visitor_id, limit=limit, offset=offset)
+    total = leads_service.count_leads(visitor_id)
+    return {"leads": rows, "total": total, "has_more": offset + len(rows) < total}
 
 
 @router.get("/admin/api/leads/stuck", dependencies=[Depends(verify_admin)])
-async def admin_stuck():
-    return {"stuck": leads_service.stuck_leads()}
+async def admin_stuck(limit: int = 25, offset: int = 0):
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    rows = leads_service.stuck_leads(limit=limit, offset=offset)
+    total = leads_service.count_stuck_leads()
+    return {"stuck": rows, "total": total, "has_more": offset + len(rows) < total}
 
 
 @router.post("/admin/api/leads/{lead_id}/release")

@@ -9,6 +9,10 @@
 // value goes through esc() with no exceptions.
 
 import { fetchAuth, escapeHtml } from './utils.js';
+import { createPager } from './pager.js';
+
+let stuckPager = null;
+let leadsPager = null;
 
 // A registration sits in exactly one of these three. They are places, not
 // stages, so the numbers do not nest and the row does not have to descend.
@@ -292,8 +296,14 @@ async function loadApproved() {
 }
 
 async function loadStuck() {
-    const { stuck } = await get('/admin/api/leads/stuck');
-    document.getElementById('stuck-count').textContent = fa(stuck.length);
+    const { offset, limit } = stuckPager.state;
+    const { stuck, total, has_more } = await get(
+        `/admin/api/leads/stuck?limit=${limit}&offset=${offset}`);
+    // The total, not the page length: this badge and the funnel's "verified"
+    // number must always agree (see stuck_leads() in app/services/leads.py),
+    // and a page of 25 rows out of 90 stuck companies is not that number.
+    document.getElementById('stuck-count').textContent = fa(total);
+    stuckPager.setResult({ shown: stuck.length, total, hasMore: has_more });
     const body = document.getElementById('stuck');
     if (!stuck.length) {
         body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">'
@@ -336,7 +346,11 @@ async function loadVisitors() {
 }
 
 async function loadLeads() {
-    const { leads } = await get('/admin/api/leads');
+    const { offset, limit } = leadsPager.state;
+    const { leads, total, has_more } = await get(
+        `/admin/api/leads?limit=${limit}&offset=${offset}`);
+    document.getElementById('leads-count').textContent = fa(total);
+    leadsPager.setResult({ shown: leads.length, total, hasMore: has_more });
     // The number a visitor waved through is only a control if it stays visible
     // afterwards, so the override rides on the registration itself.
     const nameOf = {};
@@ -531,6 +545,23 @@ function initContactForm() {
 }
 
 export function initLeads() {
+    stuckPager = createPager({
+        pageSizeEl: document.getElementById('stuck-page-size'),
+        prevBtnEl: document.getElementById('stuck-btn-prev'),
+        nextBtnEl: document.getElementById('stuck-btn-next'),
+        rangeEl: document.getElementById('stuck-range'),
+        defaultLimit: 25,
+        onPage: () => loadStuck().catch(() => alertBox('فهرست شرکت‌های منتظرمانده بارگذاری نشد.')),
+    });
+    leadsPager = createPager({
+        pageSizeEl: document.getElementById('leads-page-size'),
+        prevBtnEl: document.getElementById('leads-btn-prev'),
+        nextBtnEl: document.getElementById('leads-btn-next'),
+        rangeEl: document.getElementById('leads-range'),
+        defaultLimit: 25,
+        onPage: () => loadLeads().catch(() => alertBox('فهرست ثبت‌ها بارگذاری نشد.')),
+    });
+
     initContactForm();
 
     document.getElementById('add-visitor').addEventListener('click', async () => {

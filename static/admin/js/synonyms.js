@@ -1,31 +1,38 @@
 import { getSynonyms, setSynonyms } from './state.js';
 import { fetchAuth, showMsg, escapeHtml } from './utils.js';
+import { createPager } from './pager.js';
+
+let synonymsPager = null;
 
 async function loadSynonyms() {
     const res = await fetchAuth('/api/synonyms');
     if (!res.ok) return;
     const data = await res.json();
     setSynonyms(data.synonyms);
+    synonymsPager.reset();
     renderSynonymsTable(data.synonyms);
 }
 
 function renderSynonymsTable(synonyms) {
     const tbody = document.getElementById('synonyms-table');
-    if (!synonyms.length) {
+    const { offset, limit } = synonymsPager.state;
+    const page = synonyms.slice(offset, offset + limit);
+    if (!page.length) {
         tbody.innerHTML = '<tr><td colspan="3" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
-        return;
+    } else {
+        // One row per mapping. A word with three synonyms is three rows, each with
+        // its own delete button, so the operator can remove exactly one of them.
+        tbody.innerHTML = page.map(s => `
+            <tr>
+                <td class="ps-4 fw-bold">${escapeHtml(s.source)}</td>
+                <td class="text-muted">${escapeHtml(s.target)}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" data-source="${escapeHtml(s.source)}" data-target="${escapeHtml(s.target)}"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
     }
-    // One row per mapping. A word with three synonyms is three rows, each with
-    // its own delete button, so the operator can remove exactly one of them.
-    tbody.innerHTML = synonyms.map(s => `
-        <tr>
-            <td class="ps-4 fw-bold">${escapeHtml(s.source)}</td>
-            <td class="text-muted">${escapeHtml(s.target)}</td>
-            <td>
-                <button class="btn btn-sm btn-outline-danger" data-source="${escapeHtml(s.source)}" data-target="${escapeHtml(s.target)}"><i class="fas fa-trash"></i></button>
-            </td>
-        </tr>
-    `).join('');
+    synonymsPager.setResult({ shown: page.length, total: synonyms.length });
 }
 
 async function deleteSynonym(source, target) {
@@ -42,6 +49,14 @@ async function deleteSynonym(source, target) {
 }
 
 export function initSynonyms() {
+    synonymsPager = createPager({
+        pageSizeEl: document.getElementById('synonyms-page-size'),
+        prevBtnEl: document.getElementById('synonyms-btn-prev'),
+        nextBtnEl: document.getElementById('synonyms-btn-next'),
+        rangeEl: document.getElementById('synonyms-range'),
+        defaultLimit: 25,
+        onPage: () => renderSynonymsTable(getSynonyms()),
+    });
     loadSynonyms();
 
     // Delegated so the buttons carry both words as data attributes. An inline

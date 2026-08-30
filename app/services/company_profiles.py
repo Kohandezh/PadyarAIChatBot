@@ -344,7 +344,7 @@ def sync_from_lead(lead: dict) -> None:
         logger.error("[profiles] sync_from_lead failed: %s", type(e).__name__)
 
 
-def list_companies(query: str = "", limit: int = 500) -> list:
+def list_companies(query: str = "", limit: int = 500, offset: int = 0) -> list:
     """Every company beside what is known about it AND its capture state.
 
     All of `companies`: every row here IS a company (unlike the old `dataset`,
@@ -391,7 +391,7 @@ def list_companies(query: str = "", limit: int = 500) -> list:
             " o.status AS lead_status, o.id AS lead_id"
             " FROM companies c"
             " LEFT JOIN company_leads o ON o.dataset_id = c.id AND " + _live_owner("o")
-            + where + " ORDER BY c.title LIMIT ?", (*args, limit)
+            + where + " ORDER BY c.title LIMIT ? OFFSET ?", (*args, limit, offset)
         ).fetchall()
     finally:
         conn.close()
@@ -401,3 +401,29 @@ def list_companies(query: str = "", limit: int = 500) -> list:
         d["has_profile"] = any((d.get(f) or "").strip() for f in PROFILE_FIELDS)
         out.append(d)
     return out
+
+
+def count_companies(query: str = "") -> int:
+    """Total companies matching the same search `list_companies` uses, so a
+    pager can show "X of Y" without loading every row to count them."""
+    from app.db.connection import get_db_connection
+    from app.services.leads import ensure_tables
+    ensure_tables()
+    term = (query or "").strip()
+    conn = get_db_connection()
+    try:
+        if term:
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where = (" WHERE (c.title LIKE ? ESCAPE '\\'"
+                     " OR c.contact_name LIKE ? ESCAPE '\\'"
+                     " OR c.activity_field LIKE ? ESCAPE '\\'"
+                     " OR c.province LIKE ? ESCAPE '\\')")
+            args = [f"%{escaped}%"] * 4
+        else:
+            where, args = "", []
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM companies c" + where, args
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(dict(row)["n"])

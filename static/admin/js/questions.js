@@ -1,5 +1,8 @@
 import { API_BASE, getDatasetItems, setDatasetItems, getQuestions, setQuestions } from './state.js';
 import { fetchAuth, showMsg, escapeHtml, exportResource, openImportModal, submitImportResource } from './utils.js';
+import { createPager } from './pager.js';
+
+let questionsPager = null;
 
 async function loadQuestionsTable() {
     const res = await fetchAuth(API_BASE + '/questions');
@@ -7,6 +10,7 @@ async function loadQuestionsTable() {
     const items = await res.json();
     setQuestions(items);
     populateQuestionsFilter();
+    questionsPager.reset();
     renderQuestionsTable(items);
 }
 
@@ -18,23 +22,30 @@ function populateQuestionsFilter() {
         ids.map(id => `<option value="${id}">${id}</option>`).join('');
 }
 
-function renderQuestionsTable(questions) {
-    const tbody = document.getElementById('questions-table');
+function filteredQuestions(questions) {
     const search = document.getElementById('questions-search').value.trim().toLowerCase();
     const filterId = document.getElementById('questions-filter-id').value;
 
     let filtered = questions;
     if (filterId) filtered = filtered.filter(q => q.dataset_id === filterId);
     if (search) filtered = filtered.filter(q => q.question.toLowerCase().includes(search));
+    return filtered;
+}
 
-    tbody.innerHTML = filtered.length === 0
+function renderQuestionsTable(questions) {
+    const tbody = document.getElementById('questions-table');
+    const filtered = filteredQuestions(questions);
+    const { offset, limit } = questionsPager.state;
+    const page = filtered.slice(offset, offset + limit);
+
+    tbody.innerHTML = page.length === 0
         ? '<tr><td colspan="4" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>'
         : '';
 
-    filtered.forEach((q, i) => {
+    page.forEach((q, i) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${i + 1}</td>
+            <td>${offset + i + 1}</td>
             <td>${escapeHtml(q.question)}</td>
             <td><code>${escapeHtml(q.dataset_id)}</code></td>
             <td>
@@ -43,6 +54,8 @@ function renderQuestionsTable(questions) {
             </td>`;
         tbody.appendChild(tr);
     });
+
+    questionsPager.setResult({ shown: page.length, total: filtered.length });
 }
 
 async function openQuestionModal(questionId = null) {
@@ -135,11 +148,25 @@ async function deleteQuestion(id) {
 }
 
 export function initQuestions() {
+    questionsPager = createPager({
+        pageSizeEl: document.getElementById('questions-page-size'),
+        prevBtnEl: document.getElementById('questions-btn-prev'),
+        nextBtnEl: document.getElementById('questions-btn-next'),
+        rangeEl: document.getElementById('questions-range'),
+        defaultLimit: 25,
+        onPage: () => renderQuestionsTable(getQuestions()),
+    });
     loadQuestionsTable();
 
     // Search and filter handlers
-    document.getElementById('questions-search').addEventListener('input', () => renderQuestionsTable(getQuestions()));
-    document.getElementById('questions-filter-id').addEventListener('change', () => renderQuestionsTable(getQuestions()));
+    document.getElementById('questions-search').addEventListener('input', () => {
+        questionsPager.reset();
+        renderQuestionsTable(getQuestions());
+    });
+    document.getElementById('questions-filter-id').addEventListener('change', () => {
+        questionsPager.reset();
+        renderQuestionsTable(getQuestions());
+    });
 
     // Expose for inline onclick in templates
     window.openQuestionModal = openQuestionModal;
