@@ -1204,6 +1204,17 @@ async def restore_backup_upload_api(file: UploadFile = File(...)):
     return {"status": "restored", "safety_backup": safety}
 
 
+@router.get("/admin/api/backup-schedule", dependencies=[Depends(verify_admin)])
+async def get_backup_schedule():
+    """The schedule form's reader. The POST existed for a year with no GET:
+    on PostgreSQL the page has no backup list, so the one endpoint that
+    carried the schedule (/admin/api/backups) was never fetched and the
+    form showed HTML defaults after every reload — the save itself worked,
+    the read-back did not."""
+    from app.services.backup import get_schedule
+    return get_schedule()
+
+
 @router.post("/admin/api/backup-schedule", dependencies=[Depends(verify_admin)])
 async def save_backup_schedule(req: BackupScheduleRequest):
     from app.services.backup import save_schedule, KEEP_MIN, KEEP_MAX

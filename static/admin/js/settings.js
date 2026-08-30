@@ -194,6 +194,14 @@ function toggleTimeVisibility() {
     document.getElementById('backup-time-wrap').style.display = interval >= 24 ? '' : 'none';
 }
 
+async function loadSchedule() {
+    try {
+        const res = await fetchAuth('/admin/api/backup-schedule');
+        if (!res.ok) return;
+        applySchedule(await res.json());
+    } catch { /* page still usable */ }
+}
+
 async function loadBackups() {
     try {
         const res = await fetchAuth('/admin/api/backups');
@@ -238,10 +246,12 @@ async function doRestore(fetchPromise) {
 
 export function initBackup() {
     loadProfile();
-    // On PostgreSQL this page shows only the schedule; the list/upload
-    // controls live on the infrastructure page. loadBackups() is what feeds
-    // them, so it is the one thing to skip — nothing below may assume the
-    // buttons exist.
+    // The schedule form ALWAYS loads its saved state — on PostgreSQL the
+    // list controls below don't exist, and this page used to skip loading
+    // entirely there, so the operator saved a schedule and saw the form
+    // reset to HTML defaults on every reload (the save worked; the
+    // read-back never ran). The list stays SQLite-page-only.
+    loadSchedule();
     const hasList = !!document.getElementById('backup-list');
     if (hasList) loadBackups();
 
