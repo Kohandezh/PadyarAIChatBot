@@ -126,26 +126,67 @@ function renderSchedule(schedule) {
     el('sched-enabled').textContent = s.enabled ? 'روشن' : 'خاموش';
     el('sched-interval').textContent = s.interval_hours
         ? `${s.interval_hours} ساعت` : '—';
+    el('sched-keep').textContent = s.keep ? `حداکثر ${s.keep} نسخه` : '—';
     el('sched-last').textContent = formatDate(s.last_run);
     el('sched-next').textContent = formatDate(s.next_run);
+}
+
+/* Row checkboxes for bulk delete. Kept in a Set of backup ids; rebuilt from
+ * scratch on every render so it can never hold an id that is no longer on
+ * disk. */
+const selected = new Set();
+
+function syncBulkButton() {
+    const btn = el('bulk-delete-btn');
+    if (!btn) return;
+    const n = selected.size;
+    btn.disabled = n === 0;
+    btn.textContent = n ? `حذف ${n} نسخهٔ انتخاب‌شده` : 'حذف انتخاب‌شده‌ها';
+    const all = el('select-all');
+    const boxes = document.querySelectorAll('#backups-body input[type="checkbox"]');
+    if (all) {
+        all.checked = boxes.length > 0 && n === boxes.length;
+        all.indeterminate = n > 0 && n < boxes.length;
+    }
+}
+
+function checkboxCell(row) {
+    const td = document.createElement('td');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.className = 'form-check-input';
+    box.setAttribute('aria-label', `انتخاب ${row.backup_id}`);
+    box.dataset.backupId = row.backup_id;
+    box.checked = selected.has(row.backup_id);
+    box.addEventListener('change', () => {
+        if (box.checked) selected.add(row.backup_id);
+        else selected.delete(row.backup_id);
+        syncBulkButton();
+    });
+    td.appendChild(box);
+    return td;
 }
 
 function renderRows(rows) {
     const body = el('backups-body');
     body.replaceChildren();
+    selected.clear();
 
     if (!rows.length) {
         const tr = document.createElement('tr');
         const td = cell('هنوز هیچ نسخهٔ پشتیبانی گرفته نشده است.',
             'text-center text-muted');
-        td.colSpan = 6;
+        td.colSpan = 7;
         tr.appendChild(td);
         body.appendChild(tr);
+        syncBulkButton();
         return;
     }
 
     rows.forEach((row) => {
         const tr = document.createElement('tr');
+
+        tr.appendChild(checkboxCell(row));
 
         const dateTd = cell(formatDate(row.created_at));
         const kind = document.createElement('div');
@@ -169,17 +210,20 @@ function renderRows(rows) {
         group.className = 'd-flex gap-2 justify-content-end flex-wrap';
         group.appendChild(button('بررسی سلامت', 'btn btn-sm btn-outline-primary',
             () => verifyBackup(row.backup_id)));
-        group.appendChild(button('حذف نسخه', 'btn btn-sm btn-outline-secondary',
+        group.appendChild(button('حذف نسخه', 'btn btn-sm btn-outline-danger',
             () => openDelete(row.backup_id)));
         // Restore replaces the WHOLE database — it must never read like just
         // another row action. Label says so, icon warns, and it sits last.
-        group.appendChild(button('⚠ بازگردانی کل پایگاه‌داده', 'btn btn-sm btn-outline-danger',
+        // Warning, not danger: red is reserved for irreversible DELETE, and a
+        // red بازگردانی reads as the delete button (owner report 2026-08-30).
+        group.appendChild(button('⚠ بازگردانی کل پایگاه‌داده', 'btn btn-sm btn-outline-warning',
             () => openRestore(row)));
         actions.appendChild(group);
         tr.appendChild(actions);
 
         body.appendChild(tr);
     });
+    syncBulkButton();
 }
 
 async function load() {
@@ -360,10 +404,74 @@ async function doDelete() {
     }
 }
 
+/* ── bulk delete ────────────────────────────────────────────────────── */
+
+/* One phrase for the whole batch — the operator typed their intent once for
+ * N known ids; per-id phrases would make deleting 5 backups impossible UX.
+ * The phrase embeds the COUNT, so a stale "DELETE 5 BACKUPS" phrase cannot
+ * delete a different number of sets than the operator confirmed. */
+function openBulkDelete() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    el('bulk-count').textContent = String(ids.length);
+    el('bulk-phrase').textContent = `DELETE ${ids.length} BACKUPS`;
+    el('bulk-msg').textContent = '';
+    armWhenTyped('bulk-input', 'bulk-confirm-btn', `DELETE ${ids.length} BACKUPS`);
+    new bootstrap.Modal(el('bulkDeleteModal')).show();
+}
+
+async function doBulkDelete() {
+    const ids = [...selected];
+    const btn = el('bulk-confirm-btn');
+    const msg = el('bulk-msg');
+    btn.disabled = true;
+    msg.className = 'text-center fw-bold mt-2 text-muted';
+    msg.textContent = '⏳ در حال حذف...';
+    try {
+        const res = await fetchAuth(`${API}/bulk-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ids,
+                confirm: `DELETE ${ids.length} BACKUPS`,
+            }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            closeModal('bulkDeleteModal');
+            showMsg('backups-msg',
+                data.deleted?.length
+                    ? `${data.deleted.length} نسخهٔ پشتیبان حذف شد`
+                    : 'هیچ نسخه‌ای حذف نشد',
+                'success');
+            load();
+        } else {
+            msg.className = 'text-center fw-bold mt-2 text-danger';
+            msg.textContent = await detail(res, 'حذف ناموفق بود');
+            btn.disabled = false;
+        }
+    } catch {
+        msg.className = 'text-center fw-bold mt-2 text-danger';
+        msg.textContent = 'خطای ارتباط با سرور';
+        btn.disabled = false;
+    }
+}
+
 export function initBackups() {
     loadProfile();
     el('create-btn').addEventListener('click', createBackup);
     el('restore-confirm-btn').addEventListener('click', doRestore);
     el('delete-confirm-btn').addEventListener('click', doDelete);
+    el('bulk-delete-btn').addEventListener('click', openBulkDelete);
+    el('bulk-confirm-btn').addEventListener('click', doBulkDelete);
+    el('select-all').addEventListener('change', (e) => {
+        document.querySelectorAll('#backups-body input[type="checkbox"]').forEach((box) => {
+            box.checked = e.target.checked;
+            const id = box.dataset.backupId;
+            if (box.checked) selected.add(id);
+            else selected.delete(id);
+        });
+        syncBulkButton();
+    });
     load();
 }

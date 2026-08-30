@@ -1101,7 +1101,7 @@ async def restore_backup_upload_api(file: UploadFile = File(...)):
 
 @router.post("/admin/api/backup-schedule", dependencies=[Depends(verify_admin)])
 async def save_backup_schedule(req: BackupScheduleRequest):
-    from app.services.backup import save_schedule
+    from app.services.backup import save_schedule, KEEP_MIN, KEEP_MAX
     if req.interval_hours < 1:
         raise HTTPException(status_code=400, detail="بازه زمانی نامعتبر است")
 
@@ -1118,7 +1118,12 @@ async def save_backup_schedule(req: BackupScheduleRequest):
     except (ValueError, AttributeError):
         raise HTTPException(status_code=400, detail="فرمت ساعت نامعتبر است. باید به صورت HH:MM باشد.")
 
-    return save_schedule(req.enabled, req.interval_hours, req.time)
+    if req.keep is not None and not (KEEP_MIN <= req.keep <= KEEP_MAX):
+        raise HTTPException(
+            status_code=400,
+            detail=f"حداکثر نسخه‌های نگه‌داشته‌شده باید بین {KEEP_MIN} و {KEEP_MAX} باشد.")
+
+    return save_schedule(req.enabled, req.interval_hours, req.time, keep=req.keep)
 
 
 @router.post("/admin/api/change-security-question", dependencies=[Depends(verify_admin)])

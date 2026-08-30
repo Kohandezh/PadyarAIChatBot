@@ -22,16 +22,31 @@ DEFAULTS = {
     "backup_auto_enabled": "true",
     "backup_interval_hours": "24",
     "backup_time": "03:00",  # used when interval >= 24h
+    # How many backups survive pruning. Mirrors backup_center.KEEP_SETS /
+    # pg_backup.KEEP so an install that never opens the form keeps today's
+    # behaviour — the operator-settable cap only bites once someone sets it.
+    "backup_keep": "14",
 }
 CHECK_EVERY_SECONDS = 60
+KEEP_MIN, KEEP_MAX = 1, 100
+
+
+def _keep_from(vals: dict) -> int:
+    """Clamp the stored retention to a sane range. A hand-edited row (or a
+    legacy "0") must degrade to a usable policy, never disable pruning
+    entirely or keep 100k sets."""
+    try:
+        keep = int(vals.get("backup_keep", DEFAULTS["backup_keep"]))
+    except (TypeError, ValueError):
+        keep = int(DEFAULTS["backup_keep"])
+    return max(KEEP_MIN, min(KEEP_MAX, keep))
 
 
 def get_schedule() -> dict:
-    # Read all five keys over one connection. This runs every 60s in every
-    # worker, so opening five separate connections (one per get_setting) is
-    # needless DB churn.
+    # Read all keys over one connection. This runs every 60s in every
+    # worker, so opening one connection per get_setting is needless DB churn.
     keys = ["backup_auto_enabled", "backup_interval_hours", "backup_time",
-            "backup_last_run", "backup_next_run"]
+            "backup_keep", "backup_last_run", "backup_next_run"]
     conn = get_db_connection()
     try:
         placeholders = ",".join("?" * len(keys))
@@ -46,19 +61,29 @@ def get_schedule() -> dict:
         "enabled": vals.get("backup_auto_enabled", DEFAULTS["backup_auto_enabled"]) == "true",
         "interval_hours": int(vals.get("backup_interval_hours", DEFAULTS["backup_interval_hours"])),
         "time": vals.get("backup_time", DEFAULTS["backup_time"]),
+        "keep": _keep_from(vals),
         "last_run": vals.get("backup_last_run", ""),
         "next_run": vals.get("backup_next_run", ""),
     }
 
 
-def save_schedule(enabled: bool, interval_hours: int, time_str: str) -> dict:
+def save_schedule(enabled: bool, interval_hours: int, time_str: str,
+                  keep: int = None) -> dict:
     set_setting("backup_auto_enabled", "true" if enabled else "false")
     set_setting("backup_interval_hours", str(interval_hours))
     set_setting("backup_time", time_str)
+    if keep is not None:
+        set_setting("backup_keep", str(max(KEEP_MIN, min(KEEP_MAX, keep))))
     # Recompute the next run from now using the new settings.
     next_run = compute_next_run(datetime.now(), interval_hours, time_str)
     set_setting("backup_next_run", next_run.isoformat())
     return get_schedule()
+
+
+def configured_keep() -> int:
+    """The retention the engines prune to (scheduler + manual backups)."""
+    return _keep_from({"backup_keep": get_setting(
+        "backup_keep", DEFAULTS["backup_keep"])})
 
 
 def compute_next_run(now: datetime, interval_hours: int, time_str: str) -> datetime:
@@ -115,7 +140,7 @@ def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
     if _backup_engine() == "postgres":
         from app.services import pg_backup
         summary = pg_backup.create(actor=actor, reason=kind)
-        removed = pg_backup.prune()
+        removed = pg_backup.prune(keep=configured_keep())
         set_setting("backup_last_run", datetime.now().isoformat())
         logger.info("PostgreSQL backup created: %s%s", summary["backup_id"],
                     f" (pruned {len(removed)})" if removed else "")
@@ -123,7 +148,7 @@ def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
 
     from app.services import backup_center
     summary = backup_center.create(actor=actor, kind=kind)
-    removed = backup_center.prune()
+    removed = backup_center.prune(keep=configured_keep())
     set_setting("backup_last_run", datetime.now().isoformat())
     logger.info("Backup set created: %s%s", summary["backup_id"],
                 f" (pruned {len(removed)})" if removed else "")

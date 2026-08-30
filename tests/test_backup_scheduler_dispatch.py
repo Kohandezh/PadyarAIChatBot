@@ -72,7 +72,7 @@ def test_a_postgres_install_runs_pg_backup_not_sqlite_sets(monkeypatch, db):
     monkeypatch.setattr("app.services.pg_backup.create",
                         lambda actor="", reason="": calls.__setitem__(
                             "pg", calls["pg"] + 1) or {"backup_id": "pg_1"})
-    monkeypatch.setattr("app.services.pg_backup.prune", lambda: [])
+    monkeypatch.setattr("app.services.pg_backup.prune", lambda **kw: [])
     monkeypatch.setattr("app.services.pg_backup.backup_dir",
                         lambda backup_id: "/somewhere/" + backup_id)
     monkeypatch.setattr("app.services.backup_center.create",
@@ -93,7 +93,7 @@ def test_a_sqlite_install_still_runs_backup_center(monkeypatch, db):
         "app.services.backup_center.create",
         lambda **kw: calls.__setitem__("sqlite", calls["sqlite"] + 1)
         or {"backup_id": "set_1"})
-    monkeypatch.setattr("app.services.backup_center.prune", lambda: [])
+    monkeypatch.setattr("app.services.backup_center.prune", lambda **kw: [])
     monkeypatch.setattr("app.services.backup_center.set_dir",
                         lambda backup_id: "/sets/" + backup_id)
 
@@ -106,7 +106,7 @@ def test_a_successful_run_records_the_time(monkeypatch, db):
     from app.services import backup
     monkeypatch.setattr(
         "app.services.backup_center.create", lambda **kw: {"backup_id": "set_9"})
-    monkeypatch.setattr("app.services.backup_center.prune", lambda: [])
+    monkeypatch.setattr("app.services.backup_center.prune", lambda **kw: [])
     monkeypatch.setattr("app.services.backup_center.set_dir",
                         lambda backup_id: "/sets/" + backup_id)
     backup._run_backup_now()
