@@ -159,7 +159,7 @@ def test_every_interest_at_once_still_fits_the_profile_endpoint(client, outbox):
     )
     _signed_up(client, outbox)
     r = client.post("/api/auth/profile", json={
-        "job": "", "position": "", "interests": everything,
+        "job": "کارمند", "position": "کارشناس", "interests": everything,
     })
     assert r.status_code == 200, (
         f"{len(everything)} characters of interests was refused: {r.text}")
@@ -174,7 +174,7 @@ def test_the_longest_job_and_position_fit_their_fields(client, outbox):
     _signed_up(client, outbox)
     r = client.post("/api/auth/profile", json={
         "job": longest_job, "position": longest_position,
-        "interests": "",
+        "interests": "عمومی",
     })
     assert r.status_code == 200, r.text
     assert _stored()["job"] == longest_job

@@ -317,7 +317,12 @@ async def _bubbles(page):
 
 
 async def _finish_signup(page):
-    """Name, phone, code, then skip all three in-chat questions."""
+    """Name, phone, code, then answer all three in-chat questions.
+
+    All three (job, position, interests) are mandatory now and there is no
+    skip button any more, so each one is answered for real through the same
+    send path a visitor uses (type + press send).
+    """
     await page.wait_for_selector("#reg-name")
     await _set_value(page, "#reg-name", "سارا محمدی")
     await _set_value(page, "#reg-phone", "09120000000")
@@ -332,9 +337,9 @@ async def _finish_signup(page):
     # its three questions in the chat instead.
     await page.wait_for_function(
         "() => document.querySelector('.reg-overlay') === null")
-    for _ in range(3):
-        await page.wait_for_selector(".reg-ask-skip")
-        await _click(page, ".reg-ask-skip")
+    for answer in ("هوش مصنوعی", "مدیرعامل", "استارتاپ"):
+        await page.wait_for_selector(".reg-ask")
+        await _send(page, answer)
 
 
 # ── The gate holds a stranger's first message ────────────────────────────

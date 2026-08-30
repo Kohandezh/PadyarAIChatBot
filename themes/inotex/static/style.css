@@ -1674,21 +1674,6 @@ body.video-mode .pet-panel { bottom: 96px; }
     color: var(--color-text-muted);
 }
 
-.reg-ask-skip {
-    align-self: flex-start;
-    min-height: 40px;
-    padding: 8px 14px;
-    border: none;
-    background: none;
-    color: var(--color-text-muted);
-    font-family: inherit;
-    font-size: 13px;
-    text-decoration: underline;
-    cursor: pointer;
-}
-
-.reg-ask-skip:hover { color: var(--color-text-primary); }
-
 @media (max-width: 430px) {
     /* Eighteen interests on a small screen: the list scrolls VERTICALLY in its
        own box so it never pushes the message field off screen — and never asks

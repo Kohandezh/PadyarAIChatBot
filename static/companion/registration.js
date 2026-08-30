@@ -74,7 +74,11 @@
 
     /* Ask about interests in the chat? The owner may decide these belong on
        the sign-up card instead. Flip this to false and the third in-chat
-       question disappears — nothing else changes. */
+       question disappears — nothing else changes.
+       Careful: /api/auth/profile now REQUIRES a non-empty interests value on
+       every call. Flipping this to false means interests must come from
+       somewhere else (e.g. the sign-up checkboxes/flags), or every profile
+       save will fail with a 422. */
     const ASK_INTERESTS = true;
 
     // What /api/auth/profile accepts. Clamping here means a chatty answer is
@@ -750,15 +754,19 @@
 
         form.addEventListener('submit', function (e) {
             e.preventDefault();
+            const job = jobSel.value.trim().slice(0, MAX_JOB);
+            const position = (posField ? posField.value.trim() : '').slice(0, MAX_POSITION);
+            const interests = collect().slice(0, MAX_INTERESTS);
+            // The backend now hard-requires all three. Catching it here, in
+            // the same style as renderSignupStep's needName/badPhone checks,
+            // means the visitor sees a Persian status line instead of an
+            // unhandled 422.
+            if (!job || !position || !interests) { say(t().required, 'error'); return; }
             submit.disabled = true;
             say('…');
             // No identity in this body. The endpoint knows who is asking from
             // the session cookie, so all that travels is what changed.
-            post('/api/auth/profile', {
-                job: jobSel.value.trim().slice(0, MAX_JOB),
-                position: (posField ? posField.value.trim() : '').slice(0, MAX_POSITION),
-                interests: collect().slice(0, MAX_INTERESTS)
-            })
+            post('/api/auth/profile', { job: job, position: position, interests: interests })
                 .then(function (data) {
                     server.profile = Object.assign({}, server.profile, data.profile || {});
                     rememberName(server.profile);
@@ -1049,7 +1057,7 @@
                     closeModal();
                     sessionReady.then(function (s) {
                         const known = (s && s.profile) || {};
-                        if (known.job && known.position) {
+                        if (known.job && known.position && known.interests) {
                             deliverHeld();
                         } else {
                             startChatQuestions(profile);
@@ -1229,13 +1237,6 @@
         }
 
         box.append(el('p', 'reg-ask-hint', step.multi ? t().tapMany : t().tapOne));
-
-        // A visitor whose answer is not on the list and who does not want to
-        // type one must still be able to reach their own question.
-        const skip = el('button', 'reg-ask-skip', t().skip);
-        skip.type = 'button';
-        skip.addEventListener('click', function () { acceptAnswer(''); });
-        box.append(skip);
 
         if (!appendToChat(box)) return;
         ask.box = box;
