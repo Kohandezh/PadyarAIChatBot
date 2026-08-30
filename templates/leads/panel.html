@@ -12,8 +12,13 @@
 <body>
 <header class="bar">
   <div class="inner">
-    <h1>ثبت شرکت</h1>
-    <p><!-- VISITOR_NAME --> عزیز، خوش آمدید</p>
+    <!-- The visitor's booth is not in the list. Up here, before the visitor
+         even starts a search, so it is never missed. -->
+    <button type="button" class="add-company" id="not-listed">افزودن شرکت</button>
+    <div class="titles">
+      <h1>ثبت شرکت</h1>
+      <p><!-- VISITOR_NAME --> عزیز، خوش آمدید</p>
+    </div>
   </div>
 </header>
 
@@ -33,11 +38,6 @@
       <button type="button" id="change">تغییر</button>
     </div>
 
-    <!-- The booth is not in the list. A link, not a button beside the search
-         box, so it never reads as a second way to search. -->
-    <div style="margin-top:16px">
-      <button type="button" class="ghost" id="not-listed">شرکت من در این فهرست نیست</button>
-    </div>
     <div id="new-company" hidden style="margin-top:16px">
       <label for="new-title">عنوان شرکت</label>
       <input type="text" id="new-title" autocomplete="off" maxlength="200">
@@ -54,13 +54,13 @@
     <h2>۲. مشخصات مسئول شرکت</h2>
     <p class="hint">همان کسی که موبایلش دم دست است — کد تأیید برای او می‌رود.</p>
     <label for="first">نام</label>
-    <input type="text" id="first" autocomplete="off">
+    <input type="text" id="first" autocomplete="off" required>
     <label for="last">نام خانوادگی</label>
-    <input type="text" id="last" autocomplete="off">
+    <input type="text" id="last" autocomplete="off" required>
     <label for="position">سمت</label>
-    <input type="text" id="position" placeholder="مثلاً: مدیر فروش" autocomplete="off">
+    <input type="text" id="position" placeholder="مثلاً: مدیر فروش" autocomplete="off" required>
     <label for="phone">شماره موبایل</label>
-    <input type="tel" id="phone" placeholder="09123456789" inputmode="numeric" autocomplete="off">
+    <input type="tel" id="phone" placeholder="09123456789" inputmode="numeric" autocomplete="off" required>
     <div class="note err" id="reg-error"></div>
 
     <!-- The number already belongs to another company. One person really can

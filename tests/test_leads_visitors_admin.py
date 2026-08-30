@@ -105,3 +105,96 @@ def test_delete_visitor_rejects_an_unauthenticated_caller(tmp_path, monkeypatch)
     with TestClient(app) as anon:
         r = anon.delete("/admin/api/leads/visitors/whoever")
         assert r.status_code in (401, 403)
+
+
+# --- Bulk delete / bulk active-toggle --------------------------------------
+
+def test_bulk_delete_visitors_removes_them_and_keeps_their_leads(admin_client):
+    from app.services import leads as svc
+    a = svc.create_visitor("علی")
+    b = svc.create_visitor("رضا")
+    lead_id = _seed_lead(a["id"])
+
+    r = admin_client.post("/admin/api/leads/visitors/bulk-delete",
+                          json={"ids": [a["id"], b["id"]]})
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "deleted": 2}
+
+    roster = admin_client.get("/admin/api/leads/visitors").json()["visitors"]
+    assert all(v["id"] not in (a["id"], b["id"]) for v in roster)
+
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT status, released_at FROM company_leads"
+                           " WHERE id = ?", (lead_id,)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None, "bulk-deleting a colleague deleted the leads they captured"
+    assert row["status"] == "verified" and row["released_at"] is None
+
+
+def test_bulk_delete_visitors_skips_unknown_ids(admin_client):
+    from app.services import leads as svc
+    a = svc.create_visitor("سارا")
+
+    r = admin_client.post("/admin/api/leads/visitors/bulk-delete",
+                          json={"ids": [a["id"], "does-not-exist"]})
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "deleted": 1}
+
+
+def test_bulk_delete_visitors_rejects_empty_ids(admin_client):
+    r = admin_client.post("/admin/api/leads/visitors/bulk-delete", json={"ids": []})
+    assert r.status_code == 400
+
+
+def test_bulk_delete_visitors_rejects_an_unauthenticated_caller(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "leads_anon2.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    with TestClient(app) as anon:
+        r = anon.post("/admin/api/leads/visitors/bulk-delete", json={"ids": ["whoever"]})
+        assert r.status_code in (401, 403)
+
+
+def test_bulk_active_deactivates_and_reactivates(admin_client):
+    from app.services import leads as svc
+    a = svc.create_visitor("علی")
+    b = svc.create_visitor("رضا")
+
+    r = admin_client.post("/admin/api/leads/visitors/bulk-active",
+                          json={"ids": [a["id"], b["id"]], "active": False})
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "updated": 2}
+
+    roster = {v["id"]: v for v in admin_client.get("/admin/api/leads/visitors").json()["visitors"]}
+    assert not roster[a["id"]]["active"]
+    assert not roster[b["id"]]["active"]
+
+    r = admin_client.post("/admin/api/leads/visitors/bulk-active",
+                          json={"ids": [a["id"]], "active": True})
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "updated": 1}
+
+    roster = {v["id"]: v for v in admin_client.get("/admin/api/leads/visitors").json()["visitors"]}
+    assert roster[a["id"]]["active"]
+    assert not roster[b["id"]]["active"]
+
+
+def test_bulk_active_rejects_empty_ids(admin_client):
+    r = admin_client.post("/admin/api/leads/visitors/bulk-active",
+                          json={"ids": [], "active": True})
+    assert r.status_code == 400
+
+
+def test_bulk_active_rejects_an_unauthenticated_caller(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "leads_anon3.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    with TestClient(app) as anon:
+        r = anon.post("/admin/api/leads/visitors/bulk-active",
+                      json={"ids": ["whoever"], "active": True})
+        assert r.status_code in (401, 403)

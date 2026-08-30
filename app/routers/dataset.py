@@ -216,6 +216,22 @@ async def delete_dataset_item(item_id: str):
     return {"status": "deleted"}
 
 
+@router.post("/admin/api/dataset/bulk-delete", dependencies=[Depends(verify_admin)])
+async def bulk_delete_dataset_items(payload: dict):
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="هیچ موردی برای حذف انتخاب نشده است.")
+    if not all(isinstance(i, str) for i in ids):
+        raise HTTPException(status_code=400, detail="لیست شناسه‌ها نامعتبر است.")
+    placeholders = ",".join("?" * len(ids))
+    with closing(get_db_connection()) as conn:
+        cur = conn.execute(f'DELETE FROM dataset WHERE id IN ({placeholders})', ids)
+        conn.commit()
+        rowcount = cur.rowcount
+    _trigger_reindex()
+    return {"status": "deleted", "deleted": rowcount}
+
+
 # --- Questions CRUD ---
 
 @router.get("/admin/api/questions", dependencies=[Depends(verify_admin)])
@@ -273,6 +289,22 @@ async def delete_question(question_id: int):
         raise HTTPException(status_code=404, detail="Question not found")
     _trigger_reindex()
     return {"status": "deleted"}
+
+
+@router.post("/admin/api/questions/bulk-delete", dependencies=[Depends(verify_admin)])
+async def bulk_delete_questions(payload: dict):
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="هیچ موردی برای حذف انتخاب نشده است.")
+    if not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+        raise HTTPException(status_code=400, detail="لیست شناسه‌ها نامعتبر است.")
+    placeholders = ",".join("?" * len(ids))
+    with closing(get_db_connection()) as conn:
+        cur = conn.execute(f'DELETE FROM questions WHERE id IN ({placeholders})', ids)
+        conn.commit()
+        rowcount = cur.rowcount
+    _trigger_reindex()
+    return {"status": "deleted", "deleted": rowcount}
 
 
 # --- Import / Export ---

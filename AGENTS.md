@@ -98,6 +98,27 @@ local syntax check before pushing. Running a single test file locally while
 writing it (TDD red/green) is fine too — just don't treat a local full-suite
 run as the merge gate.
 
+## Keep the Code Graph Current
+
+This repo uses [Graphify](https://github.com/safishamsi/graphify) for a
+local, queryable knowledge graph of the codebase. Output lives in
+`graphify-out/` (gitignored, regenerated, never committed).
+
+After finishing a feature, before opening a PR, refresh it:
+
+```bash
+graphify update .
+```
+
+No LLM or API key needed. It doesn't affect CI or the diff — it keeps the
+graph current for whichever agent queries it next:
+
+```bash
+graphify query "<question>"
+graphify explain "<file-or-symbol>"
+graphify affected "<file-or-symbol>"
+```
+
 ## Project Structure
 
 ```

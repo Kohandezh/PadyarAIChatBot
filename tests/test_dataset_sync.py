@@ -160,3 +160,96 @@ def test_update_and_delete_dataset_round_trip(client):
 def test_update_delete_missing_dataset_returns_404(client):
     assert client.put("/admin/api/dataset/nope", json={"title": "x", "text": "y", "video_url": ""}).status_code == 404
     assert client.delete("/admin/api/dataset/nope").status_code == 404
+
+
+# --- Bulk delete: dataset --------------------------------------------------
+
+def test_bulk_delete_dataset_removes_multiple_rows_and_reindexes(client, monkeypatch):
+    for item_id in ("bd1", "bd2", "bd3"):
+        client.post("/admin/api/dataset", json={"id": item_id, "title": "t", "text": "x", "video_url": ""})
+
+    calls = []
+    import app.routers.dataset as dataset_router
+    monkeypatch.setattr(dataset_router, "_trigger_reindex", lambda: calls.append(1))
+
+    res = client.post("/admin/api/dataset/bulk-delete", json={"ids": ["bd1", "bd2"]})
+    assert res.status_code == 200
+    assert res.json() == {"status": "deleted", "deleted": 2}
+    assert len(calls) == 1  # one reindex for the whole batch, not per row
+
+    ids = {d["id"] for d in client.get("/admin/api/dataset").json()}
+    assert ids == {"bd3"}
+
+
+def test_bulk_delete_dataset_empty_ids_is_rejected(client):
+    assert client.post("/admin/api/dataset/bulk-delete", json={"ids": []}).status_code == 400
+    assert client.post("/admin/api/dataset/bulk-delete", json={"ids": "not-a-list"}).status_code == 400
+    assert client.post("/admin/api/dataset/bulk-delete", json={}).status_code == 400
+
+
+def test_bulk_delete_dataset_ignores_unknown_ids_but_deletes_known_ones(client):
+    client.post("/admin/api/dataset", json={"id": "known", "title": "t", "text": "x", "video_url": ""})
+
+    res = client.post("/admin/api/dataset/bulk-delete", json={"ids": ["known", "does-not-exist"]})
+    assert res.status_code == 200
+    assert res.json() == {"status": "deleted", "deleted": 1}
+    assert all(d["id"] != "known" for d in client.get("/admin/api/dataset").json())
+
+
+def test_bulk_delete_dataset_requires_auth(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "anon.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    from fastapi.testclient import TestClient
+    with TestClient(app) as anon:
+        assert anon.post("/admin/api/dataset/bulk-delete", json={"ids": ["a"]}).status_code == 401
+
+
+# --- Bulk delete: questions -------------------------------------------------
+
+def test_bulk_delete_questions_removes_multiple_rows_and_reindexes(client, monkeypatch):
+    client.post("/admin/api/dataset", json={"id": "qds", "title": "t", "text": "x", "video_url": ""})
+    ids = []
+    for q in ("q1", "q2", "q3"):
+        r = client.post("/admin/api/questions", json={"question": q, "dataset_id": "qds", "video_url": ""})
+        ids.append(r.json()["id"])
+
+    calls = []
+    import app.routers.dataset as dataset_router
+    monkeypatch.setattr(dataset_router, "_trigger_reindex", lambda: calls.append(1))
+
+    res = client.post("/admin/api/questions/bulk-delete", json={"ids": ids[:2]})
+    assert res.status_code == 200
+    assert res.json() == {"status": "deleted", "deleted": 2}
+    assert len(calls) == 1
+
+    remaining = {q["id"] for q in client.get("/admin/api/questions").json()}
+    assert remaining == {ids[2]}
+
+
+def test_bulk_delete_questions_empty_ids_is_rejected(client):
+    assert client.post("/admin/api/questions/bulk-delete", json={"ids": []}).status_code == 400
+    assert client.post("/admin/api/questions/bulk-delete", json={"ids": ["not-an-int"]}).status_code == 400
+    assert client.post("/admin/api/questions/bulk-delete", json={}).status_code == 400
+
+
+def test_bulk_delete_questions_ignores_unknown_ids_but_deletes_known_ones(client):
+    client.post("/admin/api/dataset", json={"id": "qds2", "title": "t", "text": "x", "video_url": ""})
+    r = client.post("/admin/api/questions", json={"question": "known", "dataset_id": "qds2", "video_url": ""})
+    known_id = r.json()["id"]
+
+    res = client.post("/admin/api/questions/bulk-delete", json={"ids": [known_id, 999999]})
+    assert res.status_code == 200
+    assert res.json() == {"status": "deleted", "deleted": 1}
+    assert all(q["id"] != known_id for q in client.get("/admin/api/questions").json())
+
+
+def test_bulk_delete_questions_requires_auth(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "anon2.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    from fastapi.testclient import TestClient
+    with TestClient(app) as anon:
+        assert anon.post("/admin/api/questions/bulk-delete", json={"ids": [1]}).status_code == 401

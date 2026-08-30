@@ -160,7 +160,7 @@ PadyarAIChatbot/
       voice.py                   # /api/transcribe (Whisper)
       synonyms.py                # Synonym CRUD
       dataset.py                 # Dataset + questions + video CRUD
-      conversations_admin.py     # Admin read side: visitors, transcripts, wrong-answer queue
+      conversations_admin.py     # Admin: visitors, transcripts, wrong-answer queue
       dbadmin.py                 # Admin API for Infrastructure -> Database + Storage
       backups.py                 # Admin API for Infrastructure -> Backups
       ops.py                     # Admin Operations & Control Center
@@ -767,6 +767,32 @@ After pushing, check CI instead of re-running tests locally:
 ```bash
 gh run list --branch <branch> --limit 1
 gh run watch
+```
+
+### Keep the Code Graph Current
+
+This repo uses [Graphify](https://github.com/safishamsi/graphify) to keep a
+local, queryable knowledge graph of the codebase. Output lives in
+`graphify-out/` (gitignored, regenerated, never committed — see the
+`.gitignore` entry and `app/services/storage.py`, which surfaces it in the
+admin Infrastructure page as "خروجی نقشهٔ دانش").
+
+After finishing a feature, before opening a PR, refresh it:
+
+```bash
+graphify update .
+```
+
+No LLM or API key needed — it re-parses changed files with tree-sitter and
+rewrites `graphify-out/graph.json`, `graph.html` and `GRAPH_REPORT.md`. This
+doesn't touch anything CI checks; it exists so the next agent (or the next
+session of you) can query an up-to-date map of the codebase instead of
+grepping cold. Useful follow-ups against the refreshed graph:
+
+```bash
+graphify query "<question>"        # BFS traversal for a question
+graphify explain "<file-or-symbol>" # plain-language neighbors of one node
+graphify affected "<file-or-symbol>" # what a change to this would impact
 ```
 
 ### Testing

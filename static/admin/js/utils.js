@@ -59,6 +59,81 @@ export function showMsg(elementId, text, type) {
     setTimeout(() => el.innerText = '', 3000);
 }
 
+// --- Bulk selection (checkbox column + select-all + toolbar) ---
+//
+// Shared by any admin table that offers "select rows, then act on all of
+// them at once" (bulk delete today; more bulk actions can reuse this).
+//
+// The table body is re-rendered wholesale on every load/search (innerHTML
+// replaced), so row checkboxes are never wired one by one — that listener
+// would be gone the moment the row is redrawn. Instead one delegated
+// `change` listener sits on the tbody itself, wired once via attach().
+//
+// "Select all" only ever selects the rows currently rendered in the tbody —
+// read straight off the DOM, not the page's full unfiltered dataset. Otherwise
+// a search that narrows the table to 3 rows, followed by "select all" and a
+// bulk delete, would silently delete rows the user never saw.
+export function initBulkSelection({ selectAllEl, toolbarEl, countEl, onSelectionChange }) {
+    const selected = new Set();
+    let tbody = null;
+
+    function visibleIds() {
+        return tbody ? Array.from(tbody.querySelectorAll('.row-check')).map(cb => cb.value) : [];
+    }
+
+    function updateUI() {
+        const n = selected.size;
+        toolbarEl.classList.toggle('d-none', n === 0);
+        if (countEl) countEl.innerText = `${n} مورد انتخاب شده`;
+        if (selectAllEl) {
+            const ids = visibleIds();
+            const allVisibleSelected = ids.length > 0 && ids.every(id => selected.has(id));
+            selectAllEl.checked = allVisibleSelected;
+            selectAllEl.indeterminate = !allVisibleSelected && ids.some(id => selected.has(id));
+        }
+        if (onSelectionChange) onSelectionChange(selected);
+    }
+
+    function clear() {
+        selected.clear();
+        if (selectAllEl) selectAllEl.indeterminate = false;
+        updateUI();
+    }
+
+    function attach(tbodyEl) {
+        tbody = tbodyEl;
+
+        tbodyEl.addEventListener('change', (e) => {
+            if (!e.target.classList.contains('row-check')) return;
+            const id = e.target.value;
+            if (e.target.checked) selected.add(id);
+            else selected.delete(id);
+            updateUI();
+        });
+
+        if (selectAllEl) {
+            selectAllEl.addEventListener('change', () => {
+                const ids = visibleIds();
+                if (selectAllEl.checked) {
+                    ids.forEach(id => selected.add(id));
+                } else {
+                    ids.forEach(id => selected.delete(id));
+                }
+                tbodyEl.querySelectorAll('.row-check').forEach(cb => {
+                    cb.checked = selected.has(cb.value);
+                });
+                updateUI();
+            });
+        }
+    }
+
+    return {
+        getSelected: () => Array.from(selected),
+        clear,
+        attach,
+    };
+}
+
 // --- Import / Export (shared by dataset & questions pages) ---
 
 // Download an authenticated export as a file. resource = 'dataset' | 'questions'.

@@ -145,9 +145,25 @@
     el('dup').scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
+  /* All four fields are required — the CMS ships no half-identified contact. */
+  var REQUIRED_FIELDS = [
+    ['first', 'نام را وارد کنید.'],
+    ['last', 'نام خانوادگی را وارد کنید.'],
+    ['position', 'سمت را وارد کنید.'],
+    ['phone', 'شماره موبایل را وارد کنید.']
+  ];
+
   function register(button, overrideDuplicate) {
     el('reg-error').textContent = '';
     if (!state.datasetId) { el('reg-error').textContent = 'اول شرکت را انتخاب کنید.'; return; }
+    for (var i = 0; i < REQUIRED_FIELDS.length; i++) {
+      var id = REQUIRED_FIELDS[i][0];
+      if (!el(id).value.trim()) {
+        el('reg-error').textContent = REQUIRED_FIELDS[i][1];
+        el(id).focus();
+        return;
+      }
+    }
     var label = button.textContent;
     button.disabled = true;
     button.textContent = 'در حال ارسال…';

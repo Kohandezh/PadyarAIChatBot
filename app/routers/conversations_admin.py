@@ -1,9 +1,8 @@
 """Admin API for who visited, what they said, and where the bot was wrong.
 
-This is the READ side of the seam described in app/services/conversations.py.
-The chat router writes visitors, conversations and messages; these endpoints
-are the only way a human ever sees them, and they exist for three questions
-the owner of an exhibition install actually asks:
+The chat router writes visitors, conversations and messages; this router is
+how a human ever sees or manages them, for the questions the owner of an
+exhibition install actually asks:
 
   1. Who came, and how do I reach them again?      -> /admin/api/visitors
   2. What did this person and the bot say?         -> /admin/api/conversations
@@ -13,10 +12,15 @@ the owner of an exhibition install actually asks:
 (3) is the one that makes the product better, so it is a first-class endpoint
 with its own screen and its own sidebar link, not a filter buried in a list.
 
-There is ONE write endpoint here, and it is deliberately the only one: ending
-a visitor's sessions (.../visitors/{id}/sessions/revoke). It lives on this
-router because the visitor list is the screen where an operator is standing
-when somebody tells them their phone was stolen. See its own docstring.
+This used to be read-only except for one deliberate write (ending a
+visitor's sessions). It now also carries a small, deliberately scoped set of
+admin writes: signing a visitor out everywhere, editing a visitor's own
+profile fields (never their phone — that is the OTP identity key), deleting
+one visitor or one conversation, and the bulk-delete forms of each. Every
+write is audited. Two things stay OUT of scope on purpose: the wrong-answer
+queue (.../conversations/weak) is a fix-it list, not a delete list, and
+message TEXT is a historical record — nobody edits what a visitor or the bot
+actually said, only whether the row still exists at all.
 
 PRIVACY — every route here is admin-only
 ----------------------------------------
@@ -291,6 +295,51 @@ async def conversation_detail(conversation_id: str):
             "weak_below": WEAK_BELOW}
 
 
+@router.delete("/admin/api/conversations/{conversation_id}",
+               dependencies=[Depends(verify_admin)])
+async def delete_conversation(conversation_id: str, request: Request,
+                              username: str = Depends(verify_admin)):
+    """Delete one conversation and its messages.
+
+    Any conversation by id — this is an admin action, not a visitor deleting
+    their own (compare store.delete_conversation_for_visitor, which also
+    checks ownership). 404 on an unknown id.
+    """
+    if not store.get_conversation(conversation_id):
+        raise HTTPException(404, detail="این گفتگو پیدا نشد.")
+
+    store.delete_conversation(conversation_id)
+
+    applog.audit("admin.conversation.deleted",
+                 message="یک گفتگو حذف شد",
+                 actor=username, target=conversation_id, outcome="ok",
+                 ip=client_ip(request))
+    return {"status": "deleted"}
+
+
+@router.post("/admin/api/conversations/bulk-delete",
+             dependencies=[Depends(verify_admin)])
+async def bulk_delete_conversations(payload: dict, request: Request,
+                                    username: str = Depends(verify_admin)):
+    """Delete several conversations at once. Same shape as the visitors
+    bulk-delete route: {"ids": [...]}, one audit entry for the whole call."""
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, detail="هیچ گفتگویی برای حذف انتخاب نشده است.")
+    if not all(isinstance(i, str) for i in ids):
+        raise HTTPException(400, detail="لیست شناسه‌ها نامعتبر است.")
+
+    deleted = sum(1 for conversation_id in ids
+                  if store.delete_conversation(conversation_id))
+
+    applog.audit("admin.conversation.deleted",
+                 message=f"حذف گروهی گفتگوها ({deleted} مورد)",
+                 actor=username, target="conversations", outcome="ok",
+                 ip=client_ip(request),
+                 metadata={"ids": ids, "count": deleted})
+    return {"status": "deleted", "deleted": deleted}
+
+
 # ── Visitors ─────────────────────────────────────────────────────────────
 
 @router.get("/admin/api/visitors", dependencies=[Depends(verify_admin)])
@@ -387,6 +436,85 @@ async def revoke_visitor_sessions(visitor_id: str, request: Request,
                  level="warning", ip=client_ip(request),
                  metadata={"revoked": removed})
     return {"revoked": removed}
+
+
+@router.delete("/admin/api/visitors/{visitor_id}",
+               dependencies=[Depends(verify_admin)])
+async def delete_visitor(visitor_id: str, request: Request,
+                         username: str = Depends(verify_admin)):
+    """Delete one visitor, their conversations, messages and sessions.
+
+    404 on an unknown id, same wording and same reasoning as
+    revoke_visitor_sessions: a quiet success would let an operator believe a
+    deletion happened when it did not.
+
+    The audit row names the visitor by id only. An id is enough to find the
+    row again; the name, phone and job that were just deleted have no reason
+    to live on as a second copy inside the audit trail.
+    """
+    visitor = store.get_visitor((visitor_id or "").strip())
+    if not visitor:
+        raise HTTPException(404, detail="این بازدیدکننده پیدا نشد.")
+
+    store.delete_visitor(visitor["id"])
+
+    applog.audit("admin.visitor.deleted",
+                 message="یک بازدیدکننده و گفتگوهای او حذف شد",
+                 actor=username, target=visitor["id"], outcome="ok",
+                 level="warning", ip=client_ip(request))
+    return {"status": "deleted"}
+
+
+@router.put("/admin/api/visitors/{visitor_id}",
+            dependencies=[Depends(verify_admin)])
+async def update_visitor(visitor_id: str, payload: dict, request: Request,
+                         username: str = Depends(verify_admin)):
+    """Edit a visitor's own profile fields. The phone is never editable here
+    — see store.update_visitor_profile for why.
+
+    Body shape matches app/routers/dataset.py's update_dataset_item: a plain
+    dict, missing keys default to "".
+    """
+    visitor_id = (visitor_id or "").strip()
+    fields = ("first_name", "last_name", "job", "position", "interests")
+    values = {k: payload.get(k, "") for k in fields}
+    updated = store.update_visitor_profile(visitor_id, **values)
+    if not updated:
+        raise HTTPException(404, detail="این بازدیدکننده پیدا نشد.")
+
+    applog.audit("admin.visitor.updated",
+                 message="اطلاعات یک بازدیدکننده ویرایش شد",
+                 actor=username, target=visitor_id, outcome="ok",
+                 ip=client_ip(request),
+                 metadata={"fields": [k for k in fields if k in payload]})
+    return {"visitor": updated}
+
+
+@router.post("/admin/api/visitors/bulk-delete",
+             dependencies=[Depends(verify_admin)])
+async def bulk_delete_visitors(payload: dict, request: Request,
+                               username: str = Depends(verify_admin)):
+    """Delete several visitors (and each one's conversations) at once.
+
+    Same shape as app/routers/dataset.py's bulk-delete: {"ids": [...]},
+    400 on an empty or malformed list, an id that does not exist is skipped
+    rather than failing the whole batch. ONE audit entry for the whole call —
+    a hundred identical rows would bury the one an operator actually needs.
+    """
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, detail="هیچ بازدیدکننده‌ای برای حذف انتخاب نشده است.")
+    if not all(isinstance(i, str) for i in ids):
+        raise HTTPException(400, detail="لیست شناسه‌ها نامعتبر است.")
+
+    deleted = sum(1 for visitor_id in ids if store.delete_visitor(visitor_id))
+
+    applog.audit("admin.visitor.deleted",
+                 message=f"حذف گروهی بازدیدکنندگان ({deleted} مورد)",
+                 actor=username, target="visitors", outcome="ok",
+                 level="warning", ip=client_ip(request),
+                 metadata={"ids": ids, "count": deleted})
+    return {"status": "deleted", "deleted": deleted}
 
 
 # ── Export plumbing ──────────────────────────────────────────────────────

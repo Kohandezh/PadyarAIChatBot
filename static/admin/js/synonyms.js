@@ -1,7 +1,8 @@
 import { getSynonyms, setSynonyms } from './state.js';
-import { fetchAuth, showMsg, escapeHtml } from './utils.js';
+import { fetchAuth, showMsg, escapeHtml, initBulkSelection } from './utils.js';
 import { createPager } from './pager.js';
 
+let bulkSelection = null;
 let synonymsPager = null;
 
 async function loadSynonyms() {
@@ -13,17 +14,26 @@ async function loadSynonyms() {
     renderSynonymsTable(data.synonyms);
 }
 
+// A synonym has no single id — its identity is the (source, target) pair — so
+// the row checkbox carries both words JSON-encoded into its value. The browser
+// decodes the escaped attribute back to a plain JSON string by the time
+// getSelected() reads .value, so this round-trips Persian text safely.
+function pairValue(s) {
+    return escapeHtml(JSON.stringify({ source: s.source, target: s.target }));
+}
+
 function renderSynonymsTable(synonyms) {
     const tbody = document.getElementById('synonyms-table');
     const { offset, limit } = synonymsPager.state;
     const page = synonyms.slice(offset, offset + limit);
     if (!page.length) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
     } else {
         // One row per mapping. A word with three synonyms is three rows, each with
         // its own delete button, so the operator can remove exactly one of them.
         tbody.innerHTML = page.map(s => `
             <tr>
+                <td><input type="checkbox" class="form-check-input row-check" value="${pairValue(s)}"></td>
                 <td class="ps-4 fw-bold">${escapeHtml(s.source)}</td>
                 <td class="text-muted">${escapeHtml(s.target)}</td>
                 <td>
@@ -32,6 +42,7 @@ function renderSynonymsTable(synonyms) {
             </tr>
         `).join('');
     }
+    if (bulkSelection) bulkSelection.clear();
     synonymsPager.setResult({ shown: page.length, total: synonyms.length });
 }
 
@@ -48,7 +59,33 @@ async function deleteSynonym(source, target) {
     }
 }
 
+async function bulkDeleteSynonyms() {
+    const pairs = bulkSelection.getSelected().map(v => JSON.parse(v));
+    if (pairs.length === 0) return;
+    if (!confirm(`آیا از حذف ${pairs.length} مترادف انتخاب‌شده مطمئن هستید؟ این عمل قابل بازگشت نیست.`)) return;
+
+    const res = await fetchAuth('/api/synonyms/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairs })
+    });
+    if (res.ok) {
+        showMsg('synonym-msg', '✅ موارد انتخاب‌شده حذف شدند', 'success');
+        loadSynonyms();
+    } else {
+        const data = await res.json().catch(() => ({}));
+        showMsg('synonym-msg', '❌ خطا: ' + (data.detail || 'عملیات ناموفق'), 'danger');
+    }
+}
+
 export function initSynonyms() {
+    bulkSelection = initBulkSelection({
+        selectAllEl: document.getElementById('synonyms-select-all'),
+        toolbarEl: document.getElementById('synonyms-bulk-toolbar'),
+        countEl: document.getElementById('synonyms-bulk-count'),
+    });
+    bulkSelection.attach(document.getElementById('synonyms-table'));
+
     synonymsPager = createPager({
         pageSizeEl: document.getElementById('synonyms-page-size'),
         prevBtnEl: document.getElementById('synonyms-btn-prev'),
@@ -95,4 +132,5 @@ export function initSynonyms() {
 
     // Expose for inline onclick in templates
     window.loadSynonyms = loadSynonyms;
+    window.bulkDeleteSynonyms = bulkDeleteSynonyms;
 }
