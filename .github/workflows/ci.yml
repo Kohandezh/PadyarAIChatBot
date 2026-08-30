@@ -45,7 +45,15 @@ jobs:
       # root. Chromium's shared libraries must already be on gpuserver — run
       # once, by hand, with sudo:
       #   python -m playwright install-deps chromium
+      #
+      # PLAYWRIGHT_DOWNLOAD_HOST: gpuserver's IP is geo-blocked by the
+      # official cdn.playwright.dev (403 "not available in your location" —
+      # same reason this project proxies OpenAI through GapGPT). npmmirror's
+      # binary mirror is reachable and carries the same builds; verified
+      # 2026-08-30 against build cft/151.0.7922.34.
       - name: Install chromium for the browser tests
+        env:
+          PLAYWRIGHT_DOWNLOAD_HOST: https://cdn.npmmirror.com/binaries/playwright
         run: python -m playwright install chromium
 
       - name: Compile check
