@@ -143,7 +143,7 @@ def _message_for(code: str) -> str:
     autofill off.
     """
     from app.db.queries import get_setting
-    brand = (get_setting("otp_brand_name", "") or "INOTEX").strip()
+    brand = (get_setting("otp_brand_name", "") or "PadYar").strip()
     host = (get_setting("otp_sms_host", "") or os.getenv("OTP_SMS_HOST", "")).strip()
     body = f"{brand}\nکد تأیید شما: {code}\nاین کد را در اختیار کسی قرار ندهید."
     if host:

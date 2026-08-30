@@ -48,11 +48,11 @@ from app.services import otp as otp_service
 
 router = APIRouter()
 
-# Per-install branding. Defaults reproduce this installation's look, so an
-# install that never touches these settings sees no change; another install
-# overrides them from its own admin settings table instead of editing code.
+# Per-install branding. Defaults are platform-neutral (PadYar); the install's
+# own look comes from its admin settings rows, not from code. An install that
+# never touches these sees the platform defaults.
 _BRAND_DEFAULTS = {
-    "otp_brand_name": "INOTEX",
+    "otp_brand_name": "PadYar",
     "otp_brand_mark": (
         '<svg viewBox="0 0 64 64" width="30" height="30">'
         '<path d="M32 3 57 17.5v29L32 61 7 46.5v-29Z" fill="#1E2D52" stroke="#2D5CA7"'

@@ -107,13 +107,17 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title text-danger">بازگردانی اطلاعات</h5>
+                <h5 class="modal-title text-danger"><i class="fas fa-triangle-exclamation me-1"></i>بازگردانی کامل پایگاه‌داده</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
             </div>
             <div class="modal-body">
-                <p class="mb-2">
-                    اطلاعات فعلی برنامه با اطلاعات این نسخهٔ پشتیبان <b>جایگزین</b> می‌شود.
-                    هر چیزی که بعد از تاریخ این نسخه ثبت شده، از بین می‌رود.
+                <div class="alert alert-danger fw-bold" role="alert">
+                    کل اطلاعات فعلی (سوال‌ها، تنظیمات، کاربران و گزارش‌ها) پاک می‌شود و
+                    با این نسخهٔ قدیمی جایگزین می‌شود. از پنل خارج خواهید شد.
+                    اگر فقط می‌خواهید نسخه را پاک کنید، «انصراف» را بزنید.
+                </div>
+                <p class="mb-2">نسخه‌ای که بازگردانی می‌شود:
+                    <b id="restore-target" class="backup-id">—</b>
                 </p>
                 <p class="text-muted small mb-3">
                     پیش از جایگزینی، یک نسخهٔ ایمنی از وضعیت فعلی گرفته می‌شود تا در صورت
@@ -128,7 +132,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
                 <button type="button" class="btn btn-danger" id="restore-confirm-btn" disabled>
-                    بازگردانی کن
+                    بله، کل پایگاه‌داده را بازگردانی کن
                 </button>
             </div>
         </div>

@@ -169,10 +169,12 @@ function renderRows(rows) {
         group.className = 'd-flex gap-2 justify-content-end flex-wrap';
         group.appendChild(button('بررسی سلامت', 'btn btn-sm btn-outline-primary',
             () => verifyBackup(row.backup_id)));
-        group.appendChild(button('بازگردانی', 'btn btn-sm btn-outline-danger',
-            () => openRestore(row.backup_id)));
-        group.appendChild(button('حذف', 'btn btn-sm btn-outline-secondary',
+        group.appendChild(button('حذف نسخه', 'btn btn-sm btn-outline-secondary',
             () => openDelete(row.backup_id)));
+        // Restore replaces the WHOLE database — it must never read like just
+        // another row action. Label says so, icon warns, and it sits last.
+        group.appendChild(button('⚠ بازگردانی کل پایگاه‌داده', 'btn btn-sm btn-outline-danger',
+            () => openRestore(row)));
         actions.appendChild(group);
         tr.appendChild(actions);
 
@@ -276,9 +278,11 @@ function armWhenTyped(inputId, buttonId, phrase) {
     input.oninput = () => { btn.disabled = input.value.trim() !== phrase; };
 }
 
-function openRestore(id) {
-    restoreTarget = id;
-    const phrase = `RESTORE BACKUP ${id}`;
+function openRestore(row) {
+    restoreTarget = row.backup_id;
+    el('restore-target').textContent =
+        `${formatDate(row.created_at)} — ${row.backup_id}`;
+    const phrase = `RESTORE BACKUP ${row.backup_id}`;
     el('restore-phrase').textContent = phrase;
     el('restore-msg').textContent = '';
     armWhenTyped('restore-input', 'restore-confirm-btn', phrase);

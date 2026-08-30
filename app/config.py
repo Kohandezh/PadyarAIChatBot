@@ -81,7 +81,7 @@ SECRET_KEY = os.getenv("SECRET_KEY") or ""
 # First-install admin account. Only used to seed a brand-new database — if an
 # admin already exists, these are ignored. Leave password empty to have a
 # random one generated and written to ADMIN_CREDENTIALS.txt on first run.
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "inotex@admin")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "padyar@admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 ADMIN_SECURITY_ANSWER = os.getenv("ADMIN_SECURITY_ANSWER", "")
 
@@ -229,7 +229,7 @@ RERANK_ENABLED = os.getenv("RETRIEVAL_RERANK", "true").lower() == "true"
 # Hostnames allowed to call the public /chat endpoint. localhost/127.0.0.1 are
 # always kept for local dev. Add the customer's domain(s) via the env var
 # ALLOWED_ORIGINS (comma-separated) instead of hardcoding per install.
-_extra_origins = [h.strip() for h in os.getenv("ALLOWED_ORIGINS", "inotex.com").split(",") if h.strip()]
+_extra_origins = [h.strip() for h in os.getenv("ALLOWED_ORIGINS", "padyar.com").split(",") if h.strip()]
 ALLOWED_ORIGINS = list(dict.fromkeys(_extra_origins + ["localhost", "127.0.0.1"]))
 
 # --- Video Config ---
