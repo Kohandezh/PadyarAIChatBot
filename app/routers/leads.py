@@ -597,6 +597,39 @@ async def admin_rotate_visitor(visitor_id: str, request: Request):
     return {"link": link, "qr": leads_service.qr_svg(link)}
 
 
+class BulkVisitorIdsBody(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
+@router.post("/admin/api/leads/visitors/bulk-delete")
+async def admin_bulk_delete_visitors(body: BulkVisitorIdsBody, admin: str = Depends(verify_admin)):
+    """Same removal as the single-visitor DELETE above, looped: each colleague's
+    link dies immediately, their captured leads stay exactly where they are.
+    An id no longer on the roster is skipped, not an error — the caller is
+    acting on whatever the checkboxes still point at, not asserting each one
+    still exists."""
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="هیچ همکاری برای حذف انتخاب نشده است.")
+    deleted = sum(1 for visitor_id in body.ids
+                  if leads_service.delete_visitor(visitor_id, actor=admin))
+    return {"status": "ok", "deleted": deleted}
+
+
+class BulkVisitorActiveBody(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+    active: bool
+
+
+@router.post("/admin/api/leads/visitors/bulk-active", dependencies=[Depends(verify_admin)])
+async def admin_bulk_set_visitors_active(body: BulkVisitorActiveBody):
+    """Same toggle as the single-visitor /active route above, looped."""
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="هیچ همکاری انتخاب نشده است.")
+    updated = sum(1 for visitor_id in body.ids
+                  if leads_service.set_visitor_active(visitor_id, body.active))
+    return {"status": "ok", "updated": updated}
+
+
 @router.get("/admin/api/leads/edits", dependencies=[Depends(verify_admin)])
 async def admin_edits(status: str = "pending"):
     return {"edits": leads_service.list_edits(status)}

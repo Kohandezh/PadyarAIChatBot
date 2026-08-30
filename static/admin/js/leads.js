@@ -8,9 +8,10 @@
 // browser shares an origin with the whole admin panel, so every interpolated
 // value goes through esc() with no exceptions.
 
-import { fetchAuth, escapeHtml } from './utils.js';
+import { fetchAuth, escapeHtml, initBulkSelection } from './utils.js';
 import { createPager } from './pager.js';
 
+let visitorsBulkSelection = null;
 let stuckPager = null;
 let leadsPager = null;
 
@@ -329,6 +330,7 @@ async function loadVisitors() {
     const { visitors } = await get('/admin/api/leads/visitors');
     document.getElementById('visitors').innerHTML = visitors.map(v => `
         <tr class="${v.active ? '' : 'opacity-50'}" data-visitor="${esc(v.id)}">
+          <td><input type="checkbox" class="form-check-input row-check" value="${esc(v.id)}"></td>
           <td class="ps-4">${esc(v.name) || '<span class="text-muted">بی‌نام</span>'}</td>
           <td>${fa(v.total)}</td>
           <td>${fa(v.verified)}</td>
@@ -343,6 +345,7 @@ async function loadVisitors() {
             </button>
           </td>
         </tr>`).join('');
+    if (visitorsBulkSelection) visitorsBulkSelection.clear();
 }
 
 async function loadLeads() {
@@ -563,6 +566,39 @@ export function initLeads() {
     });
 
     initContactForm();
+
+    visitorsBulkSelection = initBulkSelection({
+        selectAllEl: document.getElementById('visitors-select-all'),
+        toolbarEl: document.getElementById('visitors-bulk-toolbar'),
+        countEl: document.getElementById('visitors-bulk-count'),
+    });
+    visitorsBulkSelection.attach(document.getElementById('visitors'));
+
+    document.getElementById('visitors-bulk-toolbar').addEventListener('click', async (ev) => {
+        const removeBtn = ev.target.closest('[data-bulk-remove]');
+        if (removeBtn) {
+            const ids = visitorsBulkSelection.getSelected();
+            if (!ids.length) return;
+            if (!confirm(`${ids.length} همکار از فهرست بیرون می‌روند و لینک شخصی‌شان از همین لحظه از کار می‌افتد. ثبت‌هایی که انجام داده‌اند سر جایشان می‌مانند. ادامه می‌دهید؟`)) return;
+            removeBtn.disabled = true;
+            const data = await post('/admin/api/leads/visitors/bulk-delete', { ids });
+            removeBtn.disabled = false;
+            if (data) await refresh();
+            return;
+        }
+
+        const activeBtn = ev.target.closest('[data-bulk-active]');
+        if (activeBtn) {
+            const ids = visitorsBulkSelection.getSelected();
+            if (!ids.length) return;
+            const active = activeBtn.dataset.bulkActive === '1';
+            if (!active && !confirm(`${ids.length} همکار از همین لحظه نمی‌توانند ثبت تازه‌ای انجام دهند. ادامه می‌دهید؟`)) return;
+            activeBtn.disabled = true;
+            const data = await post('/admin/api/leads/visitors/bulk-active', { ids, active });
+            activeBtn.disabled = false;
+            if (data) await refresh();
+        }
+    });
 
     document.getElementById('add-visitor').addEventListener('click', async () => {
         const input = document.getElementById('visitor-name');

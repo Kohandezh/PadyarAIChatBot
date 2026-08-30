@@ -74,3 +74,43 @@ async def delete_synonym(source: str, request: Request,
         return {"status": "success", "deleted": deleted}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/synonyms/bulk-delete")
+async def bulk_delete_synonyms(payload: dict, request: Request,
+                               admin: bool = Depends(verify_admin)):
+    """Delete many (source, target) pairs in one call, same identity rule as
+    the single-delete route above: a pair, never a bare source, so removing a
+    batch can never take out every synonym of a word the caller kept.
+    """
+    pairs = payload.get("pairs")
+    if not isinstance(pairs, list) or not pairs:
+        raise HTTPException(status_code=400, detail="کلمه اصلی و جایگزین هر دو لازم است.")
+
+    cleaned = []
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            raise HTTPException(status_code=400, detail="کلمه اصلی و جایگزین هر دو لازم است.")
+        source = str(pair.get("source") or "").strip()
+        target = str(pair.get("target") or "").strip()
+        if not source or not target:
+            raise HTTPException(status_code=400, detail="کلمه اصلی و جایگزین هر دو لازم است.")
+        cleaned.append((source, target))
+
+    try:
+        conn = get_db_connection()
+        deleted = 0
+        for source, target in cleaned:
+            cur = conn.execute('DELETE FROM synonyms WHERE source = ? AND target = ?',
+                               (source, target))
+            deleted += cur.rowcount
+        conn.commit()
+        conn.close()
+        load_synonyms_from_db()
+        from app.services.search import bump_index_version
+        bump_index_version()
+        return {"status": "success", "deleted": deleted}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

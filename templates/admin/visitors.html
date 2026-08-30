@@ -75,10 +75,18 @@
     </form>
   </div>
 
+  <div id="visitors-bulk-toolbar" class="d-none d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded border">
+    <span id="visitors-bulk-count" class="small fw-bold text-muted">0 مورد انتخاب شده</span>
+    <button type="button" class="btn btn-outline-danger btn-sm" id="btn-bulk-delete-visitors">
+      <i class="fas fa-trash ms-1"></i> حذف انتخاب‌شده‌ها
+    </button>
+  </div>
+
   <div class="table-responsive">
     <table class="table table-vcenter card-table table-hover">
       <thead>
         <tr>
+          <th style="width:40px"><input type="checkbox" id="visitors-select-all" class="form-check-input"></th>
           <th>نام</th>
           <th>شمارهٔ تماس</th>
           <th>شغل</th>
@@ -138,6 +146,22 @@
       می‌شود و برای ادامهٔ گفتگو باید دوباره شماره‌اش را تأیید کند.
     </div>
     <div class="small mt-2" id="revoke-msg"></div>
+  </div>
+
+  {#
+    Delete is separate from "sign out everywhere": one ends access, the other
+    removes the person's record and every conversation of theirs for good.
+    Keeping them apart, with delete last, means a click meant to cut off a
+    stolen phone can never accidentally erase the person's history instead.
+  #}
+  <div class="border-top p-3">
+    <button type="button" class="btn btn-outline-danger w-100" id="btn-delete-visitor">
+      <i class="fas fa-trash ms-1"></i> حذف این بازدیدکننده
+    </button>
+    <div class="text-muted small mt-2">
+      این نفر و همهٔ گفتگوهایش برای همیشه پاک می‌شوند. این عمل قابل بازگشت نیست.
+    </div>
+    <div class="small mt-2" id="delete-visitor-msg"></div>
   </div>
 </div>
 {% endblock %}

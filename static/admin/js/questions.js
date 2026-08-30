@@ -1,7 +1,8 @@
 import { API_BASE, getDatasetItems, setDatasetItems, getQuestions, setQuestions } from './state.js';
-import { fetchAuth, showMsg, escapeHtml, exportResource, openImportModal, submitImportResource } from './utils.js';
+import { fetchAuth, showMsg, escapeHtml, exportResource, openImportModal, submitImportResource, initBulkSelection } from './utils.js';
 import { createPager } from './pager.js';
 
+let bulkSelection = null;
 let questionsPager = null;
 
 async function loadQuestionsTable() {
@@ -45,6 +46,7 @@ function renderQuestionsTable(questions) {
     page.forEach((q, i) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
+            <td><input type="checkbox" class="form-check-input row-check" value="${q.id}"></td>
             <td>${offset + i + 1}</td>
             <td>${escapeHtml(q.question)}</td>
             <td><code>${escapeHtml(q.dataset_id)}</code></td>
@@ -55,6 +57,7 @@ function renderQuestionsTable(questions) {
         tbody.appendChild(tr);
     });
 
+    if (bulkSelection) bulkSelection.clear();
     questionsPager.setResult({ shown: page.length, total: filtered.length });
 }
 
@@ -147,7 +150,33 @@ async function deleteQuestion(id) {
     }
 }
 
+async function bulkDeleteQuestions() {
+    const ids = bulkSelection.getSelected().map(id => parseInt(id, 10));
+    if (ids.length === 0) return;
+    if (!confirm(`آیا از حذف ${ids.length} مورد انتخاب‌شده مطمئن هستید؟ این عمل قابل بازگشت نیست.`)) return;
+
+    const res = await fetchAuth(API_BASE + '/questions/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+    });
+    if (res.ok) {
+        showMsg('questions-msg', '✅ موارد انتخاب‌شده حذف شدند', 'success');
+        loadQuestionsTable();
+    } else {
+        const data = await res.json().catch(() => ({}));
+        showMsg('questions-msg', '❌ خطا: ' + (data.detail || 'عملیات ناموفق'), 'danger');
+    }
+}
+
 export function initQuestions() {
+    bulkSelection = initBulkSelection({
+        selectAllEl: document.getElementById('questions-select-all'),
+        toolbarEl: document.getElementById('questions-bulk-toolbar'),
+        countEl: document.getElementById('questions-bulk-count'),
+    });
+    bulkSelection.attach(document.getElementById('questions-table'));
+
     questionsPager = createPager({
         pageSizeEl: document.getElementById('questions-page-size'),
         prevBtnEl: document.getElementById('questions-btn-prev'),
@@ -172,6 +201,7 @@ export function initQuestions() {
     window.openQuestionModal = openQuestionModal;
     window.saveQuestion = saveQuestion;
     window.deleteQuestion = deleteQuestion;
+    window.bulkDeleteQuestions = bulkDeleteQuestions;
 
     // Import / Export
     window.exportQuestions = (format) => exportResource('questions', format);

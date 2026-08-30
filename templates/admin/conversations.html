@@ -100,10 +100,18 @@
       </form>
     </div>
 
+    <div id="conv-bulk-toolbar" class="d-none d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded border">
+      <span id="conv-bulk-count" class="small fw-bold text-muted">0 مورد انتخاب شده</span>
+      <button type="button" class="btn btn-outline-danger btn-sm" id="btn-bulk-delete-conversations">
+        <i class="fas fa-trash ms-1"></i> حذف انتخاب‌شده‌ها
+      </button>
+    </div>
+
     <div class="table-responsive">
       <table class="table table-vcenter card-table table-hover">
         <thead>
           <tr>
+            <th style="width:40px"><input type="checkbox" id="conv-select-all" class="form-check-input"></th>
             <th>آخرین پیام</th>
             <th>بازدیدکننده</th>
             <th>شماره تماس</th>
