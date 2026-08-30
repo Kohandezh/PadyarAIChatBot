@@ -55,6 +55,18 @@ def test_three_bad_probes_send_exactly_one_alert_sms(tmp_path):
     assert _disk_state(tmp_path)["fail_count"] == 3
 
 
+def test_alert_sms_reports_down_since_not_probe_time(tmp_path):
+    # The 3rd probe (now=1120) sends the SMS, but the clock inside it must be
+    # the FIRST failure's (1000): the admin reads when the install went down,
+    # not when the watchdog became sure.
+    for now in (1000, 1060, 1120):
+        _cycle(tmp_path, now=now)
+    assert len(SENT) == 1
+    text = SENT[0][1]
+    assert watchdog.tehran_clock(1000) in text
+    assert watchdog.tehran_clock(1120) not in text
+
+
 def test_healthy_cycle_after_alert_resets_state_and_stays_silent(tmp_path):
     for now in (1000, 1060, 1120):
         _cycle(tmp_path, now=now)

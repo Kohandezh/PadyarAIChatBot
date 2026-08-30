@@ -72,7 +72,7 @@ cat <<'NEXT'
    journalctl -u padyar-watchdog@elecomp.service -n 20
 
  NO SMS WILL GO OUT until the alert phone number is set in EACH
- install's admin panel: تنظیمات → پیامک. The watchdog reads it from
+ install's admin panel: تنظیمات → ثبت‌نام و پیامک. The watchdog reads it from
  the database on every cycle and skips alerting while it is empty.
 ------------------------------------------------------------
 NEXT

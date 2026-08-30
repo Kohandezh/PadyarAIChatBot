@@ -68,6 +68,12 @@ Measured against the live account, 2026-08-17
   * `POST /webservice/v2rest/template` answers 1001 "Template is not
     valid/active" for arbitrary ids. If Asanak says the line is service-only,
     OTP has to go through an approved template rather than `sendsms`.
+  * CONFIRMED 2026-08-30 (owner, via Asanak support): free-text delivery has
+    since been ENABLED on this account — the Status-20 hold above was an
+    account-side matter and support lifted it. The critical watchdog
+    (deploy/watchdog/) texts its down-alerts as free text through
+    `send_asanak` and depends on this. The 2026-08-17 measurement above
+    remains true for that date; it is history, not the current state.
 
 Invite links, the rejection notice and the daily budget (added 2026-08-23)
 -----------------------------------------------------------------------------

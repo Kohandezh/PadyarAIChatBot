@@ -317,7 +317,14 @@ def run_cycle(
         if action in ("alert", "realert"):
             if phone:
                 try:
-                    sender(phone, down_message(name, now, reminder=(action == "realert")))
+                    # down_since (anchored at the streak's FIRST failure by
+                    # next_action), not `now`: the SMS must report when the
+                    # install went down, not when the 3rd probe made us sure.
+                    # `or now` guards a zeroed down_since (fresh/hand-edited
+                    # state) so the message still carries a sane clock.
+                    sender(phone, down_message(
+                        name, state.get("down_since") or now,
+                        reminder=(action == "realert")))
                 except Exception as e:  # noqa: BLE001 — a failed SMS must not lose state
                     print(f"[watchdog] {install}: send failed: {type(e).__name__}", flush=True)
             else:

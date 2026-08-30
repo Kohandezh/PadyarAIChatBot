@@ -176,12 +176,21 @@ bad news would train operators to ignore the unit state.
 |---|---|
 | PostgreSQL down (settings unreadable) | Use `cached_phone` from state (last healthy read) and the default threshold; journal `settings unreadable (…), using cached phone`. Alerting the right person on stale data beats alerting nobody. |
 | Alert phone empty | Journal `DOWN but no alert_critical_phone configured`, no SMS. State (fail streak) is still persisted. |
-| SMS send fails | Journal `send failed: {Exception}`; state still persisted, so the streak is not re-lived next tick. |
+| SMS send fails | Journal `send failed: SmsError` — the exception's **class name** only (`type(e).__name__`, e.g. `SmsError`), never its message; state still persisted, so the streak is not re-lived next tick. |
 | Threshold row is garbage | Falls back to the documented default `300000`, never to 0 (which would alert every cycle). |
 | Corrupt state file | Journal note, reset to fresh state — loses one alert cycle at most. |
 | Probe raises (reset, DNS, …) | Counts as down; the exception never escapes the cycle. |
 | Unknown `--install` key | Journal note, cycle skipped, `None` returned. |
 | Bad CLI usage (`argparse`) | Exit 2 before any cycle — a deployment typo SHOULD be loud. |
+
+One row above deserves its own warning: **a spent `sms_daily_budget` also
+kills the outage SMS.** The down-SMS travels through `send_asanak`, whose
+`_spend_budget` raises `SmsError` *before* any gateway request once the
+operator-set daily budget is spent — so during a long day the alert dies as a
+`send failed: SmsError` journal note instead of reaching the phone. The
+default budget is 0 (no cap), so out-of-the-box installs are unaffected; an
+operator who sets a budget should keep headroom for critical alerts, because
+the watchdog's messages come off the same Asanak credit as everything else.
 
 ## 7. State
 
