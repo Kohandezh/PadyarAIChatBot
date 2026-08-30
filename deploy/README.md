@@ -29,6 +29,7 @@ sudo nano /opt/padyar-elecomp/.env
 sudo bash deploy/10-install-app.sh inotex
 sudo bash deploy/10-install-app.sh elecomp
 sudo bash deploy/15-nginx-and-ssl.sh         # needs a Cloudflare API token, see below
+sudo bash deploy/17-watchdog.sh              # down-SMS watchdog + branded maintenance page
 
 # GPU + TTS (independent of the two apps above):
 sudo bash deploy/20-gpu-driver.sh
@@ -257,3 +258,35 @@ sudo bash deploy/10-install-app.sh inotex
 
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
+
+## Watchdog & maintenance page
+
+`deploy/17-watchdog.sh` installs a systemd timer that probes each install's
+`/api/health` every 60 s. Three consecutive failures (≈3 minutes of real
+downtime) send one SMS to the number configured in that install's admin
+panel; a 30-minute reminder follows while the outage lasts. Meanwhile nginx
+replaces 502/504 with a branded Persian "we'll be back" page that reloads
+itself every 30 s — the app's own 503 (in-app maintenance JSON) passes
+through untouched.
+
+Test it end-to-end once after install:
+
+```bash
+sudo systemctl stop padyar-inotex
+journalctl -u padyar-watchdog@inotex.service -f   # one cycle per minute; SMS on the 3rd fail
+sudo systemctl start padyar-inotex                 # after ≥3 min; recovery is silent by design
+```
+
+The alert phone and the SMS-credit threshold live in each install's admin
+panel — تنظیمات → ثبت‌نام و پیامک, card «هشدارهای بحرانی» — and are re-read
+from the database on every cycle (no restart needed). Empty phone = alerts
+off; threshold default 300,000.
+
+Asanak reports the wallet in **rial**; the threshold is typed in **toman**.
+The watchdog compares rial against toman × 10, so a 300,000-toman threshold
+means 3,000,000 rial at the gateway.
+
+Deploys under ~3 minutes intentionally never SMS: a ~60 s deploy restart
+shows the maintenance page but cannot reach the 3-failure threshold. The
+page covers the visitor for that window; the phone is reserved for outages
+that need a human.

@@ -506,10 +506,12 @@ def asanak_status(msgid: str):
 
 
 def asanak_credit() -> int:
-    """Remaining credit, in messages.
+    """Remaining credit, in RIAL (owner-confirmed 2026-08-30).
 
     A read-only call: it proves the username and password are right WITHOUT
     sending a real SMS, which is what an operator wants before an event.
+    The watchdog compares this rial figure against the toman threshold × 10
+    (RIAL_PER_TOMAN) before alerting.
     """
     data = _call(setting("sms_asanak_credit_url"), _credentials())
     applog.info("sms", "sms.credit.checked", "اعتبار پیامک بررسی شد",
