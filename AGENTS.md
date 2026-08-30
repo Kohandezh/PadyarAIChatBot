@@ -283,7 +283,9 @@ This is a CMS installed per-customer — branding customization is a first-class
 
 ### Theme System
 
-Self-contained themes in `/themes/{name}/` — each has `theme.json`, `index.html`, `static/style.css`, `screenshot.png`. Auto-discovered at startup. Active theme stored in DB settings. Current: `liquid-glass` (default), `minimal`.
+WordPress-style partials in `/themes/{name}/`: each has `theme.json`, a `partials/` folder overriding only what differs from `themes/base/partials/`, and `static/style.css`. Auto-discovered at startup, no registration needed. Active theme stored in DB settings (`active_theme`). Selectable: `inotex` (default), `liquid-glass`, `minimal`, `haj`. `base` supplies the default partials only, not selectable itself. A `"parent"` field in `theme.json` chains inheritance before falling back to base.
+
+`menu.html` (the hamburger drawer) becomes a persistent, collapsible sidebar at 992px+. Its logo sits in one of two places depending on the theme: `base`/`minimal`/`liquid-glass` keep a separate `.menu-sidebar-logo` next to the title and a compact stand-in logo on `.menu-sidebar-toggle-btn` for the collapsed rail only; `inotex` instead puts the full brand mark inside `.menu-sidebar-toggle-btn` at all times, expanded or collapsed (its own `style.css` overrides `base.css` for this). Follow whichever pattern the theme you are editing already uses — the two are not interchangeable, and a fix belongs in that theme's own `style.css`, not in `base.css`.
 
 ## Key Files
 
