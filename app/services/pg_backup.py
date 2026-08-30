@@ -174,6 +174,13 @@ def create(actor: str = "", reason: str = "manual") -> dict:
 
     duration = int((time.perf_counter() - started) * 1000)
     size = os.path.getsize(_dump_path(backup_id))
+
+    # Media (uploaded videos, logos, uploads) rides along uncompressed — see
+    # app/services/backup_media.py. Optional: None when there is no media dir.
+    from app.services import backup_media
+    media = backup_media.create_archive(
+        os.path.join(target, backup_media.ARCHIVE_NAME))
+
     manifest = {
         "backup_id": backup_id,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -184,6 +191,7 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         "file": "padyar.dump",
         "bytes": size,
         "sha256": _sha256(_dump_path(backup_id)),
+        "media": media,  # {name, bytes, sha256} or None
         "duration_ms": duration,
         "reason": reason,
         "verification": {"status": "unknown", "checked_at": None},
@@ -236,6 +244,16 @@ def verify(backup_id: str, actor: str = "") -> dict:
             manifest["toc_entries"] = len(entries)
         except BackupError:
             problems.append("آرشیو قابل خواندن نیست")
+
+    # The media archive is a manifest member like the dump: if the manifest
+    # says the set carries media, the tar must still be there, whole.
+    media = manifest.get("media") or {}
+    if media:
+        media_file = os.path.join(directory, media.get("name", "media.tar"))
+        if not os.path.isfile(media_file):
+            problems.append("آرشیو رسانه‌ها موجود نیست")
+        elif _sha256(media_file) != media.get("sha256"):
+            problems.append("چک‌سام آرشیو رسانه‌ها نمی‌خواند")
 
     status = "verified" if not problems else "failed"
     manifest["verification"] = {
@@ -290,10 +308,17 @@ def backup_dir(backup_id: str) -> str:
 
 
 def member_path(backup_id: str, name: str):
-    """Absolute path of the dump file inside a backup, or None.
+    """Absolute path of one member file inside a backup, or None.
 
-    Mirrors backup_center.member_path()'s allowlist: `name` must be the fixed
-    dump filename — never trusted as a path fragment from the browser."""
+    Mirrors backup_center.member_path()'s allowlist: `name` must be one of
+    the fixed member filenames — never trusted as a path fragment from the
+    browser."""
+    if name == "media.tar":
+        try:
+            path = os.path.join(_safe_dir(backup_id) or "", "media.tar")
+        except BackupError:
+            return None
+        return path if os.path.isfile(path) else None
     if name != "padyar.dump":
         return None
     try:
@@ -438,11 +463,29 @@ def restore(backup_id: str, actor: str = "", confirmation: str = "") -> dict:
                  duration_ms=duration,
                  metadata={"safety_backup": safety["backup_id"],
                            "checks": list(validation["checks"])})
+
+    # Media restore — after maintenance is off: it does not touch the
+    # database, and a media problem must never hold the site in maintenance.
+    # Optional member: older sets (and fresh installs) have none.
+    media_files = None
+    media_path = os.path.join(_safe_dir(backup_id) or "", "media.tar")
+    if os.path.isfile(media_path):
+        from app.services import backup_media
+        try:
+            media_files = backup_media.extract_archive(media_path, actor=actor)
+        except backup_media.MediaArchiveError as exc:
+            media_files = False
+            applog.error("backup", "backup.restore.media_failed",
+                         "بازگردانی رسانه‌ها ناموفق بود",
+                         actor=actor, target=backup_id, outcome="failed",
+                         metadata={"reason": exc.message_fa})
+
     return {
         "restored": backup_id,
         "safety_backup": safety["backup_id"],
         "duration_ms": duration,
         "validation": validation,
+        "media_files": media_files,
         "maintenance_cleared": True,
         # This process is clean. Siblings are not, and nothing here can restart
         # them — see the docstring.

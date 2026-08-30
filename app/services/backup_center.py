@@ -80,6 +80,7 @@ VERDICT_NAME = "verification.json"
 
 MAIN_ROLE = "main"
 LOGS_ROLE = "logs"
+MEDIA_ROLE = "media"
 
 # role -> file name inside the set. The names are fixed, so a member name from
 # a manifest is checked against this map before it is ever used as a path.
@@ -87,12 +88,15 @@ ROLE_FILES = {
     MAIN_ROLE: "chat_history.db",
     LOGS_ROLE: "application_logs.db",
 }
-MEMBER_NAMES = set(ROLE_FILES.values()) | {MANIFEST_NAME, VERDICT_NAME}
+# The media archive is optional: a fresh install has no media directory, and
+# such a set is complete without it.
+MEMBER_NAMES = set(ROLE_FILES.values()) | {MANIFEST_NAME, VERDICT_NAME} | {"media.tar"}
 
 # Persian labels for the operator UI — the panel must never show a file path.
 ROLE_LABELS = {
     MAIN_ROLE: "اطلاعات اصلی (سوال‌ها، ویدیوها، تنظیمات)",
     LOGS_ROLE: "گزارش‌ها و رخدادها",
+    MEDIA_ROLE: "فایل‌های رسانه‌ای (ویدیوها و تصاویر بارگذاری‌شده)",
 }
 
 # The ONLY shape a backup id may have. Admits no separator, no dot, no
@@ -312,6 +316,15 @@ def create(actor: str = "", kind: str = KIND_MANUAL) -> dict:
                 "bytes": os.path.getsize(dest),
             })
 
+        # Media (uploaded videos, logos, uploads) — the answers in the
+        # database point at these files; a set without them restores answers
+        # whose videos 404. Optional: None when there is no media dir at all.
+        from app.services import backup_media
+        media_entry = backup_media.create_archive(
+            os.path.join(directory, backup_media.ARCHIVE_NAME))
+        if media_entry is not None:
+            files.append(media_entry)
+
         duration_ms = int((time.monotonic() - started) * 1000)
         manifest = {
             "backup_id": backup_id,
@@ -503,8 +516,11 @@ def verify(backup_id: str, actor: str = "") -> dict:
         except OSError:
             problems.append(f"{name}:unreadable")
             continue
-        for issue in _check_sqlite_file(path):
-            problems.append(f"{name}:{issue}")
+        # Only the databases are SQLite files; the media archive is a tar and
+        # must not be opened as one.
+        if role in ROLE_FILES:
+            for issue in _check_sqlite_file(path):
+                problems.append(f"{name}:{issue}")
 
     # A set that is missing a whole database is not restorable even if every
     # file it does list is perfect.
@@ -664,11 +680,31 @@ def restore(backup_id: str, actor: str = "") -> dict:
     # The log database was just replaced by an older copy; make sure its tables
     # exist before the completion row is written into it.
     applog.ensure_tables()
+
+    # 5. Media. After the databases on purpose: the set is verified as a
+    # whole (media checksum included) before anything runs, so a bad media
+    # archive never reaches here — but its extraction is still guarded
+    # per-member by backup_media's safe-extraction rules.
+    media_restored = None
+    media_path = member_path(backup_id, "media.tar")
+    if media_path and os.path.isfile(media_path):
+        from app.services import backup_media
+        try:
+            media_restored = backup_media.extract_archive(media_path, actor=actor)
+        except backup_media.MediaArchiveError:
+            # The databases are already restored and consistent; the media
+            # failure is reported honestly instead of rolling everything back
+            # (the safety set holds the pre-restore media anyway).
+            media_restored = False
+            logger.error("Media restore from %s failed; databases restored",
+                         backup_id)
+
     duration_ms = int((time.monotonic() - started) * 1000)
     applog.audit("admin.backup.restore.completed", "بازگردانی نسخهٔ پشتیبان انجام شد",
                  actor=actor or "system", target=backup_id, outcome="ok",
                  level="critical", duration_ms=duration_ms,
-                 metadata={"safety_backup_id": safety_id, "restored": restored})
+                 metadata={"safety_backup_id": safety_id, "restored": restored,
+                           "media_files": media_restored})
     applog.info("backup", "backup.restore.completed", "بازگردانی کامل شد",
                 actor=actor, target=backup_id, outcome="ok",
                 duration_ms=duration_ms)
@@ -677,6 +713,7 @@ def restore(backup_id: str, actor: str = "") -> dict:
         "backup_id": backup_id,
         "safety_backup_id": safety_id,
         "restored": restored,
+        "media_files": media_restored,
         "duration_ms": duration_ms,
         # Honest, not decorative: connections opened before the swap (this
         # process and every other worker) are not closed by us.

@@ -31,6 +31,10 @@ DATABASE_URL = os.getenv(
     "postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar")
 VIDEO_DIR = os.path.join(BASE_DIR, "media", "videos")
 UPLOAD_DIR = os.path.join(BASE_DIR, "media", "uploads")
+# The media root backups archive (videos + uploads; tts-cache excluded).
+# Env-overridable like everything an install may relocate; tests redirect it
+# per test via monkeypatch so no test ever tars the developer's real media.
+MEDIA_ROOT = os.getenv("MEDIA_ROOT", os.path.join(BASE_DIR, "media"))
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 # --- Similarity thresholds ---

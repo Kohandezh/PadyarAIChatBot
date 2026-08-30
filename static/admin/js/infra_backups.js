@@ -457,6 +457,45 @@ async function doBulkDelete() {
     }
 }
 
+/* ── media-only restore (upload a downloaded media.tar) ─────────────── */
+
+let mediaRestoreFile = null;
+
+function openMediaRestore(file) {
+    mediaRestoreFile = file;
+    el('media-file-name').textContent = file.name;
+    el('media-restore-msg').textContent = '';
+    armWhenTyped('media-restore-input-phrase', 'media-restore-confirm-btn', 'RESTORE MEDIA');
+    new bootstrap.Modal(el('mediaRestoreModal')).show();
+}
+
+async function doMediaRestore() {
+    const btn = el('media-restore-confirm-btn');
+    const msg = el('media-restore-msg');
+    btn.disabled = true;
+    msg.className = 'text-center fw-bold mt-2 text-muted';
+    msg.textContent = '⏳ در حال بازگردانی رسانه‌ها...';
+    try {
+        const fd = new FormData();
+        fd.append('file', mediaRestoreFile);
+        fd.append('confirm', el('media-restore-input-phrase').value.trim());
+        const res = await fetchAuth(`${API}/restore-media`, { method: 'POST', body: fd });
+        if (res.ok) {
+            const data = await res.json();
+            closeModal('mediaRestoreModal');
+            showMsg('backups-msg', data.message || 'رسانه‌ها بازگردانی شد', 'success');
+        } else {
+            msg.className = 'text-center fw-bold mt-2 text-danger';
+            msg.textContent = await detail(res, 'بازگردانی رسانه‌ها ناموفق بود');
+            btn.disabled = false;
+        }
+    } catch {
+        msg.className = 'text-center fw-bold mt-2 text-danger';
+        msg.textContent = 'خطای ارتباط با سرور';
+        btn.disabled = false;
+    }
+}
+
 export function initBackups() {
     loadProfile();
     el('create-btn').addEventListener('click', createBackup);
@@ -473,5 +512,14 @@ export function initBackups() {
         });
         syncBulkButton();
     });
+    el('media-restore-btn').addEventListener('click',
+        () => el('media-restore-input').click());
+    el('media-restore-input').addEventListener('change', (e) => {
+        const fileEl = e.target;
+        const file = fileEl.files[0];
+        fileEl.value = '';
+        if (file) openMediaRestore(file);
+    });
+    el('media-restore-confirm-btn').addEventListener('click', doMediaRestore);
     load();
 }

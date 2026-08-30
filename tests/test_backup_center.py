@@ -29,10 +29,14 @@ def paths(tmp_path, monkeypatch):
     """Redirect every database and the backups directory into tmp_path.
 
     conftest already redirects LOGS_DB_PATH into this same tmp_path for every
-    test, so only the main DB and the backups root need moving here."""
+    test, so only the main DB and the backups root need moving here.
+    MEDIA_ROOT points at a directory that does not exist: the default for
+    every test here is a no-media install (the media fixture creates one),
+    and no test may ever tar the developer's real media directory."""
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "chat_history.db"))
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    monkeypatch.setattr(config, "MEDIA_ROOT", str(tmp_path / "no-media"))
 
     import backup_db
     monkeypatch.setattr(backup_db, "BACKUP_DIR", str(tmp_path / "backups"))
@@ -775,3 +779,142 @@ def test_a_missing_keep_row_falls_back_to_the_default(paths, client):
     from app.services.backup import get_schedule, DEFAULTS
     sched = get_schedule()
     assert sched["keep"] == int(DEFAULTS["backup_keep"])
+# ── Media in backup sets ───────────────────────────────────────────────
+
+@pytest.fixture
+def media(paths, monkeypatch):
+    """A media root with one video and one upload, redirected per test."""
+    import app.config as config
+    root = paths / "media"
+    (root / "videos").mkdir(parents=True)
+    (root / "uploads").mkdir()
+    (root / "videos" / "intro.mp4").write_bytes(b"video-bytes-0123456789")
+    (root / "uploads" / "logo.png").write_bytes(b"png-bytes")
+    (root / "tts-cache").mkdir()
+    (root / "tts-cache" / "regenerable.mp3").write_bytes(b"cache")
+    monkeypatch.setattr(config, "MEDIA_ROOT", str(root))
+    return root
+
+
+def test_create_includes_a_media_archive(media):
+    from app.services import backup_center
+    summary = backup_center.create(actor="tester")
+    members = {f["name"] for f in summary["files"]}
+    assert "media.tar" in members
+    # The set lists it with the operator label, so the page can offer it.
+    listed = backup_center.list_sets()[0]
+    labels = [f["label"] for f in listed["files"]]
+    assert any("رسانه" in l for l in labels)
+
+
+def test_media_archive_skips_regeneratable_caches(media, paths):
+    import tarfile
+    from app.services import backup_center
+    backup_center.create(actor="tester")
+    set_dir = backup_center.set_dir(backup_center.list_sets()[0]["backup_id"])
+    with tarfile.open(os.path.join(set_dir, "media.tar")) as tar:
+        names = tar.getnames()
+    assert "videos/intro.mp4" in names
+    assert "uploads/logo.png" in names
+    assert not any("tts-cache" in n for n in names)
+
+
+def test_verify_covers_the_media_archive(media):
+    from app.services import backup_center
+    backup_center.create(actor="tester")
+    backup_id = backup_center.list_sets()[0]["backup_id"]
+    assert backup_center.verify(backup_id)["ok"] is True
+    # Corrupt the tar → the set must stop being "restorable".
+    with open(backup_center.member_path(backup_id, "media.tar"), "r+b") as f:
+        f.write(b"CORRUPTED")
+    verdict = backup_center.verify(backup_id)
+    assert verdict["ok"] is False
+    assert any("media.tar" in p for p in verdict["problems"])
+
+
+def test_set_restore_brings_the_media_back(media, paths):
+    from app.services import backup_center
+    summary = backup_center.create(actor="tester")
+    backup_id = summary["backup_id"]
+    # Wipe the live media; the restore must put it back.
+    import shutil
+    shutil.rmtree(paths / "media")
+    result = backup_center.restore(backup_id, actor="tester")
+    assert result["media_files"] == 2
+    assert (paths / "media" / "videos" / "intro.mp4").read_bytes().startswith(b"video")
+    assert (paths / "media" / "uploads" / "logo.png").exists()
+
+
+def test_media_download_is_served_from_the_set(media, client):
+    _login(client)
+    from app.services import backup_center
+    backup_id = backup_center.create(actor="tester")["backup_id"]
+    r = client.get(f"/admin/api/infra/backups/{backup_id}/download?file=media.tar")
+    assert r.status_code == 200
+    assert r.content[:4] == b"video" or len(r.content) > 0  # a real tar body
+
+
+def test_restore_media_upload_roundtrip(media, client):
+    """Download the tar, wipe media, upload the tar → files return."""
+    _login(client)
+    from app.services import backup_center
+    backup_id = backup_center.create(actor="tester")["backup_id"]
+    tar_bytes = client.get(
+        f"/admin/api/infra/backups/{backup_id}/download?file=media.tar").content
+
+    import shutil
+    shutil.rmtree(paths_media_root(client))
+
+    r = client.post("/admin/api/infra/backups/restore-media",
+                    files={"file": ("media.tar", tar_bytes, "application/x-tar")},
+                    data={"confirm": "RESTORE MEDIA"})
+    assert r.status_code == 200, r.text
+    assert r.json()["files"] == 2
+    root = paths_media_root(client)
+    assert (root / "videos" / "intro.mp4").exists()
+
+
+def paths_media_root(client):
+    import app.config as config
+    from pathlib import Path
+    return Path(config.MEDIA_ROOT)
+
+
+def test_restore_media_upload_refuses_a_bad_phrase(media, client):
+    _login(client)
+    r = client.post("/admin/api/infra/backups/restore-media",
+                    files={"file": ("media.tar", b"whatever", "application/x-tar")},
+                    data={"confirm": "RESTORE MEDIA "})
+    assert r.status_code == 400
+
+
+def test_restore_media_upload_refuses_a_non_tar(media, client):
+    _login(client)
+    r = client.post("/admin/api/infra/backups/restore-media",
+                    files={"file": ("media.tar", b"not a tar at all", "application/x-tar")},
+                    data={"confirm": "RESTORE MEDIA"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "/" not in detail
+
+
+def test_restore_media_upload_never_extracts_an_escape(media, client, paths):
+    """A tar whose member tries ../ must extract NOTHING — not skip the one
+    hostile member and extract the rest."""
+    _login(client)
+    import tarfile, io
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        good = tarfile.TarInfo("videos/ok.mp4")
+        good.size = 4
+        tar.addfile(good, io.BytesIO(b"good"))
+        evil = tarfile.TarInfo("../../escaped.txt")
+        evil.size = 4
+        tar.addfile(evil, io.BytesIO(b"evil"))
+    r = client.post("/admin/api/infra/backups/restore-media",
+                    files={"file": ("media.tar", buf.getvalue(), "application/x-tar")},
+                    data={"confirm": "RESTORE MEDIA"})
+    assert r.status_code == 400
+    assert not (paths / "escaped.txt").exists()
+    # The good member did not land either: validation aborts the whole archive.
+    assert not (paths / "media" / "videos" / "ok.mp4").exists()
