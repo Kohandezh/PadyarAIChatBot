@@ -86,8 +86,9 @@ DEAD_INVITE_MESSAGE = "اینجا چیزی برای نمایش نیست."
 MAX_EDIT_CHARS = 4000
 
 # How the invite reaches the contact. `qr` needs no gateway, no permission and
-# no delivery: the visitor shows their own screen. `sms` waits on Asanak
-# approving a template that may carry a link.
+# no delivery: the visitor shows their own screen. `sms` needs the account's
+# sender line to hold link-sending permission and a configured message text
+# (see sms_capability()).
 INVITE_CHANNELS = ("qr", "sms")
 DEFAULT_INVITE_CHANNEL = "qr"
 
@@ -324,28 +325,34 @@ def sms_capability() -> dict:
 
     `dev` counts as AVAILABLE, because its send path genuinely succeeds — the
     link lands in the gitignored dev outbox instead of a phone. That is what
-    makes the whole invite-by-SMS flow testable before Asanak approves a link
-    template, and the `reason` says where the message really goes so nobody
-    mistakes it for delivery.
+    makes the whole invite-by-SMS flow testable, and the `reason` says where
+    the message really goes so nobody mistakes it for delivery.
+
+    `text` is the effective invite message (stored value, or the built-in
+    default) regardless of whether SMS is available yet — the admin panel
+    shows and lets the operator edit it right on this screen, ahead of it
+    ever being usable, rather than only after every other field is filled in.
     """
     import os
     from app.db.queries import get_setting
     from app.services import sms as sms_service
 
+    invite_text = sms_service.setting("sms_asanak_invite_text").strip()
+
     provider = (get_setting("sms_provider", "")
                 or os.getenv("OTP_DELIVERY", "dev")).strip().lower()
     if provider == "dev":
-        return {"available": True, "dev": True,
+        return {"available": True, "dev": True, "text": invite_text,
                 "reason": "پیامک آزمایشی: لینک به جای گوشی در صندوق آزمایشی سرور "
                           "(data/otp-dev-outbox.log) می‌نشیند."}
     if not sms_service.asanak_configured():
-        return {"available": False,
+        return {"available": False, "text": invite_text,
                 "reason": "نام کاربری، رمز عبور و شماره فرستنده را در تنظیمات پیامک وارد کنید."}
-    if not sms_service.setting("sms_asanak_invite_template_id").strip():
-        return {"available": False,
-                "reason": "شناسهٔ قالب پیامکِ لینک دعوت تنظیم نشده است. یک قالب حاوی "
-                          "لینک را در پنل آسانک تأیید بگیرید و شناسه‌اش را وارد کنید."}
-    return {"available": True, "reason": ""}
+    if not invite_text or "{magic_link}" not in invite_text:
+        return {"available": False, "text": invite_text,
+                "reason": "متن پیامکِ لینک دعوت تنظیم نشده است یا فاقد جای‌گزین لینک است. "
+                          "آن را در تنظیمات پیامک وارد کنید."}
+    return {"available": True, "text": invite_text, "reason": ""}
 
 
 def consent_script() -> dict:

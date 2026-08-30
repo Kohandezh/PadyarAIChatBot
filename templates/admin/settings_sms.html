@@ -134,15 +134,20 @@
                                 </div>
                             </div>
 
-                            <!-- Three template ids in one panel. They are only telling
-                                 apart by their LABEL, so each label names the message the
-                                 contact receives, not the Asanak jargon for it. -->
+                            <!-- Only #1 is an Asanak-approved template with its own numeric
+                                 id (a SERVICE line carries only pre-approved content). #2
+                                 and #3 are free text the operator writes here — possible
+                                 because the sender LINE itself was granted permission to
+                                 include a link in free text, not because either text was
+                                 separately approved. -->
                             <hr class="my-4">
-                            <h6 class="mb-2">متن‌های تأییدشده در پنل آسانک</h6>
+                            <h6 class="mb-2">متن پیامک‌ها</h6>
                             <p class="text-muted small mb-3">
-                                هر متن پیامک جداگانه در پنل آسانک تأیید می‌شود و شمارهٔ مخصوص خودش
-                                را دارد. سه متن زیر سه کار متفاوت می‌کنند. شماره‌ها را جابه‌جا وارد
-                                نکنید، وگرنه برای مخاطب پیام اشتباه فرستاده می‌شود.
+                                پیامک «کد تأیید» چون از خط خدماتی فرستاده می‌شود، باید یک قالب
+                                تأییدشده در پنل آسانک باشد و فقط شمارهٔ آن قالب اینجا وارد می‌شود.
+                                پیامک «لینک ویرایش» و «تأیید نشد» متن آزاد هستند: چون خط فرستنده
+                                اجازهٔ ارسال لینک گرفته، خود متن پیامک همین‌جا نوشته می‌شود، نه
+                                یک شماره.
                             </p>
                             <div class="row g-3">
                                 <div class="col-md-4">
@@ -155,23 +160,27 @@
                                 </div>
 
                                 <div class="col-md-4">
-                                    <label class="form-label" for="sms-invite-template-id">۲. پیامک «لینک
+                                    <label class="form-label" for="sms-invite-text">۲. پیامک «لینک
                                         ویرایش»</label>
-                                    <input type="text" id="sms-invite-template-id" class="form-control" dir="ltr"
-                                        inputmode="numeric" placeholder="مثلا: 1655">
-                                    <small class="text-muted">پیامکی که برای شرکت فرستاده می‌شود تا متن خودش را
-                                        ویرایش کند. متن این پیامک یک لینک دارد. تا وقتی خالی باشد، این پیامک
-                                        فرستاده نمی‌شود و لینک فقط با کد QR به شرکت داده می‌شود.</small>
+                                    <textarea id="sms-invite-text" class="form-control" dir="rtl" rows="3"
+                                        placeholder="جهت تأیید اطلاعات خود در چت‌بات نمایشگاه به آدرس زیر مراجعه کنید.
+{magic_link}"></textarea>
+                                    <small class="text-muted">متن پیامکی که برای شرکت فرستاده می‌شود تا متن خودش
+                                        را ویرایش کند. باید دقیقاً یک بار جای‌گزین
+                                        <code dir="ltr">{magic_link}</code> را داشته باشد — همان‌جا لینک واقعی
+                                        جایگزین می‌شود. تا وقتی این جای‌گزین در متن نباشد، این پیامک فرستاده
+                                        نمی‌شود و لینک فقط با کد QR به شرکت داده می‌شود.</small>
                                 </div>
 
                                 <div class="col-md-4">
-                                    <label class="form-label" for="sms-reject-template-id">۳. پیامک «تأیید
+                                    <label class="form-label" for="sms-reject-text">۳. پیامک «تأیید
                                         نشد»</label>
-                                    <input type="text" id="sms-reject-template-id" class="form-control" dir="ltr"
-                                        inputmode="numeric" placeholder="مثلا: 1656">
-                                    <small class="text-muted">پیامکی که به شرکت می‌گوید متنش تأیید نشده و لینک
-                                        تازه‌ای برای اصلاح می‌دهد. متن این هم یک لینک دارد، ولی شمارهٔ آن با
-                                        پیامک لینک ویرایش یکی نیست.</small>
+                                    <textarea id="sms-reject-text" class="form-control" dir="rtl" rows="3"
+                                        placeholder="متن ثبت‌شدهٔ شرکت شما تأیید نشد. برای اصلاح آن به آدرس زیر مراجعه کنید.
+{magic_link}"></textarea>
+                                    <small class="text-muted">متن پیامکی که به شرکت می‌گوید متنش تأیید نشده و لینک
+                                        تازه‌ای برای اصلاح می‌دهد. باید دقیقاً یک بار جای‌گزین
+                                        <code dir="ltr">{magic_link}</code> را داشته باشد.</small>
                                 </div>
                             </div>
 

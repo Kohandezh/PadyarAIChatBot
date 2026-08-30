@@ -393,6 +393,22 @@ async function loadSettings() {
              ${s.sms_reason ? esc(s.sms_reason) : ''}
            </div>`
         : '';
+    // Shown right where the channel is picked, not buried in a separate
+    // settings page: the operator sees and can fix the exact wording at the
+    // same moment they turn the channel on. Disabled along with the radio
+    // above it — editing a text nothing can send yet would be pointless.
+    const smsTextBox = `
+        <div class="mt-2">
+          <label class="form-label small text-muted mb-1" for="invite-sms-text">
+            متن پیامک لینک دعوت
+          </label>
+          <textarea class="form-control form-control-sm" id="invite-sms-text" dir="rtl"
+                    rows="3" ${smsOff ? 'disabled' : ''}>${esc(s.sms_invite_text || '')}</textarea>
+          <div class="text-muted small mt-1">
+            باید دقیقاً یک بار <code dir="ltr">{magic_link}</code> داشته باشد — همان‌جا لینک
+            واقعی جایگزین می‌شود.
+          </div>
+        </div>`;
     document.getElementById('channel').innerHTML = `
         <div class="form-check mb-3">
           <input class="form-check-input" type="radio" name="channel" id="channel-qr" value="qr"
@@ -415,6 +431,7 @@ async function loadSettings() {
              ${smsReason}
              ${smsNote}
           </label>
+          ${smsTextBox}
         </div>`;
     document.getElementById('consent-script').value = s.consent_script || '';
 }
@@ -642,9 +659,11 @@ export function initLeads() {
 
     document.getElementById('settings-save').addEventListener('click', async () => {
         const picked = document.querySelector('input[name="channel"]:checked');
+        const smsTextEl = document.getElementById('invite-sms-text');
         const body = {
             invite_channel: picked ? picked.value : 'qr',
             consent_script: document.getElementById('consent-script').value,
+            sms_invite_text: smsTextEl && !smsTextEl.disabled ? smsTextEl.value : '',
         };
         if (body.invite_channel === 'sms'
             && !confirm('از این لحظه لینک ویرایش با پیامک به مخاطب فرستاده می‌شود و QR نمایش داده نمی‌شود. ادامه می‌دهید؟')) {

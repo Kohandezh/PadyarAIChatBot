@@ -95,8 +95,8 @@ def test_page_renders_for_admin(client):
     assert '/static/admin/js/settings_sms.js' in html
     # Every gateway field an operator has to set must have an input. A setting
     # that exists only in .env cannot be set by the staff who run the event.
-    for field in ("sms-template-id", "sms-invite-template-id",
-                  "sms-reject-template-id", "sms-daily-budget"):
+    for field in ("sms-template-id", "sms-invite-text",
+                  "sms-reject-text", "sms-daily-budget"):
         assert 'id="%s"' % field in html, f"missing input #{field}"
 
 
@@ -170,36 +170,40 @@ def test_no_secrets_stored_reports_false(client):
     assert body["has_api_key"] is False
 
 
-# ── Template ids and the daily budget ───────────────────────────────────
+# ── Template id, link text and the daily budget ─────────────────────────
 
-def test_template_ids_and_budget_round_trip(client):
+def test_invite_reject_text_and_budget_round_trip(client):
     """Save, read back, and get exactly what was typed into each box."""
     _login(client)
+    invite_text = "برای ویرایش: {magic_link}"
+    reject_text = "برای اصلاح: {magic_link}"
     assert client.post("/admin/api/sms", json=_payload(
-        template_id="1654", invite_template_id="1655",
-        reject_template_id="1656", daily_budget="250")).status_code == 200
+        template_id="1654", invite_text=invite_text,
+        reject_text=reject_text, daily_budget="250")).status_code == 200
 
     body = client.get("/admin/api/sms").json()
     assert body["template_id"] == "1654"
-    assert body["invite_template_id"] == "1655"
-    assert body["reject_template_id"] == "1656"
+    assert body["invite_text"] == invite_text
+    assert body["reject_text"] == reject_text
     assert body["daily_budget"] == "250"
 
     # The sender reads the same values, so what the panel shows is what the
     # gateway will actually use.
     from app.services import sms as sms_service
-    assert sms_service.setting("sms_asanak_invite_template_id") == "1655"
-    assert sms_service.setting("sms_asanak_reject_template_id") == "1656"
+    assert sms_service.setting("sms_asanak_invite_text") == invite_text
+    assert sms_service.setting("sms_asanak_reject_text") == reject_text
     assert sms_service.daily_budget() == 250
 
 
 def test_the_three_new_fields_are_not_masked(client):
-    """They are template ids and a number, not secrets. Readable on purpose."""
+    """They are free text/a number, not secrets. Readable on purpose."""
     _login(client)
+    invite_text = "برای ویرایش: {magic_link}"
+    reject_text = "برای اصلاح: {magic_link}"
     client.post("/admin/api/sms", json=_payload(
-        invite_template_id="1655", reject_template_id="1656", daily_budget="7"))
+        invite_text=invite_text, reject_text=reject_text, daily_budget="7"))
     text = client.get("/admin/api/sms").text
-    assert "1655" in text and "1656" in text and '"7"' in text
+    assert invite_text in text and reject_text in text and '"7"' in text
 
 
 def test_budget_defaults_to_no_cap(client):
