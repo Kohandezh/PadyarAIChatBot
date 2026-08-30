@@ -624,7 +624,7 @@ def _write_admin_credentials(username, password, answer):
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(
-                "INOTEX Chatbot — auto-generated admin login\n"
+                "Padyar Chatbot — auto-generated admin login\n"
                 "===========================================\n"
                 f"Username:         {username}\n"
                 f"Password:         {password}\n"
