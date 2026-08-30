@@ -68,6 +68,10 @@
                 <button type="button" class="btn btn-success" id="create-btn">
                     <i class="fas fa-plus me-1"></i>گرفتن نسخهٔ پشتیبان جدید
                 </button>
+                <button type="button" class="btn btn-outline-warning" id="media-restore-btn">
+                    <i class="fas fa-photo-film me-1"></i>بازگردانی رسانه‌ها از فایل
+                </button>
+                <input type="file" id="media-restore-input" accept=".tar" style="display:none">
                 <div id="backups-msg" class="text-center fw-bold mt-2"></div>
             </div>
         </div>
@@ -170,7 +174,6 @@
         </div>
     </div>
 </div>
-
 <!-- Bulk delete confirmation -->
 <div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -194,6 +197,38 @@
             </div>
         </div>
     </div>
+</div>
+
+<!-- Media restore confirmation (upload a downloaded media.tar) -->
+<div class="modal fade" id="mediaRestoreModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-warning"><i class="fas fa-photo-film me-1"></i>بازگردانی فایل‌های رسانه‌ای</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">فایل انتخاب‌شده: <b id="media-file-name" dir="ltr">—</b></p>
+                <div class="alert alert-warning small mb-3">
+                    فقط فایل‌های رسانه‌ای (ویدیوها و تصاویر بارگذاری‌شده) بازگردانی می‌شوند؛
+                    پایگاه داده دست نمی‌خورد. فایل‌های رسانه‌ای فعلی با محتوای این آرشیو
+                    جایگزین می‌شوند.
+                </div>
+                <p class="mb-1 small">برای ادامه، عبارت زیر را دقیقاً بنویسید:</p>
+                <code class="confirm-phrase">RESTORE MEDIA</code>
+                <input type="text" class="form-control" id="media-restore-input-phrase" dir="ltr" autocomplete="off"
+                    placeholder="عبارت بالا را اینجا بنویسید">
+                <div id="media-restore-msg" class="text-center fw-bold mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-link" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-warning" id="media-restore-confirm-btn" disabled>
+                    بازگردانی رسانه‌ها
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 {% endblock %}
 

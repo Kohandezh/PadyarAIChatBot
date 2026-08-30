@@ -19,7 +19,7 @@ event loop for every other request in the app.
 """
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
@@ -100,17 +100,26 @@ def _pg_row(manifest: dict) -> dict:
     kind = "safety" if reason.startswith("safety-before-restore-of-") else reason
     verification = manifest.get("verification") or {}
     file_name = manifest.get("file", "padyar.dump")
+    files = [{
+        "name": file_name,
+        "label": "پایگاه‌دادهٔ پستگرس (pg_dump)",
+        "bytes": manifest.get("bytes", 0),
+    }]
+    # The optional media member gets its own download link, same as the dump.
+    media = manifest.get("media") or {}
+    if media.get("name"):
+        files.append({
+            "name": media["name"],
+            "label": "فایل‌های رسانه‌ای (ویدیوها و تصاویر بارگذاری‌شده)",
+            "bytes": media.get("bytes", 0),
+        })
     return {
         "backup_id": manifest.get("backup_id", ""),
         "created_at": manifest.get("created_at"),
         "created_by": manifest.get("created_by", ""),
         "kind": kind,
-        "files": [{
-            "name": file_name,
-            "label": "پایگاه‌دادهٔ پستگرس (pg_dump)",
-            "bytes": manifest.get("bytes", 0),
-        }],
-        "total_bytes": manifest.get("bytes", 0),
+        "files": files,
+        "total_bytes": manifest.get("bytes", 0) + (media.get("bytes", 0) if media else 0),
         "verification": {
             "state": verification.get("status", "unknown"),
             "checked_at": verification.get("checked_at"),
@@ -191,6 +200,9 @@ def download_backup(backup_id: str, file: str = "",
         if not rows or rows[0].get("error"):
             raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
         manifest_files = [{"name": rows[0].get("file", "padyar.dump")}]
+        media = rows[0].get("media") or {}
+        if media.get("name"):
+            manifest_files.append({"name": media["name"]})
     else:
         rows = [r for r in backup_center.list_sets() if r["backup_id"] == backup_id]
         if not rows:
@@ -326,3 +338,45 @@ def restore_backup(backup_id: str, body: RestoreRequest,
         " می‌بینند، برنامه را یک‌بار راه‌اندازی مجدد کنید."
     )
     return result
+
+
+@router.post("/admin/api/infra/backups/restore-media",
+             dependencies=[Depends(verify_admin)])
+async def restore_media_upload(file: UploadFile = File(...),
+                               confirm: str = Form(""),
+                               username: str = Depends(verify_admin)):
+    """Restore ONLY the media files (videos, logos, uploads) from an
+    uploaded `media.tar` — the same archive the page lets you download.
+
+    The database is not touched, so this is the recovery path for "the
+    videos are gone but the answers are fine". Extraction is guarded
+    member-by-member by backup_media (no symlink/device/escape members —
+    an untrusted archive extracts nothing, not partially)."""
+    from app.services import backup_media
+
+    if (confirm or "").strip() != "RESTORE MEDIA":
+        applog.security("admin.backup.restore_media.bad_confirmation",
+                        "عبارت تأیید بازگردانی رسانه‌ها نادرست بود",
+                        actor=username, outcome="refused")
+        raise HTTPException(status_code=400, detail=FA_BAD_CONFIRM)
+
+    # Streamed inside restore_upload — gigabyte archives never sit in RAM.
+    # The threadpool keeps the blocking tar IO off the event loop.
+    import asyncio
+    try:
+        result = await asyncio.to_thread(
+            backup_media.restore_upload, file.file, username)
+    except backup_media.MediaArchiveError as exc:
+        raise HTTPException(status_code=400, detail=exc.message_fa)
+
+    applog.audit("admin.backup.restore_media",
+                 "بازگردانی فایل‌های رسانه‌ای از فایل بارگذاری‌شده",
+                 actor=username, target=file.filename or "media.tar",
+                 outcome="ok", metadata={"files": result["files"],
+                                         "bytes": result["bytes"]})
+    return {
+        "status": "restored",
+        "files": result["files"],
+        "bytes": result["bytes"],
+        "message": f"{result['files']} فایل رسانه‌ای بازگردانی شد.",
+    }
