@@ -614,6 +614,46 @@ export function initBranding() {
     loadBranding();
     document.getElementById('brand-logo').addEventListener('input', updateLogoPreview);
 
+    // Logo upload: pick a file → validated server-side (magic bytes) → the
+    // URL lands in the field → the operator still presses «ذخیره برندینگ».
+    const uploadBtn = document.getElementById('logo-upload-btn');
+    const fileInput = document.getElementById('logo-file-input');
+    if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async () => {
+            const file = fileInput.files[0];
+            fileInput.value = '';
+            if (!file) return;
+            if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
+                showMsg('branding-msg', 'فقط تصویر (PNG، JPG، GIF، WebP) قابل بارگذاری است', 'danger');
+                return;
+            }
+            if (file.size > 2 * 1024 * 1024) {
+                showMsg('branding-msg', 'حجم لوگو حداکثر می‌تواند ۲ مگابایت باشد', 'danger');
+                return;
+            }
+            uploadBtn.disabled = true;
+            showMsg('branding-msg', '⏳ در حال بارگذاری...', 'muted');
+            try {
+                const fd = new FormData();
+                fd.append('file', file);
+                const res = await fetchAuth('/admin/api/upload_logo', { method: 'POST', body: fd });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    document.getElementById('brand-logo').value = data.url || '';
+                    updateLogoPreview();
+                    showMsg('branding-msg', 'تصویر بارگذاری شد — برای اعمال، «ذخیره برندینگ» را بزنید', 'success');
+                } else {
+                    showMsg('branding-msg', data.detail || 'بارگذاری ناموفق بود', 'danger');
+                }
+            } catch {
+                showMsg('branding-msg', 'خطای ارتباط با سرور', 'danger');
+            } finally {
+                uploadBtn.disabled = false;
+            }
+        });
+    }
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = document.getElementById('save-branding-btn');

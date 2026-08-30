@@ -53,10 +53,17 @@
 
                         <div class="col-md-6">
                             <label class="form-label" for="brand-logo">نشانی لوگو</label>
-                            <input type="text" id="brand-logo" class="form-control" dir="ltr"
-                                placeholder="مثلا: /LOGO/logo.png"
-                                value="{{ branding.whitelabel_logo_url }}">
-                            <small class="text-muted">خالی بگذارید تا نشان پیش‌فرض نمایش داده شود.</small>
+                            <div class="input-group">
+                                <input type="text" id="brand-logo" class="form-control" dir="ltr"
+                                    placeholder="مثلا: /LOGO/logo.png"
+                                    value="{{ branding.whitelabel_logo_url }}">
+                                <button type="button" class="btn btn-outline-primary" id="logo-upload-btn">
+                                    <i class="fas fa-upload me-1"></i>بارگذاری تصویر
+                                </button>
+                            </div>
+                            <input type="file" id="logo-file-input" class="d-none"
+                                accept="image/png,image/jpeg,image/gif,image/webp">
+                            <small class="text-muted">تصویر بارگذاری کنید یا نشانی را دستی بنویسید (PNG، JPG، GIF، WebP — حداکثر ۲ مگابایت). خالی بگذارید تا نشان پیش‌فرض نمایش داده شود.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-end">
                             <img id="brand-logo-preview" src="{{ branding.whitelabel_logo_url }}" alt=""
