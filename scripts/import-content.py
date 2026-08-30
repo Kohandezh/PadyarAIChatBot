@@ -228,6 +228,13 @@ def load_companies(path: str, videos=None):
         profile = {dst: c[src] for src, dst in PROFILE_MAP.items() if c.get(src)}
         if mobile:
             profile["contact_mobile"] = mobile
+        # Same number the video lookup above already parsed from column 0 —
+        # free, since this sheet shape names booth number and video by
+        # definition (has_video_column()). The plain-workbook shape (no video
+        # column) has no number to give here; booth_number stays unset and an
+        # admin fills it in later.
+        if number is not None:
+            profile["booth_number"] = str(number)
         anchors = [t.format(n=c["name"]) for t in FA_CANONICAL]
         if c["name_en"]:
             anchors.append(f"What is {c['name_en']}?")

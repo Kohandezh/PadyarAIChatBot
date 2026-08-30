@@ -34,7 +34,7 @@ class ProfileError(Exception):
 PROFILE_FIELDS = (
     "contact_name", "contact_position", "contact_mobile",
     "email", "website", "company_phone", "fax",
-    "address", "address_en", "province",
+    "address", "address_en", "province", "booth_number", "hall",
     "company_type", "org_stage", "activity_field", "participation",
     "notes",
 )
@@ -48,9 +48,14 @@ PROFILE_FIELDS = (
 # these are the COMPANY's own coordinates: the workbook `phone` column lands in
 # `company_phone` — the company landline printed on its own letterhead — plus
 # its website, fax, address, province, type, stage, field and participation.
+#
+# `booth_number` (migrations/0015_company_booth_number.sql) and `hall`
+# (migrations/0016_company_hall.sql) are public by construction, unlike
+# everything WITHHELD below: both are printed on the hall map and every
+# visitor's own badge, never a fact held back from anyone.
 PUBLIC_PROFILE_FIELDS = (
     "website", "company_phone", "fax",
-    "address", "address_en", "province",
+    "address", "address_en", "province", "booth_number", "hall",
     "company_type", "org_stage", "activity_field", "participation",
 )
 
@@ -197,6 +202,48 @@ def set_video(dataset_id: str, video_url: str) -> str:
     finally:
         conn.close()
     return clean
+
+
+def get_priority_boost(dataset_id: str) -> bool:
+    """Whether this company is pinned ahead of the alphabetical order in
+    company_search.answer_company_list() — see
+    migrations/0014_company_priority_boost.sql.
+
+    `bool(...)` because the column comes back as 0/1 on SQLite and a real
+    boolean on PostgreSQL (get_db_connection() hides that difference
+    everywhere else in this file too).
+    """
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT priority_boost FROM companies WHERE id = ?", (dataset_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return bool(row["priority_boost"]) if row else False
+
+
+def set_priority_boost(dataset_id: str, value: bool) -> bool:
+    """Set a company's sort-order pin — a ranking flag, not a fact about the
+    company, so like set_video() this is deliberately NOT part of
+    upsert_profile()/PROFILE_FIELDS. Folding a boolean into that string-typed
+    loop would break get_profile()'s "any field filled in" check the moment
+    the flag is on: `(True or "").strip()` raises, since `True or ""`
+    evaluates to `True` itself, which has no `.strip()`.
+    """
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE companies SET priority_boost = ? WHERE id = ?",
+            (bool(value), dataset_id))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise ProfileError("این شرکت در دانش‌نامه نیست.", status=404)
+    finally:
+        conn.close()
+    return bool(value)
 
 
 # The public-content columns — the chatbot's own words about a company, the

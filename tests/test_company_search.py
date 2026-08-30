@@ -240,3 +240,62 @@ def test_setting_options_shown_to_fifteen_restores_the_old_answer_length(client,
     numbered = _numbered_lines(body["text"])
     assert len(numbered) == 15, body["text"]
     assert "و 3 شرکت دیگر" in body["text"], body["text"]
+
+
+def _seed_with_boost(companies, extra_dataset=()):
+    """Like _seed(), but each tuple is (id, title, text, field, priority_boost)
+    so a test can set the new column — _seed()'s shared four-column shape is
+    used by every other test in this file and stays untouched.
+
+    ``extra_dataset`` matters: with the dataset table left empty, every
+    content word in the query is "unknown" to the corpus vocabulary the
+    list-tier guard in chat.py checks (see the module docstring on
+    _wants_company_list), and the list tier never runs. Every other test in
+    this file seeds the same faq-20 row for exactly this reason.
+    """
+    import app.db.connection as dbc
+    conn = dbc.get_db_connection()
+    conn.execute("DELETE FROM dataset")
+    conn.execute("DELETE FROM companies")
+    conn.execute("DELETE FROM questions")
+    conn.execute("DELETE FROM synonyms")
+    for i, title, text in extra_dataset:
+        conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                     " VALUES (?, ?, ?, '')", (i, title, text))
+    for i, title, text, field, boost in companies:
+        conn.execute(
+            "INSERT INTO companies (id, title, text, video_url,"
+            " activity_field, priority_boost) VALUES (?, ?, ?, '', ?, ?)",
+            (i, title, text, field, 1 if boost else 0))
+    conn.commit()
+    conn.close()
+
+    from app.services import search
+    search.load_dataset_internal()
+
+
+def test_a_boosted_company_sorts_ahead_of_alphabetically_earlier_ones(client, monkeypatch):
+    """PRODUCT DECISION (the owner, 2026-08-30): a sponsor company must show up
+    among the first names in its field's list, regardless of where its title
+    falls alphabetically. «شرکت آوا» (starts with «آ») would normally sort
+    ahead of «شرکت کهن سیستم فردا» (starts with «ک») — priority_boost reverses
+    that for the boosted row only, without changing WHICH companies match.
+    """
+    companies = [
+        ("co-ava", "شرکت آوا", "شرکت آوا در زمینه هوش مصنوعی فعالیت می کند.",
+         "هوش مصنوعی", False),
+        ("co-kohan", "شرکت کهن سیستم فردا",
+         "شرکت کهن سیستم فردا در حوزه فناوری اطلاعات، هوش مصنوعی، امنیت سایبری"
+         " و اینترنت اشیا فعالیت می کند.", "هوش مصنوعی", True),
+        ("co-negar", "شرکت نگار", "شرکت نگار در زمینه هوش مصنوعی گفتاری کار می کند.",
+         "هوش مصنوعی", False),
+    ]
+    _seed_with_boost(companies, extra_dataset=[("faq-20", "سوال خارج از موضوع", REFUSAL_TEXT)])
+    _mock_ai(monkeypatch, forbid=True)
+    body = _ask(client, "شرکت‌های هوش مصنوعی را معرفی کن").json()
+    assert body["source"] == "local_company_search", body
+    numbered = _numbered_lines(body["text"])
+    assert numbered[0].endswith("شرکت کهن سیستم فردا"), body["text"]
+    # Non-boosted rows keep their alphabetical order among themselves.
+    assert numbered[1].endswith("شرکت آوا"), body["text"]
+    assert numbered[2].endswith("شرکت نگار"), body["text"]
