@@ -193,6 +193,7 @@ PadyarAIChatbot/
       branding.py                # White-label defaults (WL_DEFAULTS) + branding context
       menu_settings.py           # Hamburger-drawer row visibility (admin-toggleable)
       idle_video.py              # Avatar idle-loop setup: main + up to 3 random extras
+      pet_characters.py          # Companion (pet) character registry: which mascot an install ships
       backup.py                  # DB backup scheduler + operations
       backup_center.py           # Infrastructure -> Backups business logic
       pg_backup.py                # PostgreSQL backup/restore primitives

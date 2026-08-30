@@ -31,16 +31,21 @@
     const CFG = window.OTP_CONFIG || {};
     const ATLAS_URL = (canvasEl && canvasEl.dataset.atlas) || CFG.companionAtlas || '';
     const CELL = Number((canvasEl && canvasEl.dataset.cell) || CFG.companionCell || 512);
-    const COLS = 4;
+    // Grid width of the atlas. The INOTEX sheet is 4 columns; a character
+    // with a 3-wide sheet (elecomp) ships data-columns of its own.
+    const COLS = Number((canvasEl && canvasEl.dataset.columns) || 4) || 4;
 
-    const POSE = {
+    // Per-character pose maps ride the canvas as data-pose-index /
+    // data-poses JSON (see app/services/pet_characters.py); the literals
+    // below are the INOTEX defaults a bare host keeps.
+    const POSE = Object.assign({
         'idle-neutral': 0, 'idle-smile': 1, 'welcome-wave': 2, 'attentive-hands': 3,
         'thinking': 4, 'not-found': 5, 'success': 6, 'sleep': 7,
         'tablet-work': 8, 'typing': 9, 'walk': 10, 'run': 11
-    };
+    }, _poseJson('poseIndex'));
 
     // Public state → pose + how long the gesture that accompanies it runs.
-    const STATE_POSE = {
+    const STATE_POSE = Object.assign({
         greet: 'welcome-wave',
         idle: 'idle-neutral',
         attentive: 'attentive-hands',
@@ -53,7 +58,15 @@
         // AvatarController's guarded transient reaction — an energetic
         // walk/run burst, triggered by a double tap on the character.
         flap: 'run'
-    };
+    }, _poseJson('poses'));
+
+    function _poseJson(key) {
+        if (!canvasEl) return {};
+        try {
+            const parsed = JSON.parse(canvasEl.dataset[key] || '{}');
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) { return {}; }
+    }
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     const canvas = canvasEl;
@@ -187,7 +200,11 @@
     }
 
     function drawPose(name, alpha, m, extraScale) {
-        const idx = POSE[name];
+        // A state mapped to a pose this character lacks falls back to its
+        // idle frame instead of drawing nothing — a bad map must never
+        // blank the companion mid-conversation.
+        let idx = POSE[name];
+        if (idx === undefined && name !== 'idle-neutral') idx = POSE['idle-neutral'];
         if (idx === undefined || !atlas) return;
         const sx = (idx % COLS) * CELL;
         const sy = Math.floor(idx / COLS) * CELL;

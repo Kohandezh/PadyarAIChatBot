@@ -1,0 +1,34 @@
+{
+    "display_name": "الکامپ",
+    "atlas": "/static/otp/pet/characters/elecomp/elecomp-pose-atlas.webp",
+    "cell": 384,
+    "columns": 3,
+    "fallback": "/static/otp/pet/characters/elecomp/elecomp-fallback.jpg",
+    "hide_strip": "",
+    "state_poses": {
+        "greet": "welcome-open",
+        "idle": "idle-neutral",
+        "attentive": "attentive-hands",
+        "typing": "attentive-hands",
+        "ready": "idle-smile",
+        "working": "three-quarter",
+        "success": "flight-soar",
+        "error": "front-wings",
+        "sleep": "sleep",
+        "flap": "flight-dive"
+    },
+    "pose_index": {
+        "idle-neutral": 0,
+        "idle-smile": 1,
+        "welcome-open": 2,
+        "attentive-hands": 3,
+        "walk": 4,
+        "sleep": 5,
+        "front-wings": 6,
+        "three-quarter": 7,
+        "flight-side": 8,
+        "flight-hover": 9,
+        "flight-soar": 10,
+        "flight-dive": 11
+    }
+}

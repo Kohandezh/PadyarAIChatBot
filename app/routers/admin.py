@@ -892,6 +892,39 @@ async def get_menu_settings_api():
     return get_menu_settings()
 
 
+# ── Companion (pet) character ────────────────────────────────────────────
+
+@router.get("/admin/api/pet-character", dependencies=[Depends(verify_admin)])
+async def get_pet_character_api():
+    """Current character + the registry, for the branding page dropdown."""
+    from app.services.pet_characters import discover_characters, get_pet_character
+    characters = discover_characters()
+    current = get_pet_character().get("name", "")
+    return {
+        "current": current,
+        "characters": [
+            {"name": name, "display_name": c["display_name"],
+             "preview": c.get("fallback", "")}
+            for name, c in sorted(characters.items())
+        ],
+    }
+
+
+@router.post("/admin/api/pet-character", dependencies=[Depends(verify_admin)])
+async def save_pet_character_api(body: dict,
+                                 username: str = Depends(verify_admin)):
+    from app.services.pet_characters import set_pet_character
+    name = str(body.get("character") or "").strip()
+    if not set_pet_character(name):
+        raise HTTPException(
+            status_code=400,
+            detail="چنین شخصیتی وجود ندارد.")
+    applog.audit("settings.pet_character.updated",
+                 "شخصیت همراه چت‌بات تغییر کرد",
+                 actor=username, target=f"pet_character:{name}")
+    return {"status": "updated", "current": name}
+
+
 @router.post("/admin/api/menu-settings", dependencies=[Depends(verify_admin)])
 async def save_menu_settings_api(req: MenuSettingsRequest,
                                  username: str = Depends(verify_admin)):
