@@ -1,0 +1,17 @@
+-- Give companies a booth number, and let a visitor ask for it directly.
+--
+-- WHY
+-- ---
+-- `address` on a company row is the ORGANIZATION's own address (its office,
+-- its letterhead) — see the PROFILE_FIELDS comment in
+-- app/services/company_profiles.py. It is not where the booth sits inside
+-- the exhibition hall, which is what a visitor standing at the entrance
+-- actually wants when they ask "شماره غرفهٔ شرکت X چنده؟". There was no column
+-- for that, so the question had nowhere deterministic to be answered.
+--
+-- `booth_number` is public by construction: a booth number is printed on the
+-- hall map and the badge every visitor already carries, never a fact withheld
+-- from anyone (contrast contact_mobile/email in company_profiles.py, which
+-- name one person and are deliberately never public). It is added to
+-- PUBLIC_PROFILE_FIELDS in the same commit.
+ALTER TABLE app.companies ADD COLUMN IF NOT EXISTS booth_number TEXT NOT NULL DEFAULT '';
