@@ -44,8 +44,8 @@ def admin_client(tmp_path, monkeypatch):
 def _body(provider):
     return {
         "enabled": True, "provider": provider, "username": "u", "password": "",
-        "api_key": "", "source": "", "template_id": "", "invite_template_id": "",
-        "reject_template_id": "", "daily_budget": "0", "url": "",
+        "api_key": "", "source": "", "template_id": "", "invite_text": "",
+        "reject_text": "", "daily_budget": "0", "url": "",
         "status_url": "", "credit_url": "", "template_url": "",
         "trim": True, "send_to_blacklist": True, "sms_host": "",
     }

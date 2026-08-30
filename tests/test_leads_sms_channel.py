@@ -1,7 +1,7 @@
 """The SMS invite channel on a dev install: selectable, honestly labelled.
 
-The scenario: the install's provider is «حالت آزمایشی» (dev) — Asanak has not
-approved a link template yet — and the operator still needs to exercise the
+The scenario: the install's provider is «حالت آزمایشی» (dev) — no real gateway
+line is configured yet — and the operator still needs to exercise the
 invite-by-SMS path end to end. The send side already works in dev (the link is
 appended to data/otp-dev-outbox.log by sms._send_link), so the capability
 answer must not lock the channel; it must say where the message really goes.

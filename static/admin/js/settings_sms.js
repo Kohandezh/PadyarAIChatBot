@@ -63,8 +63,8 @@ async function loadSettings() {
         el('sms-username').value = d.username || '';
         el('sms-source').value = d.source || '';
         el('sms-template-id').value = d.template_id || '';
-        el('sms-invite-template-id').value = d.invite_template_id || '';
-        el('sms-reject-template-id').value = d.reject_template_id || '';
+        el('sms-invite-text').value = d.invite_text || '';
+        el('sms-reject-text').value = d.reject_text || '';
         el('sms-daily-budget').value = d.daily_budget || '0';
         // Today's count next to the cap, so the operator can see how close the
         // day is to going silent instead of finding out when it does.
@@ -122,8 +122,8 @@ export function initSms() {
             api_key: el('sms-api-key').value.trim(),
             source: el('sms-source').value.trim(),
             template_id: el('sms-template-id').value.trim(),
-            invite_template_id: el('sms-invite-template-id').value.trim(),
-            reject_template_id: el('sms-reject-template-id').value.trim(),
+            invite_text: el('sms-invite-text').value.trim(),
+            reject_text: el('sms-reject-text').value.trim(),
             daily_budget: el('sms-daily-budget').value.trim(),
             url: el('sms-url').value.trim(),
             status_url: el('sms-status-url').value.trim(),

@@ -319,8 +319,11 @@ async def get_sms_settings():
         "username": get_setting("sms_asanak_username", ""),
         "source": get_setting("sms_asanak_source", ""),
         "template_id": get_setting("sms_asanak_template_id", ""),
-        "invite_template_id": get_setting("sms_asanak_invite_template_id", ""),
-        "reject_template_id": get_setting("sms_asanak_reject_template_id", ""),
+        # sms_service.setting() (not get_setting()) on purpose: it resolves to
+        # the built-in default text when nothing is stored yet, so the admin
+        # panel shows a working example out of the box instead of an empty box.
+        "invite_text": sms_service.setting("sms_asanak_invite_text"),
+        "reject_text": sms_service.setting("sms_asanak_reject_text"),
         "daily_budget": get_setting("sms_daily_budget", "0"),
         # Today's spend, so the cap is a number the operator can see filling up
         # instead of a wall they hit during an event.
@@ -373,8 +376,8 @@ async def save_sms_settings(req: SmsSettingsRequest):
             "sms_asanak_api_key": req.api_key,
             "sms_asanak_source": req.source,
             "sms_asanak_template_id": req.template_id,
-            "sms_asanak_invite_template_id": req.invite_template_id,
-            "sms_asanak_reject_template_id": req.reject_template_id,
+            "sms_asanak_invite_text": req.invite_text,
+            "sms_asanak_reject_text": req.reject_text,
             "sms_daily_budget": budget,
             "sms_asanak_url": req.url,
             "sms_asanak_status_url": req.status_url,
