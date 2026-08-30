@@ -276,6 +276,38 @@
             </div>
         </div>
 
+        <!-- Critical alerts — the watchdog's "service is down" SMS. Outside
+             #sms-form on purpose (its own card), but the SAME save button
+             submits it: the JS assembles the body by input id, not by form. -->
+        <div class="content-card mt-4">
+            <div class="card-header">
+                <span><i class="fas fa-bell me-2"></i>هشدارهای بحرانی</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    این شماره فقط وقتی پیامک می‌گیرد که سرویس به‌کلی از دسترس خارج شود —
+                    نه برای خطاهای معمولی. خالی گذاشتن یعنی خاموش. با همان دکمهٔ
+                    «ذخیره تنظیمات» بالای همین صفحه ذخیره می‌شود.
+                </p>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="alert-critical-phone">شماره موبایل برای
+                            خبر فوری قطعی</label>
+                        <input type="text" id="alert-critical-phone" class="form-control" dir="ltr"
+                            placeholder="09121234567">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="alert-credit-threshold">حد هشدار اعتبار
+                            پیامک (تومان)</label>
+                        <input type="text" id="alert-credit-threshold" class="form-control"
+                            dir="ltr" inputmode="numeric" placeholder="300000">
+                        <small class="text-muted">اگر اعتبار پنل پیامک کمتر از این عدد شود،
+                            یک‌بار در روز پیامک یادآوری می‌آید.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Credit check — proves the account works without sending anything -->
         <div class="content-card mt-4">
             <div class="card-header">
