@@ -250,7 +250,6 @@ body {
     width: 100%;
     max-width: 800px;
     display: flex;
-    flex-direction: row-reverse;
     align-items: flex-end;
     gap: 8px;
     padding: 0.5rem;
