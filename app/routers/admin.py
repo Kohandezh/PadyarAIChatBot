@@ -711,6 +711,20 @@ _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _SAFE_LOGO_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
+def _require_safe_image_url(value: str, label: str) -> None:
+    """Scheme allowlist, not a denylist: `javascript:` and every exotic
+    scheme are rejected by construction. Site-relative (uploaded file) or
+    absolute http(s) only. A leading `//` is protocol-relative — an
+    EXTERNAL origin in disguise — so it is excluded from the site-relative
+    branch too. Used for every URL the branding form bakes into the public
+    chat page (logo, chat background, video background)."""
+    if value and (value.startswith("//")
+                  or not (value.startswith("/") or _SAFE_LOGO_RE.match(value))):
+        raise HTTPException(
+            status_code=400,
+            detail=f"نشانی {label} باید با / شروع شود یا یک آدرس کامل http/https باشد.")
+
+
 @router.get("/admin/api/branding", dependencies=[Depends(verify_admin)])
 async def get_branding_settings():
     """All keys with defaults filled in, so the form always shows the
@@ -736,6 +750,8 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         "white_color": req.white_color.strip(),
     }
     welcome = req.welcome_text.strip()
+    chat_bg = req.chat_background_url.strip()
+    video_bg = req.video_background_url.strip()
 
     # Backstop validation — the form's native color picker can only emit
     # #rrggbb, but this API is reachable by any admin tooling, and a bad
@@ -758,20 +774,16 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         raise HTTPException(
             status_code=400,
             detail="پیام خوش‌آمدگویی حداکثر می‌تواند ۳۰۰ نویسه باشد.")
-    # Scheme allowlist, not a denylist: `javascript:` and every exotic scheme
-    # are rejected by construction. Site-relative (uploaded logo) or absolute
-    # http(s) only. A leading `//` is protocol-relative — an EXTERNAL origin
-    # in disguise — so it is excluded from the site-relative branch too.
-    if logo and (logo.startswith("//")
-                 or not (logo.startswith("/") or _SAFE_LOGO_RE.match(logo))):
-        raise HTTPException(
-            status_code=400,
-            detail="نشانی لوگو باید با / شروع شود یا یک آدرس کامل http/https باشد.")
+    # Same URL rule for every image the form bakes into the public page.
+    _require_safe_image_url(logo, "لوگو")
+    _require_safe_image_url(chat_bg, "پس‌زمینهٔ چت")
+    _require_safe_image_url(video_bg, "پس‌زمینهٔ ویدیو")
 
     from app.services.branding import WL_FIELD_TO_KEY
     values = {
         "app_name": name, "subtitle": subtitle, "logo_url": logo,
-        "welcome_text": welcome, **colors,
+        "welcome_text": welcome, "chat_background_url": chat_bg,
+        "video_background_url": video_bg, **colors,
     }
     for field, key in WL_FIELD_TO_KEY.items():
         set_setting(key, values[field])

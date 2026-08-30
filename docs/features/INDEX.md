@@ -20,6 +20,7 @@ Central tracking for all features.
 | idle-time-avatar-video | Implemented | Ready | chat | 2026-08-30 | 2026-08-30 |
 | pwa_api | Implemented | Ready | pwa_api | 2026-08-30 | 2026-08-30 |
 | critical-watchdog | Implemented | Ready | infrastructure | 2026-08-30 | 2026-08-30 |
+| branding-backgrounds | Implemented | Ready | branding | 2026-08-30 | 2026-08-30 |
 
 ## Quick Features
 

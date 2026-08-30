@@ -21,9 +21,10 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-4">
-                    نام و رنگ‌های دلخواه خودتان را انتخاب کنید. همهٔ رنگ‌های تم اینجا قابل
-                    ویرایش هستند و در صفحهٔ چت اعمال می‌شوند؛ نام در پنل مدیریت هم اعمال
-                    می‌شود. اگر چیزی را تغییر ندهید، ظاهر فعلی دست‌نخورده می‌ماند.
+                    نام و رنگ‌های دلخواه خودتان را انتخاب کنید. همهٔ رنگ‌های تم و
+                    تصویر پس‌زمینهٔ چت و ویدیو اینجا قابل ویرایش هستند و در صفحهٔ
+                    چت اعمال می‌شوند؛ نام در پنل مدیریت هم اعمال می‌شود. اگر
+                    چیزی را تغییر ندهید، ظاهر فعلی دست‌نخورده می‌ماند.
                 </p>
                 <form id="branding-form">
                     <div class="row g-3">
@@ -107,6 +108,48 @@
                             <img id="brand-logo-preview" src="{{ branding.whitelabel_logo_url }}" alt=""
                                 height="48"
                                 {% if not branding.whitelabel_logo_url %}hidden{% endif %}
+                                class="border rounded bg-light p-1"
+                                onerror="this.hidden = true;">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="brand-chat-bg">پس‌زمینهٔ چت</label>
+                            <div class="input-group">
+                                <input type="text" id="brand-chat-bg" class="form-control" dir="ltr"
+                                    placeholder="مثلا: /media/uploads/bg.jpg"
+                                    value="{{ branding.whitelabel_chat_background_url }}">
+                                <button type="button" class="btn btn-outline-primary" id="chat-bg-upload-btn">
+                                    <i class="fas fa-upload me-1"></i>بارگذاری تصویر
+                                </button>
+                            </div>
+                            <input type="file" id="chat-bg-file-input" class="d-none"
+                                accept="image/png,image/jpeg,image/gif,image/webp">
+                            <small class="text-muted">تصویری که پشت گفتگو دیده می‌شود (PNG، JPG، WebP — حداکثر ۲ مگابایت).</small>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <img id="chat-bg-preview" src="{{ branding.whitelabel_chat_background_url }}" alt=""
+                                height="48"
+                                class="border rounded bg-light p-1"
+                                onerror="this.hidden = true;">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="brand-video-bg">پس‌زمینهٔ ویدیو</label>
+                            <div class="input-group">
+                                <input type="text" id="brand-video-bg" class="form-control" dir="ltr"
+                                    placeholder="مثلا: /media/uploads/bg.jpg"
+                                    value="{{ branding.whitelabel_video_background_url }}">
+                                <button type="button" class="btn btn-outline-primary" id="video-bg-upload-btn">
+                                    <i class="fas fa-upload me-1"></i>بارگذاری تصویر
+                                </button>
+                            </div>
+                            <input type="file" id="video-bg-file-input" class="d-none"
+                                accept="image/png,image/jpeg,image/gif,image/webp">
+                            <small class="text-muted">تصویری که پشت تب ویدیو دیده می‌شود. می‌توانید همان تصویر چت را بگذارید یا یک تصویر جدا انتخاب کنید.</small>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <img id="video-bg-preview" src="{{ branding.whitelabel_video_background_url }}" alt=""
+                                height="48"
                                 class="border rounded bg-light p-1"
                                 onerror="this.hidden = true;">
                         </div>

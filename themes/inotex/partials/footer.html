@@ -356,33 +356,16 @@
         });
     })();
 
-    // ── Video tab: the placeholder is a fallback, not a permanent overlay ──
-    // It hides only once the waiting clip is actually playing, so a missing or
-    // unplayable file leaves the explanatory card on screen instead of a black
-    // rectangle.
+    // ── Video tab sound toggle ──
+    // Muted is the only state autoplay allows, so the button starts
+    // pressed-off and the visitor's click is what unlocks audio.
+    // The choice is remembered, but a remembered "on" is only re-applied
+    // after the visitor interacts again — a page that starts making noise
+    // on load is the thing this control exists to prevent.
     (function () {
         const video = document.getElementById('avatar-video');
-        const placeholder = document.getElementById('video-placeholder');
-        if (!video || !placeholder) return;
+        if (!video) return;
 
-        // Hide as soon as there are real frames to show. 'playing' alone is
-        // not enough: autoplay may be blocked, or the clip may already be
-        // buffered and playing before this listener attaches, and either way
-        // the card would stay on top of the picture.
-        const hide = function () { placeholder.hidden = true; };
-        const show = function () { placeholder.hidden = false; };
-        ['playing', 'loadeddata', 'canplay'].forEach(function (evt) {
-            video.addEventListener(evt, hide);
-        });
-        video.addEventListener('error', show);
-        video.addEventListener('emptied', show);
-        if (video.readyState >= 2) hide();   // already buffered before we bound
-
-        // Sound toggle. Muted is the only state autoplay allows, so the button
-        // starts pressed-off and the visitor's click is what unlocks audio.
-        // The choice is remembered, but a remembered "on" is only re-applied
-        // after the visitor interacts again — a page that starts making noise
-        // on load is the thing this control exists to prevent.
         const soundBtn = document.getElementById('video-sound');
         if (soundBtn) {
             const label = function (on) {

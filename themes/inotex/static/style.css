@@ -22,6 +22,11 @@
     --inotex-dark-teal: var(--wl-dark-teal, #00644F);
     --inotex-background: var(--wl-background, #000000);
     --inotex-white: var(--wl-white, #FFFFFF);
+    /* Background photos behind the two tabs. Both ship the same brick
+       photo; Settings > Branding (پس‌زمینهٔ چت / پس‌زمینهٔ ویدیو) can point
+       each tab at its own image. */
+    --inotex-chat-bg: var(--wl-chat-background, url("/themes/inotex/static/bg-bricks.jpg"));
+    --inotex-video-bg: var(--wl-video-background, url("/themes/inotex/static/bg-bricks.jpg"));
 
     /* — Semantic mapping — */
     --color-page-background: var(--inotex-background);
@@ -97,11 +102,10 @@ body.video-mode div#text-view { width: 100%; }
 
 /* ── Page ─────────────────────────────────────────────────────────── */
 /* The body carries ONLY the base colour. The brick photo belongs to the
-   app's own surface (.app-layout) — the element that actually fills the
-   viewport — where it composes with the stud texture and the darkening
-   gradient in one coherent stack. On <body> it sat behind the whole
-   document (drawer included) and needed background-attachment: fixed,
-   which mobile Safari ignores — the wrong layer twice over. */
+   view area (.view-container) — the element the visitor actually reads —
+   where it composes with the stud texture and the darkening gradient in
+   one coherent stack. The header and the composer keep their own panel
+   surfaces, so the photo frames the conversation instead of the shell. */
 body {
     background-color: var(--color-page-background);
     color: var(--color-text-primary);
@@ -109,12 +113,22 @@ body {
 }
 
 /* Brick photo + subtle stud texture over it, darkened edge-to-edge.
-   The shell is exactly viewport-sized, so no attachment is needed. */
-.app-layout {
+   The image is the branding setting پس‌زمینهٔ چت; the video tab gets its
+   own (same form) below. */
+.view-container {
     background:
         radial-gradient(circle at center, rgba(45, 92, 167, 0.05) 1.2px, transparent 1.3px) 0 0 / 26px 26px,
         linear-gradient(rgba(0, 0, 0, .28), rgba(0, 0, 0, .42)),
-        url("/themes/inotex/static/bg-bricks.jpg") center bottom / cover no-repeat,
+        var(--inotex-chat-bg) center bottom / cover no-repeat,
+        var(--color-page-background);
+}
+
+/* The video tab paints its own photo — same stack, its own setting. */
+body.video-mode .view-container {
+    background:
+        radial-gradient(circle at center, rgba(45, 92, 167, 0.05) 1.2px, transparent 1.3px) 0 0 / 26px 26px,
+        linear-gradient(rgba(0, 0, 0, .28), rgba(0, 0, 0, .42)),
+        var(--inotex-video-bg) center bottom / cover no-repeat,
         var(--color-page-background);
 }
 
@@ -585,61 +599,6 @@ html[lang="en"] #user-input { padding-left: 38px; }
 .rayen-sidebar-foot img { border-radius: 4px; }
 
 /* ── Video view ───────────────────────────────────────────────────── */
-/* The placeholder overlays the (empty) video element instead of sitting
-   beside it in the flex row — keeps the card centred in the stage. */
-/* The placeholder is a FALLBACK for when no media is connected — it must
-   disappear the moment a video actually plays. `display: flex` below would
-   otherwise out-rank the `hidden` attribute the script sets, leaving this
-   card sitting on top of the playing video. */
-.video-placeholder[hidden] { display: none; }
-
-.video-placeholder {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    z-index: 5;
-}
-
-.video-placeholder-card {
-    background: linear-gradient(180deg, #223258F2, #17233FF2);
-    border: var(--border-width) solid var(--color-border-subtle);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--raised-depth);
-    padding: 34px 30px;
-    text-align: center;
-    max-width: 420px;
-    margin-inline: auto;
-    position: relative;
-}
-
-.video-placeholder-card::after {
-    /* teal base glow line — the "brick base plate" accent */
-    content: "";
-    position: absolute;
-    inset-inline: 22%;
-    bottom: -2px;
-    height: 3px;
-    border-radius: 3px;
-    background: linear-gradient(90deg, transparent, var(--inotex-teal), transparent);
-    opacity: .8;
-}
-
-.video-placeholder-mark { margin-bottom: 14px; }
-
-.video-placeholder-card p {
-    margin: 0 0 8px;
-    font-weight: 600;
-    color: var(--color-text-primary);
-}
-
-.video-placeholder-card span {
-    font-size: 12.5px;
-    color: var(--color-text-muted);
-}
-
 .action-btn {
     background: var(--color-surface-interactive);
     color: var(--color-text-primary);
@@ -1755,10 +1714,12 @@ body.light-mode {
     color: var(--color-text-primary);
 }
 
-/* The brick photo is a night scene; in daylight the surface is frosted
-   glass over a soft brand wash instead — all on .app-layout, where the
-   photo lives, so the shorthand genuinely replaces it. */
-body.light-mode .app-layout {
+/* The brick photo is a night scene; in daylight the view area is frosted
+   glass over a soft brand wash instead — on .view-container, where the
+   photo lives, so the shorthand genuinely replaces it. Sits after the
+   video-mode rule on purpose: a light-mode visitor gets the frosted look
+   on BOTH tabs, whichever is open. */
+body.light-mode .view-container {
     background:
         radial-gradient(circle at center, rgba(45, 92, 167, .07) 1.2px, transparent 1.3px) 0 0 / 26px 26px,
         linear-gradient(rgba(255, 255, 255, .5), rgba(255, 255, 255, .3)),
@@ -1854,10 +1815,6 @@ body.light-mode .pet-form textarea {
 }
 
 body.light-mode .reg-overlay { background: #0B172FA8; }
-body.light-mode .video-placeholder-card {
-    background: linear-gradient(180deg, #FFFFFFF2, #F2F7FFF2);
-    border-color: #B9CDEC;
-}
 
 /* The toggle shows the mode that is ACTIVE, so the icons swap with it. */
 /* The icon shows the mode you are IN, and only ever one of the two is in the

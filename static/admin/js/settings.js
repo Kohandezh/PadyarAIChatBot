@@ -596,14 +596,18 @@ function applyBranding(d) {
     document.getElementById('brand-white').value = d.whitelabel_white_color || '#FFFFFF';
     document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
     document.getElementById('brand-logo').value = d.whitelabel_logo_url || '';
-    updateLogoPreview();
+    document.getElementById('brand-chat-bg').value = d.whitelabel_chat_background_url || '';
+    document.getElementById('brand-video-bg').value = d.whitelabel_video_background_url || '';
+    updateImagePreview('brand-logo', 'brand-logo-preview');
+    updateImagePreview('brand-chat-bg', 'chat-bg-preview');
+    updateImagePreview('brand-video-bg', 'video-bg-preview');
 }
 
-// The preview mirrors the input live — the operator sees the logo they are
+// The preview mirrors the input live — the operator sees the image they are
 // about to save, not the one already stored. A broken URL just hides it.
-function updateLogoPreview() {
-    const url = document.getElementById('brand-logo').value.trim();
-    const img = document.getElementById('brand-logo-preview');
+function updateImagePreview(urlInputId, previewId) {
+    const url = document.getElementById(urlInputId).value.trim();
+    const img = document.getElementById(previewId);
     if (!url) { img.hidden = true; img.removeAttribute('src'); return; }
     img.hidden = false;
     img.src = url;
@@ -617,52 +621,65 @@ async function loadBranding() {
     } catch { /* form keeps its server-rendered values */ }
 }
 
+// One wiring for every branding image field (logo, chat background, video
+// background): pick a file → validated server-side (magic bytes) → the URL
+// lands in the field → the operator still presses «ذخیره برندینگ».
+function wireImageUpload({ urlInputId, previewId, uploadBtnId, fileInputId }) {
+    const uploadBtn = document.getElementById(uploadBtnId);
+    const fileInput = document.getElementById(fileInputId);
+    if (!uploadBtn || !fileInput) return;
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        fileInput.value = '';
+        if (!file) return;
+        if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
+            showMsg('branding-msg', 'فقط تصویر (PNG، JPG، GIF، WebP) قابل بارگذاری است', 'danger');
+            return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+            showMsg('branding-msg', 'حجم تصویر حداکثر می‌تواند ۲ مگابایت باشد', 'danger');
+            return;
+        }
+        uploadBtn.disabled = true;
+        showMsg('branding-msg', '⏳ در حال بارگذاری...', 'muted');
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetchAuth('/admin/api/upload_logo', { method: 'POST', body: fd });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                document.getElementById(urlInputId).value = data.url || '';
+                updateImagePreview(urlInputId, previewId);
+                showMsg('branding-msg', 'تصویر بارگذاری شد — برای اعمال، «ذخیره برندینگ» را بزنید', 'success');
+            } else {
+                showMsg('branding-msg', data.detail || 'بارگذاری ناموفق بود', 'danger');
+            }
+        } catch {
+            showMsg('branding-msg', 'خطای ارتباط با سرور', 'danger');
+        } finally {
+            uploadBtn.disabled = false;
+        }
+    });
+}
+
 export function initBranding() {
     loadProfile();
     const form = document.getElementById('branding-form');
     if (!form) return;
     loadBranding();
-    document.getElementById('brand-logo').addEventListener('input', updateLogoPreview);
-
-    // Logo upload: pick a file → validated server-side (magic bytes) → the
-    // URL lands in the field → the operator still presses «ذخیره برندینگ».
-    const uploadBtn = document.getElementById('logo-upload-btn');
-    const fileInput = document.getElementById('logo-file-input');
-    if (uploadBtn && fileInput) {
-        uploadBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', async () => {
-            const file = fileInput.files[0];
-            fileInput.value = '';
-            if (!file) return;
-            if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
-                showMsg('branding-msg', 'فقط تصویر (PNG، JPG، GIF، WebP) قابل بارگذاری است', 'danger');
-                return;
-            }
-            if (file.size > 2 * 1024 * 1024) {
-                showMsg('branding-msg', 'حجم لوگو حداکثر می‌تواند ۲ مگابایت باشد', 'danger');
-                return;
-            }
-            uploadBtn.disabled = true;
-            showMsg('branding-msg', '⏳ در حال بارگذاری...', 'muted');
-            try {
-                const fd = new FormData();
-                fd.append('file', file);
-                const res = await fetchAuth('/admin/api/upload_logo', { method: 'POST', body: fd });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok) {
-                    document.getElementById('brand-logo').value = data.url || '';
-                    updateLogoPreview();
-                    showMsg('branding-msg', 'تصویر بارگذاری شد — برای اعمال، «ذخیره برندینگ» را بزنید', 'success');
-                } else {
-                    showMsg('branding-msg', data.detail || 'بارگذاری ناموفق بود', 'danger');
-                }
-            } catch {
-                showMsg('branding-msg', 'خطای ارتباط با سرور', 'danger');
-            } finally {
-                uploadBtn.disabled = false;
-            }
-        });
-    }
+    document.getElementById('brand-logo').addEventListener('input',
+        () => updateImagePreview('brand-logo', 'brand-logo-preview'));
+    document.getElementById('brand-chat-bg').addEventListener('input',
+        () => updateImagePreview('brand-chat-bg', 'chat-bg-preview'));
+    document.getElementById('brand-video-bg').addEventListener('input',
+        () => updateImagePreview('brand-video-bg', 'video-bg-preview'));
+    wireImageUpload({ urlInputId: 'brand-logo', previewId: 'brand-logo-preview',
+                      uploadBtnId: 'logo-upload-btn', fileInputId: 'logo-file-input' });
+    wireImageUpload({ urlInputId: 'brand-chat-bg', previewId: 'chat-bg-preview',
+                      uploadBtnId: 'chat-bg-upload-btn', fileInputId: 'chat-bg-file-input' });
+    wireImageUpload({ urlInputId: 'brand-video-bg', previewId: 'video-bg-preview',
+                      uploadBtnId: 'video-bg-upload-btn', fileInputId: 'video-bg-file-input' });
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -685,6 +702,8 @@ export function initBranding() {
                     background_color: document.getElementById('brand-background').value,
                     white_color: document.getElementById('brand-white').value,
                     welcome_text: document.getElementById('brand-welcome').value.trim(),
+                    chat_background_url: document.getElementById('brand-chat-bg').value.trim(),
+                    video_background_url: document.getElementById('brand-video-bg').value.trim(),
                 }),
             });
             let detail = '';

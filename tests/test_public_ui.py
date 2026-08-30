@@ -164,6 +164,54 @@ def test_theme_json_matches_the_official_palette():
     assert colors["accent"].lower() == "#1e2d52"
 
 
+# ── Backgrounds + landing tab (owner requests, 2026-08-30) ───────────────
+
+def test_tab_backgrounds_are_branding_tokens_on_the_view_area():
+    """The brick photo moved from .app-layout to .view-container and both tab
+    backgrounds feed from whitelabel --wl-* custom properties (Settings >
+    Branding owns them), with the shipped photo as the var() fallback."""
+    css = read(INOTEX / "static" / "style.css")
+    for token in (
+        '--inotex-chat-bg: var(--wl-chat-background, url("/themes/inotex/static/bg-bricks.jpg"))',
+        '--inotex-video-bg: var(--wl-video-background, url("/themes/inotex/static/bg-bricks.jpg"))',
+    ):
+        assert token in css, f"missing background token: {token}"
+    # The stack paints the VIEW area, not the shell…
+    assert ".view-container {" in css
+    assert "body.video-mode .view-container {" in css
+    # …and the shell no longer hardcodes the photo as a direct layer.
+    assert ".app-layout {" not in css
+
+
+def test_inotex_lands_on_the_video_tab():
+    """First paint opens the video tab (owner request, 2026-08-30): the video
+    view is the one marked `active` in markup and the segmented control's
+    checked radio is video — core.js reads exactly this (initialView) and
+    confirms the same choice."""
+    video = read(INOTEX / "partials" / "video.html")
+    messages = read(INOTEX / "partials" / "messages.html")
+    header = read(INOTEX / "partials" / "header.html")
+    assert 'id="video-view" class="tab-view active"' in video
+    assert 'id="text-view" class="tab-view active"' not in messages
+    assert 'id="text-view" class="tab-view"' in messages
+    assert header.count("checked") == 1, "exactly one radio pre-checked"
+    assert 'value="video" c-option="2" checked' in header, "video is the checked one"
+
+
+def test_video_placeholder_card_is_gone():
+    """The explanatory placeholder card was removed at the owner's request
+    (2026-08-30): the video stage shows the (now customizable) background and
+    the avatar video — no markup, no CSS, no JS left behind, in the theme or
+    in the base skeleton that future themes inherit."""
+    for partial in (INOTEX / "partials" / "video.html",
+                    ROOT / "themes" / "base" / "partials" / "video.html"):
+        assert "video-placeholder" not in read(partial), partial
+    css = read(INOTEX / "static" / "style.css")
+    assert "video-placeholder" not in css
+    footer = read(INOTEX / "partials" / "footer.html")
+    assert "video-placeholder" not in footer
+
+
 # ── R2: original video + chat structure, no remote media ───────────────
 
 def test_active_theme_inherits_video_and_chat_layout():

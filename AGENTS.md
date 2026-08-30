@@ -255,27 +255,13 @@ Core modules always load. Optional modules load only when listed in `ENABLED_MOD
 
 This is a CMS installed per-customer — branding customization is a first-class feature.
 
-**Storage:** Key-value `settings` table with `whitelabel_` prefix. Follows WordPress `wp_options` pattern.
+**Storage:** Key-value `settings` table with `whitelabel_` prefix. **`app/services/branding.py` (`WL_DEFAULTS`) is the single source of truth** — the full, current key table (name, subtitle, logo URL, the 8 palette colors, welcome text, chat + video background URLs) is in `CLAUDE.md` under "White-Label / Branding System".
 
-| Key                        | Default           | Description          |
-| -------------------------- | ----------------- | -------------------- |
-| `whitelabel_app_name`      | `پادیار ویدیو چت` | App display name     |
-| `whitelabel_logo_url`      | `/LOGO/logo.jpg`  | Logo image URL       |
-| `whitelabel_favicon_url`   | (none)            | Favicon URL          |
-| `whitelabel_primary_color` | `#4f46e5`         | Primary brand color  |
-| `whitelabel_accent_color`  | `#10b981`         | Accent color         |
-| `whitelabel_sidebar_color` | `#1e1b4b`         | Admin sidebar color  |
-| `whitelabel_welcome_text`  | (default)         | Chat welcome message |
-| `whitelabel_footer_text`   | (default)         | Footer text          |
-| `whitelabel_custom_css`    | (empty)           | Extra CSS override   |
-
-**Template injection:** Starlette `context_processors` inject branding into all Jinja2 templates automatically. No need to pass variables to every `render()` call.
-
-**Dynamic CSS:** A `/theme.css` endpoint (FastAPI `Response` with `media_type="text/css"`) generates CSS custom properties from DB values. Both admin and chat UI use `var(--brand-primary)` etc.
+**Template injection:** `branding.chat_branding_context()` pre-escapes every value for the theme env's `autoescape=False` and emits `wl_style` (one `--wl-*` custom property per token, including the two `url("…")` background tokens), `wl_brand_script`, and the text positions. Brand values are baked into the rendered-page cache; `wl_cache_key()` flips the key on save.
 
 **Color picker:** Native `<input type="color">` — zero dependencies, outputs `#rrggbb` hex.
 
-**Public chat UI:** String-replacement pattern (`html.replace("<!-- APP_NAME -->", app_name)`) since themes use raw HTML, not Jinja2.
+**Backgrounds:** `whitelabel_chat_background_url` / `whitelabel_video_background_url` — the images behind the two tabs, painted on `.view-container` (dark mode; light mode keeps its frosted wash). Set in Settings > Branding, same upload pattern as the logo.
 
 ### Database (PostgreSQL 16 — schemas `app` + `observability`)
 

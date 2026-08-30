@@ -46,6 +46,11 @@ WL_DEFAULTS = {
     "whitelabel_background_color": "#000000",
     "whitelabel_white_color": "#FFFFFF",
     "whitelabel_welcome_text": "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید.",
+    # Background images behind the two tabs (the theme paints them on
+    # .view-container). Same shipped photo for both, so an install that
+    # never opens the form renders today's pixels. Empty = the default.
+    "whitelabel_chat_background_url": "/themes/inotex/static/bg-bricks.jpg",
+    "whitelabel_video_background_url": "/themes/inotex/static/bg-bricks.jpg",
 }
 
 # The stored form fields (admin API / form) map 1:1 onto the keys above.
@@ -62,7 +67,27 @@ WL_FIELD_TO_KEY = {
     "background_color": "whitelabel_background_color",
     "white_color": "whitelabel_white_color",
     "welcome_text": "whitelabel_welcome_text",
+    "chat_background_url": "whitelabel_chat_background_url",
+    "video_background_url": "whitelabel_video_background_url",
 }
+
+
+def _css_url(value: str) -> str:
+    """Wrap a URL as a CSS url("...") token that cannot break out.
+
+    html.escape is WRONG here: <style> is a raw-text element, entities are
+    not decoded inside it, so &quot; would reach the browser literally and
+    an & in a query string would survive as &amp;. CSS-string escaping
+    (backslash, both quotes, newlines) plus the `</` guard is the correct
+    sanitization for this position.
+    """
+    safe = (value.replace("\\", "\\\\")
+                 .replace('"', '\\"')
+                 .replace("'", "\\'")
+                 .replace("\n", " ")
+                 .replace("\r", " ")
+                 .replace("</", "<\\/"))
+    return f'url("{safe}")'
 
 
 def get_branding() -> dict:
@@ -120,9 +145,10 @@ def chat_branding_context() -> dict:
         "wl_welcome": esc(b["whitelabel_welcome_text"]),
         "wl_logo_url": esc(b["whitelabel_logo_url"]),
         # Ready-made tags, emitted raw by head.html. One --wl-* custom
-        # property per palette token; themes map their own --{theme}-*
-        # tokens onto these (with the official palette as var() fallback),
-        # so Settings > Branding controls every theme color.
+        # property per palette token plus the two background images; themes
+        # map their own --{theme}-* tokens onto these (with the official
+        # palette as var() fallback), so Settings > Branding controls every
+        # theme color and both tab backgrounds.
         "wl_style": (
             "<style>:root{"
             f"--wl-primary:{esc(b['whitelabel_primary_color'])};"
@@ -133,6 +159,8 @@ def chat_branding_context() -> dict:
             f"--wl-dark-teal:{esc(b['whitelabel_dark_teal_color'])};"
             f"--wl-background:{esc(b['whitelabel_background_color'])};"
             f"--wl-white:{esc(b['whitelabel_white_color'])};"
+            f"--wl-chat-background:{_css_url(b['whitelabel_chat_background_url'])};"
+            f"--wl-video-background:{_css_url(b['whitelabel_video_background_url'])};"
             "}</style>"
         ),
         "wl_brand_script": f"<script>window.PADYAR_BRAND={brand_json};</script>",
