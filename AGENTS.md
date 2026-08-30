@@ -169,8 +169,8 @@ PadyarAIChatbot/
   static/vendor/                 # Bootstrap, Chart.js, FontAwesome, Vazirmatn, marked.js
 
   themes/                        # Pluggable chat UI themes
-    liquid-glass/                # Default — Apple-inspired frosted glass
-    minimal/                     # Clean minimal theme
+    inotex/                      # The only selectable theme (official INOTEX palette)
+    base/                        # Default partials only — not selectable
 
   data/                          # Knowledge base
     dataset.json                 # ~70 Q&A entries with video URLs
@@ -304,9 +304,26 @@ This is a CMS installed per-customer — branding customization is a first-class
 
 ### Theme System
 
-WordPress-style partials in `/themes/{name}/`: each has `theme.json`, a `partials/` folder overriding only what differs from `themes/base/partials/`, and `static/style.css`. Auto-discovered at startup, no registration needed. Active theme stored in DB settings (`active_theme`). Selectable: `inotex` (default), `liquid-glass`, `minimal`, `haj`. `base` supplies the default partials only, not selectable itself. A `"parent"` field in `theme.json` chains inheritance before falling back to base.
+WordPress-style partials in `/themes/{name}/`: each has `theme.json`, a `partials/` folder overriding only what differs from `themes/base/partials/`, and `static/style.css`. Auto-discovered at startup, no registration needed. Active theme stored in DB settings (`active_theme`). Selectable: `inotex` only (the other themes — `liquid-glass`, `minimal`, `haj` — were removed on 2026-08-30). `base` supplies the default partials only, not selectable itself. A `"parent"` field in `theme.json` chains inheritance before falling back to base.
 
-`menu.html` (the hamburger drawer) becomes a persistent, collapsible sidebar at 992px+. Its logo sits in one of two places depending on the theme: `base`/`minimal`/`liquid-glass` keep a separate `.menu-sidebar-logo` next to the title and a compact stand-in logo on `.menu-sidebar-toggle-btn` for the collapsed rail only; `inotex` instead puts the full brand mark inside `.menu-sidebar-toggle-btn` at all times, expanded or collapsed (its own `style.css` overrides `base.css` for this). Follow whichever pattern the theme you are editing already uses — the two are not interchangeable, and a fix belongs in that theme's own `style.css`, not in `base.css`.
+`menu.html` (the hamburger drawer) becomes a persistent, collapsible sidebar at 992px+. `base` keeps a separate `.menu-sidebar-logo` next to the title and a compact stand-in logo on `.menu-sidebar-toggle-btn` for the collapsed rail only; `inotex` instead puts the full brand mark inside `.menu-sidebar-toggle-btn` at all times, expanded or collapsed (its own `style.css` overrides `base.css` for this). Follow whichever pattern the theme you are editing already uses — the two are not interchangeable, and a fix belongs in that theme's own `style.css`, not in `base.css`.
+
+#### قاعدهٔ الزامی برای تم‌های جدید (رنگ‌ها)
+
+> **همهٔ رنگ‌های هر تم باید از داخل «تنظیمات > برندینگ» قابل ویرایش باشند.**
+>
+> وقتی تم جدیدی اضافه می‌کنید، هیچ رنگی نباید فقط داخل فایل CSS تم قفل شود.
+> تم باید همهٔ توکن‌های رنگی خود را از متغیرهای `--wl-*` بخواند (با فالبکِ
+> پالت پیش‌فرض در `var()`)، همان الگویی که `themes/inotex/static/style.css`
+> استفاده می‌کند. این متغیرها از `app/services/branding.py`
+> (`WL_DEFAULTS` → `wl_style`) به صفحه تزریق می‌شوند و ادمین آن‌ها را در
+> «تنظیمات > برندینگ» با کالرپیکر تغییر می‌دهد. اگر تم جدید توکن رنگی جدیدی
+> دارد: کلید `whitelabel_*` جدید را در `branding.py`
+> (`WL_DEFAULTS` + `WL_FIELD_TO_KEY`)، در `WhitelabelBrandingRequest`
+> (`app/models.py`)، در اعتبارسنجی `app/routers/admin.py` و در فرم
+> `templates/admin/settings_branding.html` + `static/admin/js/settings.js`
+> اضافه کنید. تست `tests/test_public_ui.py::test_inotex_theme_uses_official_palette_tokens`
+> همین قاعده را برای تم اینوتکس نگه می‌دارد؛ برای تم جدید هم تست مشابه بنویسید.
 
 ## Key Files
 
@@ -400,8 +417,9 @@ record of the scenario.
 
 ### New Theme
 
-1. Create `/themes/{name}/` with `theme.json`, `index.html`, `static/style.css`, `screenshot.png`
+1. Create `/themes/{name}/` with `theme.json`, `partials/` (override only what differs from `themes/base/partials/`), `static/style.css`, `screenshot.png`
 2. Auto-discovered at startup — no registration needed
+3. **Read the «قاعدهٔ الزامی برای تم‌های جدید» rule under Theme System first:** every theme color must read from the `--wl-*` branding tokens so Settings > Branding controls the full palette
 
 ### Database Changes
 

@@ -21,8 +21,9 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-4">
-                    نام و رنگ‌های دلخواه خودتان را انتخاب کنید. این تنظیمات در صفحهٔ چت و نام
-                    پنل مدیریت اعمال می‌شود. اگر چیزی را تغییر ندهید، ظاهر فعلی دست‌نخورده می‌ماند.
+                    نام و رنگ‌های دلخواه خودتان را انتخاب کنید. همهٔ رنگ‌های تم اینجا قابل
+                    ویرایش هستند و در صفحهٔ چت اعمال می‌شوند؛ نام در پنل مدیریت هم اعمال
+                    می‌شود. اگر چیزی را تغییر ندهید، ظاهر فعلی دست‌نخورده می‌ماند.
                 </p>
                 <form id="branding-form">
                     <div class="row g-3">
@@ -41,14 +42,44 @@
                             <small class="text-muted">متن کوچکی که کنار نام دستیار در بالای صفحهٔ گفتگو دیده می‌شود.</small>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label" for="brand-primary">رنگ اصلی</label>
+                            <label class="form-label" for="brand-primary">رنگ اصلی (آبی)</label>
                             <input type="color" id="brand-primary" class="form-control form-control-color w-100"
                                 value="{{ branding.whitelabel_primary_color }}">
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label" for="brand-accent">رنگ تأکیدی</label>
+                            <label class="form-label" for="brand-accent">رنگ تأکیدی (زرد)</label>
                             <input type="color" id="brand-accent" class="form-control form-control-color w-100"
                                 value="{{ branding.whitelabel_accent_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-yellow-light">زرد روشن (هاور)</label>
+                            <input type="color" id="brand-yellow-light" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_yellow_light_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-navy">سرمه‌ای (پنل‌ها)</label>
+                            <input type="color" id="brand-navy" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_navy_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-teal">سبزآبی (موفقیت)</label>
+                            <input type="color" id="brand-teal" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_teal_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-dark-teal">سبزآبی تیره</label>
+                            <input type="color" id="brand-dark-teal" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_dark_teal_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-background">پس‌زمینهٔ صفحه</label>
+                            <input type="color" id="brand-background" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_background_color }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="brand-white">متن اصلی (سفید)</label>
+                            <input type="color" id="brand-white" class="form-control form-control-color w-100"
+                                value="{{ branding.whitelabel_white_color }}">
                         </div>
 
                         <div class="col-12">

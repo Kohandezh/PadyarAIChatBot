@@ -1,4 +1,4 @@
-"""White-label branding: the 6 real `whitelabel_*` keys, one source of truth.
+"""White-label branding: the real `whitelabel_*` keys, one source of truth.
 
 This is a CMS installed per-customer, so the install's own name, colours,
 welcome text and optional logo live in the `settings` table — never in code
@@ -23,10 +23,13 @@ Escaping contract — read before touching anything here:
 import html
 import json
 
-# Exactly 6 keys — the whole white-label surface. Colors match the historical
-# leads.py defaults (primary=blue / accent=yellow) so /v pages are unchanged;
-# the name is unified to the chat's own name per the owner decision (the three
-# surfaces used to hardcode three different names).
+# The whole white-label surface. Colors match the historical leads.py
+# defaults (primary=blue / accent=yellow) so /v pages are unchanged; the
+# remaining six --wl-* tokens feed the theme's full palette (see
+# chat_branding_context below) so Settings > Branding controls EVERY theme
+# color; the name is unified to the chat's own name per the owner decision
+# (the three surfaces used to hardcode three different names). The subtitle
+# is the small line under the chat title (default keeps today's pixels).
 WL_DEFAULTS = {
     "whitelabel_app_name": "دستیار پادیار",
     # The small line under the chat title. The default keeps today's pixels:
@@ -36,6 +39,12 @@ WL_DEFAULTS = {
     "whitelabel_logo_url": "",
     "whitelabel_primary_color": "#2D5CA7",
     "whitelabel_accent_color": "#FCB715",
+    "whitelabel_yellow_light_color": "#FEBE27",
+    "whitelabel_navy_color": "#1E2D52",
+    "whitelabel_teal_color": "#04A584",
+    "whitelabel_dark_teal_color": "#00644F",
+    "whitelabel_background_color": "#000000",
+    "whitelabel_white_color": "#FFFFFF",
     "whitelabel_welcome_text": "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید.",
 }
 
@@ -46,6 +55,12 @@ WL_FIELD_TO_KEY = {
     "logo_url": "whitelabel_logo_url",
     "primary_color": "whitelabel_primary_color",
     "accent_color": "whitelabel_accent_color",
+    "yellow_light_color": "whitelabel_yellow_light_color",
+    "navy_color": "whitelabel_navy_color",
+    "teal_color": "whitelabel_teal_color",
+    "dark_teal_color": "whitelabel_dark_teal_color",
+    "background_color": "whitelabel_background_color",
+    "white_color": "whitelabel_white_color",
     "welcome_text": "whitelabel_welcome_text",
 }
 
@@ -104,11 +119,20 @@ def chat_branding_context() -> dict:
         "wl_subtitle": esc(b["whitelabel_subtitle"]),
         "wl_welcome": esc(b["whitelabel_welcome_text"]),
         "wl_logo_url": esc(b["whitelabel_logo_url"]),
-        # Ready-made tags, emitted raw by head.html.
+        # Ready-made tags, emitted raw by head.html. One --wl-* custom
+        # property per palette token; themes map their own --{theme}-*
+        # tokens onto these (with the official palette as var() fallback),
+        # so Settings > Branding controls every theme color.
         "wl_style": (
             "<style>:root{"
             f"--wl-primary:{esc(b['whitelabel_primary_color'])};"
             f"--wl-accent:{esc(b['whitelabel_accent_color'])};"
+            f"--wl-yellow-light:{esc(b['whitelabel_yellow_light_color'])};"
+            f"--wl-navy:{esc(b['whitelabel_navy_color'])};"
+            f"--wl-teal:{esc(b['whitelabel_teal_color'])};"
+            f"--wl-dark-teal:{esc(b['whitelabel_dark_teal_color'])};"
+            f"--wl-background:{esc(b['whitelabel_background_color'])};"
+            f"--wl-white:{esc(b['whitelabel_white_color'])};"
             "}</style>"
         ),
         "wl_brand_script": f"<script>window.PADYAR_BRAND={brand_json};</script>",

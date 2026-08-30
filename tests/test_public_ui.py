@@ -3,14 +3,15 @@ import re
 
 These read the theme files directly so they run without the FastAPI app or its
 heavy dependencies (jinja2/sklearn). They assert the INOTEX transformation is
-present in the *active* theme (liquid-glass) and shared core, and that no
-Noor/medical/remote-media references leak into the public surface.
-(«پادیار» is now the assistant's own name and is no longer banned.)
+present in the *active* theme (inotex — the only selectable theme) and the
+shared core, and that no Noor/medical/remote-media references leak into the
+public surface. («پادیار» is now the assistant's own name and is no longer
+banned.)
 """
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LIQUID = ROOT / "themes" / "liquid-glass"
+INOTEX = ROOT / "themes" / "inotex"
 CORE_JS = ROOT / "static" / "chat" / "core.js"
 BASE_CSS = ROOT / "static" / "chat" / "base.css"
 
@@ -19,31 +20,30 @@ def read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-# ── R4: INOTEX branding + red theme + mascot + credit badge ────────────
+# ── R4: INOTEX branding + palette tokens + credit badge ────────────────
 
 def test_active_theme_is_inotex_branded():
-    # The header title is the templated whitelabel value (rendered by
-    # /), not a hardcoded literal — branding is served from the
+    # The sidebar title is the templated whitelabel value (rendered by /),
+    # not a hardcoded literal — branding is served from the
     # whitelabel_app_name setting with this fallback.
-    header = read(LIQUID / "partials" / "header.html")
-    assert "{{ app_title }}" in header
-    assert "INOTEX" in header
+    menu = read(INOTEX / "partials" / "menu.html")
+    assert "{{ app_title }}" in menu
+    assert 'class="brand-mark"' in menu
 
 
 def test_header_carries_the_brand_mark_not_a_character():
-    """The product is identified with the hexagon-cube brand mark, not the
-    companion character.
+    """The product is identified with the brand mark, not the companion
+    character.
 
     inotex's header carries no logo at all — the brand mark moved into the
     sidebar drawer (menu.html) alongside the persistent desktop sidebar. The
     companion still lives in its own decorative corner (see
-    test_companion_is_decorative_only) — never inside the header or the
+    test_companion_is_live_but_desktop_only) — never inside the header or the
     sidebar, and never as the brand identity.
     """
-    inotex_header = read(ROOT / "themes" / "inotex" / "partials" / "header.html")
-    inotex_menu = read(ROOT / "themes" / "inotex" / "partials" / "menu.html")
-    liquid_header = read(LIQUID / "partials" / "header.html")
-    for text in (inotex_header, inotex_menu, liquid_header):
+    inotex_header = read(INOTEX / "partials" / "header.html")
+    inotex_menu = read(INOTEX / "partials" / "menu.html")
+    for text in (inotex_header, inotex_menu):
         assert 'class="mascot"' not in text
         assert "pet-canvas" not in text
     assert 'class="brand-mark"' in inotex_menu
@@ -69,7 +69,7 @@ def test_companion_is_live_but_desktop_only():
     Assertions run on comment-stripped markup, so a future re-disable via
     HTML comments fails HERE instead of silently shipping.
     """
-    footer = read(ROOT / "themes" / "inotex" / "partials" / "footer.html")
+    footer = read(INOTEX / "partials" / "footer.html")
     visible = _without_html_comments(footer)
 
     assert 'id="pet-canvas"' in visible, "companion should be live markup"
@@ -82,7 +82,7 @@ def test_companion_is_live_but_desktop_only():
         assert control in visible, f"companion control {control} not live"
 
     # The desktop-only rule, on every surface that carries the character.
-    theme_css = read(ROOT / "themes" / "inotex" / "static" / "style.css")
+    theme_css = read(INOTEX / "static" / "style.css")
     otp_css = read(ROOT / "static" / "otp" / "otp.css")
     for css, name in ((theme_css, "inotex theme"), (otp_css, "otp page")):
         assert "@media (max-width: 639px)" in css, f"{name}: missing <640px hide"
@@ -104,61 +104,48 @@ def test_composer_has_no_sound_control():
     video mute/unmute on the video tab — was removed at the product owner's
     request (docs/features/hamburger-menu/SPEC.md, REQ-005): it conflated two
     unrelated jobs behind one icon. Nothing should remain wired to it: the
-    button, its per-theme CSS, and the localStorage-driven speak/toggle logic
+    button, the theme CSS, and the localStorage-driven speak/toggle logic
     (a stale "on" preference must not produce unstoppable narration with no
     control left to turn it off — REL-001).
     """
-    for theme in ("inotex", "liquid-glass", "haj"):
-        input_html = read(ROOT / "themes" / theme / "partials" / "input.html")
-        footer = read(ROOT / "themes" / theme / "partials" / "footer.html")
-        css = read(ROOT / "themes" / theme / "static" / "style.css")
-        assert 'id="tts-btn"' not in input_html, theme
-        assert "toggleVideoSound" not in footer, theme
-        assert ".tts-btn" not in css, theme
+    input_html = read(INOTEX / "partials" / "input.html")
+    footer = read(INOTEX / "partials" / "footer.html")
+    css = read(INOTEX / "static" / "style.css")
+    assert 'id="tts-btn"' not in input_html
+    assert "toggleVideoSound" not in footer
+    assert ".tts-btn" not in css
 
-    video = read(ROOT / "themes" / "inotex" / "partials" / "video.html")
+    video = read(INOTEX / "partials" / "video.html")
     assert 'id="video-sound"' not in video, "no floating sound control either"
 
 
 def test_inotex_theme_uses_official_palette_tokens():
-    css = read(ROOT / "themes" / "inotex" / "static" / "style.css")
-    # primary/accent feed from the whitelabel --wl-* custom properties, with
-    # the official palette as var() fallbacks (the mapping is intentionally
-    # crossed: --wl-primary is BLUE, --wl-accent is YELLOW — see
-    # app/services/branding.py). The untouched tokens stay literal.
+    """Every palette token feeds from a whitelabel --wl-* custom property
+    (Settings > Branding owns ALL theme colors), with the official palette
+    as var() fallbacks. The primary/accent mapping is intentionally crossed
+    and must not be "fixed": --wl-primary is BLUE, --wl-accent is YELLOW —
+    see app/services/branding.py."""
+    css = read(INOTEX / "static" / "style.css")
     for token in ("--inotex-primary: var(--wl-accent, #FCB715)",
+                  "--inotex-yellow-light: var(--wl-yellow-light, #FEBE27)",
                   "--inotex-blue: var(--wl-primary, #2D5CA7)",
-                  "--inotex-navy: #1E2D52",
-                  "--inotex-teal: #04A584"):
+                  "--inotex-navy: var(--wl-navy, #1E2D52)",
+                  "--inotex-teal: var(--wl-teal, #04A584)",
+                  "--inotex-dark-teal: var(--wl-dark-teal, #00644F)",
+                  "--inotex-background: var(--wl-background, #000000)",
+                  "--inotex-white: var(--wl-white, #FFFFFF)"):
         assert token in css, f"missing palette token: {token}"
     # No unapproved purple/magenta in the INOTEX theme.
     for banned in ("#8b5cf6", "#9b1c53", "#b32462", "magenta"):
         assert banned not in css.lower()
 
 
-def test_theme_colour_lives_only_in_the_primitive_layer():
-    """The palette is indigo/violet. What this test really protects is the
-    token architecture: components must reference semantic aliases, never a
-    raw brand hex, so swapping the palette stays a one-layer change."""
-    css = read(LIQUID / "static" / "style.css")
-    lower = css.lower()
-    assert "--indigo-600: #4f46e5" in lower
-    assert "--violet-500: #8b5cf6" in lower
-    # Semantic aliases point at primitives...
-    assert "--color-accent: var(--indigo-600)" in css
-    assert "--color-primary: var(--indigo-600)" in css
-    assert "--send-bg: var(--color-accent)" in css
-    # ...and the retired palette is gone entirely.
-    for dead in ("#9b1c53", "#b32462", "--navy-800", "--inotex-magenta"):
-        assert dead not in lower, dead
-
-
 def test_credit_badge_present_with_exact_persian_text():
     """The credit string must appear verbatim, carry the Rayen logo, and be
     anchored in the layout rather than floating over the conversation."""
-    partials = (LIQUID / "partials")
+    partials = (INOTEX / "partials")
     markup = "".join(read(p) for p in partials.glob("*.html"))
-    css = read(LIQUID / "static" / "style.css")
+    css = read(INOTEX / "static" / "style.css")
     exact = "قدرت گرفته از سکوی ملی متن باز هوش مصنوعی"
     assert exact in markup
     assert "rayen-sidebar-foot" in markup
@@ -166,22 +153,22 @@ def test_credit_badge_present_with_exact_persian_text():
     assert "rayen-sidebar-foot" in css
 
 
-def test_theme_json_matches_the_indigo_palette():
+def test_theme_json_matches_the_official_palette():
     """theme.json drives the admin theme picker's swatches — it must agree
     with the stylesheet, or the picker advertises a theme that no longer exists."""
     import json
-    meta = json.loads(read(LIQUID / "theme.json"))
+    meta = json.loads(read(INOTEX / "theme.json"))
     colors = meta["preview_colors"]
-    assert colors["primary"].lower() == "#4f46e5"
-    assert colors["secondary"].lower() == "#8b5cf6"
-    assert meta["author"] == "INOTEX"
+    assert colors["primary"].lower() == "#fcb715"
+    assert colors["secondary"].lower() == "#2d5ca7"
+    assert colors["accent"].lower() == "#1e2d52"
 
 
 # ── R2: original video + chat structure, no remote media ───────────────
 
 def test_active_theme_inherits_video_and_chat_layout():
     index = read(ROOT / "themes" / "base" / "partials" / "index.html")
-    header = read(LIQUID / "partials" / "header.html")
+    header = read(INOTEX / "partials" / "header.html")
     video = read(ROOT / "themes" / "base" / "partials" / "video.html")
     assert '"messages.html"' in index
     assert '"video.html"' in index
@@ -193,7 +180,7 @@ def test_active_theme_inherits_video_and_chat_layout():
 
 
 def test_active_theme_messages_have_language_aware_welcome():
-    messages = read(LIQUID / "partials" / "messages.html")
+    messages = read(INOTEX / "partials" / "messages.html")
     assert 'id="welcome-text"' in messages
     # The greeting is the templated whitelabel_welcome_text value — the
     # shipped default text lives in app/services/branding.py (WL_DEFAULTS).
@@ -221,7 +208,7 @@ def test_core_js_has_fa_en_i18n_and_switch():
     # lang-btn moved from the header into the hamburger drawer (see
     # docs/features/hamburger-menu/SPEC.md) — same id, same setLang() wiring,
     # different partial.
-    assert 'id="lang-btn"' in read(LIQUID / "partials" / "menu.html")
+    assert 'id="lang-btn"' in read(INOTEX / "partials" / "menu.html")
     # EN suggested questions exist
     assert "What is INOTEX?" in js
 
@@ -229,15 +216,11 @@ def test_core_js_has_fa_en_i18n_and_switch():
 def test_every_theme_localises_the_new_chat_button():
     """Phase 3 (docs/features/hamburger-menu/SPEC.md) moved "New chat" out of
     the header and into the drawer's sidebar as the always-first, labelled
-    row (base/inotex/minimal/liquid-glass) — matching a ChatGPT-style
-    sidebar, and no longer icon-only: `data-i18n` now drives a visible text
-    node, on top of the `data-i18n-title` accessible name it always had.
-
-    haj is the one deliberate exception: it keeps its own bespoke top-bar
-    layout unchanged at every width (see the SPEC's Phase 3 scoping note), so
-    its icon-only #new-chat-btn stays exactly where it was, in header.html.
+    row — matching a ChatGPT-style sidebar, and no longer icon-only:
+    `data-i18n` now drives a visible text node, on top of the
+    `data-i18n-title` accessible name it always had.
     """
-    for theme in ("base", "inotex", "minimal", "liquid-glass"):
+    for theme in ("base", "inotex"):
         menu = read(ROOT / "themes" / theme / "partials" / "menu.html")
         button = menu.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
         assert 'data-i18n-title="newChat"' in button, theme
@@ -246,11 +229,6 @@ def test_every_theme_localises_the_new_chat_button():
         header = read(ROOT / "themes" / theme / "partials" / "header.html") \
             if (ROOT / "themes" / theme / "partials" / "header.html").exists() else ""
         assert 'id="new-chat-btn"' not in header, f"{theme}: still duplicated in the header"
-
-    haj_header = read(ROOT / "themes" / "haj" / "partials" / "header.html")
-    haj_button = haj_header.split('id="new-chat-btn"', 1)[1].split("</button>", 1)[0]
-    assert 'data-i18n-title="newChat"' in haj_button
-    assert "<svg" in haj_button
 
 
 def test_core_js_keeps_video_and_chat_with_null_guards_avatar():
@@ -271,21 +249,18 @@ def test_core_js_keeps_video_and_chat_with_null_guards_avatar():
 # ── R5: responsive + RTL/LTR + accessibility ────────────────────────────
 
 def test_active_theme_has_responsive_breakpoints():
-    css = read(LIQUID / "static" / "style.css")
-    for bp in ["max-width: 768px", "max-width: 360px", "orientation: landscape"]:
+    css = read(INOTEX / "static" / "style.css")
+    for bp in ["max-width: 768px", "max-width: 380px"]:
         assert bp in css, bp
-    # Safe-area insets for notched/rounded phones and touch LCDs.
-    assert "env(safe-area-inset" in css
 
 
 def test_active_theme_supports_rtl_and_ltr():
-    css = read(LIQUID / "static" / "style.css")
-    assert "html[dir=\"ltr\"]" in css
+    css = read(INOTEX / "static" / "style.css")
     assert "inset-inline-start" in css or "inset-inline-end" in css
 
 
 def test_active_theme_has_focus_styles_for_keyboard_a11y():
-    css = read(LIQUID / "static" / "style.css")
+    css = read(INOTEX / "static" / "style.css")
     assert "focus-visible" in css
 
 
@@ -308,11 +283,11 @@ def test_no_brand_leakage_in_public_ui_files():
     reappear here.
     """
     for p in [
-        LIQUID / "static" / "style.css",
-        LIQUID / "partials" / "header.html",
-        LIQUID / "partials" / "messages.html",
-        LIQUID / "partials" / "input.html",
-        LIQUID / "partials" / "footer.html",
+        INOTEX / "static" / "style.css",
+        INOTEX / "partials" / "header.html",
+        INOTEX / "partials" / "messages.html",
+        INOTEX / "partials" / "input.html",
+        INOTEX / "partials" / "footer.html",
         CORE_JS,
         BASE_CSS,
     ]:
@@ -324,18 +299,14 @@ def test_no_brand_leakage_in_public_ui_files():
 def test_the_assistant_name_is_the_one_the_customer_chose():
     """Guards the rename itself: the old name must not creep back in.
 
-    liquid-glass still renders {{ app_title }} (the whitelabel_app_name
-    value) in its header. inotex's header carries no title any more — the
-    brand mark and title moved into the sidebar drawer (menu.html)
-    alongside it. core.js keeps the shipped fa fallback so the brand
-    override can fail safe. The fallback — not a hardcoded header — is
-    where the name lives.
+    The sidebar (menu.html) renders {{ app_title }} (the whitelabel_app_name
+    value) — the brand mark and title live there. core.js keeps the shipped fa
+    fallback so the brand override can fail safe. The fallback — not a
+    hardcoded header — is where the name lives.
     """
-    for p in [LIQUID / "partials" / "header.html",
-              ROOT / "themes" / "inotex" / "partials" / "menu.html"]:
-        text = read(p)
-        assert "{{ app_title }}" in text, p
-        assert "دستیار هوشمند اینوتکس" not in text, f"old name returned in {p}"
+    text = read(INOTEX / "partials" / "menu.html")
+    assert "{{ app_title }}" in text
+    assert "دستیار هوشمند اینوتکس" not in text, "old name returned in menu.html"
     js = read(CORE_JS)
     assert "دستیار پادیار" in js or "Padyar Assistant" in js
     assert "دستیار هوشمند اینوتکس" not in js

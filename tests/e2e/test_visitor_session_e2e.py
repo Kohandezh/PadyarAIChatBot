@@ -60,8 +60,8 @@ OPTIONS_STUB = {
 }
 
 VERIFIED_PROFILE = {
-    "first_name": "سارا",
-    "last_name": "محمدی",
+    "first_name": "",
+    "last_name": "",
     "job": "",
     "position": "",
     "interests": "",
@@ -101,15 +101,13 @@ def _disk_path(url_path: str):
     """Map a URL path onto a file in the repository, or None.
 
     `/themes/<name>/...` is a StaticFiles mount whose directory is the theme's
-    own `static/` folder, so that prefix is rewritten; everything else under
-    `/static/` maps straight through.
+    own folder (see app/main.py :: _mount_themes), so the URL path maps
+    straight through; everything else under `/static/` maps straight through
+    too. Getting this wrong 404s every theme asset and the page renders
+    unstyled — which these DOM-level tests silently survive.
     """
     url_path = url_path.split("?")[0].lstrip("/")
-    parts = url_path.split("/")
-    if len(parts) >= 3 and parts[0] == "themes":
-        candidate = ROOT / "themes" / parts[1] / "static" / "/".join(parts[2:])
-    else:
-        candidate = ROOT / url_path
+    candidate = ROOT / url_path
     try:
         candidate = candidate.resolve()
         candidate.relative_to(ROOT)
@@ -209,7 +207,15 @@ async def open_chat(browser, tmp_path, monkeypatch):
                                            "message": "تأیید شد"})
             if path == "/api/auth/profile":
                 server.profile_bodies.append(body)
-                return await _json(route, {"profile": dict(VERIFIED_PROFILE)})
+                # The real endpoint answers with the stored row, so the saved
+                # values are echoed back — including the name the chat just
+                # collected (the card no longer asks it).
+                saved = dict(VERIFIED_PROFILE)
+                for key in ("first_name", "last_name", "job", "position",
+                            "interests"):
+                    if body.get(key):
+                        saved[key] = body[key]
+                return await _json(route, {"profile": saved})
             if path == "/chat":
                 server.chat_bodies.append(body)
                 if server.chat_status == 401:
@@ -317,14 +323,13 @@ async def _bubbles(page):
 
 
 async def _finish_signup(page):
-    """Name, phone, code, then answer all three in-chat questions.
+    """Phone, code, then answer the four in-chat questions.
 
-    All three (job, position, interests) are mandatory now and there is no
-    skip button any more, so each one is answered for real through the same
-    send path a visitor uses (type + press send).
+    The name is the FIRST in-chat question now (the card only takes the
+    number). All four are mandatory and there is no skip button, so each is
+    answered for real through the same send path a visitor uses (type +
+    press send).
     """
-    await page.wait_for_selector("#reg-name")
-    await _set_value(page, "#reg-name", "سارا محمدی")
     await _set_value(page, "#reg-phone", "09120000000")
     await _click(page, ".reg-submit")
 
@@ -334,10 +339,10 @@ async def _finish_signup(page):
     await _set_value(page, ".reg-code-input", "123456")
 
     # The card says "verified", then closes on a timer, and the assistant asks
-    # its three questions in the chat instead.
+    # its questions in the chat instead — the name first.
     await page.wait_for_function(
         "() => document.querySelector('.reg-overlay') === null")
-    for answer in ("هوش مصنوعی", "مدیرعامل", "استارتاپ"):
+    for answer in ("سارا محمدی", "هوش مصنوعی", "مدیرعامل", "استارتاپ"):
         await page.wait_for_selector(".reg-ask")
         await _send(page, answer)
 
@@ -392,6 +397,12 @@ async def test_the_held_message_is_delivered_after_verification(open_chat):
     assert server.profile_bodies, "the in-chat answers were never saved"
     for body in server.profile_bodies:
         assert "challenge_id" not in body, body
+    # The name question really moved into the chat: its answer is in the
+    # profile body, split the way the card used to split it.
+    assert server.profile_bodies[-1].get("first_name") == "سارا", (
+        server.profile_bodies)
+    assert server.profile_bodies[-1].get("last_name") == "محمدی", (
+        server.profile_bodies)
 
     # The question appears once. The gate held it before it was ever printed,
     # so a second bubble would mean the delivery echoed it again.

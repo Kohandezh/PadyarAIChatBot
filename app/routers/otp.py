@@ -188,8 +188,9 @@ def _visitor_profile(visitor_id: str) -> dict:
 
 
 def _write_visitor_profile(visitor_id: str, job: str, position: str,
-                           interests: str) -> bool:
-    """Rewrite the three work fields of ONE visitor row. Returns False if none.
+                           interests: str, first_name: str = "",
+                           last_name: str = "") -> bool:
+    """Rewrite the work fields of ONE visitor row, plus its name when given.
 
     BY ID AND NOTHING ELSE. The id comes from `require_visitor`, which reads it
     off the session the middleware resolved from the cookie, so the only row a
@@ -201,21 +202,33 @@ def _write_visitor_profile(visitor_id: str, job: str, position: str,
     fix a typo must not erase a name); this is the opposite case — a visitor
     clearing every interest is withdrawing consent and has to be obeyed.
 
-    Name and phone are absent on purpose: the code proved those, and nothing
-    reachable from a browser is allowed to change them.
+    The name columns are the exception: they are written ONLY when this call
+    carries a non-empty value. The name question lives in the chat now (the
+    sign-up card takes only the number), so exactly the save that answers it
+    writes it — and every later profile edit leaves it alone. The phone is
+    absent on purpose: the code proved it, and nothing reachable from a
+    browser is allowed to change it.
     """
     from app.db.connection import get_db_connection
     try:
         conn = get_db_connection()
         try:
+            sets = ["job = ?", "position = ?", "interests = ?"]
+            params = [job.strip()[:80], position.strip()[:80],
+                      interests.strip()[:400]]
+            if first_name.strip():
+                sets.append("first_name = ?")
+                params.append(first_name.strip()[:60])
+            if last_name.strip():
+                sets.append("last_name = ?")
+                params.append(last_name.strip()[:60])
             # datetime('now') is INLINE, not a bound parameter: app/db/pg.py
             # rewrites it into the PostgreSQL form only when it can see the
             # literal. Same idiom as app/services/conversations.py.
+            sets.append("last_seen_at = datetime('now')")
             changed = conn.execute(
-                "UPDATE visitors SET job = ?, position = ?, interests = ?,"
-                " last_seen_at = datetime('now') WHERE id = ?",
-                (job.strip()[:80], position.strip()[:80],
-                 interests.strip()[:400], visitor_id)).rowcount or 0
+                "UPDATE visitors SET " + ", ".join(sets) + " WHERE id = ?",
+                (*params, visitor_id)).rowcount or 0
             conn.commit()
         finally:
             conn.close()
@@ -402,18 +415,23 @@ async def otp_resend(body: OtpResendBody, request: Request):
 
 
 class ProfileUpdateBody(BaseModel):
-    """The three editable fields, and nothing that says who is editing.
+    """The three work fields, an optional name — nothing that says who edits.
 
     There is no `challenge_id` here any more, and no visitor id either. The
     body of a request cannot name the row it writes: identity comes from the
     session cookie, through `require_visitor`.
 
-    All three are required: the 3 onboarding questions (job, position,
-    interests) are mandatory now, not just optional plan input.
+    job/position/interests are required: the onboarding questions are
+    mandatory now, not just optional plan input. first_name/last_name are
+    optional and only written when a non-empty value arrives — the name is
+    asked in the CHAT after the code is proved (the sign-up card takes only
+    the number), and a later edit must never blank it.
     """
     job: str = Field(..., min_length=1, max_length=80)
     position: str = Field(..., min_length=1, max_length=80)
     interests: str = Field(..., min_length=1, max_length=400)
+    first_name: str = Field("", max_length=60)
+    last_name: str = Field("", max_length=60)
 
 
 @router.get("/api/registration/options")
@@ -438,8 +456,9 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
     session cookie; anonymous gets a 401 carrying the registration_required
     marker, which is what opens the signup card in the browser.
 
-    Only the descriptive fields move. Name and phone are what the code proved
-    and are not editable from a browser at all.
+    The descriptive fields always move. The name moves only when this call
+    carries one — it is asked in the chat right after the code is proved, and
+    is otherwise as fixed as the phone.
     """
     # Bucket on the SESSION's visitor id. The old key was built from a body
     # field, so varying it handed the caller a fresh empty bucket every request
@@ -447,7 +466,8 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
     request.state.otp_limit_identity = f"otp:visitor:{visitor_id}"
     check_rate_limit(request)
     if not _write_visitor_profile(visitor_id, body.job, body.position,
-                                  body.interests):
+                                  body.interests, body.first_name,
+                                  body.last_name):
         # The session resolved but its person is gone (a deleted visitor row,
         # or a storage fault). Nothing was written, so say so rather than
         # reporting a save that did not happen.
