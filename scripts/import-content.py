@@ -10,6 +10,10 @@ FAQ workbook (پرسش/پاسخ): each row → one dataset entry (id faq-<n>) + 
   newline-separated question variant in the cell → one curated question row.
   Multi-question cells are the workbook's own way of saying "these all ask
   the same thing" — one entry, several anchors.
+  The sheet arrives in TWO shapes, told apart by the header row (the file is
+  the truth, never a flag): the plain پرسش/پاسخ one, and the elecomp one
+  with a شماره ویدئو FAQ column first — the number maps the row to its
+  FAQ-<n>.mp4 clip (id faq-<number>, stable across re-imports).
 
 Exhibitor workbook (20 columns): each row → one `companies` row (see
   migrations/0013_companies.sql — companies are no longer `dataset` rows):
@@ -28,6 +32,16 @@ Exhibitor workbook (20 columns): each row → one `companies` row (see
   flag for it — the header row says which shape the file is, so the file
   itself is the source of truth and a wrong flag can never silently shift
   every column by one.
+
+  The elecomp delivery is a THIRD shape, four columns only: booth video
+  number, Persian name, the on-video text, the chatbot text. Detected from
+  the header too (نام شرکت in column 2 — the 20-column shapes never have
+  it there). The chatbot column is the stored text (the on-video column is
+  the overlay's wording, kept for the video team); the id is co-<booth
+  number>, so a re-import after row reordering still updates in place.
+  The description's «در زمینه … فعالیت» phrase is lifted into
+  activity_field — the only category signal in this sheet, and the one
+  column the company-list tier filters on.
 
 SAFETY
 ------
@@ -50,9 +64,9 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DB_BACKEND", "sqlite")
 # An import must never SEED, only import: init_db() with the default flag
 # would squeeze the INOTEX starter dataset into whatever database this tool
-# is pointed at — on a customer install that is cross-customer content
-# pollution, plus a default-credential admin row. Whoever wants the starter
-# content can run the app once without this script.
+# is pointed at — on a customer install (elecomp) that is cross-customer
+# content pollution, plus a default-credential admin row. Whoever wants the
+# starter content can run the app once without this script.
 os.environ.setdefault("SEED_DEFAULT_CONTENT", "false")
 
 import openpyxl  # noqa: E402
@@ -76,15 +90,46 @@ def _slug(text: str) -> str:
     return text[:50]
 
 
-def load_faq(path: str):
-    """[(faq_id, title, text, [question_variants])] + report lines."""
-    rows, errors, notes = [], [], []
+def faq_has_video_column(header) -> bool:
+    """True when the FAQ sheet carries the video-number column first.
+
+    Read from the FILE like has_video_column(): the elecomp FAQ sheet ships
+    with «شماره ویدئو FAQ» prepended, the older one does not, and guessing
+    wrong would read the number as the question.
+    """
+    first = _cell(header[0] if header else "")
+    return "ویدئو" in first or "video" in first.lower()
+
+
+# The FAQ clips are delivered as FAQ-02.mp4, hyphenated and zero-padded below
+# 100 — same tolerance as the booth pattern: the number is the key, not the
+# spelling.
+FAQ_VIDEO_RE = re.compile(r"faq-?0*(\d+)\.mp4$", re.IGNORECASE)
+
+
+def load_faq(path: str, videos=None):
+    """[(faq_id, title, text, [question_variants], video_url)] + report.
+
+    `videos` is scan_videos(..., FAQ_VIDEO_RE) — {number: filename} — or None
+    when the video directory was not available. A row whose number has no
+    file gets an empty video_url and a named warning, never a broken player.
+    """
+    rows, errors, notes, warnings = [], [], [], []
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
+    video_col, with_video, used_numbers = False, 0, set()
     for i, row in enumerate(ws.iter_rows(values_only=True)):
         if i == 0:
-            continue  # header
-        q_raw, a = (_cell(c) for c in row[:2])
+            video_col = faq_has_video_column(row)
+            continue
+        if video_col:
+            number = _video_number(row[0]) if row else None
+            q_raw = _cell(row[1]) if len(row) > 1 else ""
+            a = _cell(row[2]) if len(row) > 2 else ""
+        else:
+            number = None
+            q_raw = _cell(row[0]) if row else ""
+            a = _cell(row[1]) if len(row) > 1 else ""
         variants = [v.strip() for v in re.split(r"[\n\r]+", q_raw) if v.strip()]
         if not variants and not a:
             continue  # fully empty row
@@ -96,8 +141,31 @@ def load_faq(path: str):
             continue
         if "out of sco" in variants[0].lower():
             notes.append(f"faq row {i}: refusal pair imported as-is ({variants[0][:40]!r})")
-        rows.append((f"faq-{i:02d}", variants[0][:120], a, variants))
-    return rows, errors, notes
+        video_url = ""
+        if video_col:
+            if number is None:
+                warnings.append(f"faq row {i} ({variants[0][:40]!r}): no video number")
+            elif videos is None:
+                warnings.append(f"faq row {i} ({variants[0][:40]!r}): video {number} "
+                                f"not verified (no video directory)")
+            elif number in videos:
+                video_url = f"{VIDEO_BASE_URL}/{videos[number]}"
+                used_numbers.add(number)
+                with_video += 1
+            else:
+                warnings.append(f"faq row {i} ({variants[0][:40]!r}): video {number} "
+                                f"has no file (expected FAQ-{number:02d}.mp4)")
+        fid = f"faq-{number:02d}" if number is not None else f"faq-{i:02d}"
+        rows.append((fid, variants[0][:120], a, variants, video_url))
+    report = {
+        "has_column": video_col,
+        "with_video": with_video,
+        "warnings": warnings,
+        "orphans": (sorted(set(videos) - used_numbers)
+                    if video_col and videos is not None else []),
+        "files": videos or {},
+    }
+    return rows, errors, notes, report
 
 
 FA_CANONICAL = [
@@ -131,9 +199,11 @@ PROFILE_MAP = {  # workbook key → companies profile column
 VIDEO_RE = re.compile(r"ghorfe-?0*(\d+)\.mp4$", re.IGNORECASE)
 
 
-def scan_videos(video_dir: str):
-    """{booth number: filename} for one directory, or None if it is absent.
+def scan_videos(video_dir: str, pattern=VIDEO_RE):
+    """{number: filename} for one directory, or None if it is absent.
 
+    `pattern` picks the delivery family — the booth clips (VIDEO_RE) or the
+    FAQ clips (FAQ_VIDEO_RE); the two live in the same media folder.
     None means "existence unknown" — the caller must not invent URLs then.
     A machine without the 6.5 GB of video must still be able to run the
     import.
@@ -142,7 +212,7 @@ def scan_videos(video_dir: str):
         return None
     found = {}
     for name in sorted(os.listdir(video_dir)):
-        m = VIDEO_RE.search(name)
+        m = pattern.search(name)
         if m:
             found[int(m.group(1))] = name
     return found
@@ -169,6 +239,33 @@ def has_video_column(header) -> bool:
     return "video" in _cell(header[0] if header else "").lower()
 
 
+def is_elecomp_companies_sheet(header) -> bool:
+    """True for the 4-column elecomp exhibitor sheet.
+
+    Column 2 is exactly «نام شرکت» — the 20-column shapes put the contact's
+    full name («نام و نام خانوادگی») there, video column or not, so this one
+    header cell tells the two families apart without a flag.
+    """
+    cells = [_cell(c) for c in (header or [])]
+    return len(cells) >= 2 and "نام شرکت" in cells[1]
+
+
+# The elecomp description is a fixed formula: «... در زمینه <field> فعالیت
+# می‌کند ...». The field phrase is the only category data this 4-column
+# sheet carries, and the company-list tier (app/services/company_search.py)
+# reads exactly activity_field — without it, «شرکت‌های هوش مصنوعی» cannot be
+# answered from the companies table at all. Rows the formula does not match
+# simply get no field; the facet builder drops overlong phrases on its own.
+ELECOMP_FIELD_RE = re.compile(r"در\s+زمینه\s+(.+?)\s+فعالیت")
+
+
+def _elecomp_activity_field(text: str) -> str:
+    m = ELECOMP_FIELD_RE.search(text or "")
+    if not m:
+        return ""
+    return m.group(1).strip(" ،,؛;.")[:70]
+
+
 def load_companies(path: str, videos=None):
     """[(dataset_id, dataset_fields, profile_fields, anchors)] + report.
 
@@ -181,12 +278,78 @@ def load_companies(path: str, videos=None):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
     seen_titles = {}
-    video_col, with_video = False, 0
+    video_col, elecomp, with_video = False, False, 0
     seen_numbers, used_numbers = {}, set()
+
+    def attach_booth_video(name, number, i):
+        """One video policy for every sheet shape: the number column names
+        the clip, a missing file is a warning, a stolen number an error."""
+        nonlocal with_video
+        url = ""
+        if number is None:
+            warnings.append(f"{name}: no booth video number in the sheet")
+        elif number in seen_numbers:
+            errors.append(f"company row {i}: booth video number {number} "
+                          f"already taken by row {seen_numbers[number]} — "
+                          f"{name!r} gets no video")
+        elif videos is None:
+            warnings.append(f"{name}: booth video {number} not verified "
+                            f"(no video directory)")
+        elif number in videos:
+            # Exactly the shape app/routers/dataset.py writes on upload:
+            # VIDEO_BASE_URL + "/" + the file's own name.
+            url = f"{VIDEO_BASE_URL}/{videos[number]}"
+            used_numbers.add(number)
+            with_video += 1
+        else:
+            warnings.append(f"{name}: booth video {number} has no file "
+                            f"(expected ghorfe-{number:02d}.mp4)")
+        if number is not None:
+            seen_numbers.setdefault(number, i)
+        return url
+
+    def dedupe_name(name, i):
+        key = re.sub(r"\s+", " ", name)
+        if key in seen_titles:
+            errors.append(f"company row {i}: duplicate name {key!r} "
+                          f"(first at row {seen_titles[key]})")
+            return None
+        seen_titles[key] = i
+        return key
+
     for i, row in enumerate(ws.iter_rows(values_only=True)):
         if i == 0:
             video_col = has_video_column(row)
+            elecomp = is_elecomp_companies_sheet(row)
             continue
+
+        if elecomp:
+            # 4-column elecomp sheet: number | نام شرکت | ویدیو چت‌بات | چت بات.
+            # The chatbot column is the answer a visitor is served; the
+            # on-video column is the overlay's wording and only a fallback.
+            number = _video_number(row[0]) if row else None
+            name = _cell(row[1]) if len(row) > 1 else ""
+            video_text = _cell(row[2]) if len(row) > 2 else ""
+            chat_text = _cell(row[3]) if len(row) > 3 else ""
+            if not name:
+                continue
+            if dedupe_name(name, i) is None:
+                continue
+            video_url = attach_booth_video(name, number, i)
+            cid = f"co-{number:03d}" if number is not None else f"co-{i:03d}"
+            anchors = [t.format(n=name) for t in FA_CANONICAL]
+            profile = {}
+            if number is not None:
+                profile["booth_number"] = str(number)
+            field = _elecomp_activity_field(chat_text or video_text)
+            if field:
+                profile["activity_field"] = field
+            rows.append((cid, {"id": cid, "title": name, "title_en": "",
+                               "text": chat_text or video_text, "text_en": "",
+                               "video_url": video_url},
+                         profile, anchors))
+            continue
+
         if video_col:
             number = _video_number(row[0])
             cells = row[1:]
@@ -198,35 +361,12 @@ def load_companies(path: str, videos=None):
         if not c["name"]:
             errors.append(f"company row {i}: no Persian name — skipped")
             continue
-        key = re.sub(r"\s+", " ", c["name"])
-        if key in seen_titles:
-            errors.append(f"company row {i}: duplicate name {key!r} "
-                          f"(first at row {seen_titles[key]})")
+        if dedupe_name(c["name"], i) is None:
             continue
-        seen_titles[key] = i
 
         video_url = ""
         if video_col:
-            if number is None:
-                warnings.append(f"{c['name']}: no booth video number in the sheet")
-            elif number in seen_numbers:
-                errors.append(f"company row {i}: booth video number {number} "
-                              f"already taken by row {seen_numbers[number]} — "
-                              f"{c['name']!r} gets no video")
-            elif videos is None:
-                warnings.append(f"{c['name']}: booth video {number} not verified "
-                                f"(no video directory)")
-            elif number in videos:
-                # Exactly the shape app/routers/dataset.py writes on upload:
-                # VIDEO_BASE_URL + "/" + the file's own name.
-                video_url = f"{VIDEO_BASE_URL}/{videos[number]}"
-                used_numbers.add(number)
-                with_video += 1
-            else:
-                warnings.append(f"{c['name']}: booth video {number} has no file "
-                                f"(expected ghorfe-{number:02d}.mp4)")
-            if number is not None:
-                seen_numbers.setdefault(number, i)
+            video_url = attach_booth_video(c["name"], number, i)
 
         cid = _slug(c["name_en"]) or f"co-{i:03d}"
         mobile = c["mobile"] or c["username"]
@@ -250,11 +390,11 @@ def load_companies(path: str, videos=None):
                      profile, anchors))
 
     report = {
-        "has_column": video_col,
+        "has_column": video_col or elecomp,
         "with_video": with_video,
         "warnings": warnings,
         "orphans": (sorted(set(videos) - used_numbers)
-                    if video_col and videos is not None else []),
+                    if (video_col or elecomp) and videos is not None else []),
         "files": videos or {},
     }
     return rows, errors, report
@@ -262,31 +402,38 @@ def load_companies(path: str, videos=None):
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Import FAQ + exhibitor workbooks.")
-    p.add_argument("--faq", help="FAQ workbook (پرسش/پاسخ)")
+    p.add_argument("--faq", help="FAQ workbook (پرسش/پاسخ, with or without "
+                                 "the video-number column)")
     p.add_argument("--companies",
-                   help="exhibitor workbook (20 columns, or 21 with the "
-                        "booth-video-number column first)")
+                    help="exhibitor workbook (20 columns, 21 with the "
+                         "booth-video-number column first, or the 4-column "
+                         "elecomp sheet)")
     p.add_argument("--video-dir", default="media/videos",
-                   help="where the booth videos live — read only, to check "
-                        "which files exist (default: media/videos)")
+                    help="where the booth + FAQ videos live — read only, to "
+                         "check which files exist (default: media/videos)")
     p.add_argument("--apply", action="store_true",
-                   help="actually write; without it everything is a dry-run")
+                    help="actually write; without it everything is a dry-run")
     args = p.parse_args()
     if not args.faq and not args.companies:
         sys.exit("nothing to do: pass --faq and/or --companies")
 
     videos = scan_videos(args.video_dir)
-    if videos is None:
+    faq_videos = scan_videos(args.video_dir, FAQ_VIDEO_RE)
+    if videos is None and faq_videos is None:
         print(f"NOTE: video directory {args.video_dir!r} not found — "
               f"skipping the file-existence check. No video will be attached.")
     else:
-        print(f"Booth video files found:  {len(videos)} in {args.video_dir}")
+        print(f"Booth video files found:  {len(videos or {})} in {args.video_dir}")
+        print(f"FAQ video files found:    {len(faq_videos or {})} in {args.video_dir}")
 
-    faq, faq_errors, faq_notes = (load_faq(args.faq) if args.faq else ([], [], []))
+    empty_faq_report = {"has_column": False, "with_video": 0, "warnings": [],
+                        "orphans": [], "files": faq_videos or {}}
+    faq, faq_errors, faq_notes, faq_video_report = (
+        load_faq(args.faq, faq_videos) if args.faq else ([], [], [], empty_faq_report))
     companies, co_errors, video_report = (
         load_companies(args.companies, videos) if args.companies
         else ([], [], {"has_column": False, "with_video": 0, "warnings": [],
-                       "orphans": [], "files": videos}))
+                       "orphans": [], "files": videos or {}}))
 
     os.environ.setdefault("OPENAI_API_KEY", "import")
     from app.db import connection as dbconn
@@ -327,7 +474,7 @@ def main() -> int:
                    + [c[0] for c in companies if c[0] in existing])
 
     print(f"FAQ rows to import:      {len(faq)}")
-    for fid, title, _, variants in faq[:5]:
+    for fid, title, _, variants, _vurl in faq[:5]:
         print(f"   {fid}: {title[:60]!r} ({len(variants)} question variants)")
     if len(faq) > 5:
         print(f"   … and {len(faq) - 5} more")
@@ -335,6 +482,13 @@ def main() -> int:
         print(f"   ERROR {e}")
     for n in faq_notes:
         print(f"   NOTE  {n}")
+    if faq_video_report["has_column"]:
+        print(f"FAQ entries with a video: {faq_video_report['with_video']}")
+        for w in faq_video_report["warnings"]:
+            print(f"   WARNING {w}")
+        for n in faq_video_report["orphans"]:
+            print(f"   WARNING FAQ video {n} "
+                  f"({faq_video_report['files'][n]}) matches no FAQ row")
     print(f"Companies to import:     {len(companies)}")
     for cid, ds, profile, anchors in companies[:5]:
         print(f"   {cid}: {ds['title'][:40]!r} profile_fields="
@@ -383,12 +537,16 @@ def main() -> int:
     # see rows this one has not committed yet (the first --apply died exactly
     # there: profile upsert said «این شرکت در دانش‌نامه نیست» for a row
     # sitting uncommitted one connection over).
-    for fid, title, text, variants in faq:
+    for fid, title, text, variants, video_url in faq:
+        # Same no-wipe rule as companies: a re-import run without the video
+        # directory must not blank a video that is already attached.
         conn.execute(
             "INSERT INTO dataset (id, title, text, video_url, title_en, text_en)"
-            " VALUES (?, ?, ?, '', '', '')"
-            " ON CONFLICT(id) DO UPDATE SET title=excluded.title, text=excluded.text",
-            (fid, title, text))
+            " VALUES (?, ?, ?, ?, '', '')"
+            " ON CONFLICT(id) DO UPDATE SET title=excluded.title, text=excluded.text,"
+            " video_url=CASE WHEN excluded.video_url != ''"
+            " THEN excluded.video_url ELSE dataset.video_url END",
+            (fid, title, text, video_url))
         n_faq += 1
     for cid, ds, profile, anchors in companies:
         # A company is one `companies` row, not a `dataset` row —
@@ -419,7 +577,7 @@ def main() -> int:
 
     # Pass 3 — curated anchors and FAQ question variants, one writer, one
     # transaction.
-    for fid, title, text, variants in faq:
+    for fid, title, text, variants, _vurl in faq:
         for v in variants:
             if v in existing_q:
                 continue
@@ -440,7 +598,8 @@ def main() -> int:
     reindex_and_publish()
     print(f"\nAPPLIED: {n_faq} FAQ rows, {n_co} companies, "
           f"{n_q} curated questions, "
-          f"{video_report['with_video']} booth videos. Index rebuilt.")
+          f"{video_report['with_video']} booth videos, "
+          f"{faq_video_report['with_video']} FAQ videos. Index rebuilt.")
     print("Next: .venv/bin/python scripts/run_eval.py   # re-baseline")
     return 0
 
