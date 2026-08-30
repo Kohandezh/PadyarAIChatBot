@@ -376,7 +376,15 @@ async def otp_verify(body: OtpVerifyBody, request: Request, response: Response):
         # The profile is returned only on success, and only the display name —
         # the phone number stays masked everywhere the browser can see it.
         profile = otp_service.profile_for(body.challenge_id)
-        return {"verified": True, "message": message, "profile": profile}
+        result = {"verified": True, "message": message, "profile": profile}
+        # A cookie-less client (the pwa_api module's native/cross-origin
+        # consumer) cannot pick the session token up from Set-Cookie, so it
+        # asks for it in the body instead via this header. Cookie-based
+        # clients never send it, so their response shape is byte-for-byte
+        # unchanged. See docs/features/pwa-api/SPEC.md REQ-002.
+        if request.headers.get("x-client", "").strip().lower() == "pwa":
+            result["access_token"] = token
+        return result
     # Generic public error — the reason detail stays in the audit log.
     raise HTTPException(status_code=400, detail=message)
 

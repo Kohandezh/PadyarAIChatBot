@@ -116,6 +116,10 @@ except ValueError:
 # and tests must patch app.auth.security.CHAT_TOKEN_TTL — the enforcing
 # module's binding, not app.config's copy.
 CHAT_TOKEN_TTL = int(os.getenv("CHAT_TOKEN_TTL", "3600"))  # 1 hour
+# How long a visitor's personal contact-exchange QR stays valid (REQ-019): a
+# few hours, not indefinitely — a lost or borrowed phone should not carry a
+# forever-valid QR on its lock screen.
+QR_PAYLOAD_TTL_SECONDS = int(os.getenv("QR_PAYLOAD_TTL_SECONDS", str(4 * 3600)))  # 4 hours
 # How long past its TTL the refresh endpoint (POST /api/chat-token) still
 # accepts the OLD token when minting a new one. This is what saves a visitor
 # whose token expired mid-conversation: without it the endpoint would demand

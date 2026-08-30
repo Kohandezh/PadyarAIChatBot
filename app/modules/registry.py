@@ -123,6 +123,14 @@ MODULES: dict[str, ModuleDef] = {
         is_core=False,
         router_module="app.routers.leads",
     ),
+    "pwa_api": ModuleDef(
+        name="pwa_api",
+        description="Bearer-token API for the InotexPWA app: public companies "
+                    "directory, chat-token mint, visitor settings and QR contact "
+                    "exchange",
+        is_core=False,
+        router_module="app.routers.pwa_api",
+    ),
 }
 
 CORE_MODULE_NAMES = [m.name for m in MODULES.values() if m.is_core]
