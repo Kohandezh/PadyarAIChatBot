@@ -574,13 +574,18 @@ Themes use a WordPress-style partial template system with Jinja2. The `themes/ba
 |---------|---------|
 | `index.html` | Master template — assembles all partials via `{% include %}` |
 | `head.html` | `<head>` with CSS/JS links (uses `{{ theme_name }}`, `{{ chat_token }}`) |
-| `header.html` | Logo, tab switcher, accessibility controls |
+| `header.html` | Tab switcher, accessibility controls (no logo — inotex/base moved the logo into `menu.html`, see below) |
+| `menu.html` | Hamburger drawer. Below 992px: a fixed overlay opened by the header's hamburger button. At 992px and up: a persistent sidebar next to the chat, collapsible to a 76px icon rail via `#menu-sidebar-toggle` (`static/chat/base.css`) |
 | `messages.html` | Text chat view, welcome message, loading bubble |
 | `video.html` | Video view, avatar container, action buttons |
 | `input.html` | Textarea, mic button, send button |
 | `footer.html` | Loads core.js, theme-specific JS overrides, calls `initChat()` |
 
 Active theme is stored in the `settings` table (key `active_theme`) and switchable via admin panel. Selectable themes: `inotex` (default), `liquid-glass`, `minimal`, `haj`; `base` is marked `"selectable": false` and exists only to supply the default partials. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
+
+**`menu.html`'s sidebar header — logo placement differs by theme.** The base shell (`static/chat/base.css`) assumes two separate elements: `.menu-sidebar-logo` (a small logo next to the title, shown only when the sidebar is expanded) and `.menu-sidebar-toggle-btn` (a compact stand-in logo used only on the collapsed rail, swapping to the collapse icon on hover). `base`, `minimal`, and `liquid-glass` all follow this two-element pattern.
+
+`inotex` does not. It has no `.menu-sidebar-logo`. Instead, the full 38px brand mark lives inside `.menu-sidebar-toggle-btn` (`.menu-sidebar-toggle-logo`, a `<div>`) at all times — expanded or collapsed — and `themes/inotex/static/style.css` overrides the base shell so that element stays visible in the expanded state too (base.css hides it there by default). `.logo-container` in inotex holds only the two-line title (`.the-slogan`), which hides on collapse (`.menu-drawer.collapsed .menu-sidebar-header .logo-container .the-slogan { display: none; }`) instead of the whole container. If another theme wants this "logo lives in the toggle button" look, add the override in that theme's own `style.css` — do not change `base.css`, since `base`/`minimal`/`liquid-glass` still rely on the two-element layout.
 
 ---
 
@@ -762,6 +767,32 @@ After pushing, check CI instead of re-running tests locally:
 ```bash
 gh run list --branch <branch> --limit 1
 gh run watch
+```
+
+### Keep the Code Graph Current
+
+This repo uses [Graphify](https://github.com/safishamsi/graphify) to keep a
+local, queryable knowledge graph of the codebase. Output lives in
+`graphify-out/` (gitignored, regenerated, never committed — see the
+`.gitignore` entry and `app/services/storage.py`, which surfaces it in the
+admin Infrastructure page as "خروجی نقشهٔ دانش").
+
+After finishing a feature, before opening a PR, refresh it:
+
+```bash
+graphify update .
+```
+
+No LLM or API key needed — it re-parses changed files with tree-sitter and
+rewrites `graphify-out/graph.json`, `graph.html` and `GRAPH_REPORT.md`. This
+doesn't touch anything CI checks; it exists so the next agent (or the next
+session of you) can query an up-to-date map of the codebase instead of
+grepping cold. Useful follow-ups against the refreshed graph:
+
+```bash
+graphify query "<question>"        # BFS traversal for a question
+graphify explain "<file-or-symbol>" # plain-language neighbors of one node
+graphify affected "<file-or-symbol>" # what a change to this would impact
 ```
 
 ### Testing

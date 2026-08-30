@@ -65,6 +65,21 @@
                     </table>
                 </div>
             </div>
+            <div class="card-footer d-flex align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <label class="form-label mb-0" for="stuck-page-size">تعداد در صفحه</label>
+                    <select id="stuck-page-size" class="form-select form-select-sm" style="width:auto">
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    <span class="text-muted" id="stuck-range">—</span>
+                </div>
+                <div class="ms-auto">
+                    <button class="btn btn-outline-secondary" id="stuck-btn-prev">قبلی</button>
+                    <button class="btn btn-outline-secondary" id="stuck-btn-next">بعدی</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -232,7 +247,10 @@
          explanation: a lost link is reissued, a mistaken company removed. -->
     <div class="col-12">
         <div class="content-card">
-            <div class="card-header"><span><i class="fas fa-list me-2"></i>آخرین ثبت‌ها</span></div>
+            <div class="card-header">
+                <span><i class="fas fa-list me-2"></i>آخرین ثبت‌ها</span>
+                <span class="badge bg-secondary" id="leads-count">۰</span>
+            </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -241,6 +259,21 @@
                         </tr></thead>
                         <tbody id="leads"></tbody>
                     </table>
+                </div>
+            </div>
+            <div class="card-footer d-flex align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <label class="form-label mb-0" for="leads-page-size">تعداد در صفحه</label>
+                    <select id="leads-page-size" class="form-select form-select-sm" style="width:auto">
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    <span class="text-muted" id="leads-range">—</span>
+                </div>
+                <div class="ms-auto">
+                    <button class="btn btn-outline-secondary" id="leads-btn-prev">قبلی</button>
+                    <button class="btn btn-outline-secondary" id="leads-btn-next">بعدی</button>
                 </div>
             </div>
         </div>

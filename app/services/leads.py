@@ -1314,40 +1314,59 @@ def _lead_rows(rows) -> list:
     return out
 
 
-def list_leads(visitor_id: str = "", limit: int = 200) -> list:
+def list_leads(visitor_id: str = "", limit: int = 200, offset: int = 0) -> list:
     ensure_tables()
     conn = get_db_connection()
     try:
         if visitor_id:
             rows = conn.execute(
                 f"SELECT {_LEAD_COLUMNS}{_LEAD_JOINS} WHERE l.visitor_id = ?"
-                " ORDER BY l.created_at DESC LIMIT ?", (visitor_id, limit),
+                " ORDER BY l.created_at DESC LIMIT ? OFFSET ?", (visitor_id, limit, offset),
             ).fetchall()
         else:
             rows = conn.execute(
                 f"SELECT {_LEAD_COLUMNS}{_LEAD_JOINS}"
-                " ORDER BY l.created_at DESC LIMIT ?", (limit,)
+                " ORDER BY l.created_at DESC LIMIT ? OFFSET ?", (limit, offset)
             ).fetchall()
     finally:
         conn.close()
     return _lead_rows(rows)
 
 
-def stuck_leads() -> list:
+def count_leads(visitor_id: str = "") -> int:
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        if visitor_id:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM company_leads WHERE visitor_id = ?", (visitor_id,)
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) AS n FROM company_leads").fetchone()
+    finally:
+        conn.close()
+    return int(dict(row)["n"])
+
+
+def stuck_leads(limit: int = None, offset: int = 0) -> list:
     """Companies that verified and then went quiet.
 
     Every registration sitting at `verified` is here, with no age threshold, so
-    this list and the `verified` number on the funnel are always the same
-    number. Two counts that disagree read as a bug. `waiting_hours` is computed
-    here because the operator's clock is not the database's.
+    the TOTAL of this list (see count_stuck_leads) and the `verified` number on
+    the funnel are always the same number. Two counts that disagree read as a
+    bug — pagination only limits how many of them are shown on one page, it
+    never changes the total. `waiting_hours` is computed here because the
+    operator's clock is not the database's.
     """
     ensure_tables()
     conn = get_db_connection()
     try:
-        rows = conn.execute(
-            f"SELECT {_LEAD_COLUMNS}{_LEAD_JOINS} WHERE l.status = 'verified'"
-            " AND l.released_at IS NULL ORDER BY l.verified_at"
-        ).fetchall()
+        sql = (f"SELECT {_LEAD_COLUMNS}{_LEAD_JOINS} WHERE l.status = 'verified'"
+               " AND l.released_at IS NULL ORDER BY l.verified_at")
+        if limit is None:
+            rows = conn.execute(sql).fetchall()
+        else:
+            rows = conn.execute(sql + " LIMIT ? OFFSET ?", (limit, offset)).fetchall()
     finally:
         conn.close()
     now = _now()
@@ -1356,6 +1375,19 @@ def stuck_leads() -> list:
         since = d.get("verified_at") or d.get("created_at")
         d["waiting_hours"] = round((now - to_naive_utc(since)).total_seconds() / 3600, 1)
     return out
+
+
+def count_stuck_leads() -> int:
+    ensure_tables()
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM company_leads"
+            " WHERE status = 'verified' AND released_at IS NULL"
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(dict(row)["n"])
 
 
 def delete_company(dataset_id: str, actor: str = "") -> dict:

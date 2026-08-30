@@ -1,13 +1,16 @@
 import { getSynonyms, setSynonyms } from './state.js';
 import { fetchAuth, showMsg, escapeHtml, initBulkSelection } from './utils.js';
+import { createPager } from './pager.js';
 
 let bulkSelection = null;
+let synonymsPager = null;
 
 async function loadSynonyms() {
     const res = await fetchAuth('/api/synonyms');
     if (!res.ok) return;
     const data = await res.json();
     setSynonyms(data.synonyms);
+    synonymsPager.reset();
     renderSynonymsTable(data.synonyms);
 }
 
@@ -21,12 +24,14 @@ function pairValue(s) {
 
 function renderSynonymsTable(synonyms) {
     const tbody = document.getElementById('synonyms-table');
-    if (!synonyms.length) {
+    const { offset, limit } = synonymsPager.state;
+    const page = synonyms.slice(offset, offset + limit);
+    if (!page.length) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
     } else {
         // One row per mapping. A word with three synonyms is three rows, each with
         // its own delete button, so the operator can remove exactly one of them.
-        tbody.innerHTML = synonyms.map(s => `
+        tbody.innerHTML = page.map(s => `
             <tr>
                 <td><input type="checkbox" class="form-check-input row-check" value="${pairValue(s)}"></td>
                 <td class="ps-4 fw-bold">${escapeHtml(s.source)}</td>
@@ -38,6 +43,7 @@ function renderSynonymsTable(synonyms) {
         `).join('');
     }
     if (bulkSelection) bulkSelection.clear();
+    synonymsPager.setResult({ shown: page.length, total: synonyms.length });
 }
 
 async function deleteSynonym(source, target) {
@@ -80,6 +86,14 @@ export function initSynonyms() {
     });
     bulkSelection.attach(document.getElementById('synonyms-table'));
 
+    synonymsPager = createPager({
+        pageSizeEl: document.getElementById('synonyms-page-size'),
+        prevBtnEl: document.getElementById('synonyms-btn-prev'),
+        nextBtnEl: document.getElementById('synonyms-btn-next'),
+        rangeEl: document.getElementById('synonyms-range'),
+        defaultLimit: 25,
+        onPage: () => renderSynonymsTable(getSynonyms()),
+    });
     loadSynonyms();
 
     // Delegated so the buttons carry both words as data attributes. An inline
