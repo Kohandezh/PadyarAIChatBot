@@ -175,6 +175,10 @@ class WhitelabelBrandingRequest(BaseModel):
     background_color: str = ""
     white_color: str = ""
     welcome_text: str = ""
+    # Background images behind the chat and video tabs. Same URL rule as
+    # logo_url: site-relative or absolute http(s), empty = shipped default.
+    chat_background_url: str = ""
+    video_background_url: str = ""
 
 
 class MenuSettingsRequest(BaseModel):

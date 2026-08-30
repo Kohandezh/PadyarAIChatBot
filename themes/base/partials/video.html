@@ -1,13 +1,6 @@
 <!-- Video Chat View. Local INOTEX media can be connected by an administrator. -->
 <div id="video-view" class="tab-view" role="tabpanel" aria-label="چت ویدیویی">
     <div class="avatar-container">
-        <div class="video-placeholder" id="video-placeholder">
-            <div class="video-placeholder-card">
-                <div class="video-placeholder-mark">E</div>
-                <p data-i18n="videoReady">ویدیوهای راهنمای اینوتکس در این بخش نمایش داده می‌شوند</p>
-                <span data-i18n="videoReadyHint">برای گفتگو یا دریافت راهنمایی، تب چت را انتخاب کنید.</span>
-            </div>
-        </div>
         <video id="avatar-video" muted loop playsinline
             data-waiting-src="{{ idle_video_main }}"
             data-idle-pool="{{ idle_video_pool_json or '[]' }}"></video>

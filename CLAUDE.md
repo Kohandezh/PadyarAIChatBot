@@ -457,77 +457,38 @@ Since this is a **CMS installed per-customer**, branding customization is a firs
 
 #### Database: Key-Value with `whitelabel_` Prefix
 
-White-label settings are stored in the existing `settings` table using prefixed keys. This follows the WordPress `wp_options` pattern — simple, proven, and no schema migration needed.
+White-label settings live in the `settings` table with prefixed keys (WordPress `wp_options` pattern). **`app/services/branding.py` is the single source of truth** — `WL_DEFAULTS` holds every key and its shipped default, `WL_FIELD_TO_KEY` maps the admin form's field names onto the keys, and an install that never opens the form renders exactly what it shipped with (an empty saved value collapses back to the default).
 
-| Key                        | Default                    | Description                               |
-| -------------------------- | -------------------------- | ----------------------------------------- |
-| `whitelabel_app_name`      | `پادیار ویدیو چت`          | Display name in admin sidebar and chat UI |
-| `whitelabel_logo_url`      | `/LOGO/logo.jpg`           | Logo image URL                            |
-| `whitelabel_favicon_url`   | (none)                     | Favicon URL                               |
-| `whitelabel_primary_color` | `#4f46e5`                  | Primary brand color (hex)                 |
-| `whitelabel_accent_color`  | `#10b981`                  | Accent color for buttons/highlights       |
-| `whitelabel_sidebar_color` | `#1e1b4b`                  | Admin sidebar background color            |
-| `whitelabel_welcome_text`  | (default Persian greeting) | Chat welcome message                      |
-| `whitelabel_footer_text`   | (default)                  | Footer text                               |
-| `whitelabel_custom_css`    | (empty)                    | Extra CSS override                        |
+| Key                                | Default                             | Description                                        |
+| ---------------------------------- | ----------------------------------- | -------------------------------------------------- |
+| `whitelabel_app_name`              | `دستیار پادیار`                     | Display name in admin sidebar and chat UI          |
+| `whitelabel_subtitle`              | `INOTEX`                            | Small line under the chat title                    |
+| `whitelabel_logo_url`              | (empty = built-in SVG mark)         | Logo image URL                                     |
+| `whitelabel_primary_color`         | `#2D5CA7`                           | Primary brand color (feeds `--wl-primary`)         |
+| `whitelabel_accent_color`          | `#FCB715`                           | Accent color (feeds `--wl-accent`)                 |
+| `whitelabel_yellow_light_color`    | `#FEBE27`                           | Hover yellow (`--wl-yellow-light`)                 |
+| `whitelabel_navy_color`            | `#1E2D52`                           | Panels navy (`--wl-navy`)                          |
+| `whitelabel_teal_color`            | `#04A584`                           | Success teal (`--wl-teal`)                         |
+| `whitelabel_dark_teal_color`       | `#00644F`                           | Dark teal (`--wl-dark-teal`)                       |
+| `whitelabel_background_color`      | `#000000`                           | Page background (`--wl-background`)                |
+| `whitelabel_white_color`           | `#FFFFFF`                           | Main text (`--wl-white`)                           |
+| `whitelabel_welcome_text`          | (default Persian greeting)          | Chat welcome message                               |
+| `whitelabel_chat_background_url`   | `/themes/inotex/static/bg-bricks.jpg` | Background image behind the chat tab (`--wl-chat-background`, painted on `.view-container`) |
+| `whitelabel_video_background_url`  | `/themes/inotex/static/bg-bricks.jpg` | Background image behind the video tab (`--wl-video-background`, painted on `.view-container` in `body.video-mode`) |
 
-Colors are stored as **hex strings** (`#RRGGBB`) — same pattern as Ghost CMS.
+Colors are stored as **hex strings** (`#RRGGBB`); the two background URLs follow the logo rule (site-relative or absolute `http(s)`, validated server-side).
 
-Defaults are handled in Python code via `get_setting(key, default)` — same pattern as WordPress `get_option($key, $default)`. Defaults are NOT stored in the database until the user changes them.
+#### How the values reach the page
 
-#### Template Injection: Jinja2 Context Processors
+`branding.chat_branding_context()` (merged into the theme render in `app/routers/public.py`) emits, pre-escaped for the theme env's `autoescape=False`:
 
-Starlette's `Jinja2Templates` supports `context_processors` — functions that inject variables into every template render automatically (equivalent to Flask's `@app.context_processor`).
+- **`wl_style`** — a `<style>` tag with one `--wl-*` custom property per palette token plus the two `url("…")` background tokens. Themes map their own `--{theme}-*` tokens onto these with the official palette as `var()` fallback (see `themes/inotex/static/style.css`), so Settings > Branding controls every theme color and both tab backgrounds.
+- **`wl_brand_script`** — `window.PADYAR_BRAND = {app_name, welcome}` for `core.js` (json + `</` guard, never html.escape inside `<script>`).
+- Text positions (`app_title`, `wl_subtitle`, `wl_welcome`, `wl_logo_url`) are html-escaped.
 
-```python
-# In app/routers/public.py
-def branding_context(request: Request) -> dict:
-    from app.db.queries import get_setting
-    return {
-        "app_name": get_setting("whitelabel_app_name", "پادیار ویدیو چت"),
-        "logo_url": get_setting("whitelabel_logo_url", "/LOGO/logo.jpg"),
-        "branding_css": _build_branding_css(),
-    }
+Brand values are baked into the rendered-page cache, so `wl_cache_key()` (a tuple of all values) extends the cache key in `app/services/themes.py` — an admin save flips the key on the next request.
 
-templates = Jinja2Templates(
-    directory="templates",
-    context_processors=[branding_context],
-)
-```
-
-This makes `{{ app_name }}`, `{{ logo_url }}`, `{{ branding_css }}` available in **all** Jinja2 templates without passing them in every `render()` call.
-
-For the **public chat UI** (raw HTML, not Jinja2), use the existing string-replacement pattern:
-
-```python
-html = html.replace("<!-- APP_NAME -->", app_name)
-html = html.replace("<!-- BRAND_CSS -->", branding_css_tag)
-```
-
-#### Dynamic CSS: `/theme.css` Endpoint
-
-A FastAPI endpoint serves dynamically-generated CSS with `media_type="text/css"`, using CSS custom properties:
-
-```python
-@app.get("/theme.css")
-def theme_css():
-    primary = get_setting("whitelabel_primary_color", "#4f46e5")
-    accent = get_setting("whitelabel_accent_color", "#10b981")
-    css = f"""
-    :root {{
-      --brand-primary: {primary};
-      --brand-accent: {accent};
-    }}
-    """
-    return Response(content=css, media_type="text/css",
-                    headers={"Cache-Control": "no-cache"})
-```
-
-Both admin and chat UI reference `var(--brand-primary)` in their CSS. When the user changes colors in admin, the next page load reflects the change.
-
-#### Color Picker UI
-
-Admin uses native `<input type="color">` — always outputs `#rrggbb` hex, works everywhere, zero dependencies. Plus preset color swatches for quick selection.
+The admin surface is `Settings > Branding` (`/secure-panel-inotex/settings/branding`): native `<input type="color">` pickers (always `#rrggbb`, zero dependencies) and URL fields with an upload button for logo and both backgrounds (uploads land in `/media/uploads` via `/admin/api/upload_logo`, magic-byte validated, then the operator presses «ذخیره برندینگ»).
 
 ### Database (PostgreSQL 16)
 

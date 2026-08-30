@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 DEFAULT_NAME = "دستیار پادیار"
 DEFAULT_GREETING = "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید."
+DEFAULT_BG = "/themes/inotex/static/bg-bricks.jpg"
 
 _TOKEN_RE = re.compile(r'<meta name="chat-token" content="([^"]+)"')
 
@@ -74,6 +75,8 @@ def _post_branding(client, **overrides):
         "background_color": "#000000",
         "white_color": "#FFFFFF",
         "welcome_text": "سلام! به سامانهٔ ما خوش آمدید.",
+        "chat_background_url": "",
+        "video_background_url": "",
     }
     body.update(overrides)
     return client.post("/admin/api/branding", json=body)
@@ -100,10 +103,14 @@ def test_branding_roundtrip_defaults_save_readback(client):
         "whitelabel_background_color": "#000000",
         "whitelabel_white_color": "#FFFFFF",
         "whitelabel_welcome_text": DEFAULT_GREETING,
+        "whitelabel_chat_background_url": DEFAULT_BG,
+        "whitelabel_video_background_url": DEFAULT_BG,
     }
 
     r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه الکامپ",
-                       navy_color="#0A0F1E", background_color="#101010")
+                       navy_color="#0A0F1E", background_color="#101010",
+                       chat_background_url="/media/uploads/bg.jpg",
+                       video_background_url="https://cdn.example.com/v.jpg")
     assert r.status_code == 200, r.text
 
     current = client.get("/admin/api/branding").json()
@@ -115,6 +122,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
     assert current["whitelabel_navy_color"] == "#0A0F1E"
     assert current["whitelabel_background_color"] == "#101010"
     assert current["whitelabel_welcome_text"] == "سلام! به سامانهٔ ما خوش آمدید."
+    assert current["whitelabel_chat_background_url"] == "/media/uploads/bg.jpg"
+    assert current["whitelabel_video_background_url"] == "https://cdn.example.com/v.jpg"
 
     # Rows really exist in the settings table — not just the API's defaults.
     from app.db.connection import get_db_connection
@@ -124,7 +133,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
     conn.close()
     assert rows["whitelabel_app_name"] == "دستیار سازمانی"
     assert rows["whitelabel_subtitle"] == "نمایشگاه الکامپ"
-    assert len(rows) == 12
+    assert len(rows) == 14
 
 
 # ── 2. Validation ───────────────────────────────────────────────────────
@@ -136,6 +145,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
     {"teal_color": ""},
     {"logo_url": "javascript:alert(1)"},
     {"logo_url": "//evil.com/x.gif"},           # protocol-relative = external
+    {"chat_background_url": "javascript:alert(1)"},
+    {"video_background_url": "//evil.com/bg.jpg"},
     {"app_name": "   "},                        # whitespace-only = empty
     {"welcome_text": "x" * 301},
     {"app_name": "x" * 61},
@@ -156,6 +167,19 @@ def test_branding_logo_accepts_relative_and_http(client):
     _login(client)
     for ok in ("/LOGO/a.png", "https://cdn.example.com/logo.svg", "http://x/y.png", ""):
         assert _post_branding(client, logo_url=ok).status_code == 200, ok
+
+
+def test_tab_backgrounds_render_as_css_url_tokens(client):
+    """The two background settings reach the public page as CSS url() custom
+    properties the theme paints on .view-container. An explicitly emptied
+    field collapses back to the shipped photo, like the welcome text."""
+    _login(client)
+    assert _post_branding(client,
+                          chat_background_url="/media/uploads/booth.jpg",
+                          video_background_url="").status_code == 200
+    html = client.get("/").text
+    assert '--wl-chat-background:url("/media/uploads/booth.jpg");' in html
+    assert f'--wl-video-background:url("{DEFAULT_BG}");' in html
 
 
 # ── 3. Chat renders branding ────────────────────────────────────────────
@@ -257,6 +281,10 @@ def test_admin_branding_page_shows_name_and_prefilled_form(client):
     assert 'value="سمینار سالانه"' in page.text
     assert "پیام جدید</textarea>" in page.text
     assert 'href="/secure-panel-inotex/settings/branding"' in page.text
+    # The two background fields ship pre-filled with the current values.
+    assert 'id="brand-chat-bg"' in page.text
+    assert 'id="brand-video-bg"' in page.text
+    assert page.text.count(f'value="{DEFAULT_BG}"') == 2
 
 
 def test_branding_api_requires_admin(client):
