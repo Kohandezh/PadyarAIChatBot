@@ -234,17 +234,24 @@ async def get_stats():
     total_cost = conn.execute('SELECT SUM(cost) FROM chat_logs').fetchone()[0] or 0.0
     total_messages = conn.execute('SELECT COUNT(*) FROM chat_logs').fetchone()[0] or 0
 
+    # The 7-day bound is computed in Python and passed as a parameter:
+    # SQLite's two-argument date("now", modifier) form does not exist on
+    # PostgreSQL and 500'd this endpoint in production (2026-08-30).
+    # The single-argument date(created_at) below is valid on both engines.
+    from app.db.timeutil import to_naive_utc
+    week_ago = (to_naive_utc(datetime.datetime.now(datetime.timezone.utc))
+                - datetime.timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
     daily_query = '''
         SELECT
             date(created_at) as date_label,
             COUNT(*) as msg_count,
             SUM(cost) as total_cost
         FROM chat_logs
-        WHERE created_at >= date('now', '-7 days')
+        WHERE created_at >= ?
         GROUP BY date_label
         ORDER BY date_label ASC
     '''
-    daily_rows = conn.execute(daily_query).fetchall()
+    daily_rows = conn.execute(daily_query, (week_ago,)).fetchall()
 
     # Which tier answered, over the last day. Until this existed the endpoint
     # reported only totals, so "read the ai_options rows on day one" meant
