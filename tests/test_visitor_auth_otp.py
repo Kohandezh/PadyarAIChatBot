@@ -324,7 +324,7 @@ def test_one_visitor_cannot_write_another_visitors_profile(
     victim = _visitor_id(DEST_B)
 
     r = client.post("/api/auth/profile",
-                    json={"job": "سرمایه‌گذار", "position": "", "interests": "",
+                    json={"job": "سرمایه‌گذار", "position": "مدیر", "interests": "همه چیز",
                           "visitor_id": victim},
                     headers={"X-Visitor-Id": victim})
     assert r.status_code == 200, r.text
@@ -333,20 +333,21 @@ def test_one_visitor_cannot_write_another_visitors_profile(
     assert _stored(DEST_B)["job"] == "خبرنگار", "another visitor's row was rewritten"
 
 
-def test_a_signed_in_visitor_can_edit_and_clear_their_own_profile(client, outbox):
-    """Consent runs both ways: emptying every interest has to be possible."""
+def test_a_signed_in_visitor_cannot_clear_their_own_profile(client, outbox):
+    """The 3 onboarding questions are mandatory now: an empty submission from
+    a real session must be refused, and must not overwrite what was stored."""
     _register(client, outbox, DEST_A, job="خبرنگار", interests="رسانه")
 
     r = client.post("/api/auth/profile",
                     json={"job": "", "position": "", "interests": ""})
-    assert r.status_code == 200, r.text
-    assert r.json()["profile"]["interests"] == ""
-    assert _stored(DEST_A)["interests"] == ""
+    assert r.status_code == 422
+    assert _stored(DEST_A)["interests"] == "رسانه"
 
 
 def test_the_profile_reply_never_carries_the_raw_number(client, outbox):
     _register(client, outbox, DEST_A)
-    r = client.post("/api/auth/profile", json={"job": "مهندس"})
+    r = client.post("/api/auth/profile",
+                    json={"job": "مهندس", "position": "مدیر", "interests": "همه چیز"})
     assert DEST_A not in r.text and DEST_A.lstrip("+") not in r.text
     assert r.json()["profile"]["destination_masked"].endswith(DEST_A[-4:])
 
@@ -481,7 +482,8 @@ def test_the_tight_bucket_is_keyed_on_the_session_not_the_body(
         lambda request: seen.append(getattr(request.state, "otp_limit_identity", "")))
 
     client.post("/api/auth/profile",
-                json={"job": "x", "challenge_id": "z" * 40, "visitor_id": "spoof"})
+                json={"job": "x", "position": "x", "interests": "x",
+                      "challenge_id": "z" * 40, "visitor_id": "spoof"})
     client.post("/api/visit-plan", json={"challenge_id": "z" * 40})
 
     assert seen == [f"otp:visitor:{_visitor_id(DEST_A)}"] * 2

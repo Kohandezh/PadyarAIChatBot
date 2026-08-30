@@ -399,10 +399,13 @@ class ProfileUpdateBody(BaseModel):
     There is no `challenge_id` here any more, and no visitor id either. The
     body of a request cannot name the row it writes: identity comes from the
     session cookie, through `require_visitor`.
+
+    All three are required: the 3 onboarding questions (job, position,
+    interests) are mandatory now, not just optional plan input.
     """
-    job: str = Field("", max_length=80)
-    position: str = Field("", max_length=80)
-    interests: str = Field("", max_length=400)
+    job: str = Field(..., min_length=1, max_length=80)
+    position: str = Field(..., min_length=1, max_length=80)
+    interests: str = Field(..., min_length=1, max_length=400)
 
 
 @router.get("/api/registration/options")

@@ -94,7 +94,7 @@ def test_edit_replaces_the_profile_and_the_plan_follows(client, outbox):
     assert "media-hub" in [s["id"] for s in before["sections"]]
 
     r = client.post("/api/auth/profile", json={
-        "job": "سرمایه‌گذار", "position": "", "interests": "جذب سرمایه",
+        "job": "سرمایه‌گذار", "position": "مدیر", "interests": "جذب سرمایه",
     })
     assert r.status_code == 200, r.text
     assert r.json()["profile"]["job"] == "سرمایه‌گذار"
@@ -111,7 +111,7 @@ def test_edit_cannot_change_name_or_number(client, outbox):
     assert masked_before
 
     client.post("/api/auth/profile", json={
-        "job": "مدیرعامل", "position": "", "interests": "",
+        "job": "مدیرعامل", "position": "مدیر", "interests": "عمومی",
     })
 
     after = client.get("/api/auth/session").json()["profile"]
@@ -121,15 +121,18 @@ def test_edit_cannot_change_name_or_number(client, outbox):
     assert _stored()["job"] == "مدیرعامل"
 
 
-def test_clearing_the_profile_is_allowed(client, outbox):
-    """Removing every interest must be possible — consent runs both ways."""
+def test_clearing_the_profile_is_now_rejected(client, outbox):
+    """The 3 onboarding questions are mandatory now, not optional plan input.
+
+    A blank submission must be refused, and must not overwrite what was
+    already stored.
+    """
     _verified(client, outbox, job="خبرنگار", interests="رسانه")
     r = client.post("/api/auth/profile", json={
         "job": "", "position": "", "interests": "",
     })
-    assert r.status_code == 200
-    assert _stored()["interests"] == ""
-    assert client.post("/api/visit-plan", json={}).json()["matched"] is False
+    assert r.status_code == 422
+    assert _stored()["interests"] == "رسانه"
 
 
 # ── The boundary ─────────────────────────────────────────────────────────
@@ -146,7 +149,7 @@ def test_a_challenge_that_never_passed_its_code_unlocks_nothing(client, outbox):
     cid = r.json()["challenge_id"]
 
     resp = client.post("/api/auth/profile", json={
-        "challenge_id": cid, "job": "مدیرعامل", "position": "", "interests": "همه چیز",
+        "challenge_id": cid, "job": "مدیرعامل", "position": "مدیر", "interests": "همه چیز",
     })
     assert resp.status_code == 401
 
@@ -157,7 +160,7 @@ def test_a_challenge_that_never_passed_its_code_unlocks_nothing(client, outbox):
 
 def test_an_unknown_challenge_is_refused(client):
     r = client.post("/api/auth/profile", json={
-        "challenge_id": "z" * 40, "job": "x", "position": "", "interests": "",
+        "challenge_id": "z" * 40, "job": "x", "position": "x", "interests": "x",
     })
     assert r.status_code == 401
 
@@ -190,7 +193,7 @@ def test_position_survives_a_profile_edit(client, outbox):
     assert _stored()["position"] == "کارشناس"
 
     client.post("/api/auth/profile", json={
-        "job": "کارمند", "position": "مدیر بخش", "interests": "",
+        "job": "کارمند", "position": "مدیر بخش", "interests": "عمومی",
     })
     assert _stored()["position"] == "مدیر بخش"
 
