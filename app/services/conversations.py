@@ -860,6 +860,142 @@ def delete_conversation_for_visitor(conversation_id: str, visitor_id: str) -> bo
         conn.close()
 
 
+# ── Visitor settings (calendar, contacts, language) ────────────────────────
+# Same {} → dict contract as `answers` above, on the sibling `visitor_settings`
+# column (migrations/0017_visitor_settings.sql). See
+# docs/features/pwa-api/SPEC.md REQ-013 to REQ-017.
+
+_SETTINGS_DEFAULTS = {"calendar": [], "contacts": [], "language": ""}
+
+
+def _settings(value) -> dict:
+    """The `visitor_settings` bag as a dict with all three keys always
+    present, whichever backend produced it (see `_answers` above for why).
+
+    Builds fresh `calendar`/`contacts` lists on every call rather than
+    `{**_SETTINGS_DEFAULTS, **data}`: that spread only overrides a key when
+    `data` HAS it, so two visitors who both still have the default (empty)
+    bag got back dicts whose "calendar" and "contacts" values were the exact
+    same list OBJECT (`_SETTINGS_DEFAULTS["calendar"]`/`["contacts"]`) — every
+    write path here mutates those lists in place (`.append`), so one
+    visitor's calendar pick or contact connection leaked into every other
+    visitor still on the default bag. Found via tests/test_pwa_api.py's
+    contacts-connect test.
+    """
+    if isinstance(value, dict):
+        data = value
+    elif value:
+        try:
+            parsed = json.loads(value)
+            data = parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            data = {}
+    else:
+        data = {}
+    return {
+        "calendar": list(data.get("calendar") or []),
+        "contacts": list(data.get("contacts") or []),
+        "language": data.get("language") or "",
+    }
+
+
+def _stored_settings(conn, visitor_id: str):
+    row = conn.execute("SELECT visitor_settings FROM visitors WHERE id = ?",
+                       (visitor_id,)).fetchone()
+    return row["visitor_settings"] if row else "{}"
+
+
+def get_visitor_settings(visitor_id: str) -> dict:
+    """REQ-014."""
+    if not visitor_id:
+        return _settings(None)
+    conn = get_db_connection()
+    try:
+        return _settings(_stored_settings(conn, visitor_id))
+    finally:
+        conn.close()
+
+
+def _write_settings(conn, visitor_id: str, settings: dict) -> None:
+    conn.execute(
+        "UPDATE visitors SET visitor_settings = ? WHERE id = ?",
+        (json.dumps(settings, ensure_ascii=False, default=str), visitor_id))
+
+
+def add_calendar_event(visitor_id: str, event_id: str) -> list:
+    """REQ-015: idempotent insert. Returns the updated `calendar` list."""
+    import datetime
+    conn = get_db_connection()
+    try:
+        settings = _settings(_stored_settings(conn, visitor_id))
+        if not any(e.get("event_id") == event_id for e in settings["calendar"]):
+            settings["calendar"].append({
+                "event_id": event_id,
+                "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            })
+            _write_settings(conn, visitor_id, settings)
+            conn.commit()
+        return settings["calendar"]
+    finally:
+        conn.close()
+
+
+def remove_calendar_event(visitor_id: str, event_id: str) -> list:
+    """REQ-016: idempotent delete (a missing event_id changes nothing, no
+    error). Returns the updated `calendar` list."""
+    conn = get_db_connection()
+    try:
+        settings = _settings(_stored_settings(conn, visitor_id))
+        before = len(settings["calendar"])
+        settings["calendar"] = [e for e in settings["calendar"]
+                                if e.get("event_id") != event_id]
+        if len(settings["calendar"]) != before:
+            _write_settings(conn, visitor_id, settings)
+            conn.commit()
+        return settings["calendar"]
+    finally:
+        conn.close()
+
+
+class ContactsAlreadyConnected(Exception):
+    """Raised by connect_visitors when the pair is already linked (REQ-017,
+    -> 409 at the router)."""
+
+
+def connect_visitors(visitor_id: str, other_visitor_id: str) -> list:
+    """REQ-017 / REL-001: link two visitors' `contacts`, atomically.
+
+    ONE connection, both rows read and both rows written before a SINGLE
+    commit — either both sides see the connection or (on any exception before
+    commit) neither does. Returns the CALLING visitor's updated `contacts`.
+    Raises ContactsAlreadyConnected if the pair is already linked.
+    """
+    import datetime
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id, visitor_settings FROM visitors WHERE id IN (?, ?)",
+            (visitor_id, other_visitor_id)).fetchall()
+        by_id = {r["id"]: _settings(r["visitor_settings"]) for r in rows}
+        if visitor_id not in by_id or other_visitor_id not in by_id:
+            raise ValueError("unknown visitor")
+
+        mine, theirs = by_id[visitor_id], by_id[other_visitor_id]
+        if any(c.get("visitor_id") == other_visitor_id for c in mine["contacts"]):
+            raise ContactsAlreadyConnected()
+
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        mine["contacts"].append({"visitor_id": other_visitor_id, "connected_at": now})
+        theirs["contacts"].append({"visitor_id": visitor_id, "connected_at": now})
+
+        _write_settings(conn, visitor_id, mine)
+        _write_settings(conn, other_visitor_id, theirs)
+        conn.commit()
+        return mine["contacts"]
+    finally:
+        conn.close()
+
+
 # ── Admin writes ─────────────────────────────────────────────────────────
 # Unlike the visitor-facing writes above, these are NOT swallowed on failure.
 # An admin who just clicked "delete" needs to know if it did not happen, not

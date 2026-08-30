@@ -394,6 +394,7 @@ def _create_conversation_tables(cursor):
         position TEXT NOT NULL DEFAULT '',
         interests TEXT NOT NULL DEFAULT '',
         answers TEXT NOT NULL DEFAULT '{}',
+        visitor_settings TEXT NOT NULL DEFAULT '{}',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )

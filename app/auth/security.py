@@ -16,6 +16,7 @@ from app.config import (
     CHAT_IP_RATE_LIMIT, OTP_RATE_LIMIT, OTP_IP_RATE_LIMIT, PAGE_RATE_LIMIT,
     ADMIN_COOKIE_NAME, SESSION_TIMEOUT_HOURS,
     MAX_LOGIN_ATTEMPTS, BLOCK_TIME_MINUTES,
+    QR_PAYLOAD_TTL_SECONDS,
 )
 # The limits above are import-bound on purpose, exactly like CHAT_RATE_LIMIT:
 # this module ENFORCES them, so tests and operators tune one place
@@ -441,6 +442,41 @@ def validate_chat_token(http_request: Request, grace_seconds: float = 0.0) -> st
     except (ValueError, IndexError):
         raise HTTPException(status_code=403, detail="Invalid or missing chat token.")
     return nonce
+
+
+def generate_visitor_qr_payload(visitor_id: str) -> tuple[str, str]:
+    """Mint a short-lived, HMAC-signed QR payload encoding `visitor_id`
+    (REQ-018). Returns (payload, expires_at ISO8601). Minted fresh on every
+    request, never cached (REQ-019) — a lost phone must not carry a
+    forever-valid QR.
+    """
+    expires_at = int(time.time()) + QR_PAYLOAD_TTL_SECONDS
+    sig = hashlib.sha256(
+        f"{visitor_id}.{expires_at}.{_get_hmac_key()}".encode()).hexdigest()[:32]
+    payload = f"{visitor_id}.{expires_at}.{sig}"
+    expires_iso = datetime.datetime.fromtimestamp(
+        expires_at, tz=datetime.timezone.utc).isoformat()
+    return payload, expires_iso
+
+
+def validate_visitor_qr_payload(payload: str) -> str:
+    """The visitor id a QR payload encodes, or '' if malformed, expired, or
+    forged. Uses `secrets.compare_digest`, exactly like `validate_chat_token`,
+    so a wrong guess's timing leaks nothing about how close it was (SEC-005).
+    """
+    parts = (payload or "").split(".")
+    if len(parts) != 3:
+        return ""
+    visitor_id, expires_str, sig = parts
+    if not visitor_id or not expires_str.isdigit():
+        return ""
+    expected = hashlib.sha256(
+        f"{visitor_id}.{expires_str}.{_get_hmac_key()}".encode()).hexdigest()[:32]
+    if not secrets.compare_digest(sig, expected):
+        return ""
+    if int(expires_str) < int(time.time()):
+        return ""
+    return visitor_id
 
 
 def validate_request_origin(http_request: Request):

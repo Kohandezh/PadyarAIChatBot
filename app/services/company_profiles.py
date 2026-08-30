@@ -125,6 +125,77 @@ def public_profile(dataset_id: str) -> dict:
             if v is not None and str(v).strip()}
 
 
+# Fixed, not a setting (docs/features/pwa-api/SPEC.md REQ-005 dependencies:
+# "a fixed number, not a configurable setting" — CLAUDE.md's simplicity rule).
+COMPANY_SHORT_TEXT_CHARS = 200
+
+_DIRECTORY_FIELDS = ("id", "title", "title_en", "video_url", "text") + PUBLIC_PROFILE_FIELDS
+
+
+def _directory_row(row) -> dict:
+    """One companies row, allowlist-shaped for the public directory (REQ-005,
+    REQ-006, REQ-007). `text` is truncated to `short_text` and dropped —
+    the SELECT that calls this only ever names `_DIRECTORY_FIELDS`, so a
+    withheld column (contact_name etc.) is never even loaded into memory."""
+    data = {k: str(v).strip() for k, v in dict(row).items()
+            if v is not None and str(v).strip()}
+    text = data.pop("text", "")
+    data["short_text"] = text[:COMPANY_SHORT_TEXT_CHARS]
+    return data
+
+
+def public_directory_entry(company_id: str) -> dict:
+    """One company's public directory row (REQ-006), or {} if it doesn't exist."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT " + ", ".join(_DIRECTORY_FIELDS) + " FROM companies WHERE id = ?",
+            (company_id,)).fetchone()
+    finally:
+        conn.close()
+    return _directory_row(row) if row else {}
+
+
+def list_public_directory(q: str = "", industry: str = "", company_type: str = "",
+                          page: int = 1, page_size: int = 20):
+    """Paginated public companies directory (REQ-005). Returns (rows, has_more).
+
+    `industry` maps to the `activity_field` column, `type` maps to
+    `company_type` (REQ-005's param names vs. this table's column names).
+    `has_more` follows the same fetch-one-extra-and-trim pattern
+    app/routers/chat.py's list_my_conversations uses, rather than a separate
+    COUNT query.
+    """
+    from app.db.connection import get_db_connection
+    page = max(1, page)
+    page_size = max(1, min(page_size, 50))
+    offset = (page - 1) * page_size
+
+    where, params = [], []
+    if q:
+        where.append("(title LIKE ? OR title_en LIKE ?)")
+        params += [f"%{q}%", f"%{q}%"]
+    if industry:
+        where.append("activity_field = ?")
+        params.append(industry)
+    if company_type:
+        where.append("company_type = ?")
+        params.append(company_type)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT " + ", ".join(_DIRECTORY_FIELDS) + f" FROM companies {clause}"
+            " ORDER BY id LIMIT ? OFFSET ?",
+            (*params, page_size + 1, offset)).fetchall()
+    finally:
+        conn.close()
+    has_more = len(rows) > page_size
+    return [_directory_row(r) for r in rows[:page_size]], has_more
+
+
 def upsert_profile(dataset_id: str, values: dict, source: str = "admin") -> dict:
     """Update the profile columns of an existing company row.
 
