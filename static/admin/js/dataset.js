@@ -1,33 +1,42 @@
 import { API_BASE, getDatasetItems, setDatasetItems } from './state.js';
 import { fetchAuth, showMsg, escapeHtml, exportResource, openImportModal, submitImportResource } from './utils.js';
+import { createPager } from './pager.js';
 
 let mediaBrowserModal = null;
+let datasetPager = null;
 
 async function loadDatasetTable() {
     const res = await fetchAuth(API_BASE + '/dataset');
     if (!res.ok) return;
     const items = await res.json();
     setDatasetItems(items);
+    datasetPager.reset();
     renderDatasetTable(items);
+}
+
+function filteredDatasetItems(items) {
+    const search = document.getElementById('dataset-search').value.trim().toLowerCase();
+    return search
+        ? items.filter(d => (d.id + d.title + d.text).toLowerCase().includes(search))
+        : items;
 }
 
 function renderDatasetTable(items) {
     const tbody = document.getElementById('dataset-table');
-    const search = document.getElementById('dataset-search').value.trim().toLowerCase();
-    const filtered = search
-        ? items.filter(d => (d.id + d.title + d.text).toLowerCase().includes(search))
-        : items;
+    const filtered = filteredDatasetItems(items);
+    const { offset, limit } = datasetPager.state;
+    const page = filtered.slice(offset, offset + limit);
 
-    tbody.innerHTML = filtered.length === 0
+    tbody.innerHTML = page.length === 0
         ? '<tr><td colspan="6" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>'
         : '';
 
-    filtered.forEach((item, i) => {
+    page.forEach((item, i) => {
         const tr = document.createElement('tr');
         const textPreview = item.text.length > 80 ? item.text.substring(0, 80) + '...' : item.text;
         const hasVideo = item.video_url ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>';
         tr.innerHTML = `
-            <td>${i + 1}</td>
+            <td>${offset + i + 1}</td>
             <td><code>${escapeHtml(item.id)}</code></td>
             <td class="fw-bold">${escapeHtml(item.title)}</td>
             <td class="text-muted small">${escapeHtml(textPreview)}</td>
@@ -38,6 +47,8 @@ function renderDatasetTable(items) {
             </td>`;
         tbody.appendChild(tr);
     });
+
+    datasetPager.setResult({ shown: page.length, total: filtered.length });
 }
 
 function openDatasetModal(item_id = null) {
@@ -265,10 +276,19 @@ async function deleteDatasetItem(item_id) {
 }
 
 export function initDataset() {
+    datasetPager = createPager({
+        pageSizeEl: document.getElementById('dataset-page-size'),
+        prevBtnEl: document.getElementById('dataset-btn-prev'),
+        nextBtnEl: document.getElementById('dataset-btn-next'),
+        rangeEl: document.getElementById('dataset-range'),
+        defaultLimit: 25,
+        onPage: () => renderDatasetTable(getDatasetItems()),
+    });
     loadDatasetTable();
 
     // Search handler
     document.getElementById('dataset-search').addEventListener('input', () => {
+        datasetPager.reset();
         renderDatasetTable(getDatasetItems());
     });
 

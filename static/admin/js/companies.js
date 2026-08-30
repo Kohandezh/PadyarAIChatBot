@@ -10,6 +10,7 @@
 
 import { API_BASE } from './state.js';
 import { fetchAuth, escapeHtml } from './utils.js';
+import { createPager } from './pager.js';
 
 const fa = (n) => Number(n || 0).toLocaleString('fa-IR');
 const esc = (v) => escapeHtml(v === null || v === undefined ? '' : String(v)) || '';
@@ -44,6 +45,8 @@ let modal = null;
 let mediaBrowserModal = null;
 let searchTimer = null;
 let onlyMissing = false;
+let companiesPager = null;
+let currentSearch = '';
 
 function alertBox(text) {
     const el = document.getElementById('companies-alert');
@@ -64,12 +67,17 @@ async function post(url, options = {}) {
 }
 
 async function load(q = '') {
-    const data = await post(`/admin/api/company-profiles?q=${encodeURIComponent(q)}`) ;
+    currentSearch = q;
+    const { offset, limit } = companiesPager.state;
+    const data = await post(
+        `/admin/api/company-profiles?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`);
     if (!data) return;
     let rows = data.companies;
+    companiesPager.setResult({ shown: rows.length, total: data.total, hasMore: data.has_more });
     // The one filter that answers the day's question: "who is left to find?"
     // Missing means no verified capture AND no profile — untouched or
     // spreadsheet-only, either way the booth still has work to do there.
+    // It only narrows the page already fetched, same as the search box does.
     if (onlyMissing) {
         rows = rows.filter(c => !c.has_profile && !c.lead_status);
     }
@@ -78,7 +86,7 @@ async function load(q = '') {
     const body = document.getElementById('companies');
     if (!rows.length) {
         body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">'
-            + (onlyMissing ? 'شرکتِ بی‌اطلاعِ باقی‌مانده‌ای نیست. کار تمام است.'
+            + (onlyMissing ? 'شرکتِ بی‌اطلاعِ باقی‌مانده‌ای در این صفحه نیست.'
                            : 'شرکتی پیدا نشد.') + '</td></tr>';
         return;
     }
@@ -278,6 +286,14 @@ async function uploadFromCompanyMediaBrowser(input) {
 
 export function initCompanies() {
     modal = new bootstrap.Modal(document.getElementById('profile-modal'));
+    companiesPager = createPager({
+        pageSizeEl: document.getElementById('companies-page-size'),
+        prevBtnEl: document.getElementById('companies-btn-prev'),
+        nextBtnEl: document.getElementById('companies-btn-next'),
+        rangeEl: document.getElementById('companies-range'),
+        defaultLimit: 25,
+        onPage: () => load(currentSearch),
+    });
 
     load().then(() => {
         document.getElementById('companies').addEventListener('click', async (ev) => {
@@ -294,11 +310,12 @@ export function initCompanies() {
     document.getElementById('company-search').addEventListener('input', (ev) => {
         clearTimeout(searchTimer);
         const q = ev.target.value.trim();
-        searchTimer = setTimeout(() => load(q), 250);
+        searchTimer = setTimeout(() => { companiesPager.reset(); load(q); }, 250);
     });
 
     document.getElementById('only-missing').addEventListener('change', (ev) => {
         onlyMissing = ev.target.checked;
+        companiesPager.reset();
         load(document.getElementById('company-search').value.trim());
     });
 
