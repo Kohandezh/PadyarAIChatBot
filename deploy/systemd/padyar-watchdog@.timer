@@ -1,0 +1,15 @@
+# WHY 60s: watchdog.py alerts after FAILS_BEFORE_ALERT=3 consecutive failed
+# probes, so a 60s cadence means ~3 minutes of real visitor-facing downtime
+# before the first SMS — a blip or a rolling restart never wakes anyone,
+# which is exactly the trade the alert design made.
+[Unit]
+Description=Run the Padyar critical watchdog every minute — %i
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
