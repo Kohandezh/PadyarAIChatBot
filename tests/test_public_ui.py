@@ -31,18 +31,23 @@ def test_active_theme_is_inotex_branded():
 
 
 def test_header_carries_the_brand_mark_not_a_character():
-    """The header identifies the product with the hexagon-cube brand mark.
+    """The product is identified with the hexagon-cube brand mark, not the
+    companion character.
 
-    The companion character lives in the decorative corner (see
-    test_companion_is_decorative_only) — never inside the header, and never
-    as the brand identity.
+    inotex's header carries no logo at all — the brand mark moved into the
+    sidebar drawer (menu.html) alongside the persistent desktop sidebar. The
+    companion still lives in its own decorative corner (see
+    test_companion_is_decorative_only) — never inside the header or the
+    sidebar, and never as the brand identity.
     """
     inotex_header = read(ROOT / "themes" / "inotex" / "partials" / "header.html")
+    inotex_menu = read(ROOT / "themes" / "inotex" / "partials" / "menu.html")
     liquid_header = read(LIQUID / "partials" / "header.html")
-    for text in (inotex_header, liquid_header):
+    for text in (inotex_header, inotex_menu, liquid_header):
         assert 'class="mascot"' not in text
         assert "pet-canvas" not in text
-    assert 'class="brand-mark"' in inotex_header
+    assert 'class="brand-mark"' in inotex_menu
+    assert 'class="brand-mark"' not in inotex_header
 
 
 def _without_html_comments(markup: str) -> str:
@@ -319,12 +324,15 @@ def test_no_brand_leakage_in_public_ui_files():
 def test_the_assistant_name_is_the_one_the_customer_chose():
     """Guards the rename itself: the old name must not creep back in.
 
-    The headers now render {{ app_title }} (the whitelabel_app_name value);
-    core.js keeps the shipped fa fallback so the brand override can fail
-    safe. The fallback — not a hardcoded header — is where the name lives.
+    liquid-glass still renders {{ app_title }} (the whitelabel_app_name
+    value) in its header. inotex's header carries no title any more — the
+    brand mark and title moved into the sidebar drawer (menu.html)
+    alongside it. core.js keeps the shipped fa fallback so the brand
+    override can fail safe. The fallback — not a hardcoded header — is
+    where the name lives.
     """
     for p in [LIQUID / "partials" / "header.html",
-              ROOT / "themes" / "inotex" / "partials" / "header.html"]:
+              ROOT / "themes" / "inotex" / "partials" / "menu.html"]:
         text = read(p)
         assert "{{ app_title }}" in text, p
         assert "دستیار هوشمند اینوتکس" not in text, f"old name returned in {p}"

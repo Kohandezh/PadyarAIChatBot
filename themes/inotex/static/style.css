@@ -147,6 +147,27 @@ header.inx-header::after {
     min-width: 0;
 }
 
+/* Now living in menu.html's sidebar header instead of the removed header
+   logo. Collapsed rail (76px, static/chat/base.css) has no room for the
+   full mark + title — .menu-sidebar-toggle-btn's own compact logo stands in
+   for it there, same as it always has. */
+.menu-drawer.collapsed .menu-sidebar-header .logo-container {
+    display: none;
+}
+
+/* .menu-sidebar-header's real layout (flex, space-between, the 32px logo
+   sizing it used to hold) only ever existed inside base.css's desktop
+   (min-width: 992px) rule — menu.html's own comment calls this block
+   "desktop-only... hidden below the 992px breakpoint", but nothing actually
+   hid it below that width. It went unnoticed while the slot held one small
+   icon-only span; the full brand mark + two-line title moved in above does
+   not fit unstyled, so enforce the documented intent here. */
+@media (max-width: 991.98px) {
+    .menu-sidebar-header {
+        display: none;
+    }
+}
+
 .the-logo { display: flex; align-items: center; }
 
 .brand-mark { filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .5)); }
