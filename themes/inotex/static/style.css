@@ -6,22 +6,22 @@
 
 :root {
     /* — Official INOTEX base palette — */
-    /* The two --wl-fed tokens are the white-label hook: the chat page ships
-       --wl-primary/--wl-accent from the whitelabel_* settings (see
-       app/services/branding.py). The mapping below is INTENTIONALLY crossed
-       and must not be "fixed": --wl-primary (#2D5CA7, blue) feeds
-       --inotex-blue and --wl-accent (#FCB715, yellow) feeds --inotex-primary,
-       because the leads pages already established primary=blue / accent=yellow
-       semantics for these keys. var() fallbacks keep the official palette
-       when branding is unset. */
+    /* Every --wl-* token ships from the whitelabel_* branding settings (see
+       app/services/branding.py — Settings > Branding owns ALL theme colors);
+       the var() fallbacks keep the official palette when branding is unset.
+       The primary/accent mapping below is INTENTIONALLY crossed and must
+       not be "fixed": --wl-primary (#2D5CA7, blue) feeds --inotex-blue and
+       --wl-accent (#FCB715, yellow) feeds --inotex-primary, because the
+       leads pages already established primary=blue / accent=yellow
+       semantics for these keys. */
     --inotex-primary: var(--wl-accent, #FCB715);
-    --inotex-yellow-light: #FEBE27;
+    --inotex-yellow-light: var(--wl-yellow-light, #FEBE27);
     --inotex-blue: var(--wl-primary, #2D5CA7);
-    --inotex-navy: #1E2D52;
-    --inotex-teal: #04A584;
-    --inotex-dark-teal: #00644F;
-    --inotex-background: #000000;
-    --inotex-white: #FFFFFF;
+    --inotex-navy: var(--wl-navy, #1E2D52);
+    --inotex-teal: var(--wl-teal, #04A584);
+    --inotex-dark-teal: var(--wl-dark-teal, #00644F);
+    --inotex-background: var(--wl-background, #000000);
+    --inotex-white: var(--wl-white, #FFFFFF);
 
     /* — Semantic mapping — */
     --color-page-background: var(--inotex-background);
@@ -96,21 +96,26 @@ body.video-mode div#text-view { width: 100%; }
 
 
 /* ── Page ─────────────────────────────────────────────────────────── */
+/* The body carries ONLY the base colour. The brick photo belongs to the
+   app's own surface (.app-layout) — the element that actually fills the
+   viewport — where it composes with the stud texture and the darkening
+   gradient in one coherent stack. On <body> it sat behind the whole
+   document (drawer included) and needed background-attachment: fixed,
+   which mobile Safari ignores — the wrong layer twice over. */
 body {
     background-color: var(--color-page-background);
-    background-image: url("/themes/inotex/static/bg-bricks.jpg");
-    background-size: cover;
-    background-position: center bottom;
-    background-attachment: fixed;
     color: var(--color-text-primary);
     font-family: "Vazirmatn", system-ui, sans-serif;
 }
 
-/* Subtle stud texture over areas the photo may not cover */
+/* Brick photo + subtle stud texture over it, darkened edge-to-edge.
+   The shell is exactly viewport-sized, so no attachment is needed. */
 .app-layout {
     background:
         radial-gradient(circle at center, rgba(45, 92, 167, 0.05) 1.2px, transparent 1.3px) 0 0 / 26px 26px,
-        linear-gradient(rgba(0, 0, 0, .28), rgba(0, 0, 0, .42));
+        linear-gradient(rgba(0, 0, 0, .28), rgba(0, 0, 0, .42)),
+        url("/themes/inotex/static/bg-bricks.jpg") center bottom / cover no-repeat,
+        var(--color-page-background);
 }
 
 /* ── Header ───────────────────────────────────────────────────────── */
@@ -205,8 +210,6 @@ header.inx-header::after {
         display: none;
     }
 }
-
-.brand-mark { filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .5)); }
 
 .header-title {
     font-size: 15px;
@@ -357,7 +360,7 @@ header.inx-header::after {
     width: calc(var(--stud-size) * 2 + 5px);
     height: var(--stud-size);
     background:
-        radial-gradient(circle at calc(var(--stud-size)/2) 50%, #2D5CA7 45%, transparent 50%) 0 0 / calc(var(--stud-size) + 5px) 100% repeat-x;
+        radial-gradient(circle at calc(var(--stud-size)/2) 50%, var(--inotex-blue) 45%, transparent 50%) 0 0 / calc(var(--stud-size) + 5px) 100% repeat-x;
     opacity: .85;
     pointer-events: none;
 }
@@ -1291,6 +1294,9 @@ body.video-mode .pet-panel { bottom: 96px; }
     color: var(--color-text-muted);
 }
 
+/* Steps that set no subtitle (the sign-in card) leave no empty gap. */
+.reg-sub:empty { display: none; }
+
 .reg-masked { color: var(--color-text-primary); font-weight: 700; }
 
 .reg-form { display: flex; flex-direction: column; gap: 12px; }
@@ -1746,18 +1752,19 @@ body.light-mode {
     --raised-depth: 0 1px 0 rgba(255, 255, 255, .9), 0 10px 26px rgba(20, 40, 90, .14);
 
     background-color: var(--color-page-background);
-    /* The brick photo is a night scene; in daylight the surface is frosted
-       glass over a soft brand wash instead. */
-    background-image:
-        radial-gradient(1100px 620px at 12% 88%, #C9DBF7 0%, transparent 62%),
-        radial-gradient(900px 520px at 88% 12%, #FFF0CC 0%, transparent 58%);
     color: var(--color-text-primary);
 }
 
+/* The brick photo is a night scene; in daylight the surface is frosted
+   glass over a soft brand wash instead — all on .app-layout, where the
+   photo lives, so the shorthand genuinely replaces it. */
 body.light-mode .app-layout {
     background:
         radial-gradient(circle at center, rgba(45, 92, 167, .07) 1.2px, transparent 1.3px) 0 0 / 26px 26px,
-        linear-gradient(rgba(255, 255, 255, .5), rgba(255, 255, 255, .3));
+        linear-gradient(rgba(255, 255, 255, .5), rgba(255, 255, 255, .3)),
+        radial-gradient(1100px 620px at 12% 88%, #C9DBF7 0%, transparent 62%),
+        radial-gradient(900px 520px at 88% 12%, #FFF0CC 0%, transparent 58%),
+        var(--color-page-background);
 }
 
 body.light-mode header.inx-header {

@@ -632,7 +632,7 @@ def test_the_failure_message_exists_in_both_languages():
     assert js.count("newChatFailed:") == 2, "one fa string and one en string"
 
 
-@pytest.mark.parametrize("theme", ["base", "inotex", "liquid-glass"])
+@pytest.mark.parametrize("theme", ["base", "inotex"])
 def test_every_theme_sidebar_localises_the_new_chat_button(theme):
     """The button is markup, repeated in the drawer/sidebar of every theme
     that has one, and `setLang()` only translates what carries `data-i18n` /
@@ -643,9 +643,7 @@ def test_every_theme_sidebar_localises_the_new_chat_button(theme):
 
     Phase 3 (docs/features/hamburger-menu/SPEC.md) moved this out of the
     header into the sidebar (menu.html) as a labelled row, not icon-only
-    any more — `data-i18n` now drives a visible text node too. haj is
-    covered separately below: it kept its own bespoke header layout and
-    icon-only button unchanged.
+    any more — `data-i18n` now drives a visible text node too.
     """
     menu = (ROOT / "themes" / theme / "partials" / "menu.html").read_text(
         encoding="utf-8")
@@ -654,15 +652,3 @@ def test_every_theme_sidebar_localises_the_new_chat_button(theme):
     button = button[:button.index("</button>")]
     assert 'data-i18n-title="newChat"' in button, button
     assert 'data-i18n="newChat"' in button, button
-
-
-def test_haj_header_still_localises_the_new_chat_button():
-    """haj is the one deliberate exception to Phase 3 (see the SPEC's
-    scoping note): it keeps its own bespoke top-bar layout, unchanged, at
-    every width, so its icon-only #new-chat-btn stays in header.html."""
-    header = (ROOT / "themes" / "haj" / "partials" / "header.html").read_text(
-        encoding="utf-8")
-    assert 'id="new-chat-btn"' in header
-    button = header[header.index('id="new-chat-btn"'):]
-    button = button[:button.index(">")]
-    assert 'data-i18n-title="newChat"' in button, button

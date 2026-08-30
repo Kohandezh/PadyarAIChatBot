@@ -585,6 +585,12 @@ function applyBranding(d) {
     document.getElementById('brand-subtitle').value = d.whitelabel_subtitle || '';
     document.getElementById('brand-primary').value = d.whitelabel_primary_color || '#2D5CA7';
     document.getElementById('brand-accent').value = d.whitelabel_accent_color || '#FCB715';
+    document.getElementById('brand-yellow-light').value = d.whitelabel_yellow_light_color || '#FEBE27';
+    document.getElementById('brand-navy').value = d.whitelabel_navy_color || '#1E2D52';
+    document.getElementById('brand-teal').value = d.whitelabel_teal_color || '#04A584';
+    document.getElementById('brand-dark-teal').value = d.whitelabel_dark_teal_color || '#00644F';
+    document.getElementById('brand-background').value = d.whitelabel_background_color || '#000000';
+    document.getElementById('brand-white').value = d.whitelabel_white_color || '#FFFFFF';
     document.getElementById('brand-welcome').value = d.whitelabel_welcome_text || '';
     document.getElementById('brand-logo').value = d.whitelabel_logo_url || '';
     updateLogoPreview();
@@ -669,6 +675,12 @@ export function initBranding() {
                     logo_url: document.getElementById('brand-logo').value.trim(),
                     primary_color: document.getElementById('brand-primary').value,
                     accent_color: document.getElementById('brand-accent').value,
+                    yellow_light_color: document.getElementById('brand-yellow-light').value,
+                    navy_color: document.getElementById('brand-navy').value,
+                    teal_color: document.getElementById('brand-teal').value,
+                    dark_teal_color: document.getElementById('brand-dark-teal').value,
+                    background_color: document.getElementById('brand-background').value,
+                    white_color: document.getElementById('brand-white').value,
                     welcome_text: document.getElementById('brand-welcome').value.trim(),
                 }),
             });

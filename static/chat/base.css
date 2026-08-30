@@ -890,12 +890,10 @@ button:disabled {
         display: flex;
         align-items: center;
         justify-content: center;
-        opacity: 0.75;
     }
 
     .menu-sidebar-toggle-btn:hover,
     .menu-sidebar-toggle-btn:focus-visible {
-        opacity: 1;
         background: rgba(128, 128, 128, 0.14);
     }
 

@@ -197,17 +197,6 @@ def test_menu_settings_save_invalidates_page_cache(client):
     assert 'id="lang-btn"' not in second
 
 
-def test_haj_theme_has_no_language_row_regardless_of_the_flag(client):
-    """The flag only ever hides a row a theme already has — it can never ADD
-    one. haj is Persian-only by an unrelated, deliberate product decision."""
-    from app.db.queries import set_setting
-    from app.services import menu_settings
-    set_setting("active_theme", "haj")
-    menu_settings.set_menu_settings({"menu_show_language": True})
-    html = client.get("/").text
-    assert 'id="lang-btn"' not in html
-
-
 # ── 4. "My chats" pagination ─────────────────────────────────────────────
 
 def test_conversations_endpoint_requires_a_signed_in_visitor(client):

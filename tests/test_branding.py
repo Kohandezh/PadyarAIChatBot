@@ -1,4 +1,4 @@
-"""White-label branding — the 5 real `whitelabel_*` keys, end to end.
+"""White-label branding — the real `whitelabel_*` keys, end to end.
 
 Covers the whole contract from plans/whitelabel-minimal.md:
   * the admin API roundtrip (defaults → custom save → read-back, rows exist)
@@ -67,6 +67,12 @@ def _post_branding(client, **overrides):
         "logo_url": "",
         "primary_color": "#123456",
         "accent_color": "#ABCDEF",
+        "yellow_light_color": "#FEBE27",
+        "navy_color": "#1E2D52",
+        "teal_color": "#04A584",
+        "dark_teal_color": "#00644F",
+        "background_color": "#000000",
+        "white_color": "#FFFFFF",
         "welcome_text": "سلام! به سامانهٔ ما خوش آمدید.",
     }
     body.update(overrides)
@@ -87,10 +93,17 @@ def test_branding_roundtrip_defaults_save_readback(client):
         "whitelabel_logo_url": "",
         "whitelabel_primary_color": "#2D5CA7",
         "whitelabel_accent_color": "#FCB715",
+        "whitelabel_yellow_light_color": "#FEBE27",
+        "whitelabel_navy_color": "#1E2D52",
+        "whitelabel_teal_color": "#04A584",
+        "whitelabel_dark_teal_color": "#00644F",
+        "whitelabel_background_color": "#000000",
+        "whitelabel_white_color": "#FFFFFF",
         "whitelabel_welcome_text": DEFAULT_GREETING,
     }
 
-    r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه الکامپ")
+    r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه الکامپ",
+                       navy_color="#0A0F1E", background_color="#101010")
     assert r.status_code == 200, r.text
 
     current = client.get("/admin/api/branding").json()
@@ -99,6 +112,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
     assert current["whitelabel_logo_url"] == "/LOGO/x.png"
     assert current["whitelabel_primary_color"] == "#123456"
     assert current["whitelabel_accent_color"] == "#ABCDEF"
+    assert current["whitelabel_navy_color"] == "#0A0F1E"
+    assert current["whitelabel_background_color"] == "#101010"
     assert current["whitelabel_welcome_text"] == "سلام! به سامانهٔ ما خوش آمدید."
 
     # Rows really exist in the settings table — not just the API's defaults.
@@ -109,7 +124,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
     conn.close()
     assert rows["whitelabel_app_name"] == "دستیار سازمانی"
     assert rows["whitelabel_subtitle"] == "نمایشگاه الکامپ"
-    assert len(rows) == 6
+    assert len(rows) == 12
 
 
 # ── 2. Validation ───────────────────────────────────────────────────────
@@ -117,6 +132,8 @@ def test_branding_roundtrip_defaults_save_readback(client):
 @pytest.mark.parametrize("overrides", [
     {"primary_color": "red"},
     {"accent_color": "#12345"},                 # 5 digits, not 6
+    {"navy_color": "navy"},                     # palette colors are hex-only too
+    {"teal_color": ""},
     {"logo_url": "javascript:alert(1)"},
     {"logo_url": "//evil.com/x.gif"},           # protocol-relative = external
     {"app_name": "   "},                        # whitespace-only = empty
@@ -156,6 +173,7 @@ def test_chat_renders_branding(client):
     assert f'class="header-subtitle">{subtitle}</div>' in html
     assert f'id="welcome-text" dir="auto">{welcome}</div>' in html
     assert "--wl-primary:#0B7285;" in html
+    assert "--wl-navy:#1E2D52;" in html  # full palette ships, not just 2 tokens
     # The JS payload mirrors json.dumps(ensure_ascii=True) + the </ guard.
     payload = json.dumps({"app_name": name, "welcome": welcome},
                          ensure_ascii=True).replace("</", "<\\/")
@@ -195,6 +213,7 @@ def test_defaults_render_inotex_identical(client):
     # The default subtitle keeps the pre-key pixels: the header line every
     # theme used to hardcode.
     assert 'class="header-subtitle">INOTEX</div>' in html
+    assert "--wl-teal:#04A584;" in html
     # No logo set → no <img>; the built-in SVG mark is what renders.
     assert '<img class="brand-mark"' not in html
     assert 'class="brand-mark"' in html

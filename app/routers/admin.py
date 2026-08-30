@@ -668,7 +668,7 @@ _SAFE_LOGO_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 @router.get("/admin/api/branding", dependencies=[Depends(verify_admin)])
 async def get_branding_settings():
-    """The keys with defaults filled in, so the form always shows the
+    """All keys with defaults filled in, so the form always shows the
     active look — including on a fresh install that never saved anything."""
     from app.services.branding import get_branding
     return get_branding()
@@ -680,8 +680,16 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
     name = req.app_name.strip()
     subtitle = req.subtitle.strip()
     logo = req.logo_url.strip()
-    primary = req.primary_color.strip()
-    accent = req.accent_color.strip()
+    colors = {
+        "primary_color": req.primary_color.strip(),
+        "accent_color": req.accent_color.strip(),
+        "yellow_light_color": req.yellow_light_color.strip(),
+        "navy_color": req.navy_color.strip(),
+        "teal_color": req.teal_color.strip(),
+        "dark_teal_color": req.dark_teal_color.strip(),
+        "background_color": req.background_color.strip(),
+        "white_color": req.white_color.strip(),
+    }
     welcome = req.welcome_text.strip()
 
     # Backstop validation — the form's native color picker can only emit
@@ -692,14 +700,15 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
         raise HTTPException(
             status_code=400,
             detail="نام نمایشی دستیار نمی‌تواند خالی باشد و حداکثر ۶۰ نویسه است.")
+    for field, value in colors.items():
+        if not _HEX_COLOR_RE.match(value):
+            raise HTTPException(
+                status_code=400,
+                detail="رنگ‌ها باید کد شش‌رقمی hex باشند، مثل #2D5CA7.")
     if len(subtitle) > 80:
         raise HTTPException(
             status_code=400,
             detail="زیرعنوان حداکثر می‌تواند ۸۰ نویسه باشد.")
-    if not _HEX_COLOR_RE.match(primary) or not _HEX_COLOR_RE.match(accent):
-        raise HTTPException(
-            status_code=400,
-            detail="رنگ‌ها باید کد شش‌رقمی hex باشند، مثل #2D5CA7.")
     if len(welcome) > 300:
         raise HTTPException(
             status_code=400,
@@ -717,8 +726,7 @@ async def save_branding_settings(req: WhitelabelBrandingRequest,
     from app.services.branding import WL_FIELD_TO_KEY
     values = {
         "app_name": name, "subtitle": subtitle, "logo_url": logo,
-        "primary_color": primary, "accent_color": accent,
-        "welcome_text": welcome,
+        "welcome_text": welcome, **colors,
     }
     for field, key in WL_FIELD_TO_KEY.items():
         set_setting(key, values[field])
