@@ -668,7 +668,9 @@ async function sendMessage(fromPreset = false, opts = {}) {
         // and mask the wait-a-moment message. One silent refresh + ONE retry:
         // a second 403 (refresh failed, or the new token died too) falls
         // through to the existing "please refresh" message below. No loops,
-        // and no 403-reason parsing — any 403 gets the same single chance.
+        // and exactly one 403 reason is ever parsed — signup_incomplete,
+        // which a module must claim before the refresh spends its retry on
+        // a 403 that refreshing can never fix.
         if (response.status === 403) {
             // signup_incomplete is NOT a token problem: check the marker
             // before the refresh below spends its one retry on it.
