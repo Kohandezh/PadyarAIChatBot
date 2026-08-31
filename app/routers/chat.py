@@ -720,6 +720,32 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                                   lang=lang, visitor=visitor,
                                   conversation_id=conversation_id)
 
+    # Guide tier (2026-08-31): hours, entrances, transit, restaurants and
+    # news live in their OWN tables (migrations/0020_guide_tables.sql; the
+    # crawl import fills them on the server), because each has a query
+    # shape dataset rows cannot express. Deterministic keyword classes, no
+    # AI, no retrieval — and an EMPTY table set makes this tier inert,
+    # which doubles as the deployment switch: the code ships before the
+    # crawl import runs, and nothing changes until it does. Conversational
+    # kinds stay out: «چه خبر» from a chatty visitor is the model's turn.
+    if conversational_kind == "none":
+        from app.services.guide import match_guide
+        guide_answer = match_guide(match_query, lang=lang)
+        if guide_answer is not None:
+            g_text = guide_answer["text"]
+            g_conf = float(guide_answer.get("confidence", 0.9))
+            _log_turn(user_query, g_text, "text", "local_guide", g_conf,
+                      conversation_id=conversation_id)
+            applog.info("chat", "conversation.answer.served",
+                        "پاسخ به بازدیدکننده داده شد",
+                        subcategory="local_guide", outcome="ok",
+                        metadata={"tier": "local_guide",
+                                  "guide_kind": guide_answer["kind"],
+                                  "score": g_conf,
+                                  "response_type": "text"})
+            return ChatResponse(type="text", text=g_text, video_url=None,
+                                confidence=g_conf, source="local_guide")
+
     # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
     # معرفی کن» is a LIST question, but single-document retrieval can only pick
     # one entry — Tier 1 served faq-20, the out-of-scope REFUSAL text, at 0.81
