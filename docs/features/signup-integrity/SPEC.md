@@ -4,7 +4,7 @@
 |-------|-------|
 | Created | 2026-08-31 |
 | Updated | 2026-08-31 |
-| Status | Draft — منتظر تأیید مالک محصول |
+| Status | Implemented |
 | Domain | registration |
 | Author | تیم پادیار |
 | Sources | دو حادثهٔ ثبت‌نام گزارش‌شده توسط مالک محصول (۱۴۰۵-۰۶-۰۹)، طراحی مصوب در گفتگو، `docs/features/otp-verification/RESEARCH.md`، `docs/features/targeted-visit/TAXONOMY.md` |
