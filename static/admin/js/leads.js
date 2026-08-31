@@ -335,6 +335,8 @@ async function loadVisitors() {
           <td>${fa(v.total)}</td>
           <td>${fa(v.verified)}</td>
           <td class="text-end">
+            <button class="btn btn-sm btn-outline-secondary" data-rename="1"
+                    data-name="${esc(v.name)}">تغییر نام</button>
             <button class="btn btn-sm btn-outline-secondary" data-rotate="1">ساخت لینک تازه</button>
             <button class="btn btn-sm ${v.active ? 'btn-outline-danger' : 'btn-outline-success'}"
                     data-active="${v.active ? '0' : '1'}">
@@ -720,6 +722,21 @@ export function initLeads() {
         const row = ev.target.closest('[data-visitor]');
         if (!row) return;
         const id = row.dataset.visitor;
+
+        const rename = ev.target.closest('[data-rename]');
+        if (rename) {
+            const current = rename.dataset.name || '';
+            const name = prompt('نام تازهٔ این همکار:', current);
+            if (name === null) return;
+            const clean = name.trim();
+            if (!clean || clean === current) return;
+            rename.disabled = true;
+            const data = await post(`/admin/api/leads/visitors/${encodeURIComponent(id)}/rename`,
+                                    { name: clean });
+            rename.disabled = false;
+            if (data) await refresh();
+            return;
+        }
 
         const rotate = ev.target.closest('[data-rotate]');
         if (rotate) {

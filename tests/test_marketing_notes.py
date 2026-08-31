@@ -136,3 +136,26 @@ def test_csv_export_neutralizes_formula_injection(clients):
     assert "'=CMD" in body          # the defusing apostrophe
     assert "داغ" in body            # warmth in the operator's words
     assert "09936495001" in body
+
+
+def test_renaming_the_agent_follows_into_their_notes(clients):
+    """A typo fix on the roster must not fork the person into two names:
+    the roster, the live-joined leads, AND the denormalized note copies
+    all say the new name after one rename."""
+    c, agent = clients
+    from app.services import leads as svc
+    _post_note(c)
+
+    r = c.post(f"/admin/api/leads/visitors/{agent['id']}/rename",
+               json={"name": "زهرا باقری‌زاده"})
+    assert r.status_code == 200
+
+    assert any(v["name"] == "زهرا باقری‌زاده"
+               for v in svc.list_visitors())
+    note = svc.list_notes()[0]
+    assert note["visitor_name"] == "زهرا باقری‌زاده"
+
+    assert c.post(f"/admin/api/leads/visitors/{agent['id']}/rename",
+                  json={"name": "   "}).status_code == 400
+    assert c.post("/admin/api/leads/visitors/nope/rename",
+                  json={"name": "کسی"}).status_code == 404
