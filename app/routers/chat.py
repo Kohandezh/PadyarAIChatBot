@@ -465,7 +465,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # before «بگو» ever gets a chance to re-serve it.
     norm_message = normalize_persian(user_query, expand_synonyms=False).strip()
     if conversational_tier_on and norm_message in _NEGATE_NORM:
-        decline = "باشه! اگه سؤال دیگه‌ای درباره نمایشگاه داری در خدمتم."
+        # scope.domain, never a hardcoded «نمایشگاه»: this is a white-label
+        # product, and the decline must name the customer's own subject.
+        decline = (f"باشه! اگه سؤال دیگه‌ای درباره {scope.domain(lang)} داری"
+                   " در خدمتم.")
         _log_turn(user_query, decline, "text", "local_decline", 0.9,
                   conversation_id=conversation_id)
         applog.info("chat", "conversation.answer.served",
@@ -560,8 +563,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # question in any language this install speaks — answer locally and stop,
     # with NO retrieval and NO AI call. Skipped for conversational kinds
     # («خوبی» is four letters and unknown, but it is small talk, and small
-    # talk goes to the model).
+    # talk goes to the model). A bare greeting is exempt for the same
+    # reason: «سلام» is four letters and often outside the vocabulary, but
+    # it is a greeting — it flows on to the intro handling, exactly as
+    # before this gate existed.
     if (conversational_tier_on and conversational_kind == "none"
+            and not only_greeting
             and conversational.is_gibberish(
                 match_query, conversational.corpus_known_tokens())):
         gibberish_reply = ("متوجه منظورت نشدم. می‌تونی سؤالت رو"
@@ -947,7 +954,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                         confidence=top_score, source="ai_options",
                         options=opt_list)
 
-            if decision is not None and decision["mode"] == "converse":
+            # Kill switch: "0" restores the pre-branch pipeline ENTIRELY — a converse decision falls through to the legacy classify path.
+            if (conversational_tier_on
+                    and decision is not None
+                    and decision["mode"] == "converse"):
                 # The model answered as a conversation, not as a lookup — a
                 # greeting, small talk, a self-introduction, a meta question
                 # about the assistant, or a yes/no reply to our last message.

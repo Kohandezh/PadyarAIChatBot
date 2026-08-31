@@ -57,7 +57,9 @@ LIST_QUESTION = "شرکت‌های هوش مصنوعی را معرفی کن"
 INCIDENT_MESSAGE = "اسم من سینا هست اسم تو چی هست؟"
 
 GIBBERISH_REPLY = "متوجه منظورت نشدم. می‌تونی سؤالت رو یه جور دیگه بپرسی؟"
-DECLINE_REPLY = "باشه! اگه سؤال دیگه‌ای درباره نمایشگاه داری در خدمتم."
+# scope.domain("fa") fills the subject — the default install's domain is
+# «نمایشگاه اینوتکس», and a customer in another category reads their own.
+DECLINE_REPLY = "باشه! اگه سؤال دیگه‌ای درباره نمایشگاه اینوتکس داری در خدمتم."
 
 
 def _seed(companies=(), extra=FAQ_ROWS):
@@ -98,6 +100,32 @@ def client(tmp_path, monkeypatch):
                           "X-Chat-Token": generate_chat_token()})
         yield c
     security._chat_rate_limits.clear()
+
+
+@pytest.fixture
+def admin_client(tmp_path, monkeypatch):
+    """An admin-session client, the same shape as tests/test_p1_closure.py:
+    a session row straight into the DB, no password round-trip."""
+    import datetime
+    import secrets
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "conversational-admin.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    with TestClient(app) as c:
+        from app.db.connection import get_db_connection
+        conn = get_db_connection()
+        token = secrets.token_hex(16)
+        conn.execute("INSERT OR IGNORE INTO admins (username, password_hash, salt,"
+                     " security_question, security_answer_hash)"
+                     " VALUES ('convadmin','x','y','q','z')")
+        conn.execute("INSERT INTO admin_sessions (token, username, expiry) VALUES (?,?,?)",
+                     (token, "convadmin",
+                      (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat()))
+        conn.commit()
+        conn.close()
+        c.cookies.set("admin_session", token)
+        yield c
 
 
 def _mock_ai(monkeypatch, classified=None,
@@ -287,6 +315,58 @@ def test_kill_switch_restores_the_old_behaviour(client, monkeypatch):
     assert "روحانی نژاد" in body["text"]
 
 
+def test_kill_switch_disables_the_converse_mode_too(client, monkeypatch):
+    """The switch must restore the pre-branch pipeline ENTIRELY, including
+    for a message that reaches Tier 2 normally (all tokens known, local
+    score under the trust bar): with "0" set, a provider that RETURNS a
+    converse JSON is not served as ai_converse — the decision falls
+    through to the legacy classify path, exactly as before this branch
+    existed. The message is a real knowledge question on purpose: that is
+    the normal Tier 2 traffic a converse decision used to hijack."""
+    _seed(SINA_COMPANY)
+    # _mock_ai stubs the legacy classify/generate calls the fall-through
+    # makes; _mock_ai_json then overrides the provider so select_records
+    # itself hands back a converse decision.
+    _mock_ai(monkeypatch)
+    _mock_ai_json(monkeypatch, _json.dumps({
+        "mode": "converse", "ids": [],
+        "lead": "سلام! من دستیار نمایشگاه هستم.",
+        "reason": "small talk"}, ensure_ascii=False))
+    from app.db.queries import set_setting
+    set_setting("chat_conversational_tier", "0")
+    r = _ask(client, "ساعت کاری غرفه ها چه خبر")
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] != "ai_converse"
+
+
+def test_the_conversational_kill_switch_has_an_admin_writer(admin_client):
+    """Reader–writer pair (branch review finding I2): chat.py read
+    `chat_conversational_tier` but nothing wrote it — flipping the
+    emergency switch needed SQL. The assistant settings form is the writer
+    now: save, then read it back, both ways."""
+    current = admin_client.get("/admin/api/assistant").json()
+    # The form always loads before it saves; echo the loaded values so the
+    # save is a pure toggle (medical_safety is password-gated on change).
+    base = {k: current[k] for k in (
+        "name", "org", "phone", "website", "knowledge",
+        "personality", "medical_safety", "tone")}
+    csrf = admin_client.get("/admin/csrf").json()["csrf_token"]
+
+    r = admin_client.post("/admin/api/assistant",
+                          json={**base, "chat_conversational_tier": False},
+                          headers={"X-CSRF-Token": csrf})
+    assert r.status_code == 200, r.text
+    assert admin_client.get("/admin/api/assistant").json()[
+        "chat_conversational_tier"] is False
+
+    r = admin_client.post("/admin/api/assistant",
+                          json={**base, "chat_conversational_tier": True},
+                          headers={"X-CSRF-Token": csrf})
+    assert r.status_code == 200, r.text
+    assert admin_client.get("/admin/api/assistant").json()[
+        "chat_conversational_tier"] is True
+
+
 def test_smalltalk_is_answered_by_the_model_not_local_tiers(client, monkeypatch):
     # Product decision, 2026-08-31: ALL small talk goes to the model — canned
     # replies age badly in a white-label product where every customer's tone
@@ -313,6 +393,20 @@ def test_gibberish_answers_locally_with_no_ai_call(client, monkeypatch):
     assert body["source"] == "local_gibberish"
     assert body["text"] == GIBBERISH_REPLY
     assert calls == {"classify": 0, "generate": 0, "provider": 0}
+
+
+def test_a_bare_greeting_is_never_answered_as_gibberish(client, monkeypatch):
+    """«سلام» alone is four letters and — on a corpus that does not contain
+    the token — exactly the gibberish shape. But a greeting is a greeting:
+    it must flow on to the intro handling as before this gate, never be
+    answered as gibberish."""
+    _seed(SINA_COMPANY)
+    from app.services import conversational as conv
+    assert "سلام" not in conv.corpus_known_tokens()
+    _mock_ai(monkeypatch)
+    r = _ask(client, "سلام")
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] != "local_gibberish"
 
 
 # ── Integration: affirmative / negative replies to an offer ───────────────

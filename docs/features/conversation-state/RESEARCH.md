@@ -45,7 +45,10 @@ conversation itself."
 - **`app/services/scope.py`** — the cold refusal is now
   «راستش متوجه منظورت نشدم. می‌تونی سؤالت رو یه جور دیگه بپرسی؟».
 - **Kill switch**: settings key `chat_conversational_tier` — `"0"` restores
-  the pre-gate pipeline entirely, no deploy.
+  the pre-gate pipeline entirely (gates, converse mode, proposal replay),
+  no deploy. The toggle lives in the admin panel (Settings → AI), the same
+  pattern as `options_shown`/`openai_enabled`, so a non-technical operator
+  can flip it mid-incident.
 - **Eval**: `data/eval/conversations.json` + `scripts/run_eval.py
   --conversations` — five multi-turn scenarios. Offline baseline after this
   batch: self-intro and gibberish PASS; smalltalk, affirmative-replay and

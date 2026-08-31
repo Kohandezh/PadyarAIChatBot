@@ -151,6 +151,9 @@ class AssistantContentRequest(BaseModel):
     collection_noun_en: Optional[str] = None
     options_shown: Optional[int] = None        # names per numbered list (1..15)
     chat_log_retention_days: Optional[int] = None  # 0 = keep forever
+    # The conversational tier's kill switch (chat.py reads "1"/"0"). None
+    # keeps the stored value, so an older cached form cannot flip it.
+    chat_conversational_tier: Optional[bool] = None
 
 
 class WhitelabelBrandingRequest(BaseModel):
