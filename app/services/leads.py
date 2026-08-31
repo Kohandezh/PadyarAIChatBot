@@ -216,6 +216,25 @@ _TABLES = (
     # What it held is now columns on `companies` (app/db/connection.py's
     # `_create_companies_table`, a core table created in init_db(), not a
     # module table created on demand here).
+    # The SQLite half of migrations/0018_marketing_notes.sql: the field
+    # team's visit notes, an append-only timeline that never claims a lead.
+    """
+    CREATE TABLE IF NOT EXISTS marketing_notes (
+        id               TEXT PRIMARY KEY,
+        dataset_id       TEXT NOT NULL,
+        company_name     TEXT NOT NULL DEFAULT '',
+        visitor_id       TEXT NOT NULL DEFAULT '',
+        visitor_name     TEXT NOT NULL DEFAULT '',
+        warmth           TEXT NOT NULL DEFAULT 'medium',
+        note             TEXT NOT NULL DEFAULT '',
+        contact_name     TEXT NOT NULL DEFAULT '',
+        contact_position TEXT NOT NULL DEFAULT '',
+        contact_phone    TEXT NOT NULL DEFAULT '',
+        created_at       TEXT NOT NULL,
+        ip               TEXT NOT NULL DEFAULT '',
+        user_agent       TEXT NOT NULL DEFAULT ''
+    )
+    """,
 )
 
 _INDEXES = (
@@ -225,6 +244,8 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS ix_leads_status  ON company_leads(status)",
     "CREATE INDEX IF NOT EXISTS ix_edits_status  ON dataset_edits(status)",
     "CREATE INDEX IF NOT EXISTS ix_visitor_code  ON lead_visitors(code)",
+    "CREATE INDEX IF NOT EXISTS ix_marketing_notes_dataset ON marketing_notes(dataset_id)",
+    "CREATE INDEX IF NOT EXISTS ix_marketing_notes_created ON marketing_notes(created_at)",
 )
 
 # The SQLite half of migrations/0006_lead_status.sql. PostgreSQL never runs
@@ -859,6 +880,96 @@ def admin_add_contact(dataset_id: str, first_name: str, last_name: str,
     return {"lead_id": lead_id, "company": company["title"],
             "link": invite["invite_url"], "qr": qr_svg(invite["invite_url"]),
             "expires_at": invite["expires_at"]}
+
+
+# ── Visit notes (marketing_notes) ────────────────────────────────────────
+# What the field team observes at a booth but the lead pipeline cannot hold:
+# eagerness, a contact who would not do OTP on the spot, anything worth
+# remembering after the hall closes. See migrations/0018_marketing_notes.sql
+# for why this is a table beside company_leads, never a lead itself.
+
+NOTE_WARMTH = ("low", "medium", "high")
+NOTE_MAX_CHARS = 2000
+
+
+def create_note(visitor_id: str, dataset_id: str, note: str,
+                warmth: str = "medium", contact_name: str = "",
+                contact_position: str = "", contact_phone: str = "",
+                ip: str = "", user_agent: str = "") -> dict:
+    """Append one visit note. Never claims the company, never sends anything.
+
+    The contact block is note-grade on purpose: it is what the agent wrote
+    down, unverified — formalizing it (OTP or operator vouch) stays with
+    register_contact/admin_add_contact, so consent rules are untouched.
+    """
+    ensure_tables()
+    company = _company_row(dataset_id)
+    if company is None:
+        raise LeadError("این شرکت در فهرست نیست.", status=404, code="unknown_company")
+    text = (note or "").strip()
+    if not text:
+        raise LeadError("متن یادداشت خالی است.", code="missing_note")
+    if len(text) > NOTE_MAX_CHARS:
+        raise LeadError("متن یادداشت بیش از حد بلند است.", code="note_too_long")
+    warmth = (warmth or "medium").strip().lower()
+    if warmth not in NOTE_WARMTH:
+        raise LeadError("میزان علاقه‌مندی معتبر نیست.", code="bad_warmth")
+
+    # Persian digits fold to ASCII so a typed «۰۹…» phone stays searchable.
+    phone = "".join(
+        str("۰۱۲۳۴۵۶۷۸۹".find(ch)) if ch in "۰۱۲۳۴۵۶۷۸۹" else ch
+        for ch in (contact_phone or "").strip())[:24]
+    visitor = visitor_by_id(visitor_id) or {}
+    note_id = secrets.token_urlsafe(12)
+    now = _now()
+
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT INTO marketing_notes (id, dataset_id, company_name,"
+            " visitor_id, visitor_name, warmth, note, contact_name,"
+            " contact_position, contact_phone, created_at, ip, user_agent)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (note_id, dataset_id, company["title"],
+             visitor_id, str(visitor.get("name") or "")[:80],
+             warmth, text,
+             (contact_name or "").strip()[:80],
+             (contact_position or "").strip()[:80],
+             phone, now.isoformat(), (ip or "")[:60],
+             (user_agent or "")[:200]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _audit("note_created", company["title"], note_id=note_id,
+           visitor_id=visitor_id, warmth=warmth)
+    return {"note_id": note_id, "company": company["title"]}
+
+
+def list_notes(dataset_id: str = "", q: str = "", limit: int = 200) -> list:
+    """The admin feed: newest first, filterable to one company's timeline."""
+    ensure_tables()
+    limit = max(1, min(int(limit or 200), 500))
+    where, args = [], []
+    if (dataset_id or "").strip():
+        where.append("dataset_id = ?")
+        args.append(dataset_id.strip())
+    term = (q or "").strip()
+    if term:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where.append("(company_name LIKE ? ESCAPE '\\' OR note LIKE ? ESCAPE '\\'"
+                     " OR contact_name LIKE ? ESCAPE '\\'"
+                     " OR visitor_name LIKE ? ESCAPE '\\')")
+        args.extend([f"%{escaped}%"] * 4)
+    sql = ("SELECT * FROM marketing_notes"
+           + (" WHERE " + " AND ".join(where) if where else "")
+           + " ORDER BY created_at DESC LIMIT ?")
+    conn = get_db_connection()
+    try:
+        return [dict(r) for r in conn.execute(sql, (*args, limit)).fetchall()]
+    finally:
+        conn.close()
 
 
 def _lead(conn, lead_id: str):

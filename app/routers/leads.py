@@ -244,6 +244,37 @@ async def mine(visitor: dict = Depends(current_visitor)):
     return {"leads": leads_service.list_leads(visitor["id"])}
 
 
+class NoteBody(BaseModel):
+    dataset_id: str = Field(min_length=1, max_length=120)
+    note: str = Field(min_length=1, max_length=2000)
+    warmth: str = Field(default="medium", max_length=10)
+    contact_name: str = Field(default="", max_length=80)
+    contact_position: str = Field(default="", max_length=80)
+    contact_phone: str = Field(default="", max_length=24)
+
+
+@router.post("/api/leads/notes")
+async def create_note(body: NoteBody, request: Request,
+                      visitor: dict = Depends(current_visitor)):
+    """One visit note — what the agent observed, without the OTP pipeline.
+
+    Same rate-limit key as register(): the visitor, not the NAT'd hall
+    address. See app/services/leads.py:create_note for why the optional
+    contact block is note-grade and never a lead."""
+    check_rate_limit(request, key=f"visitor:{visitor['id']}")
+    try:
+        return leads_service.create_note(
+            visitor["id"], body.dataset_id, body.note, warmth=body.warmth,
+            contact_name=body.contact_name,
+            contact_position=body.contact_position,
+            contact_phone=body.contact_phone,
+            ip=client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except LeadError as e:
+        raise _fail(e)
+
+
 # ── The company contact ──────────────────────────────────────────────────
 
 @router.get("/edit/{token}", response_class=HTMLResponse)
@@ -488,6 +519,51 @@ async def admin_stuck(limit: int = 25, offset: int = 0):
     rows = leads_service.stuck_leads(limit=limit, offset=offset)
     total = leads_service.count_stuck_leads()
     return {"stuck": rows, "total": total, "has_more": offset + len(rows) < total}
+
+
+def _note_csv_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in exported cells — mirrors
+    app/routers/admin.py:_csv_safe; agent-typed notes are exactly the kind of
+    visitor-authored text that ends up opened in Excel."""
+    s = "" if value is None else str(value)
+    if s.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + s
+    return s
+
+
+@router.get("/admin/api/leads/notes", dependencies=[Depends(verify_admin)])
+async def admin_notes(dataset_id: str = "", q: str = "", limit: int = 200):
+    """The visit-notes feed; `dataset_id` narrows it to one company's
+    timeline, `q` searches company/note/contact/agent text."""
+    return {"notes": leads_service.list_notes(dataset_id=dataset_id, q=q,
+                                               limit=limit)}
+
+
+@router.get("/admin/api/leads/notes/export", dependencies=[Depends(verify_admin)])
+async def admin_notes_export():
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["شرکت", "همکار غرفه", "میزان علاقه‌مندی", "یادداشت",
+                     "نام مسئول", "سمت", "شماره تماس", "زمان"])
+    for n in leads_service.list_notes(limit=500):
+        writer.writerow([
+            _note_csv_safe(n.get("company_name")), _note_csv_safe(n.get("visitor_name")),
+            {"low": "سرد", "medium": "معمولی", "high": "داغ"}.get(n.get("warmth"), ""),
+            _note_csv_safe(n.get("note")), _note_csv_safe(n.get("contact_name")),
+            _note_csv_safe(n.get("contact_position")), _note_csv_safe(n.get("contact_phone")),
+            _note_csv_safe(n.get("created_at")),
+        ])
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 'attachment; filename="marketing-notes.csv"'},
+    )
 
 
 @router.post("/admin/api/leads/{lead_id}/release")

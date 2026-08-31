@@ -202,3 +202,15 @@ button + button { margin-top: 10px; }
 .center { text-align: center; padding: 48px 20px; max-width: 480px; margin: 0 auto; }
 .center h1 { font-size: 22px; }
 .center p { color: var(--muted); font-size: 17px; }
+
+/* The visit-note picker: three eagerness buttons in a row. */
+.warmth { display: flex; gap: 10px; }
+.warmth .w {
+  flex: 1; margin-top: 0; padding: 12px 0; font-size: 16px;
+  background: #fff; border: 1px solid var(--line);
+}
+.warmth .w.selected {
+  border-color: var(--brand-primary); color: var(--brand-primary); font-weight: 700;
+}
+#note-text { min-height: 120px; }
+#note-form input { margin-top: 10px; }
