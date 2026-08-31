@@ -478,11 +478,18 @@ async def admin_autofill_preview():
 
 
 @router.post("/admin/api/company-profiles/autofill")
-async def admin_autofill_run(admin: str = Depends(verify_admin)):
-    """Fill one batch (≤ 25) of empty fields; the UI loops until done."""
+async def admin_autofill_run(payload: dict = Body(default={}),
+                             admin: str = Depends(verify_admin)):
+    """Fill one batch (≤ 10 fills, ≤ 40 scans) of empty fields; the UI
+    loops, passing the returned cursor forward so a stretch of no-yield
+    companies is asked once per pass, not once per batch."""
     from app.services import company_autofill
+    cursor = payload.get("cursor") if isinstance(payload, dict) else None
+    if not (isinstance(cursor, (list, tuple)) and len(cursor) == 2
+            and all(isinstance(v, str) for v in cursor)):
+        cursor = None
     try:
-        return await company_autofill.run(actor=admin)
+        return await company_autofill.run(actor=admin, cursor=cursor)
     except company_autofill.AutofillUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
 

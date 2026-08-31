@@ -65,9 +65,14 @@ only ever written into an empty column.
   is re-runnable / idempotent and no organizer data is ever overwritten.
 - One POST fills at most **10** companies and scans at most **40** — the
   batch counts FILLS, not companies examined, so a company whose text
-  yields nothing for its holes does not strand the queue behind it (the UI
-  loops with a progress line until `remaining` hits zero, and stops early
-  if a pass fills nothing — the same failures would repeat forever).
+  yields nothing for its holes does not strand the queue behind it. The
+  response carries a **(title, id) keyset cursor** (after the last company
+  examined) and a `pass_complete` flag; the UI forwards the cursor so a
+  no-yield stretch is asked exactly once per pass instead of once per
+  batch (elecomp, 2026-08-31: 37 companies were re-asked every batch while
+  ~700 behind them were never reached). When `pass_complete` is true the
+  pass reached the queue's end and the loop stops — a fresh pass is a
+  fresh human click.
 - Rows with **no intro text are never guessed** — counted in the report
   (`no_text`), left for the organizer.
 - The prompt shows the install's own existing labels (top 120 by frequency)
@@ -101,6 +106,7 @@ the English name is fillable too), wildcard-route ordering (fails if
 the guard is removed — the pre-filled row must survive), hard per-field
 validation (bad email/phone/website/labels rejected, valid ones kept),
 full-field echoes dropped (the elecomp regression), scan-past-no-yield
-companies, per-company failure reporting, AI-down → 503 + nothing written,
+companies, cursor resumption (nothing re-asked), per-company failure
+reporting, AI-down → 503 + nothing written,
 the mid-run organizer edit yielding precedence, and the button present with
 its current label on the rendered companies page.

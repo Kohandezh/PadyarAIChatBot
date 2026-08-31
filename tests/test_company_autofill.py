@@ -290,6 +290,36 @@ def test_scan_skips_past_no_yield_companies(admin_client, monkeypatch):
     assert _row("co-a")["email"] == ""
 
 
+def test_cursor_resumes_after_the_last_examined_company(admin_client, monkeypatch):
+    """The pass cursor is what keeps a no-yield stretch from being re-asked
+    every batch (elecomp, 2026-08-31: 37 companies re-asked per batch while
+    ~700 behind them were never reached). The second POST must resume AFTER
+    the first one's cursor, not at the queue head."""
+    from app.services import company_autofill
+
+    asked = []
+
+    async def once(company, empty_fields, vocabulary):
+        asked.append(company["id"])
+        return ({} if company["id"] == "co-a"
+                else {"title_en": "Cursor Co"}), \
+            SimpleNamespace(tokens_total=10, cost=0.001, finish_reason="stop")
+    monkeypatch.setattr(company_autofill, "_classify", once)
+
+    first = admin_client.post("/admin/api/company-profiles/autofill").json()
+    assert first["cursor"] and first["pass_complete"] is True
+    # co-a yielded nothing; co-en and co-b filled. Pass reached the end.
+    assert asked == ["co-a", "co-en", "co-b"]
+
+    # Re-ask with the same cursor shape a UI would forward: whatever is
+    # still pending AFTER that cursor (nothing here) — never the head again.
+    second = admin_client.post(
+        "/admin/api/company-profiles/autofill",
+        json={"cursor": first["cursor"]}).json()
+    assert second["filled"] == [] and second["failed"] == []
+    assert asked == ["co-a", "co-en", "co-b"]      # nothing was re-asked
+
+
 def test_companies_page_carries_the_button(admin_client):
     r = admin_client.get("/secure-panel-inotex/companies")
     assert r.status_code == 200

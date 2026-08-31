@@ -337,21 +337,28 @@ async function initAutofill() {
         if (total && !confirm(`برای ${fa(total)} شرکت، اطلاعات خالی از متن معرفی به‌طور خودکار پر شود؟`)) return;
         btn.disabled = true;
         progress.classList.remove('d-none');
-        let filled = 0, failed = 0, done = 0, fieldCount = 0;
+        let filled = 0, failed = 0, done = 0, fieldCount = 0, cursor = null;
         try {
             for (;;) {
                 progress.textContent = `در حال پر کردن… ${fa(done)} شرکت انجام شد`;
-                const res = await post('/admin/api/company-profiles/autofill', { method: 'POST' });
+                const res = await post('/admin/api/company-profiles/autofill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // The cursor resumes AFTER the last company this pass
+                    // examined — without it every batch restarts at the
+                    // queue head and re-asks the same no-yield companies.
+                    body: JSON.stringify(cursor ? { cursor } : {}),
+                });
                 if (!res) return;                       // post() already alerted
                 filled += res.filled.length;
                 failed += res.failed.length;
                 done += res.filled.length + res.failed.length;
                 fieldCount += res.filled.reduce((n, f) => n + (f.fields ? f.fields.length : 0), 0);
+                cursor = res.cursor || null;
+                // The pass reached the queue's end: stop. A fresh pass is a
+                // fresh human click, not this loop's decision.
+                if (res.pass_complete) break;
                 if (!res.remaining) break;
-                // Nothing succeeded this pass: re-POSTing would hand the
-                // server the same batch and collect the same failures
-                // forever. Stop and let the report say what is left.
-                if (!res.filled.length && res.failed.length) break;
             }
             const noText = await fetchAuth('/admin/api/company-profiles/autofill')
                 .then(r => r.ok ? r.json() : null).catch(() => null);
