@@ -11,7 +11,7 @@ the last box of the standard RAG diagram ([Query] -> [Vector search] ->
 THE SHAPE OF THE FIX. The model is shown up to ANSWER_TOPK retrieved records
 plus the last few turns and must answer with ONE JSON object:
 
-    {"mode": "answer"|"options"|"none", "ids": [...], "lead": "", "reason": ""}
+    {"mode": "answer"|"options"|"converse"|"none", "ids": [...], "lead": "", "reason": ""}
 
 Everything the visitor then reads is re-read from the database by the renderer
 in this module: an answer is the record's own `text`, an option line is the
@@ -19,6 +19,15 @@ record's own `title`, the count is computed in Python, the numbering is
 `enumerate()`. The model picks WHICH record and WHICH shape; it writes none of
 the answer. The single string it may write — one `lead` sentence above a list —
 has to survive `frame_is_grounded` before it ships.
+
+THE ONE EXCEPTION: mode "converse" (product decision, 2026-08-31). Greetings,
+small talk, meta questions about the assistant, thanks, goodbyes and yes/no
+replies are answered BY THE MODEL, never by canned local text — a bot that
+answers «سلام» with a scope refusal reads as broken. The converse lead is the
+whole reply, and it lives inside its own firewall (see _CONVERSE_LEAD_MAX_CHARS
+and the converse gate in select_records): the assistant's own identity plus
+facts already in HISTORY, no record facts, no digits in any script, nothing
+longer than two short sentences.
 
 WHY A CHOOSER AND NOT AN AUTHOR. Every fabrication incident this product has
 had came from letting a model produce a fact string. An id that came back but
@@ -96,6 +105,33 @@ BACKREF_WORDS = {
     "اینها", "اینا", "آنها", "اونا", "همین", "همینها", "همینا",
     "کدومشون", "کدامشان", "قبلی", "these", "those", "them", "which",
 }
+
+# The converse lead is the whole reply a visitor reads with no record behind
+# it, so its bound is its own — larger than LEAD_MAX_CHARS (a list head is one
+# sentence above other text; a small-talk reply is two), smaller than anything
+# that could hide a paragraph of invented prose.
+_CONVERSE_LEAD_MAX_CHARS = 200
+
+# The offer-shapes that may set "proposal". CLOSED on purpose: the router
+# stores the query to replay when the flag is true, so only an explicit
+# offer-question ("shall I list them?") may arm it — never any sentence that
+# merely ends in a question mark. A missed offer costs a re-ask; a false one
+# serves a list nobody was offered.
+_CONVERSE_OFFERS = ("بگم؟", "بگویم؟", "نشون بدم؟", "نشان بدم؟", "بیارم؟")
+
+
+def _converse_proposes(lead: str) -> bool:
+    """True when a converse lead explicitly offers to show or tell something.
+
+    The check is deliberately two-part: the lead must END as a question AND
+    carry one of the closed offer shapes (or an ASCII "?" next to the Persian
+    list words — a visitor on an English keyboard types «لیست ... ?»).
+    """
+    text = (lead or "").strip()
+    if not text.endswith(("؟", "?")):
+        return False
+    return any(offer in text for offer in _CONVERSE_OFFERS) or (
+        "?" in text and ("لیست" in text or "فهرست" in text))
 
 
 def _load_frame_vocab() -> dict:
@@ -776,7 +812,9 @@ def build_selection_prompt(candidates: list, history: list, lang: str = "fa") ->
     """The system prompt for the one selection call.
 
     Short on purpose. This is NOT the eight-section chat prompt: the model is
-    not being asked to be an assistant here, it is being asked to pick rows.
+    being asked to pick rows — with ONE sanctioned exception, mode "converse",
+    where it writes a short warm reply inside the firewall stated right in the
+    prompt (see the module docstring for why small talk is model-answered).
     """
     from app.db.queries import get_setting
     from app.services import scope
@@ -797,12 +835,21 @@ def build_selection_prompt(candidates: list, history: list, lang: str = "fa") ->
         "No prose, no explanation, no markdown fence.",
         "Prefer mode \"answer\". Use mode \"options\" ONLY when you genuinely "
         "cannot tell which of several records the visitor means.",
-        '{"mode": "answer" | "options" | "none", "ids": ["..."], '
+        '{"mode": "answer" | "options" | "converse" | "none", "ids": ["..."], '
         '"lead": "", "reason": ""}',
         "mode \"answer\"  — exactly one record clearly answers the visitor. "
         "\"ids\" holds that one id.\n"
         "mode \"options\" — several records could be what the visitor means. "
         f"\"ids\" holds 2 to {OPTIONS_MAX} ids, best first, in display order.\n"
+        "mode \"converse\" — the newest message is a greeting, small talk, the "
+        "visitor introducing themselves, a meta question about the assistant "
+        "(its name, who it is, what it can do), thanks, a goodbye, or a yes/no "
+        "reply to your last message. \"ids\" is empty; \"lead\" is the whole "
+        "reply: 1-2 short, warm, simple sentences in the visitor's language. "
+        "The lead may use ONLY the assistant's own name/org/domain and facts "
+        "already present in HISTORY (like the visitor's stated name) — NO "
+        "facts from the records list, no numbers, dates, booth numbers, phone "
+        "numbers, prices, or company names.\n"
         "mode \"none\"    — no record here answers the question. "
         "\"ids\" is empty.\n"
         "ids  — ONLY ids printed in the list below. Never invent an id. "
@@ -858,13 +905,24 @@ def _parse_json_object(content: str):
 
 
 async def select_records(user_query: str, candidates: list, history: list,
-                         lang: str = "fa"):
+                         lang: str = "fa", allow_empty=False):
     """Ask the model which of these records answers the visitor. None on any doubt.
 
     None is never a failure for the visitor: the caller falls through to the
     untouched classify_intent path, which is exactly what runs today.
+
+    Mode "converse" is the exception that answers no record: a validated
+    small-talk lead comes back with "proposal" set when it was an explicit
+    offer-question (see _converse_proposes), and a lead that fails the
+    converse gate degrades to mode "none" right here.
     """
-    if not candidates:
+    # Empty candidates still mean "nothing to select" — UNLESS the caller
+    # says the message is conversational (small talk, a self-introduction),
+    # where zero records is the intended offer and "converse" is the only
+    # sensible verdict. Guarded by a flag instead of dropping the check so
+    # every other zero-candidate call keeps skipping the paid model round
+    # trip it cannot win anything from.
+    if not candidates and not allow_empty:
         return None
 
     from app.services.ai.wrapper import padyar_ai
@@ -921,7 +979,7 @@ async def select_records(user_query: str, candidates: list, history: list,
         return None
 
     mode = data.get("mode")
-    if mode not in ("answer", "options", "none"):
+    if mode not in ("answer", "options", "converse", "none"):
         return None
 
     # THE GROUNDING GATE. The model may only ever name an id that appeared in
@@ -969,6 +1027,33 @@ async def select_records(user_query: str, candidates: list, history: list,
                                                   in (data.get("ids") or [])][:10]})
             return None
 
+    # THE CONVERSE GATE. Mode "converse" is the one path where model-written
+    # text is the whole answer with no record behind it, so the lead is held
+    # to the firewall the prompt states: present, short, and empty of every
+    # fact shape this product has been burned by — a digit in ANY script
+    # (fold first) is rejected outright, exactly as frame_is_grounded rejects
+    # one in a list lead. A lead that fails degrades to mode "none", so the
+    # turn still walks the ordinary answer path instead of shipping prose we
+    # could not vet. Any id the model attached is dropped, not trusted: a
+    # converse turn names no record.
+    converse_lead, proposal = "", False
+    if mode == "converse":
+        ids = []
+        lead = str(data.get("lead") or "").strip()
+        why = ("empty" if not lead
+               else "length" if len(lead) > _CONVERSE_LEAD_MAX_CHARS
+               else "digit" if any(ch.isdigit() for ch in fold_digits(lead))
+               else "")
+        if why:
+            logger.warning(f"[selection] converse lead rejected: {why}")
+            mode = "none"
+            # The rejected lead must not ride on in the payload: a "none"
+            # decision is fully vetted text, and this string never was.
+            lead = ""
+        else:
+            converse_lead = lead
+            proposal = _converse_proposes(lead)
+
     # THE EAGERNESS GUARD. Asking "which one did you mean?" about a question
     # we could have answered is the failure a visitor minds most. When
     # retrieval had already decided, the model's request for a choice loses.
@@ -978,7 +1063,7 @@ async def select_records(user_query: str, candidates: list, history: list,
         if top - second >= OPTIONS_MARGIN:
             mode, ids = "answer", ids[:1]
 
-    return {
+    decision = {
         "mode": mode,
         "ids": ids,
         # NOT validated here: the firewall needs the RENDERED BODY as one of
@@ -990,3 +1075,11 @@ async def select_records(user_query: str, candidates: list, history: list,
         "provider": resp.provider_type,
         "model": resp.model,
     }
+    if mode == "converse":
+        # The validated, stripped lead replaces the generic truncation above:
+        # this string IS the answer the router will serve, word for word.
+        # "proposal" rides along so the router knows an explicit offer-question
+        # was asked and can store the query a "yes" should replay.
+        decision["lead"] = converse_lead
+        decision["proposal"] = proposal
+    return decision

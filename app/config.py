@@ -393,3 +393,25 @@ SUMMARIZE_AFTER_MESSAGES = 12
 # hundred characters is a solid paragraph — enough to say what the visitor is
 # here for, too short to become a second transcript.
 SUMMARY_MAX_CHARS = 400
+
+# --- The conversational gate (2026-08-31, Elecomp) ---
+# Two live failures: a visitor's self-introduction («اسم من سینا هست…»)
+# triggered the named-entity anchor and served the namesake company's
+# profile, and «بگو» after an offer was answered as a brand-new question.
+# These word lists are matched against the WHOLE normalized message (a
+# single phrase), never against a word inside a longer question, so
+# «رایگان بگو» and «تاریخ برگزاری بگو» are untouched. Both spellings of the
+# ZWNJ forms are listed because the normalizer folds the ZWNJ itself — after
+# normalization «نمی‌خوام» and «نمیخوام» are simply different words, and a
+# visitor types either.
+# Plain constants, not settings: these are Persian sentence-level idioms,
+# not per-install tuning — the operator's switch for the whole feature is
+# the `chat_conversational_tier` settings row read in app/routers/chat.py.
+AFFIRM_WORDS = (
+    "بگو", "بله", "آره", "آری", "ای بله", "اوکی", "اوکیه", "بده", "نشون بده",
+)
+# A refusal closes the offered topic politely instead of replaying it.
+NEGATE_WORDS = (
+    "نه", "نه بابا", "نمیخوام", "نمی‌خوام", "نمیخواهم", "ولش کن",
+    "بیخیال", "بی‌خیال", "لازم نیست",
+)
