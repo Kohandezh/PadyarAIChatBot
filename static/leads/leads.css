@@ -203,11 +203,14 @@ button + button { margin-top: 10px; }
 .center h1 { font-size: 22px; }
 .center p { color: var(--muted); font-size: 17px; }
 
-/* The visit-note picker: three eagerness buttons in a row. */
+/* The visit-note picker: three eagerness buttons in a row. The global
+   button style is white-on-brand; these sit on a white chip, so the color
+   MUST be restated or the unselected labels vanish (reported in the wild). */
 .warmth { display: flex; gap: 10px; }
 .warmth .w {
   flex: 1; margin-top: 0; padding: 12px 0; font-size: 16px;
   background: #fff; border: 1px solid var(--line);
+  color: var(--muted); font-weight: 500;
 }
 .warmth .w.selected {
   border-color: var(--brand-primary); color: var(--brand-primary); font-weight: 700;

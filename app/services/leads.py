@@ -467,6 +467,34 @@ def set_visitor_active(visitor_id: str, active: bool) -> bool:
     return changed
 
 
+def rename_visitor(visitor_id: str, name: str) -> bool:
+    """Fix a roster name (typo, married name, "the new person has this phone").
+
+    company_leads joins lead_visitors live, so old registrations follow the
+    rename by themselves; marketing_notes carries a denormalized copy of the
+    author's name (it must survive the visitor's deletion), so that copy is
+    re-pointed here too — otherwise the same person would appear under two
+    names on two screens of the same admin page.
+    """
+    ensure_tables()
+    clean = (name or "").strip()[:80]
+    if not clean:
+        raise LeadError("نام همکار را وارد کنید.", code="missing_name")
+    conn = get_db_connection()
+    try:
+        cur = conn.execute("UPDATE lead_visitors SET name = ? WHERE id = ?",
+                           (clean, visitor_id))
+        conn.execute("UPDATE marketing_notes SET visitor_name = ?"
+                     " WHERE visitor_id = ?", (clean, visitor_id))
+        conn.commit()
+        changed = (cur.rowcount or 0) > 0
+    finally:
+        conn.close()
+    if changed:
+        _audit("visitor_renamed", visitor_id, name=clean)
+    return changed
+
+
 def delete_visitor(visitor_id: str, actor: str = "") -> bool:
     """Remove a field visitor from the roster. The personal link dies with
     the row: `visitor_by_code` and `visitor_by_id` read the row back, and no
