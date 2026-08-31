@@ -143,7 +143,7 @@ header.inx-header {
     border-bottom: var(--border-width) solid var(--color-border-subtle);
     box-shadow: 0 4px 18px rgba(0, 0, 0, .5);
     position: relative;
-    z-index: 30;
+    z-index: 999;
 }
 
 /* stud strip along the header base — the "brick edge" */
@@ -1173,12 +1173,6 @@ img.inx-loader-mark {
         flex-wrap: wrap;
         row-gap: 8px;
         padding: 8px 12px;
-    }
-
-    .switcher {
-        order: 3;
-        width: 100%;
-        justify-content: center;
     }
 
     .switcher__option { flex: 1; justify-content: center; padding: 8px 10px; }
