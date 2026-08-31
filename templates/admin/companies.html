@@ -42,7 +42,14 @@
                             فقط شرکت‌های بدون اطلاعات — کارِ باقی‌ماندهٔ غرفه
                         </label>
                     </div>
+                    <button class="btn btn-outline-primary btn-sm" id="autofill-btn" disabled
+                            title="شرکت‌هایی که متن معرفی دارند ولی حوزهٔ فعالیت‌شان خالی است، خودکار پر می‌شوند">
+                        <i class="fas fa-wand-magic-sparkles me-1"></i>
+                        پر کردن خودکار حوزهٔ خالی
+                        <span class="badge bg-secondary ms-1" id="autofill-count">…</span>
+                    </button>
                 </div>
+                <div class="text-muted small d-none mb-2" id="autofill-progress"></div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>

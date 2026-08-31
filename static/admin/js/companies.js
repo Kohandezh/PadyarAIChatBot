@@ -286,6 +286,68 @@ async function uploadFromCompanyMediaBrowser(input) {
     input.value = '';
 }
 
+// ── Activity-field autofill ──────────────────────────────────────────────
+// One button, one loop: the server fills at most 25 companies per POST (so
+// one request never outlives the proxy timeout), and this side keeps calling
+// until nothing is pending — the operator sees progress, not a spinner that
+// may or may not still be working.
+async function refreshAutofillCount() {
+    const btn = document.getElementById('autofill-btn');
+    const badge = document.getElementById('autofill-count');
+    if (!btn || !badge) return;
+    try {
+        const res = await fetchAuth('/admin/api/company-profiles/autofill');
+        if (!res.ok) { badge.textContent = '—'; return; }
+        const data = await res.json();
+        badge.textContent = fa(data.fillable);
+        btn.disabled = !data.fillable;
+        btn.title = data.fillable
+            ? `${fa(data.fillable)} شرکت متن معرفی دارد ولی حوزهٔ فعالیتش خالی است`
+            : (data.no_text
+                ? `${fa(data.no_text)} شرکت متن معرفی هم ندارد — این‌ها را باید دستی پر کنید`
+                : 'خالی‌ای نمانده است');
+    } catch { badge.textContent = '—'; }
+}
+
+async function initAutofill() {
+    await refreshAutofillCount();
+    const btn = document.getElementById('autofill-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        const badge = document.getElementById('autofill-count');
+        const progress = document.getElementById('autofill-progress');
+        const total = Number(badge.textContent.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))) || 0;
+        if (total && !confirm(`برای ${fa(total)} شرکت، حوزهٔ فعالیت به‌طور خودکار از متن معرفی پر شود؟`)) return;
+        btn.disabled = true;
+        progress.classList.remove('d-none');
+        let filled = 0, failed = 0, done = 0;
+        try {
+            for (;;) {
+                progress.textContent = `در حال پر کردن… ${fa(done)} شرکت انجام شد`;
+                const res = await post('/admin/api/company-profiles/autofill', { method: 'POST' });
+                if (!res) return;                       // post() already alerted
+                filled += res.filled.length;
+                failed += res.failed.length;
+                done += res.filled.length + res.failed.length;
+                if (!res.remaining) break;
+            }
+            const noText = await fetchAuth('/admin/api/company-profiles/autofill')
+                .then(r => r.ok ? r.json() : null).catch(() => null);
+            const parts = [`${fa(filled)} شرکت پر شد`];
+            if (failed) parts.push(`${fa(failed)} شرکت نتوانست پر شود`);
+            if (noText && noText.no_text) parts.push(`${fa(noText.no_text)} شرکت متن معرفی ندارد`);
+            alertBox('');
+            progress.textContent = parts.join('، ') + '؛ جزئیات در لاگ‌ها.';
+            await load(document.getElementById('company-search').value.trim());
+            await refreshAutofillCount();
+        } finally {
+            progress.classList.add('d-none');
+            btn.disabled = false;
+            await refreshAutofillCount();
+        }
+    });
+}
+
 export function initCompanies() {
     modal = new bootstrap.Modal(document.getElementById('profile-modal'));
     companiesPager = createPager({
@@ -321,6 +383,8 @@ export function initCompanies() {
         companiesPager.reset();
         load(document.getElementById('company-search').value.trim());
     });
+
+    initAutofill();
 
     document.getElementById('profile-save').addEventListener('click', async (ev) => {
         if (!currentCompany) return;
