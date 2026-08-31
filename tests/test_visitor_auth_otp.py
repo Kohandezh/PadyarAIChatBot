@@ -345,9 +345,13 @@ def test_a_signed_in_visitor_cannot_clear_their_own_profile(client, outbox):
 
 
 def test_the_profile_reply_never_carries_the_raw_number(client, outbox):
-    _register(client, outbox, DEST_A)
+    # Complete + valid: /api/auth/profile is closed while signup is
+    # incomplete, and its edit must carry taxonomy labels now.
+    _register(client, outbox, DEST_A, job="مهندس / متخصص فنی",
+              position="کارشناس", interests="هوش مصنوعی")
     r = client.post("/api/auth/profile",
-                    json={"job": "مهندس", "position": "مدیر", "interests": "همه چیز"})
+                    json={"job": "مهندس / متخصص فنی", "position": "مدیر بخش",
+                          "interests": "آموزش"})
     assert DEST_A not in r.text and DEST_A.lstrip("+") not in r.text
     assert r.json()["profile"]["destination_masked"].endswith(DEST_A[-4:])
 

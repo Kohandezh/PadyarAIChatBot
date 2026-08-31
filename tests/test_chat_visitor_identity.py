@@ -294,8 +294,12 @@ class TestTheRegistrationGate:
         assert _ask(client).status_code == 401
 
     def test_a_signed_in_visitor_is_answered(self, client):
+        # Signed in AND signed up: /chat now refuses an incomplete profile
+        # with 403 signup_incomplete, so the pass-case needs a complete row
+        # (every value a real taxonomy label).
         _gate_on()
-        _sign_in(client)
+        _sign_in(client, job="خبرنگار / رسانه", position="کارشناس",
+                 interests="هوش مصنوعی")
 
         r = _ask(client)
 

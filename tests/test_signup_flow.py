@@ -142,3 +142,98 @@ def test_answer_after_complete_is_a_wrong_step(client, outbox):
     test_the_full_flow_collects_and_persists_each_answer(client, outbox)
     r = client.post("/api/signup/answer", json={"key": "job", "value": "دانش‌آموز"})
     assert r.status_code == 409
+
+
+# ── /chat and /api/auth/profile enforcement ──────────────────────────────
+
+DATASET = [("faq-hours", "ساعت کاری", "نمایشگاه هر روز از ۹ صبح تا ۱۸ باز است.", "")]
+CHAT_BODY = {"message": "ساعت کاری نمایشگاه چیست؟", "lang": "fa"}
+
+
+@pytest.fixture()
+def gated_app(tmp_path, monkeypatch):
+    """Real app + registration switched on + a Tier-1 answer, no network."""
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "signup-chat.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app as fastapi_app
+    with TestClient(fastapi_app) as boot:
+        from app.db.queries import set_setting
+        set_setting("registration_enabled", "true")
+        conn = get_db_connection()
+        conn.execute("DELETE FROM dataset")
+        conn.execute("DELETE FROM questions")
+        for entry_id, title, text, video in DATASET:
+            conn.execute("INSERT INTO dataset (id, title, text, video_url)"
+                         " VALUES (?, ?, ?, ?)", (entry_id, title, text, video))
+        conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
+                     " VALUES (?, ?, '')", (CHAT_BODY["message"], "faq-hours"))
+        conn.commit()
+        conn.close()
+        from app.services import search
+        search.load_dataset_internal()
+        yield fastapi_app
+    search.load_dataset_internal()
+
+
+@pytest.fixture()
+def chat_client(gated_app):
+    from app.auth.security import generate_chat_token
+    c = TestClient(gated_app)
+    c.headers.update({"Origin": "http://localhost",
+                      "X-Chat-Token": generate_chat_token(),
+                      "User-Agent": "KioskBrowser/1.0"})
+    return c
+
+
+def _complete_row(phone="09120000099"):
+    from app.services.conversations import upsert_visitor
+    return upsert_visitor(first_name="کامل", last_name="کاربر", phone=phone,
+                          job="خبرنگار / رسانه", position="کارشناس",
+                          interests="هوش مصنوعی")
+
+
+def _incomplete_row(phone="09120000098"):
+    from app.services.conversations import upsert_visitor
+    return upsert_visitor(first_name="ناقص", last_name="کاربر", phone=phone,
+                          job="", position="", interests="")
+
+
+def _session_cookie(client, visitor_id):
+    from app.auth import visitor as visitor_auth
+    token = visitor_auth.mint(visitor_id)
+    client.cookies.delete(visitor_auth.VISITOR_COOKIE_NAME)
+    client.cookies.set(visitor_auth.VISITOR_COOKIE_NAME, token)
+
+
+def test_chat_refuses_an_incomplete_signup(chat_client):
+    _session_cookie(chat_client, _incomplete_row())
+    r = chat_client.post("/chat", json=CHAT_BODY)
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "signup_incomplete"
+
+
+def test_chat_serves_a_complete_signup(chat_client):
+    _session_cookie(chat_client, _complete_row())
+    r = chat_client.post("/chat", json=CHAT_BODY)
+    assert r.status_code == 200
+
+
+def test_profile_refuses_until_complete_then_validates(client, outbox):
+    _signed_in(client, outbox)
+    r = client.post("/api/auth/profile", json={
+        "job": "خبرنگار / رسانه", "position": "کارشناس",
+        "interests": "هوش مصنوعی"})
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "signup_incomplete"
+    for key, value in (("name", "زهرا کریمی"), ("job", "خبرنگار / رسانه"),
+                       ("position", "کارشناس"), ("interests", "هوش مصنوعی")):
+        assert client.post("/api/signup/answer",
+                           json={"key": key, "value": value}).status_code == 200
+    bad = client.post("/api/auth/profile", json={
+        "job": "دانش‌آموز", "position": "کارشناس", "interests": "هوش مصنوعی"})
+    assert bad.status_code == 400 and bad.json()["detail"]
+    good = client.post("/api/auth/profile", json={
+        "job": "سرمایه‌گذار", "position": "مدیر بخش",
+        "interests": "سرمایه‌گذاری و جذب سرمایه"})
+    assert good.status_code == 200

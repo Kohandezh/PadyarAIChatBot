@@ -192,58 +192,6 @@ def _visitor_profile(visitor_id: str) -> dict:
     }
 
 
-def _write_visitor_profile(visitor_id: str, job: str, position: str,
-                           interests: str, first_name: str = "",
-                           last_name: str = "") -> bool:
-    """Rewrite the work fields of ONE visitor row, plus its name when given.
-
-    BY ID AND NOTHING ELSE. The id comes from `require_visitor`, which reads it
-    off the session the middleware resolved from the cookie, so the only row a
-    request can ever write is its own. There is no phone, no challenge and no
-    body field in this query to aim it somewhere else.
-
-    Blanks are written, not skipped. `upsert_visitor` deliberately keeps an old
-    value when a new registration leaves the field empty (a re-verification to
-    fix a typo must not erase a name); this is the opposite case — a visitor
-    clearing every interest is withdrawing consent and has to be obeyed.
-
-    The name columns are the exception: they are written ONLY when this call
-    carries a non-empty value. The name question lives in the chat now (the
-    sign-up card takes only the number), so exactly the save that answers it
-    writes it — and every later profile edit leaves it alone. The phone is
-    absent on purpose: the code proved it, and nothing reachable from a
-    browser is allowed to change it.
-    """
-    from app.db.connection import get_db_connection
-    try:
-        conn = get_db_connection()
-        try:
-            sets = ["job = ?", "position = ?", "interests = ?"]
-            params = [job.strip()[:80], position.strip()[:80],
-                      interests.strip()[:400]]
-            if first_name.strip():
-                sets.append("first_name = ?")
-                params.append(first_name.strip()[:60])
-            if last_name.strip():
-                sets.append("last_name = ?")
-                params.append(last_name.strip()[:60])
-            # datetime('now') is INLINE, not a bound parameter: app/db/pg.py
-            # rewrites it into the PostgreSQL form only when it can see the
-            # literal. Same idiom as app/services/conversations.py.
-            sets.append("last_seen_at = datetime('now')")
-            changed = conn.execute(
-                "UPDATE visitors SET " + ", ".join(sets) + " WHERE id = ?",
-                (*params, visitor_id)).rowcount or 0
-            conn.commit()
-        finally:
-            conn.close()
-        return changed > 0
-    except Exception as e:  # noqa: BLE001
-        logger.error("[registration] profile write failed: %s: %s",
-                     type(e).__name__, e)
-        return False
-
-
 def check_rate_limit(request: Request) -> None:
     """Two-tier limiter for this router's public endpoints.
 
@@ -515,6 +463,12 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
     session cookie; anonymous gets a 401 carrying the registration_required
     marker, which is what opens the signup card in the browser.
 
+    Closed while signup is incomplete (403 signup_incomplete): until the flow
+    has collected every answer, /api/signup/answer is the only writer. Once
+    open, every value must be a taxonomy label — the same standard the flow's
+    own answers meet, so an edit cannot smuggle in a pair the flow would have
+    refused.
+
     The descriptive fields always move. The name moves only when this call
     carries one — it is asked in the chat right after the code is proved, and
     is otherwise as fixed as the phone.
@@ -524,9 +478,25 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
     # and only the per-IP backstop ever counted them.
     request.state.otp_limit_identity = f"otp:visitor:{visitor_id}"
     check_rate_limit(request)
-    if not _write_visitor_profile(visitor_id, body.job, body.position,
-                                  body.interests, body.first_name,
-                                  body.last_name):
+    # While signup is incomplete this endpoint is closed: /api/signup/answer
+    # is the only writer, so the flow cannot be bypassed by posting a
+    # "complete" profile in one call (spec §6.2, REQ-006).
+    if not signup_service.visitor_complete(visitor_id):
+        raise HTTPException(status_code=403, detail={
+            "code": signup_service.INCOMPLETE_CODE,
+            "message": "برای ادامه، به چند پرسش کوتاه پاسخ دهید.",
+        })
+    problem = signup_service.validate_profile_edit(
+        body.job, body.position, body.interests)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    fields = {"job": body.job, "position": body.position,
+              "interests": body.interests}
+    if body.first_name.strip():
+        fields["first_name"] = body.first_name
+    if body.last_name.strip():
+        fields["last_name"] = body.last_name
+    if not signup_service.write_fields(visitor_id, fields):
         # The session resolved but its person is gone (a deleted visitor row,
         # or a storage fault). Nothing was written, so say so rather than
         # reporting a save that did not happen.

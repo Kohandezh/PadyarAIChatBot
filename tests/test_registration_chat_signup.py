@@ -105,6 +105,27 @@ def _signed_up(client, outbox, interests=""):
     return cid
 
 
+def _complete_signup(client, name="زهرا کریمی", job="خبرنگار / رسانه",
+                     position="کارشناس", interests="هوش مصنوعی، رسانه و محتوا"):
+    """The in-chat questions, driven through the endpoint that now owns
+    them — the profile endpoint below then tests EDITS, not first writes.
+
+    Asks /api/signup/next and answers only what is pending, exactly like the
+    frontend: a checkbox carried at sign-up can complete interests before the
+    flow ever asks them, and posting them anyway is a 409."""
+    answers = {"name": name, "job": job, "position": position,
+               "interests": interests}
+    for _ in range(6):
+        pending = client.get("/api/signup/next").json()
+        if pending.get("complete"):
+            return
+        key = pending["step"]["key"]
+        r = client.post("/api/signup/answer",
+                        json={"key": key, "value": answers[key]})
+        assert r.status_code == 200, r.text
+    raise AssertionError("the signup flow never reported complete")
+
+
 def test_signup_needs_only_a_number_and_the_checkbox(client, outbox):
     """The card no longer collects a name, a job, a position or interests —
     the request must still be accepted with all of those empty."""
@@ -119,10 +140,11 @@ def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
     the same /api/auth/profile save as the other three — one call, and the
     stored row gains a name for the first time."""
     _signed_up(client, outbox)
+    _complete_signup(client, name="زهرا کریمی")
     r = client.post("/api/auth/profile", json={
         "first_name": "زهرا", "last_name": "کریمی",
         "job": "خبرنگار / رسانه", "position": "کارشناس",
-        "interests": "رسانه و ارتباطات",
+        "interests": "رسانه و محتوا",
     })
     assert r.status_code == 200, r.text
     stored = _stored()
@@ -130,7 +152,8 @@ def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
     assert stored["last_name"] == "کریمی"
     # …and a later edit with no name in the body leaves the name alone.
     client.post("/api/auth/profile", json={
-        "job": "سرمایه‌گذار", "position": "مدیر", "interests": "جذب سرمایه",
+        "job": "سرمایه‌گذار", "position": "مدیر بخش",
+        "interests": "سرمایه‌گذاری و جذب سرمایه",
     })
     stored = _stored()
     assert stored["first_name"] == "زهرا"
@@ -139,10 +162,11 @@ def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
 
 def test_the_three_chat_answers_reach_the_existing_profile_endpoint(client, outbox):
     _signed_up(client, outbox)
+    _complete_signup(client, job="خبرنگار / رسانه")
     r = client.post("/api/auth/profile", json={
         "job": "خبرنگار / رسانه",
         "position": "کارشناس",
-        "interests": "رسانه و ارتباطات، هوش مصنوعی",
+        "interests": "رسانه و محتوا، هوش مصنوعی",
     })
     assert r.status_code == 200, r.text
     stored = _stored()
@@ -158,7 +182,9 @@ def test_the_signup_checkbox_survives_the_chat_answers(client, outbox):
     flag = taxonomy.form_options("fa")["flags"][0]["label"]
     _signed_up(client, outbox, interests=flag)
 
-    # Exactly what registration.js sends: the remembered flag, then the taps.
+    # The interests ANSWER carries the remembered flag plus the taps (exactly
+    # what registration.js pre-fills), and the edit below must keep it too.
+    _complete_signup(client, interests=flag + "، " + "هوش مصنوعی")
     client.post("/api/auth/profile", json={
         "job": "مهندس / متخصص فنی", "position": "کارشناس",
         "interests": flag + "، " + "هوش مصنوعی",
@@ -183,6 +209,7 @@ def test_every_interest_at_once_still_fits_the_profile_endpoint(client, outbox):
         [f["label"] for f in options["flags"]] + [i["label"] for i in options["interests"]]
     )
     _signed_up(client, outbox)
+    _complete_signup(client)
     r = client.post("/api/auth/profile", json={
         "job": "کارمند", "position": "کارشناس", "interests": everything,
     })
@@ -197,9 +224,10 @@ def test_the_longest_job_and_position_fit_their_fields(client, outbox):
     longest_job = max((j["label"] for j in options["jobs"]), key=len)
     longest_position = max((p["label"] for p in options["positions"]), key=len)
     _signed_up(client, outbox)
+    _complete_signup(client)
     r = client.post("/api/auth/profile", json={
         "job": longest_job, "position": longest_position,
-        "interests": "عمومی",
+        "interests": "آموزش",
     })
     assert r.status_code == 200, r.text
     assert _stored()["job"] == longest_job

@@ -86,7 +86,10 @@ def _stored():
 # ── The loop ─────────────────────────────────────────────────────────────
 
 def test_edit_replaces_the_profile_and_the_plan_follows(client, outbox):
-    _verified(client, outbox, job="خبرنگار", interests="رسانه")
+    # A full VALID set: promote sanitizes carried fields now, and an
+    # incomplete row would turn the edit below into a 403 instead of an edit.
+    _verified(client, outbox, job="خبرنگار / رسانه", position="کارشناس",
+              interests="رسانه و محتوا")
 
     # Empty body on purpose: the plan follows the STORED profile, which the
     # session cookie identifies. Nothing in the request names this visitor.
@@ -94,7 +97,8 @@ def test_edit_replaces_the_profile_and_the_plan_follows(client, outbox):
     assert "media-hub" in [s["id"] for s in before["sections"]]
 
     r = client.post("/api/auth/profile", json={
-        "job": "سرمایه‌گذار", "position": "مدیر", "interests": "جذب سرمایه",
+        "job": "سرمایه‌گذار", "position": "مدیر بخش",
+        "interests": "سرمایه‌گذاری و جذب سرمایه",
     })
     assert r.status_code == 200, r.text
     assert r.json()["profile"]["job"] == "سرمایه‌گذار"
@@ -106,12 +110,13 @@ def test_edit_replaces_the_profile_and_the_plan_follows(client, outbox):
 
 
 def test_edit_cannot_change_name_or_number(client, outbox):
-    _verified(client, outbox, job="خبرنگار")
+    _verified(client, outbox, job="خبرنگار / رسانه", position="کارشناس",
+              interests="رسانه و محتوا")
     masked_before = client.get("/api/auth/session").json()["profile"]["destination_masked"]
     assert masked_before
 
     client.post("/api/auth/profile", json={
-        "job": "مدیرعامل", "position": "مدیر", "interests": "عمومی",
+        "job": "مدیرعامل", "position": "مدیر ارشد", "interests": "هوش مصنوعی",
     })
 
     after = client.get("/api/auth/session").json()["profile"]
@@ -127,12 +132,13 @@ def test_clearing_the_profile_is_now_rejected(client, outbox):
     A blank submission must be refused, and must not overwrite what was
     already stored.
     """
-    _verified(client, outbox, job="خبرنگار", interests="رسانه")
+    _verified(client, outbox, job="خبرنگار / رسانه", position="کارشناس",
+              interests="رسانه و محتوا")
     r = client.post("/api/auth/profile", json={
         "job": "", "position": "", "interests": "",
     })
     assert r.status_code == 422
-    assert _stored()["interests"] == "رسانه"
+    assert _stored()["interests"] == "رسانه و محتوا"
 
 
 # ── The boundary ─────────────────────────────────────────────────────────
@@ -166,7 +172,8 @@ def test_an_unknown_challenge_is_refused(client):
 
 
 def test_oversized_input_is_refused(client, outbox):
-    _verified(client, outbox)
+    _verified(client, outbox, job="خبرنگار / رسانه", position="کارشناس",
+              interests="رسانه و محتوا")
     r = client.post("/api/auth/profile", json={
         "job": "x" * 500, "position": "", "interests": "",
     })
@@ -189,11 +196,12 @@ def test_options_endpoint_serves_the_taxonomy(client):
 
 def test_position_survives_a_profile_edit(client, outbox):
     """سمت is a real field, not a placeholder — it must round-trip."""
-    _verified(client, outbox, job="کارمند", position="کارشناس")
+    _verified(client, outbox, job="کارمند", position="کارشناس",
+              interests="هوش مصنوعی")
     assert _stored()["position"] == "کارشناس"
 
     client.post("/api/auth/profile", json={
-        "job": "کارمند", "position": "مدیر بخش", "interests": "عمومی",
+        "job": "کارمند", "position": "مدیر بخش", "interests": "آموزش",
     })
     assert _stored()["position"] == "مدیر بخش"
 
