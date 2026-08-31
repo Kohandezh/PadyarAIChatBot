@@ -1211,9 +1211,18 @@
             .catch(function (err) {
                 if (err && err.status === 409) {
                     /* Out of step with the server: resync to whatever it
-                       says is still owed, and continue from there. */
+                       says is still owed, and continue from there — or,
+                       if another tab already finished the signup, close
+                       out the same way answerAccepted does, so the held
+                       message is delivered instead of stranded. */
                     ask.current = null;
-                    fetchNext().then(askNext);
+                    fetchNext().then(function (p) {
+                        if (p && p.complete) {
+                            ask.current = null;
+                            botSay(t().profileSaved);
+                            deliverHeld();
+                        } else askNext(p);
+                    });
                     return;
                 }
                 botSay(err.detail || t().network);

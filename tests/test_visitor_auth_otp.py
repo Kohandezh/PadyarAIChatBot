@@ -499,8 +499,9 @@ def test_the_tight_bucket_is_keyed_on_the_session_not_the_body(
                 json={"job": "x", "position": "x", "interests": "x",
                       "challenge_id": "z" * 40, "visitor_id": "spoof"})
     client.post("/api/visit-plan", json={"challenge_id": "z" * 40})
+    client.post("/api/signup/answer", json={"key": "name", "value": "آزمون"})
 
-    assert seen == [f"otp:visitor:{_visitor_id(DEST_A)}"] * 2
+    assert seen == [f"otp:visitor:{_visitor_id(DEST_A)}"] * 3
 
 
 def test_an_anonymous_plan_gets_no_tight_bucket(client, monkeypatch):

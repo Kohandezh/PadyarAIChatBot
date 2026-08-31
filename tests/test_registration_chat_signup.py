@@ -318,6 +318,14 @@ def test_list_answers_are_checked_against_the_options_first():
 def test_wrong_step_resyncs_from_the_server():
     assert "409" in REGISTRATION_JS
     assert "fetchNext()" in REGISTRATION_JS
+    # A resync that lands on complete (another tab finished the signup)
+    # must run the completion path too, or the held message is stranded
+    # with its bubble already on screen.
+    branch = _function_source("acceptAnswer")
+    branch = branch[branch.index("409"):]
+    branch = branch[:branch.index("return;")]
+    assert "deliverHeld()" in branch
+    assert "profileSaved" in branch
 
 
 def test_boot_and_new_chat_resume_the_pending_question():
