@@ -519,10 +519,17 @@ def sanitize_registration(record: dict) -> dict:
             _norm(record.get("position")), job, doc):
         out["position"] = ""
     interests = _norm(record.get("interests"))
-    if interests and _check_interests(interests, doc):
-        out["interests"] = ""
-    elif interests:
-        out["interests"] = "، ".join(_split(interests))[:_CAPS["interests"]]
+    if interests:
+        # Multi-select: a carried list keeps its valid items and only the
+        # unknown ones fall off — unlike job/position, one bad chip must
+        # not cost the visitor their good picks.
+        if doc["interests"] or doc["flags"]:
+            valid = (set(_label_ids(doc["interests"]))
+                     | set(_label_ids(doc["flags"])))
+            kept = [i for i in _split(interests) if i.casefold() in valid]
+        else:
+            kept = _split(interests)
+        out["interests"] = "، ".join(kept)[:_CAPS["interests"]]
     return out
 
 
