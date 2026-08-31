@@ -938,6 +938,10 @@ def create_note(visitor_id: str, dataset_id: str, note: str,
              phone, now.isoformat(), (ip or "")[:60],
              (user_agent or "")[:200]),
         )
+        # The company's CURRENT eagerness — the newest note wins. Organizer
+        # -only column (migrations/0019): nothing on a chat path selects it.
+        conn.execute("UPDATE companies SET marketing_warmth = ? WHERE id = ?",
+                     (warmth, dataset_id))
         conn.commit()
     finally:
         conn.close()

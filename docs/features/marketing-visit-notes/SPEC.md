@@ -39,10 +39,21 @@ Those lived and died in the group chat. This feature is the note's home.
 - **The contact block is note-grade.** Stored, fed, exported — but never a
   lead, never OTP-consented. Formalizing a contact stays with
   `register_contact` (OTP) or `admin_add_contact` (operator vouches).
+- **The newest note's warmth is the company's current reading.**
+  `companies.marketing_warmth` (migrations/0019) is maintained by
+  `create_note`, so the companies page filters («فقط داغ‌ها») and the
+  companies CSV export (`GET /admin/api/company-profiles/export`) slice by
+  it — the follow-up sheet marketing asked for.
+- **ORGANIZER-ONLY, BY CONSTRUCTION.** Nothing on any chat path selects
+  `marketing_warmth`: the list tier reads a named column list, the public
+  profile and the pick tier read the `PUBLIC_PROFILE_FIELDS` allowlist,
+  and the AI selection tier sees only what those hand it.
+  `test_warmth_never_reaches_a_chat_or_ai_path` fails the day anyone
+  widens one of those column lists.
 - Warmth is one of `low | medium | high`, rejected otherwise; Persian digits
   in the phone fold to ASCII at write time.
 - Everything the agent types is escaped in the admin feed and apostrophe-
-  defused in the CSV (`'=CMD…`).
+  defused in every CSV.
 - Per-visitor rate limit, same key as `register()` — the NAT'd hall shares
   one IP by design.
 

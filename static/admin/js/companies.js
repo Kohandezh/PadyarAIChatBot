@@ -66,11 +66,23 @@ async function post(url, options = {}) {
     return data;
 }
 
+// The organizer's private sales signal (migrations/0019) — never shown to
+// visitors, never sent to the AI; this table is the only public face it has.
+const WARMTH = {
+    low:    ['سرد',    'secondary'],
+    medium: ['معمولی', 'info'],
+    high:   ['داغ',    'warning text-dark'],
+};
+
+let warmthFilter = '';
+
 async function load(q = '') {
     currentSearch = q;
     const { offset, limit } = companiesPager.state;
     const data = await post(
-        `/admin/api/company-profiles?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`);
+        `/admin/api/company-profiles?q=${encodeURIComponent(q)}`
+        + `&limit=${limit}&offset=${offset}`
+        + (warmthFilter ? `&warmth=${encodeURIComponent(warmthFilter)}` : ''));
     if (!data) return;
     let rows = data.companies;
     companiesPager.setResult({ shown: rows.length, total: data.total, hasMore: data.has_more });
@@ -85,7 +97,7 @@ async function load(q = '') {
     document.getElementById('profile-count').textContent = fa(withProfile);
     const body = document.getElementById('companies');
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">'
+        body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">'
             + (onlyMissing ? 'شرکتِ بی‌اطلاعِ باقی‌مانده‌ای در این صفحه نیست.'
                            : 'شرکتی پیدا نشد.') + '</td></tr>';
         return;
@@ -95,6 +107,10 @@ async function load(q = '') {
         const stateBadge = state
             ? `<span class="badge bg-${state[1]}">${esc(state[0])}</span>`
             : '<span class="text-muted small">نرفته‌ایم</span>';
+        const warmth = WARMTH[c.marketing_warmth];
+        const warmthBadge = warmth
+            ? `<span class="badge bg-${warmth[1]}">${esc(warmth[0])}</span>`
+            : '<span class="text-muted small">—</span>';
         return `
         <tr data-id="${esc(c.id)}">
           <td class="ps-4">${esc(c.title)}</td>
@@ -103,6 +119,7 @@ async function load(q = '') {
           <td dir="ltr">${orDash(c.contact_mobile || c.email || c.website)}</td>
           <td>${orDash(c.province)}</td>
           <td>${orDash(c.activity_field)}</td>
+          <td>${warmthBadge}</td>
           <td>${stateBadge}</td>
           <td>${c.has_profile
               ? '<span class="badge bg-success has-profile">دارد</span>'
@@ -380,6 +397,12 @@ export function initCompanies() {
 
     document.getElementById('only-missing').addEventListener('change', (ev) => {
         onlyMissing = ev.target.checked;
+        companiesPager.reset();
+        load(document.getElementById('company-search').value.trim());
+    });
+
+    document.getElementById('warmth-filter').addEventListener('change', (ev) => {
+        warmthFilter = ev.target.value;
         companiesPager.reset();
         load(document.getElementById('company-search').value.trim());
     });

@@ -42,6 +42,16 @@
                             فقط شرکت‌های بدون اطلاعات — کارِ باقی‌ماندهٔ غرفه
                         </label>
                     </div>
+                    <select id="warmth-filter" class="form-select form-select-sm" style="width:auto">
+                        <option value="" selected>علاقه‌مندی: همه</option>
+                        <option value="high">فقط داغ‌ها</option>
+                        <option value="medium">فقط معمولی‌ها</option>
+                        <option value="low">فقط سرد‌ها</option>
+                    </select>
+                    <a class="btn btn-outline-secondary btn-sm" id="companies-export"
+                       href="/admin/api/company-profiles/export">
+                        <i class="fas fa-download me-1"></i>دریافت CSV
+                    </a>
                     <button class="btn btn-outline-primary btn-sm" id="autofill-btn" disabled
                             title="شرکت‌هایی که متن معرفی دارند ولی حوزهٔ فعالیت‌شان خالی است، خودکار پر می‌شوند">
                         <i class="fas fa-wand-magic-sparkles me-1"></i>
@@ -54,11 +64,11 @@
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>
                             <th class="ps-4">شرکت</th><th>مسئول</th><th>تماس</th>
-                            <th>استان</th><th>حوزهٔ فعالیت</th><th>سرنخ</th><th>پرونده</th>
+                            <th>استان</th><th>حوزهٔ فعالیت</th><th>علاقه‌مندی</th><th>سرنخ</th><th>پرونده</th>
                             <th>ویدیو</th><th></th>
                         </tr></thead>
                         <tbody id="companies">
-                            <tr><td colspan="9" class="text-center text-muted py-4">در حال بارگذاری…</td></tr>
+                            <tr><td colspan="10" class="text-center text-muted py-4">در حال بارگذاری…</td></tr>
                         </tbody>
                     </table>
                 </div>
