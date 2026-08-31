@@ -65,8 +65,9 @@ PUBLIC_PROFILE_FIELDS = (
 # back to the login `username` when the sheet left it blank) and their email
 # address. That person handed those to the organizer so the organizer could
 # reach them, never so the chatbot could read them out to any visitor who
-# asks. `notes` is the organizer's private remark about the company. None of
-# these five may ever leave this module.
+# asks. `notes` is the organizer's private remark about the company, and
+# `marketing_warmth` (migrations/0019) is the organizer's private sales
+# signal. None of these six may ever leave this module.
 
 
 def get_profile(dataset_id: str) -> dict:
@@ -415,7 +416,8 @@ def sync_from_lead(lead: dict) -> None:
         logger.error("[profiles] sync_from_lead failed: %s", type(e).__name__)
 
 
-def list_companies(query: str = "", limit: int = 500, offset: int = 0) -> list:
+def list_companies(query: str = "", limit: int = 500, offset: int = 0,
+                   warmth: str = "") -> list:
     """Every company beside what is known about it AND its capture state.
 
     All of `companies`: every row here IS a company (unlike the old `dataset`,
@@ -442,9 +444,12 @@ def list_companies(query: str = "", limit: int = 500, offset: int = 0) -> list:
     needs the ensure call.
     """
     from app.db.connection import get_db_connection
-    from app.services.leads import _live_owner, ensure_tables
+    from app.services.leads import NOTE_WARMTH, _live_owner, ensure_tables
     ensure_tables()
     term = (query or "").strip()
+    warmth = (warmth or "").strip().lower()
+    if warmth and warmth not in NOTE_WARMTH:
+        warmth = ""
     conn = get_db_connection()
     try:
         if term:
@@ -456,8 +461,11 @@ def list_companies(query: str = "", limit: int = 500, offset: int = 0) -> list:
             args = [f"%{escaped}%"] * 4
         else:
             where, args = "", []
+        if warmth:
+            where += " AND c.marketing_warmth = ?" if where else " WHERE c.marketing_warmth = ?"
+            args.append(warmth)
         rows = conn.execute(
-            "SELECT c.id, c.title, c.title_en, c.video_url, "
+            "SELECT c.id, c.title, c.title_en, c.video_url, c.marketing_warmth, "
             + ", ".join(f"c.{f}" for f in PROFILE_FIELDS) + ","
             " o.status AS lead_status, o.id AS lead_id"
             " FROM companies c"
@@ -474,13 +482,16 @@ def list_companies(query: str = "", limit: int = 500, offset: int = 0) -> list:
     return out
 
 
-def count_companies(query: str = "") -> int:
+def count_companies(query: str = "", warmth: str = "") -> int:
     """Total companies matching the same search `list_companies` uses, so a
     pager can show "X of Y" without loading every row to count them."""
     from app.db.connection import get_db_connection
-    from app.services.leads import ensure_tables
+    from app.services.leads import NOTE_WARMTH, ensure_tables
     ensure_tables()
     term = (query or "").strip()
+    warmth = (warmth or "").strip().lower()
+    if warmth and warmth not in NOTE_WARMTH:
+        warmth = ""
     conn = get_db_connection()
     try:
         if term:
@@ -492,6 +503,9 @@ def count_companies(query: str = "") -> int:
             args = [f"%{escaped}%"] * 4
         else:
             where, args = "", []
+        if warmth:
+            where += " AND c.marketing_warmth = ?" if where else " WHERE c.marketing_warmth = ?"
+            args.append(warmth)
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM companies c" + where, args
         ).fetchone()

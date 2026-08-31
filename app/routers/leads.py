@@ -417,13 +417,49 @@ async def admin_delete_company(dataset_id: str, admin: str = Depends(verify_admi
 # and `company_leads`, not a column of either.
 
 @router.get("/admin/api/company-profiles", dependencies=[Depends(verify_admin)])
-async def admin_company_profiles(q: str = "", limit: int = 25, offset: int = 0):
+async def admin_company_profiles(q: str = "", warmth: str = "", limit: int = 25, offset: int = 0):
     from app.services import company_profiles
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
-    rows = company_profiles.list_companies(q, limit=limit, offset=offset)
-    total = company_profiles.count_companies(q)
+    rows = company_profiles.list_companies(q, limit=limit, offset=offset, warmth=warmth)
+    total = company_profiles.count_companies(q, warmth=warmth)
     return {"companies": rows, "total": total, "has_more": offset + len(rows) < total}
+
+
+@router.get("/admin/api/company-profiles/export", dependencies=[Depends(verify_admin)])
+async def admin_companies_export():
+    """The organizer's follow-up sheet: every company with its CURRENT
+    eagerness and contact block — the specific data marketing asked to be
+    able to slice by. Organizer-only (nothing here feeds any chat path)."""
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    from app.services import company_profiles
+
+    def safe(value) -> str:
+        s = "" if value is None else str(value)
+        return "'" + s if s.startswith(("=", "+", "-", "@", "\t", "\r")) else s
+
+    warmth_fa = {"low": "سرد", "medium": "معمولی", "high": "داغ"}
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["شرکت", "علاقه‌مندی", "حوزهٔ فعالیت", "شماره غرفه", "سالن",
+                     "مسئول ثبت‌شده", "سمت", "تلفن شرکت", "ایمیل", "وب‌سایت", "استان"])
+    for c in company_profiles.list_companies(limit=500):
+        writer.writerow([
+            safe(c.get("title")), warmth_fa.get(c.get("marketing_warmth"), ""),
+            safe(c.get("activity_field")), safe(c.get("booth_number")),
+            safe(c.get("hall")), safe(c.get("contact_name")),
+            safe(c.get("contact_position")), safe(c.get("company_phone")),
+            safe(c.get("email")), safe(c.get("website")), safe(c.get("province")),
+        ])
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="companies.csv"'},
+    )
 
 
 # ── Activity-field autofill ──────────────────────────────────────────────

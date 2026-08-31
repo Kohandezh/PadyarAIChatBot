@@ -330,7 +330,8 @@ def _create_companies_table(cursor):
         updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         priority_boost    INTEGER NOT NULL DEFAULT 0,
         booth_number      TEXT NOT NULL DEFAULT '',
-        hall              TEXT NOT NULL DEFAULT ''
+        hall              TEXT NOT NULL DEFAULT '',
+        marketing_warmth  TEXT NOT NULL DEFAULT ''
     )
     ''')
 
@@ -351,7 +352,8 @@ def ensure_companies_columns(cursor) -> None:
     """
     for column, ddl in (("priority_boost", "INTEGER NOT NULL DEFAULT 0"),
                         ("booth_number", "TEXT NOT NULL DEFAULT ''"),
-                        ("hall", "TEXT NOT NULL DEFAULT ''")):
+                        ("hall", "TEXT NOT NULL DEFAULT ''"),
+                        ("marketing_warmth", "TEXT NOT NULL DEFAULT ''")):
         try:
             cursor.execute(f"ALTER TABLE companies ADD COLUMN {column} {ddl}")
         except sqlite3.OperationalError:

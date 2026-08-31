@@ -1,0 +1,20 @@
+-- The company's live eagerness (علاقه‌مندی), maintained by the field team.
+--
+-- WHY A COMPANIES COLUMN
+-- ----------------------
+-- marketing_notes (migrations/0018) is the append-only diary; this column is
+-- the CURRENT reading — the newest note's warmth, written by
+-- app/services/leads.py:create_note. The organizer filters and exports by it
+-- («همهٔ شرکت‌های داغ را بده تا پیگیری کنیم»), which needs it beside the
+-- company rows, not buried in a timeline.
+--
+-- ORGANIZER-ONLY, BY CONSTRUCTION
+-- -------------------------------
+-- Nothing on any chat path selects this column: the company-list tier reads
+-- a named column list (company_search._load_companies), the public profile
+-- reads an allowlist (company_profiles.public_profile), and the AI selection
+-- tier sees only what those two hand it. tests/test_marketing_notes.py
+-- asserts the isolation end to end. It must stay that way: eagerness is the
+-- organizer's private sales signal, never a fact about the company the
+-- visitor may be told.
+ALTER TABLE app.companies ADD COLUMN IF NOT EXISTS marketing_warmth TEXT NOT NULL DEFAULT '';
