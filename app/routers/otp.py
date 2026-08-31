@@ -669,6 +669,20 @@ def _rows_the_loader_would_drop(doc: dict) -> list:
             keywords = row.get("keywords")
             if key == "sections" and not (isinstance(keywords, list) and keywords):
                 problems.append(f"«{label}» ردیف {number}: کلیدواژه‌ها خالی است.")
+
+    # The loader would silently drop unknown no_position_jobs ids — a person
+    # editing the rule must be told instead of losing half of it on save.
+    raw_np = doc.get("no_position_jobs")
+    if raw_np is not None:
+        if not isinstance(raw_np, list):
+            problems.append("«شغل‌های بدون سمت» باید یک فهرست باشد.")
+        else:
+            job_ids = {str(r.get("id", "")).strip() for r in (doc.get("jobs") or [])
+                       if isinstance(r, dict)}
+            for jid in raw_np:
+                if jid not in job_ids:
+                    problems.append(
+                        f"«no_position_jobs»: شناسهٔ «{jid}» در فهرست شغل‌ها نیست.")
     return problems
 
 

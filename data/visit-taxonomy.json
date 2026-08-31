@@ -10,6 +10,8 @@
     "  jobs[]      {id, fa, en}                    -> the شغل dropdown",
     "  positions[] {id, fa, en}               -> the سمت dropdown (optional;",
     "                                            omit it and سمت becomes free text)",
+    "  no_position_jobs [job-id,...]  -> jobs whose only valid سمت is the",
+    "     position with id \"none\" (auto-answered, never asked)",
     "  interests[] {id, fa, en, keywords?}         -> the searchable multi-select",
     "  flags[]     {id, fa, en}                    -> the checkboxes",
     "  sections[]  {id, fa, en, keywords, why_fa, why_en} -> what gets recommended",
@@ -146,6 +148,7 @@
       "en": "No organisational title"
     }
   ],
+  "no_position_jobs": ["school-student", "university-student", "jobseeker"],
   "interests": [
     {
       "id": "ai",
