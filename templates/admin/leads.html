@@ -105,6 +105,29 @@
         </div>
     </div>
 
+    <!-- What the field team saw at the booth but no lead row could hold:
+         eagerness, an unverified contact, the day's story. Filter to one
+         company for its timeline; CSV for the marketing follow-up. -->
+    <div class="col-12">
+        <div class="content-card">
+            <div class="card-header">
+                <span><i class="fas fa-clipboard-list me-2"></i>یادداشت‌های بازدید</span>
+                <span class="badge bg-secondary" id="notes-count">۰</span>
+                <div class="ms-auto d-flex gap-2 align-items-center">
+                    <input type="text" class="form-control form-control-sm" id="notes-filter"
+                           style="width:220px" placeholder="فیلتر: نام شرکت، یادداشت، همکار…">
+                    <a class="btn btn-sm btn-outline-secondary" id="notes-export"
+                       href="/admin/api/leads/notes/export">دریافت CSV</a>
+                </div>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush" id="notes-feed">
+                    <li class="list-group-item text-muted">در حال بارگذاری…</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
     <!-- Field visitors and their personal links. -->
     <div class="col-12">
         <div class="content-card">

@@ -547,6 +547,50 @@ function initContactForm() {
     });
 }
 
+// Visit-note warmth, as the operator says it — not the DB's slugs.
+const WARMTH = {
+    low:    ['سرد',    'secondary'],
+    medium: ['معمولی', 'info'],
+    high:   ['داغ',    'warning text-dark'],
+};
+
+async function loadNotes(q = '') {
+    const feed = document.getElementById('notes-feed');
+    const count = document.getElementById('notes-count');
+    if (!feed) return;
+    try {
+        const res = await fetchAuth(
+            `/admin/api/leads/notes?limit=200${q ? `&q=${encodeURIComponent(q)}` : ''}`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        count.textContent = fa(data.notes.length);
+        feed.innerHTML = '';
+        if (!data.notes.length) {
+            feed.innerHTML = '<li class="list-group-item text-muted">یادداشتی نیست.</li>';
+            return;
+        }
+        data.notes.forEach((n) => {
+            const [warmthLabel, warmthTone] = WARMTH[n.warmth] || ['', 'secondary'];
+            const contact = [n.contact_name, n.contact_position, n.contact_phone]
+                .filter(Boolean).map(esc).join(' — ');
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.innerHTML = `
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <span class="fw-bold">${esc(n.company_name)}</span>
+                    <span class="badge bg-${warmthTone}">${esc(warmthLabel)}</span>
+                    <span class="text-muted small ms-auto">${esc(faDate(n.created_at))}</span>
+                </div>
+                <div class="mt-1">${esc(n.note)}</div>
+                ${contact ? `<div class="text-muted small mt-1"><i class="fas fa-user me-1"></i>${contact}</div>` : ''}
+                <div class="text-muted small mt-1">همکار غرفه: ${esc(n.visitor_name || '—')}</div>`;
+            feed.appendChild(li);
+        });
+    } catch {
+        feed.innerHTML = '<li class="list-group-item text-danger">بارگذاری نشد.</li>';
+    }
+}
+
 export function initLeads() {
     stuckPager = createPager({
         pageSizeEl: document.getElementById('stuck-page-size'),
@@ -566,6 +610,17 @@ export function initLeads() {
     });
 
     initContactForm();
+
+    const notesFilter = document.getElementById('notes-filter');
+    if (notesFilter) {
+        let notesTimer = null;
+        notesFilter.addEventListener('input', () => {
+            clearTimeout(notesTimer);
+            const q = notesFilter.value.trim();
+            notesTimer = setTimeout(() => { loadNotes(q); }, 250);
+        });
+        loadNotes().catch(() => { /* the empty card already says it failed */ });
+    }
 
     visitorsBulkSelection = initBulkSelection({
         selectAllEl: document.getElementById('visitors-select-all'),

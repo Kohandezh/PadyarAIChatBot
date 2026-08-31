@@ -74,6 +74,30 @@
     </div>
 
     <div id="send-row" style="margin-top:16px"><button type="button" id="send">ارسال کد تأیید</button></div>
+
+    <!-- The booth observation the OTP flow cannot hold: eagerness, a contact
+         who would not do OTP now, anything the hall taught us. One toggle,
+         three buttons, one box — the WhatsApp note, but where it survives. -->
+    <div style="margin-top:20px;border-top:1px dashed rgba(0,0,0,.15);padding-top:14px">
+      <button type="button" class="ghost" id="note-toggle">فعلاً فقط یادداشت می‌کنم</button>
+    </div>
+    <div id="note-form" hidden style="margin-top:14px">
+      <p class="hint">میزان علاقه‌مندی این شرکت:</p>
+      <div class="warmth">
+        <button type="button" class="w" data-warmth="low">سرد</button>
+        <button type="button" class="w selected" data-warmth="medium">معمولی</button>
+        <button type="button" class="w" data-warmth="high">داغ</button>
+      </div>
+      <textarea id="note-text" maxlength="2000" style="margin-top:12px"
+                placeholder="چه شد؟ مثلاً: شدیداً مشتاق همکاری با شرکت کهن سیستم فردا هستند…"></textarea>
+      <p class="hint" style="margin-top:12px">مسئول غرفه (اختیاری — بدون ارسال کد):</p>
+      <input type="text" id="note-contact-name" autocomplete="off" maxlength="80" placeholder="نام و نام خانوادگی">
+      <input type="text" id="note-contact-position" autocomplete="off" maxlength="80" placeholder="سمت، مثلاً: مسئول اداری">
+      <input type="tel" id="note-contact-phone" inputmode="numeric" autocomplete="off" maxlength="24" placeholder="شماره تماس">
+      <div class="note err" id="note-error"></div>
+      <div class="note ok" id="note-ok" hidden>ثبت شد. ممنون!</div>
+      <div style="margin-top:14px"><button type="button" id="note-save">ثبت یادداشت</button></div>
+    </div>
   </section>
 
   <!-- Step 3 — the code the contact reads out. -->

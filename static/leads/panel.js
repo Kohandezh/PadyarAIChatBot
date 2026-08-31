@@ -128,6 +128,74 @@
     });
   });
 
+  /* --- The visit note: the observation, without the OTP pipeline -------- */
+
+  var noteWarmth = 'medium';
+
+  el('note-toggle').addEventListener('click', function () {
+    var form = el('note-form');
+    form.hidden = !form.hidden;
+    if (!form.hidden) { el('note-text').focus(); }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.warmth .w'), function (b) {
+    b.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.warmth .w'), function (x) {
+        x.classList.remove('selected');
+      });
+      b.classList.add('selected');
+      noteWarmth = b.getAttribute('data-warmth');
+    });
+  });
+
+  el('note-save').addEventListener('click', function () {
+    var btn = this;
+    el('note-error').textContent = '';
+    el('note-ok').hidden = true;
+    if (!state.datasetId) {
+      el('note-error').textContent = 'اول شرکت را انتخاب کنید.';
+      return;
+    }
+    var text = el('note-text').value.trim();
+    if (!text) {
+      el('note-error').textContent = 'متن یادداشت را بنویسید.';
+      el('note-text').focus();
+      return;
+    }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'در حال ثبت…';
+    api('/api/leads/notes', {
+      dataset_id: state.datasetId,
+      note: text,
+      warmth: noteWarmth,
+      contact_name: el('note-contact-name').value.trim(),
+      contact_position: el('note-contact-position').value.trim(),
+      contact_phone: ascii(el('note-contact-phone').value.trim())
+    }).then(function () {
+      el('note-ok').hidden = false;
+      ['note-text', 'note-contact-name', 'note-contact-position',
+       'note-contact-phone'].forEach(function (id) { el(id).value = ''; });
+      setTimeout(function () {
+        el('note-form').hidden = true;
+        el('note-ok').hidden = true;
+        /* Back to a clean step 1, the same reset «ثبت شرکت بعدی» uses. */
+        state.datasetId = '';
+        el('chosen').hidden = true;
+        el('q').hidden = false;
+        el('q').value = '';
+        el('q').focus();
+        show('step-company');
+        loadMine();
+      }, 900);
+    }).catch(function (e) {
+      el('note-error').textContent = e.message;
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = label;
+    });
+  });
+
   /* --- Step 2: the contact ------------------------------------------- */
 
   function hideDuplicateAsk() {
