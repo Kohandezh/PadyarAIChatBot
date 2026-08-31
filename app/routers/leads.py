@@ -678,6 +678,20 @@ async def admin_visitor_active(visitor_id: str, body: VisitorActiveBody):
     return {"ok": True}
 
 
+@router.post("/admin/api/leads/visitors/{visitor_id}/rename",
+             dependencies=[Depends(verify_admin)])
+async def admin_visitor_rename(visitor_id: str, body: VisitorBody):
+    """Fix a typo'd roster name. Leads join the name live, and visit notes
+    carry a denormalized copy — rename_visitor keeps both saying the same
+    thing."""
+    try:
+        if not leads_service.rename_visitor(visitor_id, body.name):
+            raise HTTPException(status_code=404, detail="این همکار پیدا نشد.")
+    except LeadError as e:
+        raise _fail(e)
+    return {"ok": True, "name": body.name.strip()}
+
+
 @router.delete("/admin/api/leads/visitors/{visitor_id}")
 async def admin_delete_visitor(visitor_id: str, admin: str = Depends(verify_admin)):
     """Take a colleague off the roster. Their link stops working immediately;
