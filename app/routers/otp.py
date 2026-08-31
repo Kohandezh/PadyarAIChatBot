@@ -45,6 +45,7 @@ from app.auth.security import (check_rate_limits, client_ip,
                                validate_request_origin, verify_admin)
 from app.services import conversations
 from app.services import otp as otp_service
+from app.services import signup as signup_service
 
 router = APIRouter()
 
@@ -140,6 +141,10 @@ def _promote_to_visitor(request: Request, challenge_id: str) -> str:
     record = _verified_registration(challenge_id)
     if not record:
         return ""
+    # The challenge body is not a bypass around the signup flow's rules:
+    # anything invalid is dropped here, leaving the question to be asked
+    # properly in the chat (spec §6).
+    record = signup_service.sanitize_registration(record)
     conversation_id = (request.cookies.get("padyar_conv") or "")[:64]
     return conversations.register_visitor(conversation_id, {
         "first_name": record.get("first_name", ""),
@@ -443,6 +448,60 @@ async def registration_options(lang: str = "fa"):
     """
     from app.services import taxonomy
     return taxonomy.form_options("en" if lang.lower().startswith("en") else "fa")
+
+
+class SignupAnswerBody(BaseModel):
+    key: str = Field(..., min_length=2, max_length=16)
+    value: str = Field(..., min_length=1, max_length=500)
+    lang: str = Field("fa", max_length=8)
+
+
+@router.get("/api/signup/next")
+async def signup_next(lang: str = "fa",
+                      visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """The question this visitor still owes, or complete.
+
+    Anonymous gets the same machine-readable 401 as /chat, so the browser
+    opens the sign-up card rather than printing an error sentence. The
+    order is the SERVER's (name → job → position → interests, skipping
+    what is stored); the browser renders, it does not decide."""
+    row = conversations.get_visitor(visitor_id) or {}
+    lang = "en" if lang.lower().startswith("en") else "fa"
+    return signup_service.pending_step(row, lang)
+
+
+@router.post("/api/signup/answer",
+             dependencies=[Depends(validate_request_origin)])
+async def signup_answer(body: SignupAnswerBody, request: Request,
+                        visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """Take ONE answer, validate it against the taxonomy, keep it or refuse
+    it. This — not /api/auth/profile — is the only writer while signup is
+    incomplete (spec §6.2)."""
+    request.state.otp_limit_identity = f"otp:visitor:{visitor_id}"
+    check_rate_limit(request)
+    row = conversations.get_visitor(visitor_id) or {}
+    pending = signup_service.pending_step(row, body.lang)
+    # REQ-002: a no-position job answers سمت by itself (REQ-009), so the
+    # flow never asks it — but a client that posts a title anyway gets the
+    # validator's real refusal (400), not a wrong-step resync: the pair
+    # دانش‌آموز + کارشناس is the incident this feature exists to fix.
+    if ((pending.get("complete") or pending["step"]["key"] != body.key)
+            and not (body.key == "position"
+                     and signup_service.position_locked(row))):
+        detail = {"code": signup_service.WRONG_STEP_CODE,
+                  "message": "این پرسش الان نوبتِ او نیست.",
+                  "step": {"complete": True} if pending.get("complete")
+                  else pending["step"]}
+        raise HTTPException(status_code=409, detail=detail)
+    ok, message, fields = signup_service.validate_answer(row, body.key, body.value)
+    if not ok:
+        raise HTTPException(status_code=400, detail={
+            "code": signup_service.INVALID_CODE, "message": message})
+    if not signup_service.write_fields(visitor_id, fields):
+        raise HTTPException(status_code=403, detail="این نشست معتبر نیست.")
+    row = conversations.get_visitor(visitor_id) or {}
+    lang = "en" if body.lang.lower().startswith("en") else "fa"
+    return {"ok": True, "next": signup_service.pending_step(row, lang)}
 
 
 @router.post("/api/auth/profile",

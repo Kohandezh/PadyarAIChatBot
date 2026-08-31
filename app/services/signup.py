@@ -77,6 +77,15 @@ def _is_no_position_job(job_label: str, doc=None) -> bool:
     return bool(jid) and jid in doc.get("no_position_jobs", [])
 
 
+def position_locked(row: dict) -> bool:
+    """True when the row's job answers the سمت question by itself.
+
+    REQ-009 auto-writes سمت for a no-position job, so the flow never asks
+    it — and a client that posts a title anyway must meet the validator's
+    refusal (REQ-002's 400), not a wrong-step resync."""
+    return _is_no_position_job(_norm(row.get("job")))
+
+
 # ── The one definition of "complete" ──────────────────────────────────────
 
 def is_complete(row: dict) -> bool:
