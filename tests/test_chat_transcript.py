@@ -293,10 +293,16 @@ def test_a_question_nobody_answered_keeps_its_visitor_message(client, monkeypatc
 # ── Registering halfway through ──────────────────────────────────────────
 
 def _register(client, phone="09121234567"):
-    """Walk the real OTP flow and return the challenge id."""
+    """Walk the real OTP flow and return the challenge id.
+
+    The carried job/position/interests are real taxonomy labels: promote
+    sanitizes them now, and an invalid one (e.g. a position that is not in
+    the list) is DROPPED — leaving the row incomplete, which closes
+    /api/auth/profile with 403 signup_incomplete instead of opening it.
+    """
     r = client.post("/api/auth/otp/request", json={
         "destination": phone, "first_name": "سارا", "last_name": "احمدی",
-        "job": "مدیر", "position": "مدیرعامل", "interests": "هوش مصنوعی"})
+        "job": "مدیر", "position": "مدیر بخش", "interests": "هوش مصنوعی"})
     assert r.status_code == 200, r.text
     challenge_id = r.json()["challenge_id"]
 
@@ -348,14 +354,16 @@ def test_a_message_sent_after_registering_joins_the_same_conversation(client):
 
 def test_correcting_the_profile_updates_the_same_visitor(client):
     challenge_id = _register(client)
+    # Real taxonomy labels: the edit endpoint validates every value against
+    # the same lists the signup flow uses, so a made-up pair is a 400 now.
     r = client.post("/api/auth/profile", json={
-        "challenge_id": challenge_id, "job": "پژوهشگر",
-        "position": "مدیر فنی", "interests": "رباتیک"})
+        "challenge_id": challenge_id, "job": "پژوهشگر / هیئت علمی",
+        "position": "مدیر ارشد", "interests": "رباتیک"})
     assert r.status_code == 200, r.text
 
     visitors = _rows("SELECT * FROM visitors")
     assert len(visitors) == 1, "one phone is one person, not two"
-    assert visitors[0]["job"] == "پژوهشگر"
+    assert visitors[0]["job"] == "پژوهشگر / هیئت علمی"
     assert visitors[0]["first_name"] == "سارا", "the name it proved is kept"
 
 
