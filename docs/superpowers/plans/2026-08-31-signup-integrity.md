@@ -721,7 +721,9 @@ def test_student_cannot_hold_a_title(client, outbox):
     client.post("/api/signup/answer", json={"key": "job", "value": "دانش‌آموز"})
     r = client.post("/api/signup/answer", json={"key": "position", "value": "کارشناس"})
     assert r.status_code == 400
-    assert _row()["position"] == ""
+    # REQ-009 auto-wrote «سمت سازمانی ندارم» with the job answer; the
+    # refused post must not erase it (REQ-002: the profile does not change).
+    assert _row()["position"] == "سمت سازمانی ندارم"
 
 
 def test_student_job_auto_answers_position(client, outbox):
@@ -813,7 +815,13 @@ async def signup_answer(body: SignupAnswerBody, request: Request,
     check_rate_limit(request)
     row = conversations.get_visitor(visitor_id) or {}
     pending = signup_service.pending_step(row, body.lang)
-    if pending.get("complete") or pending["step"]["key"] != body.key:
+    # REQ-002: a no-position job answers سمت by itself (REQ-009), so the
+    # flow never asks it — but a client that posts a title anyway gets the
+    # validator's real refusal (400), not a wrong-step resync: the pair
+    # دانش‌آموز + کارشناس is the incident this feature exists to fix.
+    if ((pending.get("complete") or pending["step"]["key"] != body.key)
+            and not (body.key == "position"
+                     and signup_service.position_locked(row))):
         detail = {"code": signup_service.WRONG_STEP_CODE,
                   "message": "این پرسش الان نوبتِ او نیست.",
                   "step": {"complete": True} if pending.get("complete")
