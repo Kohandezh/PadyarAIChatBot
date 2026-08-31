@@ -25,6 +25,7 @@ Central tracking for all features.
 | pet-characters | Implemented | Ready | companion | 2026-08-31 | 2026-08-31 |
 | activity-field-autofill | Implemented | Ready | leads | 2026-08-31 | 2026-08-31 |
 | marketing-visit-notes | Implemented | Ready | leads | 2026-08-31 | 2026-08-31 |
+| signup-integrity | In review | Ready | registration | 2026-08-31 | 2026-08-31 |
 
 ## Quick Features
 
