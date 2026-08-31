@@ -47,6 +47,40 @@ def test_pending_step_order_and_skip(row):
     assert [o["label"] for o in p2["step"]["options"]] == ["سمت سازمانی ندارم"]
 
 
+def test_pending_step_reasks_stale_job(row):
+    """The 403 loop: every field present, one stale (admin renamed the
+    label). pending_step must re-offer that field, not claim complete."""
+    stale = {**row, "job": "ژورنالیست"}
+    assert not signup.is_complete(stale)
+    p = signup.pending_step(stale, "fa")
+    assert p["step"]["key"] == "job"
+
+
+def test_pending_step_reasks_stale_position(row):
+    stale = {**row, "position": "مدیرکل"}
+    p = signup.pending_step(stale, "fa")
+    assert p["step"]["key"] == "position"
+
+
+def test_pending_step_reasks_position_inconsistent_with_job(row):
+    """Both labels are valid, but a student cannot hold a title: the
+    stored pair is inconsistent, so position is asked again."""
+    inconsistent = {**row, "job": "دانش‌آموز", "position": "کارشناس"}
+    p = signup.pending_step(inconsistent, "fa")
+    assert p["step"]["key"] == "position"
+    assert [o["label"] for o in p["step"]["options"]] == ["سمت سازمانی ندارم"]
+
+
+def test_pending_step_fail_open_without_taxonomy(monkeypatch):
+    """Unconfigured install: a filled row is complete — no re-ask loop."""
+    from app.services import taxonomy
+    monkeypatch.setattr(taxonomy, "document",
+                        lambda: dict(taxonomy._MINIMUM))
+    filled = {"first_name": "آ", "job": "هر چیزی",
+              "position": "هر چیزی", "interests": "هر چیزی"}
+    assert signup.pending_step(filled, "fa") == {"complete": True}
+
+
 def test_validate_answer_accepts_list_labels_only():
     ok, msg, fields = signup.validate_answer({}, "job", "دانش‌آموز")
     assert ok and fields["job"] == "دانش‌آموز"

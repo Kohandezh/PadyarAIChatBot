@@ -111,9 +111,21 @@ def is_complete(row: dict) -> bool:
 
 
 def _field_done(row: dict, key: str) -> bool:
+    """Present AND valid per the CURRENT taxonomy — the same standard
+    is_complete holds, so a stale label (admin renamed it) re-asks its
+    question instead of falling through to {"complete": True} while
+    /chat still answers 403 signup_incomplete."""
     if key == "name":
         return bool(_norm(row.get("first_name")) or _norm(row.get("last_name")))
-    return bool(_norm(row.get(key)))
+    value = _norm(row.get(key))
+    if not value:
+        return False
+    doc = _doc()
+    if key == "job":
+        return not _check_job(value, doc)
+    if key == "position":
+        return not _check_position(value, _norm(row.get("job")), doc)
+    return not _check_interests(value, doc)
 
 
 def pending_step(row: dict, lang: str = "fa") -> dict:
