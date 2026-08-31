@@ -355,10 +355,30 @@ def answer_company_list(query: str, lang: str = "fa"):
         matched = [c for c in companies if _company_facets(c) & selected]
         if not matched:
             return None
-        # The facet's OWN name, not the words the visitor typed around it. The
-        # headline has to say which zemine, and «۶۹ شرکت در زمینه «اطلاعات شون
-        # رو میخوام»» is worse than no headline at all.
-        filter_label = "، ".join(sorted(selected))
+        if len(selected) == 1:
+            # The facet's OWN name, not the words the visitor typed around it.
+            # The headline has to say which zemine, and «۶۹ شرکت در زمینه
+            # «اطلاعات شون رو میخوام»» is worse than no headline at all.
+            filter_label = next(iter(selected))
+        else:
+            # Several facets TIED at the same score. The union of their names
+            # is not a zemine anyone can read: on the elecomp install
+            # (2026-08-31) «هوش مصنوعی» sits inside 45 of the organizer's
+            # activity fields, so «سکوی هوش مصنوعی چی هست» headed its answer
+            # with an 800-character comma string — half the response, and
+            # half a minute of the phone typing it out. The honest label for
+            # a tie is the visitor's OWN matched words: they are what did
+            # the filtering, in the order they were asked.
+            facet_words = set()
+            facet_map = _facets(companies)
+            for value in selected:
+                facet_words |= facet_map.get(value, set())
+            hit = [t for t in tokens if _fold(t) in facet_words]
+            hit += [tokens[i] + tokens[i + 1]
+                    for i in range(len(tokens) - 1)
+                    if _fold(tokens[i] + tokens[i + 1]) in facet_words]
+            filter_label = (" ".join(dict.fromkeys(hit))
+                            or "، ".join(sorted(selected)))
 
     # Boosted companies first (organizer-set sponsor placement), alphabetical
     # within each group — a boost changes ORDER only, never WHICH companies

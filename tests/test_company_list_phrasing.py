@@ -230,6 +230,47 @@ def test_the_headline_names_the_facet_that_was_matched(client):
     assert "میخوام" not in r["text"], r
 
 
+# ── A word many facets share must not become their whole union ────────────
+#
+# Live on elecomp.padyar.com, 2026-08-31: «سکوی هوش مصنوعی چی هست» (a booth
+# phone). The organizer's sheet carries 45 activity fields that all contain
+# «هوش مصنوعی» — «آموزش رباتیک و هوش مصنوعی», «هوش مصنوعی و بلاکچین», plain
+# «هوش مصنوعی», ... — so every one of them scored the same two-word hit and
+# TIED. The tie was handled by filtering on all 45 at once (a correct 49-of-646
+# match set) and printing their names as one comma label: an 800-character
+# «زمینه» that was half the response and half a minute of the phone typing it.
+# The list itself was the right answer; the union label was the defect.
+
+MANY_AI_FIELDS = [
+    ("co-ai", "شرکت هوش", "معرفی شرکت هوش.", "هوش مصنوعی"),
+    ("co-edu", "شرکت آموز", "معرفی شرکت آموز.", "آموزش هوش مصنوعی"),
+    ("co-chain", "شرکت زنجیر", "معرفی شرکت زنجیر.", "هوش مصنوعی و بلاکچین"),
+    ("co-health", "شرکت سلامت", "معرفی شرکت سلامت.", "پزشکی و هوش مصنوعی"),
+]
+
+
+def test_a_tied_facet_match_labels_the_visitors_own_words_not_the_union(client):
+    """The reporter's exact question. All four facets tie at the same score;
+    the headline must say «هوش مصنوعی» — the words that did the filtering —
+    and never the comma-union of every tied field name."""
+    _seed(MANY_AI_FIELDS)
+    r = _ask("سکوی هوش مصنوعی چی هست")
+    assert r is not None, "the tier refused a question it can answer"
+    assert r["count"] == 4, r
+    assert r["filter_label"] == "هوش مصنوعی", r
+    assert "،" not in r["filter_label"], r
+    assert "بلاکچین" not in r["filter_label"], r
+    assert r["text"].startswith("4 شرکت در زمینه «هوش مصنوعی»"), r["text"][:80]
+
+
+def test_a_single_facet_match_still_names_the_whole_facet(client):
+    """One winner keeps the organizer's full field name — a tie is the only
+    case where the visitor's own words are the better label."""
+    _seed(COMPANIES)
+    r = _ask("من شرکت های فعال در حوزه هوش مصنوعی رو میخوام")
+    assert r["filter_label"] == AI, r
+
+
 def test_a_question_about_one_named_company_is_still_not_a_list(client):
     """The guard that must not regress. Loosening the topic filter must not
     turn a single-company question into a list of everything."""
