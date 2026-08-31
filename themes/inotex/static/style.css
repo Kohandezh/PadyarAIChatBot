@@ -1171,6 +1171,7 @@ img.inx-loader-mark {
 @media (max-width: 768px) {
     header.inx-header {
         flex-wrap: wrap;
+        justify-content: space-between;
         row-gap: 8px;
         padding: 8px 12px;
     }
