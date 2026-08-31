@@ -40,6 +40,13 @@ only ever written into an empty column.
 
 ## The contract
 
+- The model is asked about **exactly the company's still-empty columns** —
+  the prompt's JSON skeleton carries only those keys, and `_clean_fields`
+  drops any other key unread. Reason (elecomp, 2026-08-31: 746 pending,
+  zero filled): the model echoes what the text mentions — often
+  already-full columns — while the company's real holes are fields the text
+  never names; without the whitelist every write intersects nothing and the
+  backlog never moves.
 - The model **suggests**, the code decides: every value passes a per-field
   validator, re-validated in `run()` at the write layer, not only inside
   the AI call:
@@ -56,11 +63,11 @@ only ever written into an empty column.
   the organizer's value stays AND the other fields still land. The UPDATE
   also carries `AND COALESCE(field,'')=''` per written column, so the run
   is re-runnable / idempotent and no organizer data is ever overwritten.
-- One POST fills at most **10** companies (proxy-timeout bound; the answer
-  now carries every field plus a full English translation, so it grew from
-  the old 25-label batches); the UI loops with a progress line until
-  `remaining` hits zero, and stops early if a pass fills nothing and fails
-  something — the same failures would repeat forever.
+- One POST fills at most **10** companies and scans at most **40** — the
+  batch counts FILLS, not companies examined, so a company whose text
+  yields nothing for its holes does not strand the queue behind it (the UI
+  loops with a progress line until `remaining` hits zero, and stops early
+  if a pass fills nothing — the same failures would repeat forever).
 - Rows with **no intro text are never guessed** — counted in the report
   (`no_text`), left for the organizer.
 - The prompt shows the install's own existing labels (top 120 by frequency)
@@ -93,6 +100,7 @@ the English name is fillable too), wildcard-route ordering (fails if
 `/autofill` is declared after `/{dataset_id}`), only-empty guard (fails if
 the guard is removed — the pre-filled row must survive), hard per-field
 validation (bad email/phone/website/labels rejected, valid ones kept),
-per-company failure reporting, AI-down → 503 + nothing written, the
-mid-run organizer edit yielding precedence, and the button present with its
-current label on the rendered companies page.
+full-field echoes dropped (the elecomp regression), scan-past-no-yield
+companies, per-company failure reporting, AI-down → 503 + nothing written,
+the mid-run organizer edit yielding precedence, and the button present with
+its current label on the rendered companies page.

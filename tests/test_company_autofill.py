@@ -96,7 +96,7 @@ def admin_client(tmp_path, monkeypatch):
 
 def _fake_classify(fields):
     """Patch _classify with a model that always returns `fields`."""
-    async def fake(company, vocabulary):
+    async def fake(company, empty_fields, vocabulary):
         return dict(fields), SimpleNamespace(tokens_total=10, cost=0.001,
                                              finish_reason="stop")
     return fake
@@ -206,7 +206,7 @@ def test_run_reports_company_the_model_failed_on(admin_client, monkeypatch):
 def test_ai_unavailable_is_503_and_writes_nothing(admin_client, monkeypatch):
     from app.services import company_autofill
 
-    async def dead(company, vocabulary):
+    async def dead(company, empty_fields, vocabulary):
         raise company_autofill.AutofillUnavailable("هوش مصنوعی در دسترس نیست (x).")
     monkeypatch.setattr(company_autofill, "_classify", dead)
 
@@ -222,7 +222,7 @@ def test_write_yields_to_a_mid_run_organizer_edit(admin_client, monkeypatch):
     leave the UI loop forever pending on the same company."""
     from app.db.connection import get_db_connection
 
-    async def editing(company, vocabulary):
+    async def editing(company, empty_fields, vocabulary):
         conn = get_db_connection()
         conn.execute("UPDATE companies SET email = 'hand@example.com'"
                      " WHERE id = 'co-a'")
@@ -241,6 +241,53 @@ def test_write_yields_to_a_mid_run_organizer_edit(admin_client, monkeypatch):
     assert row["contact_name"] == GOOD["contact_name"]    # the rest still lands
     entry = next(f for f in r.json()["filled"] if f["id"] == "co-a")
     assert "email" not in entry["fields"]
+
+
+def test_full_field_echoes_are_dropped_not_written(admin_client, monkeypatch):
+    """The elecomp failure, 2026-08-31: for a company whose ONLY hole is
+    title_en, the model echoed already-full columns (email etc.) instead —
+    nothing intersected the hole and every write came back empty while the
+    pending count never moved. A value for a column that was not asked
+    about must be dropped unread and reported as nothing-in-text, never
+    written over organizer data."""
+    from app.services import company_autofill
+    monkeypatch.setattr(company_autofill, "_classify",
+                        _fake_classify({"email": "info@x.example.com"}))
+
+    r = admin_client.post("/admin/api/company-profiles/autofill")
+    assert r.status_code == 200
+    data = r.json()
+    # co-en's only hole (title_en) was never answered: honest-empty, failed.
+    entry = next(f for f in data["failed"] if f["id"] == "co-en")
+    assert entry["reason"] == "در متن معرفی چیزی برای فیلدهای خالی نبود"
+    assert _row("co-en")["title_en"] == ""
+    # co-a's email IS one of its holes: that one lands.
+    a = next(f for f in data["filled"] if f["id"] == "co-a")
+    assert a["fields"] == ["email"]
+    assert _row("co-a")["email"] == "info@x.example.com"
+
+
+def test_scan_skips_past_no_yield_companies(admin_client, monkeypatch):
+    """A company whose text yields nothing must not strand the queue behind
+    it: the batch counts FILLS, not scans, so the run continues past it and
+    the next companies still get their turn."""
+    from app.services import company_autofill
+
+    async def sometimes(company, empty_fields, vocabulary):
+        fields = ({} if company["id"] == "co-a"
+                  else {"email": "info@y.example.com",
+                        "title_en": "Y Co"})
+        return fields, SimpleNamespace(tokens_total=10, cost=0.001,
+                                       finish_reason="stop")
+    monkeypatch.setattr(company_autofill, "_classify", sometimes)
+
+    r = admin_client.post("/admin/api/company-profiles/autofill")
+    assert r.status_code == 200
+    data = r.json()
+    assert [f["id"] for f in data["failed"]] == ["co-a"]
+    assert {f["id"] for f in data["filled"]} == {"co-en", "co-b"}
+    assert data["remaining"] == 0
+    assert _row("co-a")["email"] == ""
 
 
 def test_companies_page_carries_the_button(admin_client):

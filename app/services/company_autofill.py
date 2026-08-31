@@ -14,13 +14,13 @@ understand why nothing happened.
 
 The organizer is not a typist. This module is one button on the companies
 page: for every company that HAS an intro text but EMPTY fields, ask the
-model ONCE for everything the text mentions — the contact person and their
-title, phones, email, website, address, province, booth, hall, the
-classification fields — plus the three English fields the model must
-translate rather than extract (title_en, text_en, address_en). Validate each
-value's shape, and write it into the empty column only. What the text does
-not mention comes back empty and stays empty: absence is not an error, it is
-the honest answer, and the organizer fills that hole by hand.
+model ONCE about exactly those empty columns — the contact person and
+their title, phones, email, website, address, province, booth, hall, the
+classification fields, and the three English fields the model must
+translate rather than extract (title_en, text_en, address_en). Validate
+each value's shape, and write it into the empty column only. What the text
+does not mention comes back empty and stays empty: absence is not an
+error, it is the honest answer, and the organizer fills that hole by hand.
 
 THE CONTRACT THE MODEL CANNOT BREAK
 ----------------------------------
@@ -45,11 +45,16 @@ from app.config import logger
 MAX_LABEL_TOKENS = 8
 MAX_LABEL_CHARS = 70
 MAX_LABELS_PER_COMPANY = 3
-# One POST per click processes at most this many companies. It used to be 25
-# when the answer was three short labels; one answer now carries every field
-# including a full English translation of the intro, so the batch shrinks to
-# keep one POST well under the nginx proxy timeout while the UI loops.
+# One POST per click fills at most this many companies. It used to be 25
+# when the answer was three short labels; one answer now carries the asked
+# fields including a full English translation of the intro, so the batch
+# shrinks to keep one POST well under the nginx proxy timeout.
 BATCH_LIMIT = 10
+# The scan bound: run() skips past companies whose text yields nothing for
+# their empty fields (batch counts FILLS, not scans), and this cap keeps a
+# single POST from scanning an unbounded queue of them. 4× the fill target —
+# at ~2-4s per AI call that is still comfortably inside the proxy timeout.
+SCAN_LIMIT = 40
 # The vocabulary block of the prompt is capped so a 600-label install does
 # not turn every call into a token-metered dump of its own taxonomy.
 VOCABULARY_LIMIT = 120
@@ -163,14 +168,22 @@ def _valid_website(value: str) -> bool:
     return "." in body and body.isascii()
 
 
-def _clean_fields(raw) -> dict:
+def _clean_fields(raw, allowed) -> dict:
     """Keep only values their own validator accepts, keyed by column.
+
+    `allowed` is the per-company set of STILL-EMPTY columns the model was
+    asked about — a value for any other column is dropped unread, because
+    the model cannot know a column is full and echoes what the intro text
+    mentions (measured on the elecomp install, 2026-08-31: every write came
+    back empty because the model echoed already-full title_en/text_en while
+    the company's real holes were fields the text never mentions).
 
     A value that fails its shape check is DROPPED, not repaired: the code
     never guesses what the model meant, it just refuses to store it.
     """
     if not isinstance(raw, dict):
         return {}
+    allowed = set(allowed)
     out = {}
 
     def _text(value, cap: int) -> str:
@@ -180,19 +193,23 @@ def _clean_fields(raw) -> dict:
         return s if len(s) <= cap else ""
 
     for field, cap in _FREE_TEXT_FIELDS.items():
-        if (s := _text(raw.get(field), cap)):
+        if field in allowed and (s := _text(raw.get(field), cap)):
             out[field] = s
     for field in _PHONE_FIELDS:
-        if (s := _text(raw.get(field), _PHONE_CHARS)) and _valid_phone(s):
+        if field in allowed and (s := _text(raw.get(field), _PHONE_CHARS)) \
+                and _valid_phone(s):
             out[field] = s
-    if (s := _text(raw.get("email"), _EMAIL_CHARS)) and _valid_email(s):
+    if "email" in allowed and (s := _text(raw.get("email"), _EMAIL_CHARS)) \
+            and _valid_email(s):
         out["email"] = s
-    if (s := _text(raw.get("website"), _WEBSITE_CHARS)) and _valid_website(s):
+    if "website" in allowed and (s := _text(raw.get("website"), _WEBSITE_CHARS)) \
+            and _valid_website(s):
         out["website"] = s
     for field, cap in _EN_FIELDS.items():
-        if (s := _text(raw.get(field), cap)):
+        if field in allowed and (s := _text(raw.get(field), cap)):
             out[field] = s
-    if (labels := _clean_labels(raw.get("activity_field"))):
+    if "activity_field" in allowed and \
+            (labels := _clean_labels(raw.get("activity_field"))):
         out["activity_field"] = " | ".join(labels)
     return out
 
@@ -200,16 +217,20 @@ def _clean_fields(raw) -> dict:
 def _pending_rows():
     """Companies that can be auto-filled: an intro text but an empty target.
 
-    Rows with NO text are counted but never sent: there is nothing to read a
-    field out of, and guessing from a bare title is how a wrong fact gets
-    written. They belong to the organizer, not the model.
+    Each row carries its OWN list of still-empty columns (`empty_fields`) —
+    that is the whitelist the prompt asks the model about and the whitelist
+    `_clean_fields` enforces. Rows with NO text are counted but never sent:
+    there is nothing to read a field out of, and guessing from a bare title
+    is how a wrong fact gets written. They belong to the organizer, not the
+    model.
     """
     from app.db.connection import get_db_connection
     empty_any = " OR ".join(f"COALESCE({f}, '') = ''" for f in EXTRACT_FIELDS)
     conn = get_db_connection()
     try:
         fillable = conn.execute(
-            "SELECT id, title, text FROM companies"
+            "SELECT id, title, text, " + ", ".join(EXTRACT_FIELDS)
+            + " FROM companies"
             f" WHERE COALESCE(text, '') <> '' AND ({empty_any})"
             " ORDER BY title"
         ).fetchall()
@@ -219,7 +240,13 @@ def _pending_rows():
         ).fetchone()["n"]
     finally:
         conn.close()
-    return [dict(r) for r in fillable], int(no_text or 0)
+    rows = []
+    for r in fillable:
+        d = dict(r)
+        d["empty_fields"] = [f for f in EXTRACT_FIELDS
+                             if not str(d.get(f) or "").strip()]
+        rows.append(d)
+    return rows, int(no_text or 0)
 
 
 def pending() -> dict:
@@ -254,40 +281,42 @@ def _vocabulary() -> list:
     return [label for label, _ in counts.most_common(VOCABULARY_LIMIT)]
 
 
-_JSON_KEYS = ("{\"contact_name\":\"\", \"contact_position\":\"\","
-              " \"contact_mobile\":\"\", \"email\":\"\", \"website\":\"\","
-              " \"company_phone\":\"\", \"fax\":\"\", \"address\":\"\","
-              " \"province\":\"\", \"booth_number\":\"\", \"hall\":\"\","
-              " \"company_type\":\"\", \"org_stage\":\"\","
-              " \"activity_field\":[\"…\"], \"participation\":\"\","
-              " \"address_en\":\"\", \"title_en\":\"\", \"text_en\":\"\"}")
+def _json_skeleton(empty_fields) -> str:
+    """The JSON the model must return: only the STILL-EMPTY columns."""
+    parts = []
+    for f in empty_fields:
+        parts.append(f'"{f}":["…"]' if f == "activity_field" else f'"{f}":""')
+    return "{" + ", ".join(parts) + "}"
 
 
-def _prompt(company: dict, vocabulary: list) -> str:
+def _prompt(company: dict, empty_fields: list, vocabulary: list) -> str:
     vocab_text = "\n".join(f"- {label}" for label in vocabulary) or "—"
     return (
         "تو دستیار ثبت اطلاعات شرکت‌های یک نمایشگاهی. متن معرفی یک شرکت را"
-        " می‌خوانی و اطلاعاتی که در آن هست را در فیلدها استخراج می‌کنی.\n"
+        " می‌خوانی و فقط از فیلدهای خواسته‌شده چیزهایی که در آن هست را"
+        " استخراج می‌کنی.\n"
         "قواعد:\n"
-        "۱. فقط چیزی که واقعاً در متن نوشته شده را استخراج کن. چیزی که در"
+        "۱. فقط همان فیلدهایی را که در الگوی JSON پایین آمده پر کن؛ فیلد"
+        " دیگری برنگردان.\n"
+        "۲. فقط چیزی که واقعاً در متن نوشته شده را استخراج کن. چیزی که در"
         " متن نیست را خالی بگذار — حدس نزن و از خودت نساز.\n"
-        "۲. سه فیلد انگلیسی (address_en و title_en و text_en) را خودت به"
+        "۳. فیلدهای انگلیسی (address_en و title_en و text_en) را خودت به"
         " انگلیسی برگردان: نام شرکت را حروف‌نگاری کن و متن معرفی و نشانی"
         " را ترجمه کن.\n"
-        "۳. برای «حوزهٔ فعالیت» حداکثر ۳ برچسب کوتاه بده؛ هر برچسب حداکثر"
+        "۴. برای «حوزهٔ فعالیت» حداکثر ۳ برچسب کوتاه بده؛ هر برچسب حداکثر"
         " ۸ کلمه و ۷۰ نویسه، بدون علامت |. اگر از فهرست زیر برچسب مناسب"
         " هست، همان را برگردان؛ فقط وقتی هیچ مناسب نیست برچسب تازه بساز.\n"
-        "۴. شماره‌ها و نشانی‌ها را دقیقاً همان‌طور که در متن آمده برگردان؛"
+        "۵. شماره‌ها و نشانی‌ها را دقیقاً همان‌طور که در متن آمده برگردان؛"
         " شماره نساز.\n"
-        "۵. فقط JSON برگردان با همین کلیدها:\n"
-        f"{_JSON_KEYS}\n"
+        "۶. فقط JSON برگردان با همین کلیدها:\n"
+        f"{_json_skeleton(empty_fields)}\n"
         f"فهرست برچسب‌های موجود:\n{vocab_text}\n\n"
         f"نام شرکت: {company.get('title') or ''}\n"
         f"متن معرفی:\n{(company.get('text') or '')[:900]}"
     )
 
 
-async def _classify(company: dict, vocabulary: list) -> tuple:
+async def _classify(company: dict, empty_fields: list, vocabulary: list) -> tuple:
     """Ask the model for this company's fields. (fields, usage) — never raises."""
     from app.services.ai.wrapper import padyar_ai
     from app.services.ai.request import AIMessage, FINISH_LENGTH
@@ -297,12 +326,13 @@ async def _classify(company: dict, vocabulary: list) -> tuple:
         resp = await padyar_ai.generate(
             [AIMessage(role="user",
                        content=f"اطلاعات شرکت «{company.get('title') or ''}» چیست؟")],
-            system_prompt=_prompt(company, vocabulary),
+            system_prompt=_prompt(company, empty_fields, vocabulary),
             # The routed chat task: no new task name means no routing-table
             # migration and no admin change for one button.
             task="chat",
-            # Every field plus a full English translation of the intro, not
-            # three short labels any more — the ceiling grew with the answer.
+            # The asked-for fields plus a full English translation of the
+            # intro when text_en is among them — the ceiling grew with the
+            # answer.
             max_output_tokens=800,
             temperature=0.0,
             response_format="json_object",
@@ -317,7 +347,7 @@ async def _classify(company: dict, vocabulary: list) -> tuple:
         data = json.loads(resp.content)
     except (ValueError, TypeError):
         return {}, resp
-    return _clean_fields(data), resp
+    return _clean_fields(data, empty_fields), resp
 
 
 def _write_fields(company_id: str, fields: dict) -> dict:
@@ -351,18 +381,32 @@ def _write_fields(company_id: str, fields: dict) -> dict:
 
 
 async def run(actor: str = "", limit: int = BATCH_LIMIT) -> dict:
-    """One button press: fill up to `limit` companies, report everything."""
+    """One button press: fill up to `limit` companies, report everything.
+
+    The batch counts FILLS, not companies examined: a company whose intro
+    text mentions none of its empty fields yields nothing, and stopping the
+    batch at the first of those would strand the whole queue behind it (the
+    elecomp run, 2026-08-31: 746 pending, zero filled, the first ten all
+    no-yield). The scan is bounded by SCAN_LIMIT so one POST still stays
+    well under the proxy timeout; `remaining` reports the unexamined tail
+    and the UI keeps looping.
+    """
     from app.services import applog
 
     fillable, no_text = _pending_rows()
-    batch = fillable[:max(1, min(int(limit or BATCH_LIMIT), BATCH_LIMIT))]
-    vocabulary = _vocabulary() if batch else []
+    limit = max(1, min(int(limit or BATCH_LIMIT), BATCH_LIMIT))
+    vocabulary = _vocabulary() if fillable else []
 
     filled, failed = [], []
     tokens = cost = 0
-    for company in batch:
+    examined = 0
+    for company in fillable:
+        if len(filled) >= limit or examined >= SCAN_LIMIT:
+            break
+        examined += 1
+        empty_fields = company["empty_fields"]
         try:
-            fields, resp = await _classify(company, vocabulary)
+            fields, resp = await _classify(company, empty_fields, vocabulary)
         except AutofillUnavailable as e:
             applog.error("content", "companies.autofill.ai_unavailable",
                          "پرکردن خودکار لغو شد — هوش مصنوعی در دسترس نیست",
@@ -377,14 +421,15 @@ async def run(actor: str = "", limit: int = BATCH_LIMIT) -> dict:
         # layer that owns the contract, so no caller can bypass it — the
         # JSON parse in _classify cleaning first is a convenience, not the
         # guarantee.
-        fields = _clean_fields(fields)
+        fields = _clean_fields(fields, empty_fields)
         if not fields:
             failed.append({"id": company["id"], "title": company["title"],
-                           "reason": "هیچ فیلدی از پاسخ مدل نماند"})
+                           "reason": "در متن معرفی چیزی برای فیلدهای خالی نبود"})
             applog.warning("content", "companies.autofill.company_failed",
-                           "برای این شرکت هیچ فیلدی نماند",
+                           "در متن معرفی این شرکت چیزی برای فیلدهای خالی نبود",
                            actor=actor or None, target=str(company["id"])[:60],
-                           metadata={"title": str(company["title"])[:120]})
+                           metadata={"title": str(company["title"])[:120],
+                                     "empty_fields": empty_fields})
             continue
         written = _write_fields(company["id"], fields)
         if written:
@@ -397,14 +442,14 @@ async def run(actor: str = "", limit: int = BATCH_LIMIT) -> dict:
             failed.append({"id": company["id"], "title": company["title"],
                            "reason": "همهٔ فیلدهای پیشنهادی همین حالا دستی پر شده بودند"})
 
-    remaining = max(0, len(fillable) - len(batch))
+    remaining = max(0, len(fillable) - examined)
     applog.info("content", "companies.autofill.run",
                 "پرکردن خودکار اطلاعات شرکت‌ها انجام شد",
                 actor=actor or None, outcome="ok",
                 tokens_in=tokens or None, cost=cost or None,
                 metadata={"filled": filled, "failed": failed,
                           "no_text": no_text, "remaining": remaining})
-    logger.info("[autofill] filled=%d failed=%d remaining=%d no_text=%d",
-                len(filled), len(failed), remaining, no_text)
+    logger.info("[autofill] filled=%d failed=%d examined=%d remaining=%d no_text=%d",
+                len(filled), len(failed), examined, remaining, no_text)
     return {"filled": filled, "failed": failed, "no_text": no_text,
             "remaining": remaining, "tokens": tokens, "cost": cost}
