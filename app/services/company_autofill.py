@@ -214,7 +214,7 @@ def _clean_fields(raw, allowed) -> dict:
     return out
 
 
-def _pending_rows():
+def _pending_rows(after=None):
     """Companies that can be auto-filled: an intro text but an empty target.
 
     Each row carries its OWN list of still-empty columns (`empty_fields`) —
@@ -223,17 +223,27 @@ def _pending_rows():
     there is nothing to read a field out of, and guessing from a bare title
     is how a wrong fact gets written. They belong to the organizer, not the
     model.
+
+    `after` is the (title, id) keyset cursor of the last company a previous
+    run() examined. Without it every run restarts at the queue head, and a
+    stretch of no-yield companies sits there forever being re-asked
+    (elecomp, 2026-08-31: 37 re-asked every batch, ~700 never reached).
     """
     from app.db.connection import get_db_connection
     empty_any = " OR ".join(f"COALESCE({f}, '') = ''" for f in EXTRACT_FIELDS)
+    resume_sql, resume_params = "", ()
+    if (isinstance(after, (list, tuple)) and len(after) == 2
+            and all(isinstance(v, str) for v in after)):
+        resume_sql = " AND (title > ? OR (title = ? AND id > ?))"
+        resume_params = (after[0], after[0], after[1])
     conn = get_db_connection()
     try:
         fillable = conn.execute(
             "SELECT id, title, text, " + ", ".join(EXTRACT_FIELDS)
             + " FROM companies"
             f" WHERE COALESCE(text, '') <> '' AND ({empty_any})"
-            " ORDER BY title"
-        ).fetchall()
+            + resume_sql + " ORDER BY title, id",
+            resume_params).fetchall()
         no_text = conn.execute(
             "SELECT COUNT(*) AS n FROM companies"
             f" WHERE COALESCE(text, '') = '' AND ({empty_any})"
@@ -380,7 +390,8 @@ def _write_fields(company_id: str, fields: dict) -> dict:
         conn.close()
 
 
-async def run(actor: str = "", limit: int = BATCH_LIMIT) -> dict:
+async def run(actor: str = "", limit: int = BATCH_LIMIT,
+              cursor=None) -> dict:
     """One button press: fill up to `limit` companies, report everything.
 
     The batch counts FILLS, not companies examined: a company whose intro
@@ -388,22 +399,30 @@ async def run(actor: str = "", limit: int = BATCH_LIMIT) -> dict:
     batch at the first of those would strand the whole queue behind it (the
     elecomp run, 2026-08-31: 746 pending, zero filled, the first ten all
     no-yield). The scan is bounded by SCAN_LIMIT so one POST still stays
-    well under the proxy timeout; `remaining` reports the unexamined tail
-    and the UI keeps looping.
+    well under the proxy timeout.
+
+    `cursor` is the (title, id) keyset the previous call ended on — the
+    scan resumes AFTER it instead of restarting at the queue head, so every
+    no-yield company is asked exactly once per pass. The response carries
+    the next cursor, and `pass_complete` says the pass reached the queue's
+    end: the caller stops there (a fresh pass is a fresh human choice).
     """
     from app.services import applog
 
-    fillable, no_text = _pending_rows()
+    fillable, no_text = _pending_rows(after=cursor)
     limit = max(1, min(int(limit or BATCH_LIMIT), BATCH_LIMIT))
     vocabulary = _vocabulary() if fillable else []
 
     filled, failed = [], []
     tokens = cost = 0
     examined = 0
+    last_key = list(cursor) if (isinstance(cursor, (list, tuple))
+                                 and len(cursor) == 2) else None
     for company in fillable:
         if len(filled) >= limit or examined >= SCAN_LIMIT:
             break
         examined += 1
+        last_key = [company["title"] or "", company["id"]]
         empty_fields = company["empty_fields"]
         try:
             fields, resp = await _classify(company, empty_fields, vocabulary)
@@ -443,13 +462,18 @@ async def run(actor: str = "", limit: int = BATCH_LIMIT) -> dict:
                            "reason": "همهٔ فیلدهای پیشنهادی همین حالا دستی پر شده بودند"})
 
     remaining = max(0, len(fillable) - examined)
+    pass_complete = examined < SCAN_LIMIT and len(filled) < limit
     applog.info("content", "companies.autofill.run",
                 "پرکردن خودکار اطلاعات شرکت‌ها انجام شد",
                 actor=actor or None, outcome="ok",
                 tokens_in=tokens or None, cost=cost or None,
                 metadata={"filled": filled, "failed": failed,
-                          "no_text": no_text, "remaining": remaining})
-    logger.info("[autofill] filled=%d failed=%d examined=%d remaining=%d no_text=%d",
-                len(filled), len(failed), examined, remaining, no_text)
+                          "no_text": no_text, "remaining": remaining,
+                          "cursor": last_key, "pass_complete": pass_complete})
+    logger.info("[autofill] filled=%d failed=%d examined=%d remaining=%d"
+                " no_text=%d pass_complete=%s",
+                len(filled), len(failed), examined, remaining, no_text,
+                pass_complete)
     return {"filled": filled, "failed": failed, "no_text": no_text,
-            "remaining": remaining, "tokens": tokens, "cost": cost}
+            "remaining": remaining, "tokens": tokens, "cost": cost,
+            "cursor": last_key, "pass_complete": pass_complete}
