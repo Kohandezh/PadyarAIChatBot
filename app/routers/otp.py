@@ -679,8 +679,14 @@ def _rows_the_loader_would_drop(doc: dict) -> list:
         else:
             job_ids = {str(r.get("id", "")).strip() for r in (doc.get("jobs") or [])
                        if isinstance(r, dict)}
-            for jid in raw_np:
-                if jid not in job_ids:
+            for i, jid in enumerate(raw_np, 1):
+                # A non-string item must be named, not compared: an unhashable
+                # value (a dict) would crash the save into a 500 instead of a
+                # readable refusal.
+                if not isinstance(jid, str):
+                    problems.append(
+                        f"«no_position_jobs»: ردیف {i} باید شناسهٔ شغل باشد.")
+                elif jid not in job_ids:
                     problems.append(
                         f"«no_position_jobs»: شناسهٔ «{jid}» در فهرست شغل‌ها نیست.")
     return problems
