@@ -28,14 +28,25 @@ USAGE (from the project root):
     .venv/bin/python scripts/run_eval.py
     .venv/bin/python scripts/run_eval.py --backend tfidf     # baseline compare
     .venv/bin/python scripts/run_eval.py --out results.json
+    .venv/bin/python scripts/run_eval.py --conversations data/eval/conversations.json
 
-Exit code 1 when a hard gate fails (contamination > 0 or secret leak).
+Exit code 1 when a hard gate fails (contamination > 0 or secret leak), or
+when any --conversations scenario fails one of its steps.
+
+The --conversations mode is the MEASUREMENT BASELINE for the multi-turn
+conversation work: it drives scripted two-turn dialogues through the real
+POST /chat endpoint (offline — the documented `openai_enabled` kill switch
+flips the AI tiers to their "AI unavailable" leg), on a throwaway SQLite
+database, and checks textual expectation operators per step. Several
+scenarios are RED today on purpose: this file documents TARGET behaviour,
+and a red row is the to-do list, never a reason to weaken an assertion.
 """
 import argparse
 import json
 import os
 import statistics
 import sys
+import tempfile
 import time
 import sqlite3
 from pathlib import Path
@@ -67,10 +78,17 @@ os.environ["DB_BACKEND"] = "sqlite"
 
 GOLDEN = ROOT / "data" / "eval" / "golden-inotex.json"
 DEFAULT_OUT = ROOT / "docs" / "knowledge-based-evidence" / "appendices" / "benchmark-results" / "retrieval-eval.json"
+CONVERSATIONS_FIXTURE = ROOT / "data" / "eval" / "conversations.json"
 
 LEGACY_TOKENS = ["الکامپ", "elecomp", "نورا", "noorvision"]
 SECRET_MARKERS = ["OPENAI_API_KEY", "SECRET_KEY", "sk-", "api.gapgpt"]
 TRUST = 0.70  # mirrors TRUSTED_MATCH_THRESHOLD in app/config.py
+
+# The expectation operators a conversation step may carry. Kept textual and
+# few on purpose: these fixtures document TARGET behaviour for work still in
+# flight, so every operator has to be checkable against the plain answer
+# text offline — no provider round-trip, no source-tier internals.
+_STEP_KEYS = {"say", "expect_contains", "expect_not_contains", "expect_options"}
 
 
 def full_ranking(query, search, hybrid):
@@ -181,10 +199,198 @@ def diagnose_query(q, search, hybrid):
     return out
 
 
+def _validate_conversation_spec(spec):
+    """Fail loudly on a malformed scenario file, before any turn is run.
+
+    A typo in an operator name would otherwise be silently ignored by the
+    step checker and every scenario would pass for free — the exact
+    "weakened assertion" failure mode this baseline exists to prevent.
+    """
+    if not isinstance(spec, list) or not spec:
+        sys.exit("conversations fixture must be a non-empty JSON array of scenarios")
+    for scenario in spec:
+        for key in ("name", "steps"):
+            if key not in scenario or not scenario[key]:
+                sys.exit(f"scenario is missing {key!r}: "
+                         f"{json.dumps(scenario, ensure_ascii=False)[:120]}")
+        for row in scenario.get("seed", []):
+            for key in ("title", "text", "questions"):
+                if key not in row:
+                    sys.exit(f"seed row in {scenario['name']!r} is missing {key!r}")
+        for i, step in enumerate(scenario["steps"], 1):
+            unknown = set(step) - _STEP_KEYS
+            if unknown:
+                sys.exit(f"step {i} of {scenario['name']!r} uses unknown "
+                         f"operator(s): {sorted(unknown)}")
+            if "say" not in step:
+                sys.exit(f"step {i} of {scenario['name']!r} has no 'say'")
+
+
+def _seed_scenario_rows(spec):
+    """Add every scenario's seed rows to the throwaway harness database.
+
+    Reuses save_dataset/save_questions — the same writers the admin import
+    uses — so the indexes the pipeline reads are rebuilt through the exact
+    production reindex path, not a harness-side copy of it.
+
+    All scenarios' rows are seeded together, once, before any turn runs: a
+    scenario must not depend on the order the file happens to list it in,
+    and the smalltalk scenario's "no seeded company name" assertion has to
+    hold against every seed in the file, not just its own (it has none).
+    """
+    from app.db import queries
+
+    conn = queries.get_db_connection()
+    try:
+        base_dataset = [dict(r) for r in conn.execute(
+            "SELECT id, title, text, video_url FROM dataset"
+            " ORDER BY position").fetchall()]
+        base_questions = [dict(r) for r in conn.execute(
+            "SELECT id, question, dataset_id, video_url FROM questions"
+            " ORDER BY id").fetchall()]
+    finally:
+        conn.close()
+
+    dataset_rows = list(base_dataset)
+    question_rows = list(base_questions)
+    for scenario in spec:
+        for i, row in enumerate(scenario.get("seed", []), 1):
+            ds_id = f"conveval-{scenario['name']}-{i}"
+            dataset_rows.append({"id": ds_id, "title": row["title"],
+                                 "text": row["text"], "video_url": ""})
+            # No `id`: questions.id is an autoincrement INTEGER, and
+            # save_questions inserts NULL for a missing key, which
+            # auto-assigns — same path the admin import takes.
+            question_rows.extend(
+                {"question": q, "dataset_id": ds_id, "video_url": ""}
+                for q in row["questions"])
+
+    queries.save_dataset(dataset_rows)
+    queries.save_questions(question_rows)
+
+
+def _step_problems(step, resp):
+    """Check one step's expectation operators against the live response.
+
+    Returns (problems, body). Every step implicitly requires a 200 with a
+    non-empty answer — a refusal sentence satisfies that floor, an empty
+    text or an HTTP error does not. `expect_contains`/`expect_not_contains`
+    are plain substring checks on the exact Persian strings in the fixture.
+    """
+    problems = []
+    if resp.status_code != 200:
+        return [f"HTTP {resp.status_code}: {resp.text[:120]}"], {}
+    body = resp.json()
+    text = body.get("text") or ""
+    if not text.strip():
+        problems.append("answer is empty")
+    for needle in step.get("expect_contains", []):
+        if needle not in text:
+            problems.append(f"answer does not contain «{needle}»")
+    for needle in step.get("expect_not_contains", []):
+        if needle in text:
+            problems.append(f"answer contains «{needle}»")
+    if step.get("expect_options") and not body.get("options"):
+        problems.append("no options offered (expected a numbered list)")
+    return problems, body
+
+
+def run_conversations(spec_path: str) -> int:
+    """Drive multi-turn conversation fixtures through POST /chat, offline.
+
+    HOW IT STAYS OFFLINE. The golden mode never calls the AI because it
+    scores retrieval functions directly. A conversation cannot: the
+    assertions are about the ANSWER, and the answer is produced by the
+    endpoint. So this mode boots the real app under fastapi.testclient,
+    against a throwaway SQLite database, and flips the documented kill
+    switch (`openai_enabled=false`) in that database: every local tier runs
+    exactly as in production, and the AI tiers take their "AI unavailable"
+    leg — the fallback thresholds and the no-answer sentence, never a
+    provider call. CI must not depend on external providers.
+
+    ISOLATION. DB_PATH and LOGS_DB_PATH are pointed at a temp directory
+    before the first `app` import (app.config resolves both once, at import
+    time), so scenario seeding, chat logs and observability rows land in a
+    database that dies with the run. The install's real databases are
+    never read or written.
+    """
+    if "app.config" in sys.modules:
+        sys.exit("--conversations configures its own database before any app "
+                 "import; run it as its own command")
+    tmp = tempfile.mkdtemp(prefix="padyar-conversations-")
+    os.environ["DB_PATH"] = os.path.join(tmp, "conversations.db")
+    os.environ["LOGS_DB_PATH"] = os.path.join(tmp, "application_logs.db")
+
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    _validate_conversation_spec(spec)
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import security
+    from app.db import queries
+
+    # The rate ceilings are raised through the module the router reads at
+    # CALL time — the sanctioned tuning point (see the note in
+    # app/auth/security.py). Ten quick turns from one testclient address is
+    # one visitor typing, not a flood, and an env-overridden low limit on a
+    # dev machine must not fail the measurement.
+    security.CHAT_RATE_LIMIT = 10 ** 6
+    security.CHAT_IP_RATE_LIMIT = 10 ** 6
+
+    print(f"mode=conversations  fixture={spec_path}  db={os.environ['DB_PATH']}"
+          f"  ai=off (openai_enabled=false)")
+
+    failed = []
+    with TestClient(app) as client:
+        # The offline switch, in the harness database only.
+        queries.set_setting("openai_enabled", "false")
+        _seed_scenario_rows(spec)
+
+        # One signed token for the whole run: origin + chat token are the
+        # same guards persona_probe satisfies against a live server.
+        headers = {"X-Chat-Token": security.generate_chat_token(),
+                   "Origin": "http://localhost"}
+
+        print()
+        for s_idx, scenario in enumerate(spec):
+            # A conversation id of our own per scenario — a fresh visitor at
+            # the kiosk. The cookie jar is shared for everything else, so
+            # step 2 sees step 1's offer and history: that continuity is
+            # the whole point of this file.
+            client.cookies.set("padyar_conv", f"conveval-{s_idx}-{scenario['name']}")
+            scenario_ok = True
+            for i, step in enumerate(scenario["steps"], 1):
+                resp = client.post("/chat", json={"message": step["say"]},
+                                   headers=headers)
+                problems, body = _step_problems(step, resp)
+                text = (body.get("text") or "").replace("\n", " / ")
+                mark = "ok" if not problems else "!!"
+                print(f"  [{i}] {mark} «{step['say']}»  source={body.get('source')}")
+                print(f"      {text[:200]}")
+                for p in problems:
+                    print(f"      ^^ {p}")
+                    scenario_ok = False
+            print(f"{scenario['name']:<40} {'PASS' if scenario_ok else 'FAIL'}")
+            if not scenario_ok:
+                failed.append(scenario["name"])
+            print()
+
+    total = len(spec)
+    print(f"conversations: {total} scenarios, {total - len(failed)} passed, "
+          f"{len(failed)} failed")
+    if failed:
+        print("failed: " + ", ".join(failed))
+    return 1 if failed else 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the INOTEX retrieval benchmark.")
     p.add_argument("--backend", choices=["embedding", "tfidf"], default="embedding")
     p.add_argument("--out", default=str(DEFAULT_OUT))
+    p.add_argument("--conversations", default="",
+                   help="run the multi-turn conversation scenarios from this "
+                        "fixture (see data/eval/conversations.json) instead "
+                        "of the single-query benchmark")
     p.add_argument("--dump", default="",
                    help="write per-query tier diagnostics to this JSON file")
     p.add_argument("--weights", default="",
@@ -201,6 +407,13 @@ def main() -> int:
                    help="comma-separated K values for the recall@K table "
                         "(default 1,3,5,8,13)")
     args = p.parse_args()
+
+    # The conversation mode is its own command: it points DB_PATH at a
+    # throwaway database before the first app import, so it must branch
+    # before any part of the golden path below — which reads the install's
+    # real database — ever runs.
+    if args.conversations:
+        return run_conversations(args.conversations)
 
     try:
         recall_ks = sorted({int(x) for x in args.recall_k.split(",") if x.strip()})

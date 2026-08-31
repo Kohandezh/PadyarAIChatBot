@@ -15,6 +15,8 @@ from app.config import (
     ANSWER_TOPK,
     HISTORY_TURNS,
     PICK_WINDOW_MINUTES,
+    AFFIRM_WORDS,
+    NEGATE_WORDS,
 )
 from app.auth import security
 from app.auth import visitor as visitor_auth
@@ -25,20 +27,31 @@ import time as _perf
 
 from app.db.queries import (get_setting, log_chat, recent_turns,
                             last_offer_state)
-from app.services import applog, conversations, scope
+from app.services import applog, conversations, conversational, scope
 from app.services.search import (find_best_match, find_similar_question,
-                                 classify_intent_local, unknown_salient_tokens,
-                                 resolve_named_entity, named_entity_hits,
-                                 entry_mentions,
-                                 entity_coverage, find_top_matches, get_entry)
+                                  classify_intent_local, unknown_salient_tokens,
+                                  resolve_named_entity, named_entity_hits,
+                                  entry_mentions,
+                                  entity_coverage, find_top_matches, get_entry)
 from app.services.answer import (select_records, render_options, resolve_pick,
-                                 resolve_more, parse_offer, dump_offer,
-                                 is_followup, generated_prose_is_grounded)
+                                  resolve_more, parse_offer, dump_offer,
+                                  is_followup, generated_prose_is_grounded)
 from app.services.openai import classify_intent, get_openai_response
-from app.utils.normalizer import strip_leading_greeting
+from app.utils.normalizer import normalize_persian, strip_leading_greeting
 
 
 router = APIRouter()
+
+# Affirmations and refusals are matched on the message normalized the same
+# way the pipeline normalizes queries (Arabic ی/ک folded, ZWNJ and punctuation
+# gone), so «نمی‌خوام» typed with or without the ZWNJ is comparable by the
+# time it gets here. Built once at import: the word lists are deploy-time
+# constants. Matching is WHOLE-MESSAGE equality against these sets — a word
+# inside a longer question («رایگان بگو») never fires.
+_AFFIRM_NORM = frozenset(
+    normalize_persian(w, expand_synonyms=False) for w in AFFIRM_WORDS)
+_NEGATE_NORM = frozenset(
+    normalize_persian(w, expand_synonyms=False) for w in NEGATE_WORDS)
 
 # The one entry whose answer is personalised. Everything else in the knowledge
 # base is the same for every visitor, which is what makes it verifiable.
@@ -331,6 +344,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                 metadata={"query": applog.apply_content_policy(user_query),
                           "chars": len(user_query)})
 
+    # The conversational tier's kill switch. Read once per request, the same
+    # pattern as every other settings read on this path; "0" restores the
+    # pre-2026-08-31 behaviour entirely (no gibberish answer, no smalltalk
+    # deferral, no affirm/negate handling) with no deploy.
+    conversational_tier_on = get_setting("chat_conversational_tier", "1") == "1"
+
     # Conversation memory. Every reader here returns its empty default on ANY
     # problem — including a chat_logs table that predates migration 0009 — so
     # an unmigrated install simply behaves like today's chatbot.
@@ -438,6 +457,71 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                                     options=more_options)
             logger.info("Nothing left of the offered list to page to; falling through")
 
+    # Conversational openers that answer the LAST turn, not a new question
+    # (Elecomp, 2026-08-31): «بگو» after an offer got the welcome
+    # introduction again. A refusal closes the topic politely; an
+    # affirmative replays what was offered. This sits after the pick tier on
+    # purpose — «۳» and «بیشتر» are about the offered LIST, and they resolve
+    # before «بگو» ever gets a chance to re-serve it.
+    norm_message = normalize_persian(user_query, expand_synonyms=False).strip()
+    if conversational_tier_on and norm_message in _NEGATE_NORM:
+        # scope.domain, never a hardcoded «نمایشگاه»: this is a white-label
+        # product, and the decline must name the customer's own subject.
+        decline = (f"باشه! اگه سؤال دیگه‌ای درباره {scope.domain(lang)} داری"
+                   " در خدمتم.")
+        _log_turn(user_query, decline, "text", "local_decline", 0.9,
+                  conversation_id=conversation_id)
+        applog.info("chat", "conversation.answer.served",
+                    "پاسخ به بازدیدکننده داده شد",
+                    subcategory="local_decline", outcome="ok",
+                    metadata={"tier": "local_decline", "score": 0.9,
+                              "response_type": "text"})
+        return ChatResponse(type="text", text=decline, video_url=None,
+                            confidence=0.9, source="local_decline")
+
+    if (conversational_tier_on and norm_message in _AFFIRM_NORM):
+        # REPLAY, never recursion: this block reassigns the query and falls
+        # through once — the replayed query is the one that produced the
+        # proposal, which can never itself be an affirmative (affirmatives
+        # resolve here, before Tier 2, and only Tier 2 stores proposals).
+        replay_query = conversational.take_proposal(conversation_id)
+        if replay_query:
+            # Run the pipeline on the query that produced the offer. The
+            # visitor's own word («بگو») is already recorded above, in the
+            # message-received event; the answered turn is logged against
+            # the query that produced the answer, exactly like a pick turn
+            # logs the «3».
+            logger.info("Affirmative → replaying the stored proposal query")
+            user_query = replay_query
+        elif offer is not None:
+            # No stored proposal, but a numbered list is still fresh: serve
+            # its first page again through render_options — the single writer
+            # of the displayed slice AND of offer_state — so the names
+            # printed and the ids stored can never disagree, and a following
+            # «۳» still picks.
+            again = [e for e in (get_entry(i)
+                                 for i in offer["ids"][:offer["shown"]]) if e]
+            if again:
+                again_text, again_options, again_offer = render_options(
+                    again, "", lang, start_index=1, total=offer["total"],
+                    filter_label=offer["filter"],
+                    source_query=offer["query"])
+                _log_turn(user_query, again_text, "text", "local_affirm",
+                          0.9, conversation_id=conversation_id,
+                          offer_state=again_offer)
+                applog.info("chat", "conversation.answer.served",
+                            "پاسخ به بازدیدکننده داده شد",
+                            subcategory="local_affirm", outcome="ok",
+                            metadata={"tier": "local_affirm", "score": 0.9,
+                                      "response_type": "text",
+                                      "shown": len(again)})
+                return ChatResponse(
+                    type="text", text=again_text, video_url=None,
+                    confidence=0.9, source="local_affirm",
+                    options=again_options)
+        # Nothing to replay: «بگو» with no pending offer is just a very short
+        # query and keeps today's treatment.
+
     # A polite opener ("سلام، ...") must not hijack the real question. Match on the
     # message with the greeting removed — unless the message is *only* a greeting,
     # in which case keep it whole so it can match the intro.
@@ -454,6 +538,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     exact_match, exact_score = find_similar_question(match_query, exact_only=True)
     question_match, q_score = find_similar_question(match_query)
 
+    # Classified ONCE here and used twice below — by the gibberish answer and
+    # by the local-tier nulling — because the two must agree on one verdict
+    # and running the walk twice would double its cost for nothing.
+    conversational_kind = "none"
+    if conversational_tier_on:
+        conversational_kind, _visitor_name = conversational.classify_conversational(
+            match_query)
+
     # Unknown-entity gate (the الکامپ incident, 2026-08-26): a query naming
     # something the WHOLE corpus knows nothing about must not be answered by
     # any local tier. Lexical retrievers silently drop unknown tokens, so
@@ -463,8 +555,50 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # actually judge an out-of-domain entity, and keeps 503 (not a wrong
     # answer) when the AI tier is unavailable.
     unknown_tokens = unknown_salient_tokens(match_query)
+
+    # Gibberish (2026-08-31): the unknown gate ignores tokens under four
+    # characters, so keyboard mash like «ثطسث» or «ب س» walks the entire
+    # ladder and ends at the model, which bills a call to say nothing. A
+    # message this short, this unknown and this unpronounceable is not a
+    # question in any language this install speaks — answer locally and stop,
+    # with NO retrieval and NO AI call. Skipped for conversational kinds
+    # («خوبی» is four letters and unknown, but it is small talk, and small
+    # talk goes to the model). A bare greeting is exempt for the same
+    # reason: «سلام» is four letters and often outside the vocabulary, but
+    # it is a greeting — it flows on to the intro handling, exactly as
+    # before this gate existed.
+    if (conversational_tier_on and conversational_kind == "none"
+            and not only_greeting
+            and conversational.is_gibberish(
+                match_query, conversational.corpus_known_tokens())):
+        gibberish_reply = ("متوجه منظورت نشدم. می‌تونی سؤالت رو"
+                           " یه جور دیگه بپرسی؟")
+        _log_turn(user_query, gibberish_reply, "text", "local_gibberish", 0.9,
+                  conversation_id=conversation_id)
+        applog.info("chat", "conversation.answer.served",
+                    "پاسخ به بازدیدکننده داده شد",
+                    subcategory="local_gibberish", outcome="ok",
+                    metadata={"tier": "local_gibberish", "score": 0.9,
+                              "response_type": "text"})
+        return ChatResponse(type="text", text=gibberish_reply, video_url=None,
+                            confidence=0.9, source="local_gibberish")
+
     if unknown_tokens:
         logger.info(f"Unknown salient tokens {unknown_tokens}; deferring local tiers to AI")
+        exact_match = question_match = best_match = None
+        score = q_score = 0.0
+
+    # Conversational gate (Elecomp, 2026-08-31): small talk and
+    # self-introductions are sentences ABOUT THE CONVERSATION, not knowledge
+    # questions, and no local tier can read them as such — the anchor read
+    # «اسم من سینا هست…» as a company lookup and served the namesake
+    # company's profile. Null every local candidate (exactly like the unknown
+    # gate above) and let the model, which reads the whole sentence, answer.
+    # Small talk is answered ONLY by the model — a product decision,
+    # 2026-08-31: canned replies age badly in a white-label product where
+    # every customer's tone is different.
+    if conversational_tier_on and conversational_kind != "none":
+        logger.info(f"Conversational query ({conversational_kind}); deferring local tiers to AI")
         exact_match = question_match = best_match = None
         score = q_score = 0.0
 
@@ -477,9 +611,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # override the entity the visitor actually named, and a query naming
     # exactly one known entity is answered from that entity's own entry.
     # NOT resolved when unknown_tokens fired: an unknown salient token means
-    # the AI tier must judge the query, entity token or not.
+    # the AI tier must judge the query, entity token or not. NOT resolved for
+    # conversational kinds either: that is the exact door the incident came
+    # through — a self-introduction NAMES the visitor, never an exhibitor.
     entity_entry, entity_tokens = (None, set())
-    if not unknown_tokens:
+    if not unknown_tokens and conversational_kind == "none":
         entity_entry, entity_tokens = resolve_named_entity(match_query)
 
         # Naming TWO known entities is not a low-confidence query, it is an
@@ -594,7 +730,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # T1/questions block. Gated on the two guards above:
     # an unknown salient token still defers to AI, and a query naming ONE
     # specific company («شرکت دکیو چیست؟») is about that company, not a list.
-    if not unknown_tokens and entity_entry is None:
+    # Conversational kinds are gated off too — «چه کارهایی می‌تونی بکنی» is
+    # a question about the BOT, and the model answers it (same decision as
+    # the nulling above).
+    if (not unknown_tokens and conversational_kind == "none"
+            and entity_entry is None):
         from app.services.company_search import answer_company_list
         company_list = answer_company_list(match_query, lang=lang)
         if company_list is not None:
@@ -666,9 +806,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # Tier 1.5 — this installation's own trained intent classifier (logistic
     # regression over local embeddings, retrained on every dataset edit). A
     # confident verdict answers here with zero external calls; anything less
-    # falls through to the AI classifier exactly as before.
+    # falls through to the AI classifier exactly as before. Conversational
+    # kinds are excluded: a classifier trained on curated questions has
+    # nothing true to say about «چطوری».
     intent_entry, intent_prob = classify_intent_local(match_query)
-    if not unknown_tokens and intent_entry and intent_prob >= INTENT_TRUST_THRESHOLD:
+    if (not unknown_tokens and conversational_kind == "none"
+            and intent_entry and intent_prob >= INTENT_TRUST_THRESHOLD):
         logger.info(f"Local intent classifier → {intent_entry.get('id')} (p={intent_prob:.2f})")
         return _answer_from_entry(intent_entry, intent_prob, "local_intent", user_query,
                                   lang=lang, visitor=visitor,
@@ -687,39 +830,62 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             # must answer with their ids. It CHOOSES; the renderer below writes
             # every visitor-visible string out of the database.
             decision, candidates = None, []
-            if unknown_tokens:
+            if unknown_tokens and conversational_kind == "none":
                 # «تاریخ برگزاری نمایشگاه الکامپ»: a query naming something the
                 # whole corpus has never heard of must not be shown candidates
                 # at all, or the 2026-08-26 incident reopens through the model
-                # instead of through retrieval.
+                # instead of through retrieval. NOT applied to a message that
+                # is about the conversation itself (small talk, a
+                # self-introduction): those carry no entity question, and
+                # skipping the selection tier here would push them into the
+                # legacy classifier below — the old "re-introduce yourself"
+                # behaviour the conversational gate exists to replace.
                 logger.info("Unknown salient tokens; skipping the selection tier")
             else:
-                candidates = [
-                    {**entry, "score": float(cand_score)}
-                    for entry, cand_score, _signals
-                    in find_top_matches(match_query, k=ANSWER_TOPK)
-                ]
-                # Follow-up gate. «و آن یکی؟» after a list is ABOUT the list, so
-                # what was just offered goes in front of the model. Prepending
-                # unconditionally would put stale companies at the top on every
-                # turn inside the window, including the turn where the visitor
-                # changed the subject — so it takes a word that points back at
-                # the list. The old test was the message's token COUNT, which
-                # 58 of the 60 golden queries pass; see answer.is_followup for
-                # the measurement and the rules that replaced it.
-                if is_followup(match_query, offer):
-                    known = {c["id"] for c in candidates}
-                    prior = []
-                    for offered_id in offer["ids"][:offer["shown"]]:
-                        entry = get_entry(offered_id)
-                        if entry is not None and offered_id not in known:
-                            known.add(offered_id)
-                            prior.append({**entry, "score": 0.0})
-                    candidates = (prior + candidates)[:13]
+                if conversational_kind != "none":
+                    # A message about the conversation is offered NO
+                    # knowledge-base candidates: the model's only sane moves
+                    # are "converse" or "none", and an incidental record
+                    # cannot win a slot it was never offered — the same
+                    # reasoning that nulled the local tiers above.
+                    candidates = []
+                else:
+                    candidates = [
+                        {**entry, "score": float(cand_score)}
+                        for entry, cand_score, _signals
+                        in find_top_matches(match_query, k=ANSWER_TOPK)
+                    ]
+                    # Follow-up gate. «و آن یکی؟» after a list is ABOUT the list, so
+                    # what was just offered goes in front of the model. Prepending
+                    # unconditionally would put stale companies at the top on every
+                    # turn inside the window, including the turn where the visitor
+                    # changed the subject — so it takes a word that points back at
+                    # the list. The old test was the message's token COUNT, which
+                    # 58 of the 60 golden queries pass; see answer.is_followup for
+                    # the measurement and the rules that replaced it.
+                    if is_followup(match_query, offer):
+                        known = {c["id"] for c in candidates}
+                        prior = []
+                        for offered_id in offer["ids"][:offer["shown"]]:
+                            entry = get_entry(offered_id)
+                            if entry is not None and offered_id not in known:
+                                known.add(offered_id)
+                                prior.append({**entry, "score": 0.0})
+                        candidates = (prior + candidates)[:13]
 
-                decision = await select_records(user_query, candidates,
-                                                history, lang)
+                decision = await select_records(
+                    user_query, candidates, history, lang,
+                    allow_empty=conversational_kind != "none")
                 if decision is not None:
+                    # A decision that PROPOSED something — the model ended
+                    # its answer by offering more (see app/services/answer.py's
+                    # decision dicts) — leaves the visitor one «بگو» away from
+                    # it. Read defensively with .get: the field ships from
+                    # answer.py and must not be a hard dependency here.
+                    if (conversational_tier_on
+                            and decision.get("proposal")):
+                        conversational.store_proposal(conversation_id,
+                                                      user_query)
                     # WITHOUT THIS ROW THE TIER IS UNDIAGNOSABLE: the first
                     # wrong answer at the booth has to be explainable from the
                     # log explorer alone.
@@ -787,6 +953,34 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                         type="text", text=opt_text, video_url=None,
                         confidence=top_score, source="ai_options",
                         options=opt_list)
+
+            # Kill switch: "0" restores the pre-branch pipeline ENTIRELY — a converse decision falls through to the legacy classify path.
+            if (conversational_tier_on
+                    and decision is not None
+                    and decision["mode"] == "converse"):
+                # The model answered as a conversation, not as a lookup — a
+                # greeting, small talk, a self-introduction, a meta question
+                # about the assistant, or a yes/no reply to our last message.
+                # The lead already passed the converse firewall in answer.py
+                # (no record facts, no numbers — assistant identity and
+                # HISTORY facts only), so it is served verbatim. A proposal
+                # flag, when set, was stored the moment select_records
+                # returned (see above); that store is what a later «بگو»
+                # replays. Confidence is 1.0 by convention: this is the
+                # model's own sentence, not a retrieval score.
+                _log_turn(user_query, decision["lead"], "text", "ai_converse",
+                          1.0, decision["tokens"], decision["cost"],
+                          conversation_id=conversation_id)
+                applog.info("chat", "conversation.answer.served",
+                            "پاسخ به بازدیدکننده داده شد",
+                            subcategory="ai_converse", outcome="ok",
+                            tokens_in=decision["tokens"] or None,
+                            cost=decision["cost"] or None,
+                            metadata={"tier": "ai_converse", "score": 1.0,
+                                      "response_type": "text"})
+                return ChatResponse(type="text", text=decision["lead"],
+                                    video_url=None, confidence=1.0,
+                                    source="ai_converse")
 
             cls_tokens = cls_cost = 0
             if decision is None or decision["mode"] != "none":

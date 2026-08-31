@@ -403,6 +403,7 @@ async function loadAssistant() {
         setIfPresent('collection-noun-en', d.collection_noun_en);
         setIfPresent('options-shown', d.options_shown);
         setIfPresent('chat-log-retention', d.chat_log_retention_days);
+        setChecked('assistant-conversational', d.chat_conversational_tier);
         originalMedical = (d.medical_safety || '').trim();
         originalRefusal = [(d.refusal_fa || '').trim(), (d.refusal_en || '').trim()].join('\u0000');
         renderTone(d.tone_presets, d.tone || 'professional');
@@ -428,6 +429,7 @@ function collectAssistant() {
         collection_noun_en: valueOf('collection-noun-en'),
         options_shown: numberOf('options-shown'),
         chat_log_retention_days: numberOf('chat-log-retention'),
+        chat_conversational_tier: checkedOf('assistant-conversational'),
     };
 }
 
@@ -436,6 +438,19 @@ function numberOf(id) {
     if (raw === null || raw === '') return null;
     const n = parseInt(raw, 10);
     return Number.isNaN(n) ? null : n;
+}
+
+function setChecked(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!value;
+}
+
+// null when the element is missing, like numberOf above: an older cached
+// page without the checkbox keeps the stored switch value instead of
+// silently turning it off.
+function checkedOf(id) {
+    const el = document.getElementById(id);
+    return el ? el.checked : null;
 }
 
 async function postAssistant(body) {

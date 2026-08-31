@@ -13,9 +13,13 @@ different category changes a setting instead of a Python literal.
 
 THREE DIFFERENT SENTENCES, AND THEY MUST STAY DIFFERENT
 -------------------------------------------------------
-refusal_text()   "your question is not about this exhibition" — the visitor
-                 asked something out of scope, or a generated answer failed
-                 the grounding check.
+refusal_text()   "I didn't get what you meant — ask it another way" — the
+                 visitor asked something out of scope, or a generated answer
+                 failed the grounding check. Since 2026-08-31 the wording is a
+                 warm re-ask, not a scope statement: the product decision is
+                 that a refusal must invite the next message instead of
+                 closing the conversation, and no example questions are
+                 hardcoded here because example content drifts.
 no_answer_text() "I looked and I have nothing for you" — the question is
                  perfectly in scope, we simply found no record that answers
                  it. This is NOT a 503: nothing is unavailable and telling a
@@ -29,11 +33,14 @@ A fourth message, "the AI service is unavailable", stays in the frontend
 about the machine, not about the question.
 """
 
-# Defaults reproduce today's shipped wording, with {org} filled in by the
-# caller-facing function below. An install that never touched these settings
-# refuses in exactly the words it refuses in now.
-DEFAULT_REFUSAL_FA = "من فقط می‌توانم درباره {org} و خدمات آن کمک کنم."
-DEFAULT_REFUSAL_EN = "I can only help with {org} information and services."
+# The warm refusal (2026-08-31). It replaced
+# «من فقط می‌توانم درباره {org} و خدمات آن کمک کنم.» — a sentence a visitor
+# read as a door closing. This one asks for the one thing that fixes a wrong
+# guess: the question, rephrased. {org} filling still runs for installs that
+# keep or type their own {org} wording, but the default no longer needs it.
+DEFAULT_REFUSAL_FA = "راستش متوجه منظورت نشدم. می‌تونی سؤالت رو یه جور دیگه بپرسی؟"
+DEFAULT_REFUSAL_EN = ("Honestly, I didn't quite get what you meant. "
+                      "Could you ask your question in another way?")
 
 # What the assistant is FOR, in one short phrase. Used inside the system
 # prompt's fixed sections so a new customer does not need a code change.

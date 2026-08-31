@@ -637,6 +637,9 @@ async def get_assistant_content():
         "collection_noun_en": get_setting("collection_noun_en", "companies"),
         "options_shown": int(get_setting("options_shown", "5") or 5),
         "chat_log_retention_days": int(get_setting("chat_log_retention_days", "0") or 0),
+        # The conversational tier's kill switch, as a bool for the checkbox.
+        # "1" (on) is the default chat.py also falls back to.
+        "chat_conversational_tier": get_setting("chat_conversational_tier", "1") == "1",
     }
 
 
@@ -700,6 +703,13 @@ async def save_assistant_content(req: AssistantContentRequest, username: str = D
         set_setting("options_shown", max(1, min(15, int(req.options_shown))))
     if req.chat_log_retention_days is not None:
         set_setting("chat_log_retention_days", max(0, int(req.chat_log_retention_days)))
+    if req.chat_conversational_tier is not None:
+        # "1"/"0", the exact strings chat.py reads, so the toggle and the
+        # reader can never disagree about the encoding. The kill switch is
+        # an emergency control: non-technical staff must be able to flip it
+        # from the settings page, not with SQL.
+        set_setting("chat_conversational_tier",
+                    "1" if req.chat_conversational_tier else "0")
     return {"status": "updated"}
 
 
