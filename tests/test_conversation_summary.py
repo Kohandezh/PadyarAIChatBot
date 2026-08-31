@@ -326,7 +326,11 @@ def test_the_summary_reaches_the_selection_call_and_not_the_prose_call(
 
     seen = {"selection": None, "prose": None}
 
-    async def fake_select(user_query, candidates, history, lang="fa"):
+    # **kwargs: the stub must accept the router's full call shape — the
+    # selection call gained an allow_empty keyword with the conversational
+    # gates, and a fixed-signature stub turns that into a swallowed
+    # TypeError (observed as a mystery 503 in CI).
+    async def fake_select(user_query, candidates, history, lang="fa", **kwargs):
         seen["selection"] = history
         return None
 
