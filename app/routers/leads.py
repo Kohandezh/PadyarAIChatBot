@@ -395,6 +395,31 @@ async def admin_company_profiles(q: str = "", limit: int = 25, offset: int = 0):
     return {"companies": rows, "total": total, "has_more": offset + len(rows) < total}
 
 
+# ── Activity-field autofill ──────────────────────────────────────────────
+# The companies-page button that fills empty حوزهٔ فعالیت rows from each
+# company's own intro text. See app/services/company_autofill.py for the
+# contract: the model suggests, the code validates, only empty fields change.
+# Declared BEFORE the /{dataset_id} routes: FastAPI matches in order, and a
+# literal path must not fall into the wildcard.
+
+@router.get("/admin/api/company-profiles/autofill",
+            dependencies=[Depends(verify_admin)])
+async def admin_autofill_preview():
+    """What the button shows: how many companies can be filled right now."""
+    from app.services import company_autofill
+    return company_autofill.pending()
+
+
+@router.post("/admin/api/company-profiles/autofill")
+async def admin_autofill_run(admin: str = Depends(verify_admin)):
+    """Fill one batch (≤ 25) of empty fields; the UI loops until done."""
+    from app.services import company_autofill
+    try:
+        return await company_autofill.run(actor=admin)
+    except company_autofill.AutofillUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
 @router.get("/admin/api/company-profiles/{dataset_id}",
             dependencies=[Depends(verify_admin)])
 async def admin_company_profile(dataset_id: str):

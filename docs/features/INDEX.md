@@ -23,6 +23,7 @@ Central tracking for all features.
 | branding-backgrounds | Implemented | Ready | branding | 2026-08-30 | 2026-08-30 |
 | brand-dynamic-shell | Implemented | Ready | branding | 2026-08-30 | 2026-08-30 |
 | pet-characters | Implemented | Ready | companion | 2026-08-31 | 2026-08-31 |
+| activity-field-autofill | Implemented | Ready | leads | 2026-08-31 | 2026-08-31 |
 
 ## Quick Features
 
