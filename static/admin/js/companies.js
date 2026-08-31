@@ -303,8 +303,8 @@ async function uploadFromCompanyMediaBrowser(input) {
     input.value = '';
 }
 
-// ── Activity-field autofill ──────────────────────────────────────────────
-// One button, one loop: the server fills at most 25 companies per POST (so
+// ── Company autofill ──────────────────────────────────────────────────────
+// One button, one loop: the server fills at most 10 companies per POST (so
 // one request never outlives the proxy timeout), and this side keeps calling
 // until nothing is pending — the operator sees progress, not a spinner that
 // may or may not still be working.
@@ -319,7 +319,7 @@ async function refreshAutofillCount() {
         badge.textContent = fa(data.fillable);
         btn.disabled = !data.fillable;
         btn.title = data.fillable
-            ? `${fa(data.fillable)} شرکت متن معرفی دارد ولی حوزهٔ فعالیتش خالی است`
+            ? `${fa(data.fillable)} شرکت متن معرفی دارد ولی اطلاعاتش ناقص است`
             : (data.no_text
                 ? `${fa(data.no_text)} شرکت متن معرفی هم ندارد — این‌ها را باید دستی پر کنید`
                 : 'خالی‌ای نمانده است');
@@ -330,14 +330,14 @@ async function initAutofill() {
     await refreshAutofillCount();
     const btn = document.getElementById('autofill-btn');
     if (!btn) return;
-    btn.addEventListener('click', async () => {
+        btn.addEventListener('click', async () => {
         const badge = document.getElementById('autofill-count');
         const progress = document.getElementById('autofill-progress');
         const total = Number(badge.textContent.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))) || 0;
-        if (total && !confirm(`برای ${fa(total)} شرکت، حوزهٔ فعالیت به‌طور خودکار از متن معرفی پر شود؟`)) return;
+        if (total && !confirm(`برای ${fa(total)} شرکت، اطلاعات خالی از متن معرفی به‌طور خودکار پر شود؟`)) return;
         btn.disabled = true;
         progress.classList.remove('d-none');
-        let filled = 0, failed = 0, done = 0;
+        let filled = 0, failed = 0, done = 0, fieldCount = 0;
         try {
             for (;;) {
                 progress.textContent = `در حال پر کردن… ${fa(done)} شرکت انجام شد`;
@@ -346,11 +346,16 @@ async function initAutofill() {
                 filled += res.filled.length;
                 failed += res.failed.length;
                 done += res.filled.length + res.failed.length;
+                fieldCount += res.filled.reduce((n, f) => n + (f.fields ? f.fields.length : 0), 0);
                 if (!res.remaining) break;
+                // Nothing succeeded this pass: re-POSTing would hand the
+                // server the same batch and collect the same failures
+                // forever. Stop and let the report say what is left.
+                if (!res.filled.length && res.failed.length) break;
             }
             const noText = await fetchAuth('/admin/api/company-profiles/autofill')
                 .then(r => r.ok ? r.json() : null).catch(() => null);
-            const parts = [`${fa(filled)} شرکت پر شد`];
+            const parts = [`${fa(fieldCount)} فیلد در ${fa(filled)} شرکت پر شد`];
             if (failed) parts.push(`${fa(failed)} شرکت نتوانست پر شود`);
             if (noText && noText.no_text) parts.push(`${fa(noText.no_text)} شرکت متن معرفی ندارد`);
             alertBox('');
