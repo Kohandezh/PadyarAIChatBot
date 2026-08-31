@@ -374,3 +374,19 @@ def test_the_option_buttons_are_thumb_sized_and_wrap():
     options = THEME_CSS[THEME_CSS.index(".reg-ask-options {"):]
     options = options[:options.index("}")]
     assert "flex-wrap: wrap" in options, "18 interests must wrap, never scroll sideways"
+
+
+# ── The engine's seam for the incomplete-signup 403 ─────────────────────
+
+def test_core_hands_signup_incomplete_to_the_registration_module():
+    assert "signupRequiredFn: null" in CORE_JS
+    assert "detail.code === 'signup_incomplete'" in CORE_JS
+    assert "ChatConfig.signupRequiredFn" in CORE_JS
+
+
+def test_new_chat_announces_itself():
+    """The registration module re-renders its pending question after the
+    transcript wipe — the event is the reader/writer pair that closes the
+    'chips gone, gate still swallowing messages' hole."""
+    assert "new CustomEvent('chat:new')" in CORE_JS
+    assert "addEventListener('chat:new'" in REGISTRATION_JS

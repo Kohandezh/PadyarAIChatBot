@@ -34,6 +34,10 @@ const ChatConfig = {
     // error for this, so when no module claims it the chat says, in their own
     // language, that they need to sign up.
     signInRequiredFn: null,
+    // The server's second door: signed in but signup incomplete (/chat 403
+    // signup_incomplete). The registration module takes the message back,
+    // asks the missing questions, and delivers it once complete.
+    signupRequiredFn: null,
 };
 
 
@@ -666,6 +670,19 @@ async function sendMessage(fromPreset = false, opts = {}) {
         // through to the existing "please refresh" message below. No loops,
         // and no 403-reason parsing — any 403 gets the same single chance.
         if (response.status === 403) {
+            // signup_incomplete is NOT a token problem: check the marker
+            // before the refresh below spends its one retry on it.
+            const detail = await response.json()
+                .then(d => (d && d.detail) || {})
+                .catch(() => ({}));
+            if (detail.code === 'signup_incomplete'
+                && typeof ChatConfig.signupRequiredFn === 'function') {
+                loadingBubble.style.opacity = '0';
+                let taken = false;
+                try { taken = ChatConfig.signupRequiredFn({ text: text }) === true; }
+                catch (e) { console.error('signup gate failed:', e); }
+                if (taken) return;
+            }
             const refreshed = await refreshChatToken();
             if (refreshed) response = await doSend();
         }
@@ -1265,6 +1282,9 @@ function initChat() {
         switchTab('text');
         addMessage(t().newChatDone, 'bot');
         showQuestions();
+        // Anyone owning per-conversation UI (the signup module's pending
+        // question) re-renders on this; the DOM it lived in is now gone.
+        document.dispatchEvent(new CustomEvent('chat:new'));
     });
     if (langBtn) langBtn.addEventListener('click', () => {
         setLang(currentLang === 'fa' ? 'en' : 'fa');
