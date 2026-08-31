@@ -12,7 +12,6 @@ Two halves:
   would otherwise ship silently — the same trade-off tests/test_otp_input_
   autofill.py already makes.
 """
-import re
 from pathlib import Path
 
 import pytest
@@ -299,19 +298,32 @@ def test_tapping_a_chosen_option_again_removes_it():
     assert "if (at !== -1) next = current.filter" in toggle
 
 
-def test_job_and_position_take_one_answer_and_interests_takes_many():
-    steps = _function_source("chatSteps")
-    assert "key: 'job', list: 'jobs'" in steps and "multi: false" in steps
-    assert "key: 'position', list: 'positions'" in steps
-    assert "key: 'interests', list: 'interests'" in steps and "multi: true" in steps
+# ── The chat engine's seam, now server-driven ───────────────────────────
+
+def test_the_signup_questions_come_from_the_server():
+    assert "'/api/signup/next?lang='" in REGISTRATION_JS
+    assert "'/api/signup/answer'" in REGISTRATION_JS
+    assert "function chatSteps" not in REGISTRATION_JS
+    assert "saveChatAnswers" not in REGISTRATION_JS
 
 
-def test_the_interests_question_is_one_line_to_switch_off():
-    assert re.search(r"^\s*const ASK_INTERESTS = (true|false);\s*$",
-                     REGISTRATION_JS, re.MULTILINE), (
-        "the owner may move interests to the sign-up card — keep it a one-liner")
-    # …and the step really is behind it.
-    assert "if (ASK_INTERESTS) {" in REGISTRATION_JS
+def test_list_answers_are_checked_against_the_options_first():
+    """UX-only pre-check: anything not on the list is bounced with a hint
+    and the question stays open. The server re-validates regardless."""
+    assert "chooseFromList" in REGISTRATION_JS
+    assert "tapOne: 'یکی را لمس کنید و دکمهٔ ارسال را بزنید.'" in REGISTRATION_JS
+    assert "(یا خودتان بنویسید)" not in REGISTRATION_JS
+
+
+def test_wrong_step_resyncs_from_the_server():
+    assert "409" in REGISTRATION_JS
+    assert "fetchNext()" in REGISTRATION_JS
+
+
+def test_boot_and_new_chat_resume_the_pending_question():
+    assert "addEventListener('chat:new'" in REGISTRATION_JS
+    boot = REGISTRATION_JS[REGISTRATION_JS.index("fetch('/api/auth/registration-status')"):]
+    assert "fetchNext()" in boot
 
 
 def test_the_options_come_from_the_taxonomy_endpoint_not_from_js():
@@ -346,16 +358,6 @@ def test_the_card_title_is_sign_in_not_registration():
     assert "title: 'وارد شوید'" in REGISTRATION_JS
     assert "فقط دو کادر" not in REGISTRATION_JS
     assert "signupSub" not in REGISTRATION_JS
-
-
-def test_the_name_is_asked_in_the_chat_before_the_other_questions():
-    steps = _function_source("chatSteps")
-    assert steps.index("key: 'name'") < steps.index("key: 'job'"), (
-        "the name comes first — it replaced the card's name field")
-    # Free text: no option list to tap for a person's name.
-    assert "list: null" in steps
-    # Only asked when the stored profile has no name yet.
-    assert "if (!(known.first_name || known.last_name))" in steps
 
 
 def test_the_signup_card_still_asks_the_existing_otp_endpoints():
