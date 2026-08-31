@@ -222,7 +222,12 @@
     }
 
     function frame(now) {
-        if (!atlas) return;
+        // Keep re-arming while the atlas is still loading: a caller can
+        // schedule a frame before img.onload fires (companion-ui.js's boot
+        // resume() does), and a bare return here would kill the loop for
+        // good — start() later sees the stale nonzero raf id and never
+        // schedules again, leaving a forever-blank pet.
+        if (!atlas) { raf = requestAnimationFrame(frame); return; }
         const s = canvas.width;
         ctx.clearRect(0, 0, s, s);
 
@@ -342,6 +347,9 @@
         // empty box, mirroring AvatarView's fallback path. The companion is
         // decorative, so a still frame loses nothing functionally.
         console.error('Pet-INOTEX atlas failed to load; using still fallback');
+        // The re-arming frame loop above would otherwise spin forever on a
+        // canvas that is about to be replaced by the fallback still.
+        stop();
         const fallback = canvas.dataset.fallback;
         if (!fallback) return;
         const still = new Image();
