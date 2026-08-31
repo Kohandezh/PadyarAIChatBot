@@ -1,0 +1,55 @@
+<!-- Context suggestion chips — default partial.
+     ONE container, included once in the chat area by index.html (same
+     include-by-name mechanism as messages.html/video.html — a theme
+     overrides this file to change the markup).
+     static/chat/core.js fills it with chip buttons from the /chat
+     response's `suggestions` field; with no JS (or no suggestions) the
+     container stays empty and the CSS below hides it, so a theme without
+     any scripting degrades to nothing rather than to a broken box.
+     The id and class are the contract core.js targets — keep both. -->
+<div id="chat-suggestions" class="chat-suggestions" aria-live="polite"></div>
+
+<style>
+    /* Bare-minimum styling so the default skeleton stays usable. Shared
+       files (static/chat/base.css) are not theme-owned, so the neutral
+       defaults ship inside the partial itself; colors still read from the
+       --wl-* branding custom properties (Settings > Branding) with plain
+       fallbacks, per the theme color rule. A real theme restyles this row
+       in its own static/style.css. */
+    .chat-suggestions {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(680px, calc(100% - 24px));
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        z-index: 5;
+    }
+
+    /* Hidden when empty — the row exists only while it has chips. */
+    .chat-suggestions:empty { display: none; }
+
+    /* The video tab is a full-bleed stage; chips belong to the chat. */
+    body.video-mode .chat-suggestions { display: none; }
+
+    .chat-suggestions button {
+        min-height: 40px;
+        padding: 8px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--wl-primary, #2b78c5);
+        background: var(--wl-navy, #1f2a44);
+        color: var(--wl-white, #ffffff);
+        font: inherit;
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+
+    .chat-suggestions button:hover { filter: brightness(1.2); }
+
+    .chat-suggestions button:focus-visible {
+        outline: 2px solid var(--wl-accent, #fcb715);
+        outline-offset: 2px;
+    }
+</style>

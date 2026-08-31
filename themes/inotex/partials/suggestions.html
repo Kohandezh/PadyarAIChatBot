@@ -1,0 +1,9 @@
+<!-- Context suggestion chips — INOTEX override.
+     Same container contract as the base partial (id + class are what
+     static/chat/core.js fills) with the inx-suggestions modifier so
+     themes/inotex/static/style.css can restyle the row on its own, the
+     same brick-chip look the starter questions use. All colors there read
+     from the --wl-* branding tokens (Settings > Branding owns ALL theme
+     colors). Keep this div empty of whitespace: the :empty rule that
+     hides the row depends on it. -->
+<div id="chat-suggestions" class="chat-suggestions inx-suggestions" aria-live="polite"></div>

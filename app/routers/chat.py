@@ -166,6 +166,28 @@ def _log_turn(user_query: str, answer_text: str, r_type: str, source: str,
         logger.error(f"[transcript] turn not recorded: {type(e).__name__}: {e}")
 
 
+def _suggestions(kind: str, lang: str = "fa", entry: dict | None = None,
+                 options_titles: list | None = None) -> list:
+    """Follow-up chips for the answer being served (app/services/suggestions).
+
+    Wrapped whole in a try/except ON PURPOSE: suggestions are decoration on
+    an answer that already exists, and no chip may ever be the reason a
+    visitor sees a 500 instead of that answer.
+    """
+    try:
+        from app.services.suggestions import build_suggestions
+        ctx = {"kind": kind}
+        if entry is not None:
+            ctx["entry"] = entry
+            ctx["category"] = str(entry.get("activity_field") or "")
+            ctx["hall"] = str(entry.get("hall") or "")
+        if options_titles:
+            ctx["options_titles"] = list(options_titles)
+        return build_suggestions(ctx, lang=lang)
+    except Exception:  # noqa: BLE001 — decoration must not break answers
+        return []
+
+
 def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
                        tokens: int = 0, cost: float = 0.0, lang: str = "fa",
                        visitor=None, conversation_id: str = "",
@@ -219,6 +241,7 @@ def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
         video_url=video_url if video_url else None,
         confidence=score,
         source=source,
+        suggestions=_suggestions("entry", lang=lang, entry=entry),
     )
 
 
@@ -453,6 +476,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                             metadata={"tier": "local_company_search", "score": 0.9,
                                       "response_type": "text", "page": "more"})
                 return ChatResponse(type="text", text=more_text, video_url=None,
+                                    suggestions=_suggestions(
+                                        "options", lang=lang,
+                                        options_titles=[str(o.get("title", ""))
+                                                        for o in (more_options or [])]),
                                     confidence=0.9, source="local_company_search",
                                     options=more_options)
             logger.info("Nothing left of the offered list to page to; falling through")
@@ -951,6 +978,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                     # did not choose. The clip plays one turn later, on the pick.
                     return ChatResponse(
                         type="text", text=opt_text, video_url=None,
+                        suggestions=_suggestions(
+                            "options", lang=lang,
+                            options_titles=[str(o.get("title", ""))
+                                            for o in (opt_list or [])]),
                         confidence=top_score, source="ai_options",
                         options=opt_list)
 
@@ -980,7 +1011,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                                       "response_type": "text"})
                 return ChatResponse(type="text", text=decision["lead"],
                                     video_url=None, confidence=1.0,
-                                    source="ai_converse")
+                                    source="ai_converse",
+                                    suggestions=_suggestions("converse", lang=lang))
 
             cls_tokens = cls_cost = 0
             if decision is None or decision["mode"] != "none":

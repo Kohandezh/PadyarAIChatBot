@@ -1839,3 +1839,63 @@ body.light-mode .reg-overlay { background: #0B172FA8; }
 .theme-btn .theme-icon-sun { display: none; }
 body.light-mode .theme-btn .theme-icon-moon { display: none; }
 body.light-mode .theme-btn .theme-icon-sun { display: inline-flex; }
+
+/* ── Context suggestion chips (after-answer follow-ups) ────────────── */
+/* The 3-4 tappable follow-ups the assistant offers under its latest
+   answer (server side: app/services/suggestions.py; frontend wiring:
+   renderSuggestions() in static/chat/core.js, container from the theme's
+   suggestions.html partial). The row docks in the band base.css leaves
+   under the transcript (#text-view height is calc(100% - 117px)), centred
+   on the reading measure — always in the same place, one tap sends.
+   Every color reads from the theme's semantic tokens, which all feed
+   from the --wl-* branding custom properties (Settings > Branding owns
+   ALL theme colors). */
+.chat-suggestions {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(var(--chat-measure), calc(100% - 24px));
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    z-index: 5;
+}
+
+/* An empty row must not reserve space — chips exist only while offered. */
+.chat-suggestions:empty { display: none; }
+
+/* The video tab is a full-bleed stage; chips belong to the conversation. */
+body.video-mode .chat-suggestions { display: none; }
+
+.chat-suggestions button {
+    background: var(--color-surface-primary);
+    border: var(--border-width) solid var(--color-border-interactive);
+    border-radius: 999px;
+    color: var(--color-text-primary);
+    min-height: 40px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background var(--motion-fast) ease, transform var(--motion-instant) ease;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, .5);
+}
+
+.chat-suggestions button:hover {
+    background: var(--color-surface-interactive);
+    transform: translateY(-1px);
+}
+
+.chat-suggestions button:active { transform: translateY(1px); }
+
+.chat-suggestions button:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+}
+
+/* Light mode flips the chip to the install's own light surface token. */
+body.light-mode .chat-suggestions button {
+    background: var(--inotex-white, #FFFFFF);
+    color: var(--color-text-primary);
+}

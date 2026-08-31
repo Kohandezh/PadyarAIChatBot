@@ -59,6 +59,10 @@ class ChatResponse(BaseModel):
     # Additive: defaults to an empty list, so every answer the chatbot gives
     # today keeps its exact shape.
     options: list[ChatOption] = []
+    # Follow-up suggestion chips (app/services/suggestions.py) offered under
+    # the latest answer. Additive the same way: omitted = no chips, and every
+    # existing response keeps its exact shape.
+    suggestions: list[str] = []
 
 
 class LoginRequest(BaseModel):
