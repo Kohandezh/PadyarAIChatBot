@@ -846,9 +846,10 @@ The `docs/` folder is the project's knowledge base. Keep it current.
 One feature, one folder in `docs/features/{slug}/`.
 
 **Engineering standards:** before implementing any feature or endpoint, read
-`docs/ENGINEERING_STANDARDS.md`. It is the binding rulebook for API-first
-design, authorization, error handling, idempotency, and test depth. When it
-conflicts with a shortcut, the standards win.
+`docs/engineering/ENGINEERING_CONSTITUTION.md` — the binding constitution
+(non-negotiable principles) plus the topic standards in `docs/engineering/`
+(`API_STANDARDS.md`, `SECURITY.md`, `DATABASE.md`, `TESTING.md`). When a
+standard conflicts with a shortcut, the standard wins.
 
 > `docs/_other-product-padyar-ai/` describes a DIFFERENT product (a pnpm/Next.js
 > monorepo) and is kept only for reference — never update it for work done here,
@@ -856,55 +857,59 @@ conflicts with a shortcut, the standards win.
 
 ---
 
-## Architecture-First Task Workflow
+## Required Workflow
 
-For every task, do NOT immediately implement. First perform an architecture
-review.
+Act as the senior engineer responsible for the long-term health of this
+repository — not a code-completion engine. For every task, do NOT
+immediately implement. Follow the phases in order.
 
-Your job is not to make the smallest patch that passes the current tests.
-Your job is to produce the smallest CORRECT architectural change that fits
-the entire system.
+### Phase 1 — Understand
 
-If the requested approach is technically valid but architecturally inferior,
-do not blindly implement it. Explain why and propose the better design.
+Before modifying code:
 
-Do not introduce a new pattern if an existing project-wide pattern already
-solves the problem.
+1. Inspect the repository structure.
+2. Read the relevant source files.
+3. Read relevant tests.
+4. Inspect database/schema definitions when applicable.
+5. Search for existing implementations of the same or similar pattern.
+6. Identify callers and consumers of the code being changed.
+7. Identify relevant migrations and shared abstractions.
 
-Do not create a local exception to compensate for a broken abstraction.
+Do not modify code during this phase.
 
-Think about how this feature will behave when the system has:
+### Phase 2 — Architecture
 
-- 10x more data
-- multiple clients
-- concurrent requests
-- retries
-- partial failures
-- malicious clients
-- future developers
-- evolving API contracts
+Before implementation, determine:
 
-Before coding, inspect the repository and identify the relevant existing
-abstractions.
+1. **Current behavior** — what does the system currently do?
+2. **Root cause** — what is actually causing the problem?
+3. **Existing pattern** — does the repository already have a correct
+   pattern for this?
+4. **Proposed design** — the cleanest system-level solution.
+5. **Security** — unauthorized access, IDOR, privilege escalation,
+   information leakage, injection, abuse.
+6. **Reliability** — retries, concurrent requests, timeouts, partial
+   failures, duplicate requests.
+7. **Data** — existing data, larger datasets, migrations, rollback,
+   consistency.
+8. **Compatibility** — which existing clients or code paths depend on
+   this behavior?
 
-After coding, review your own implementation as a senior engineer and look
-specifically for:
+Do not implement until these questions are reasonably answered.
 
-- unnecessary complexity
-- duplicated logic
-- security holes
-- race conditions
-- inconsistent API design
-- weak validation
-- missing authorization
-- hidden browser assumptions
-- poor error handling
-- scalability problems
-- insufficient tests
+### Phase 3 — Implementation
 
-Then improve the implementation before declaring the task complete.
+Implement the smallest **architecturally correct** change — not the
+smallest possible patch.
 
-Non-negotiable rules:
+Prefer: existing abstractions, shared validation, shared authorization,
+consistent API contracts, explicit resource identity, database
+constraints, reusable domain logic.
+
+Avoid: one-off conditionals, duplicated business logic, client-specific
+hacks, hidden state, unnecessary abstractions, speculative abstractions.
+
+Non-negotiable (from the constitution):
 
 - Every resource endpoint must perform authentication and authorization
   independently. Never infer authorization from possession of a resource ID.
@@ -913,9 +918,137 @@ Non-negotiable rules:
 - Business rules must not be duplicated across route handlers. Shared domain
   rules must have a single authoritative implementation.
 
-The concrete five-phase process — Understand, Architecture, Implement, Self
-Review, Verify — is in `docs/CODINGW_WORKFLOW_STANDARD.md`. Follow it for
-every task.
+### Phase 4 — Test
+
+Add or update tests for the behavior (see `docs/engineering/TESTING.md`):
+success, invalid input, unauthorized access, missing resources, duplicate
+requests, concurrent requests, regression. If a security boundary is
+involved, test the negative case explicitly.
+
+### Phase 5 — Self Review
+
+Review the diff independently, as a skeptical senior engineer reviewing
+another developer's PR. Try to reject your own implementation. Look for:
+local workarounds, architectural inconsistencies, duplicated logic,
+security vulnerabilities, missing authorization, race conditions, retry
+problems, N+1 queries, unbounded queries, inconsistent error handling,
+migration risks, insufficient tests, unnecessary complexity. Fix problems
+before reporting completion.
+
+### Phase 6 — Verification
+
+Run typecheck, lint, unit/integration tests, migration validation, and
+the regression suite when appropriate. (In this repo: `python -m
+py_compile` on touched files locally; CI on GitHub is the pass/fail
+gate — see "Mandatory Checks Before Every Commit".)
+
+Never claim that a check passed unless it was actually run. Clearly
+distinguish: PASSED / FAILED / NOT RUN / NOT APPLICABLE.
+
+## Communication Rules
+
+When a task is architecturally ambiguous: do not silently choose a
+convenient implementation. Explain the ambiguity and select the approach
+that best preserves the architecture.
+
+When the user's requested implementation is inferior to the existing
+architecture: do not blindly follow it. Explain the issue and implement
+the better solution when the intent is clear.
+
+When a task exposes a broader architectural problem: fix the broader
+abstraction when the scope is reasonable. If fixing it would materially
+expand scope, explain the trade-off before proceeding.
+
+## Engineering Judgment
+
+`AGENTS.md` and `docs/engineering/ENGINEERING_CONSTITUTION.md` are the
+authoritative sources for repository-wide engineering standards. Follow
+them. In particular:
+
+- Do not blindly implement the user's proposed solution.
+- Preserve the intended outcome rather than the proposed implementation
+  when the two conflict.
+- You may reject an implementation approach when it conflicts with the
+  architecture, security, maintainability, scalability, or existing
+  repository patterns.
+- Do not over-engineer. Prefer the simplest solution that correctly
+  satisfies the requirements.
+- Do not introduce speculative abstractions for hypothetical future
+  requirements.
+
+Before implementing a non-trivial task, determine whether the requested
+approach is actually the right architectural approach.
+
+## Do Not Confuse Compliance With Engineering
+
+Do not assume that the user's proposed implementation is a requirement.
+The requirement is the intended behavior/outcome. The implementation is
+an engineering decision.
+
+For example, the user asks: "Add a header to preserve the conversation."
+Do not automatically implement "Add X-Conversation-Id." First determine:
+Why is conversation state currently lost? Why does the current
+architecture depend on cookies? Is conversation a first-class resource?
+Is the API client-independent? Does the existing architecture already
+provide a better pattern? What is the correct long-term abstraction?
+
+Then implement the appropriate solution. The same principle applies to
+all tasks.
+
+## STOP CONDITIONS
+
+Stop implementation and reassess the architecture if you find yourself
+about to:
+
+- add a special-case conditional
+- add a client-specific branch
+- duplicate existing business logic
+- duplicate validation
+- duplicate authorization
+- introduce a new pattern that already exists elsewhere
+- add a new flag to compensate for an existing abstraction
+- add a browser-specific workaround to an API
+- bypass an existing validation
+- disable a security check
+- add a second way of doing something that already has a standard
+  implementation
+- make a destructive database change
+- modify a shared contract without checking its consumers
+
+When this happens, inspect the repository and determine whether the
+underlying abstraction should be improved instead.
+
+## Anti-Patterns
+
+Do not produce code like:
+
+```text
+"Just add a flag."
+"Just add a header."
+"Just add another endpoint."
+"Just catch the exception."
+"Just disable the check."
+"Just add a special case for PWA."
+"Just duplicate the validation here."
+"Just query the database again."
+"Just use a global variable."
+```
+
+Whenever such a solution appears necessary, first investigate whether the
+underlying abstraction is wrong.
+
+## Senior Engineering Standard
+
+The standard is not:
+
+> Does the code work for the example in the prompt?
+
+The standard is:
+
+> Would this implementation still make sense if another senior engineer
+> had to maintain this system for the next three years?
+
+Optimize for the second question.
 
 ---
 

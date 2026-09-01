@@ -491,10 +491,11 @@ The full version, with the reasoning, is in `CLAUDE.md` under the same heading.
 
 One feature, one folder in `docs/features/{slug}/`.
 
-**Engineering standards:** `docs/ENGINEERING_STANDARDS.md` is the binding
-rulebook for API-first design, authorization, error handling, idempotency,
-and test depth. Read it before implementing any feature or endpoint. The full
-version lives there; `CLAUDE.md` -> "Documentation Rules" points to it too.
+**Engineering standards:** `docs/engineering/ENGINEERING_CONSTITUTION.md` is
+the binding constitution — non-negotiable principles plus the topic standards
+in `docs/engineering/` (`API_STANDARDS.md`, `SECURITY.md`, `DATABASE.md`,
+`TESTING.md`). Read it before implementing any feature or endpoint. `CLAUDE.md`
+-> "Documentation Rules" points to it too.
 
 ---
 
@@ -519,7 +520,7 @@ API design, weak validation, missing authorization, hidden browser
 assumptions, poor error handling, scalability problems, insufficient tests —
 and improve before declaring the task complete.
 
-The full version is in `CLAUDE.md` under "Architecture-First Task Workflow".
+The full version is in `CLAUDE.md` under "Required Workflow".
 
 Non-negotiable rules:
 
@@ -530,9 +531,61 @@ Non-negotiable rules:
 - Business rules must not be duplicated across route handlers. Shared domain
   rules must have a single authoritative implementation.
 
-The concrete five-phase process — Understand, Architecture, Implement, Self
-Review, Verify — is in `docs/CODINGW_WORKFLOW_STANDARD.md`. Follow it for
-every task.
+The full six-phase workflow — Understand, Architecture, Implement, Test,
+Self Review, Verify — is in `CLAUDE.md` under "Required Workflow". Follow it
+for every task.
+
+## Engineering Judgment
+
+The user's requested implementation approach is not necessarily the
+correct architectural approach.
+
+You are allowed to reject the requested implementation approach when it
+conflicts with the architecture, security, maintainability,
+scalability, or established patterns of the repository.
+
+Preserve the user's intended outcome, not necessarily their proposed
+implementation.
+
+If the requested approach is inferior, explain why and implement the
+better approach when the intended outcome is clear.
+
+## Avoid Over-Engineering
+
+Do not over-engineer.
+
+Senior engineering does not mean maximum abstraction, maximum
+architecture, or maximum code.
+
+Prefer the simplest design that correctly satisfies:
+
+- current requirements
+- known architectural constraints
+- security requirements
+- expected scale
+- maintainability
+- consistency with the existing codebase
+
+Do not introduce abstractions for hypothetical future requirements
+unless there is a strong architectural reason.
+
+Do not add:
+
+- unnecessary interfaces
+- unnecessary abstraction layers
+- speculative extension points
+- premature design patterns
+- infrastructure for hypothetical use cases
+
+A simple solution is preferred when it is genuinely sufficient.
+
+However, do not choose a superficially simple local workaround when
+a small additional amount of design would produce a substantially
+cleaner system-wide solution.
+
+The goal is:
+
+**minimum necessary complexity, not minimum lines of code.**
 
 ---
 
