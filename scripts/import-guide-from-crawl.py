@@ -84,6 +84,15 @@ _GUIDE_TABLES = (
 )
 
 
+# The crawl schema named facts for the WEBSITE'S pages; guide.py names them
+# for the questions visitors ask. One explicit map, so a re-run of the
+# import can never leave half-renamed keys behind (the first production run
+# did exactly that and «ساعت بازدید» silently stopped answering).
+_FACT_KEY_MAP = {"visit_hours": "hours", "peak_hours": "peak",
+                 "event_dates": "dates", "venue_address": "address",
+                 "weather": "weather"}
+
+
 def read_crawl(conn) -> dict:
     """Every crawl row, per table, as tuples in _GUIDE_TABLES column order.
 
@@ -94,9 +103,15 @@ def read_crawl(conn) -> dict:
     answer some kinds and silently drop others.
     """
     out = {}
-    for name, sql, _t, _c, _pk in _GUIDE_TABLES:
+    for name, sql, _t, cols, _pk in _GUIDE_TABLES:
         try:
-            out[name] = [tuple(r) for r in conn.execute(sql).fetchall()]
+            # The pg layer returns rows as DICTS (the app-wide convention,
+            # r["column"]) — tuple(r) on a dict yields its KEYS, which is
+            # how the first production run fed the literal string "lat"
+            # into the lat column and died on the double-precision cast.
+            # Order every row by the table's own column contract instead.
+            out[name] = [tuple(r[c] for c in cols)
+                         for r in conn.execute(sql).fetchall()]
         except Exception as e:  # noqa: BLE001 — any backend, any dialect
             sys.exit(f"cannot read the crawl tables ({type(e).__name__}: {e}).\n"
                      "The crawl schema lives only on the production"
@@ -106,22 +121,26 @@ def read_crawl(conn) -> dict:
 
 
 def _normalize(name: str, row: tuple) -> tuple:
-    """Coerce one crawl row to the app table's SQLite-compatible shape.
+    """Coerce one crawl row to the app table's portable shape.
 
-    jsonb `links` arrives from psycopg as a Python object and must be TEXT
-    here; the two BOOLEAN columns become 0/1, the stand-in SQLite has used
-    everywhere since migrations/0005.
+    jsonb `links` arrives from psycopg as a Python object and must be TEXT.
+    The BOOLEAN columns stay Python bools ON PURPOSE: psycopg adapts them
+    to PostgreSQL boolean, and SQLite stores Python bools natively as 0/1 —
+    the int(bool(...)) cast this used to do fed SMALLINT into a PostgreSQL
+    BOOLEAN column and died with DatatypeMismatch on the first real run.
     """
     row = list(row)
+    if name == "guide_facts":
+        row[0] = _FACT_KEY_MAP.get(row[0], row[0])
     if name == "restaurants":
         links = row[6]
         if not isinstance(links, str):
             links = json.dumps(links if links is not None else [],
                                ensure_ascii=False)
         row[6] = links
-        row[7] = int(bool(row[7]))
+        row[7] = bool(row[7])
     elif name == "news":
-        row[6] = int(bool(row[6]))
+        row[6] = bool(row[6])
     return tuple(row)
 
 
