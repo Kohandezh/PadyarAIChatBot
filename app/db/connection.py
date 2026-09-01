@@ -270,6 +270,7 @@ def _create_sqlite_schema(cursor):
     ensure_companies_columns(cursor)
     _create_conversation_tables(cursor)
     _create_visitor_sessions_table(cursor)
+    _create_guide_tables(cursor)
 
     try:
         cursor.execute('SELECT salt FROM admins LIMIT 1')
@@ -501,6 +502,75 @@ def _create_visitor_sessions_table(cursor):
                    ' ON visitor_sessions(visitor_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS ix_visitor_sessions_expiry'
                    ' ON visitor_sessions(expiry)')
+
+
+def _create_guide_tables(cursor):
+    """The SQLite half of migrations/0020_guide_tables.sql.
+
+    Read that file for WHY these are five tables and not `dataset` rows:
+    guide facts, entrances, transit stations, restaurants and news are
+    structured entities with their own query shapes, copied from the
+    production `crawl` schema by scripts/import-guide-from-crawl.py and
+    served deterministically by app/services/guide.py.
+
+    Only the type mapping happens here: DOUBLE PRECISION -> REAL, BOOLEAN ->
+    INTEGER 0/1 (the same stand-in `marketing_warmth`'s neighbours use),
+    jsonb `links` -> TEXT holding the same JSON. A whole new table lands on
+    an existing file by itself (CREATE TABLE IF NOT EXISTS runs on every
+    boot), so no ensure_* ALTER pass is needed.
+
+    SQLite-only helper: PostgreSQL never runs this, migrations/ owns it there.
+    """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS guide_facts (
+        key    TEXT PRIMARY KEY,
+        value  TEXT NOT NULL DEFAULT ''
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS gates (
+        name        TEXT PRIMARY KEY,
+        gate_type   TEXT NOT NULL DEFAULT '',
+        route_text  TEXT NOT NULL DEFAULT ''
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS stations (
+        name         TEXT PRIMARY KEY,
+        kind         TEXT NOT NULL DEFAULT '',
+        line         TEXT NOT NULL DEFAULT '',
+        description  TEXT NOT NULL DEFAULT '',
+        lat          REAL,
+        lng          REAL
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS restaurants (
+        id        TEXT PRIMARY KEY,
+        name      TEXT NOT NULL,
+        cuisine   TEXT NOT NULL DEFAULT '',
+        area      TEXT NOT NULL DEFAULT '',
+        distance  TEXT NOT NULL DEFAULT '',
+        note      TEXT NOT NULL DEFAULT '',
+        links     TEXT NOT NULL DEFAULT '[]',
+        in_venue  INTEGER NOT NULL DEFAULT 0
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS news (
+        slug          TEXT PRIMARY KEY,
+        title         TEXT NOT NULL,
+        date_iso      TEXT NOT NULL DEFAULT '',
+        date_jalali   TEXT NOT NULL DEFAULT '',
+        summary       TEXT NOT NULL DEFAULT '',
+        body          TEXT NOT NULL DEFAULT '',
+        featured      INTEGER NOT NULL DEFAULT 0
+    )
+    ''')
 
 
 def _seed_defaults(cursor):
