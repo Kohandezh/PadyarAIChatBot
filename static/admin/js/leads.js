@@ -219,6 +219,58 @@ function diffHtml(oldText, newText) {
       </div>`;
 }
 
+// The multi-field era: a submission changes several columns, and each one is
+// its own decision. Rows the contact did NOT touch are not shown at all —
+// a reviewer approving the fortieth card of the afternoon must see only what
+// would actually change.
+const FIELD_LABELS = {
+    title: 'نام شرکت', text: 'متن معرفی', activity_field: 'حوزهٔ فعالیت',
+    contact_name: 'نام مسئول', contact_position: 'سمت',
+    contact_mobile: 'شمارهٔ موبایل', email: 'ایمیل', website: 'وب‌سایت',
+    company_phone: 'تلفن شرکت', fax: 'فکس', address: 'نشانی', province: 'استان',
+};
+
+function fieldsDiffHtml(edit) {
+    const news = edit.new_values || {};
+    const olds = edit.old_values || {};
+    const keys = Object.keys(news);
+    if (!keys.length) return '';
+    const cell = (t) => t
+        ? `<div class="bg-light rounded p-2 small" style="white-space:pre-wrap">${esc(t)}</div>`
+        : '<div class="bg-light rounded p-2 small text-muted">—</div>';
+    return `
+      <div class="mb-3">
+        ${keys.map(k => `
+          <div class="mb-2">
+            <div class="text-muted small mb-1">${esc(FIELD_LABELS[k] || k)}</div>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <div class="text-muted small mb-1">مقدار فعلی</div>
+                ${cell(olds[k])}
+              </div>
+              <div class="col-md-6">
+                <div class="text-muted small mb-1">مقدار پیشنهادی شرکت</div>
+                ${cell(news[k])}
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+}
+
+// The whole card for one submission: field diffs when the multi-field data is
+// there, the legacy text diff otherwise, and the confirm badge on the
+// no-change submissions.
+function submissionDiffHtml(edit) {
+    if (edit.edit_kind === 'confirm') {
+        return `
+          <div class="alert alert-success py-2 px-3 mb-0 small">
+            <i class="fas fa-check me-1"></i>
+            خود شرکت تأیید کرد که اطلاعات درست است؛ چیزی تغییر نکرده است.
+          </div>`;
+    }
+    return fieldsDiffHtml(edit) || diffHtml(edit.old_text, edit.new_text);
+}
+
 async function loadFunnel() {
     const data = await get('/admin/api/leads/funnel');
     document.getElementById('funnel').innerHTML = `
@@ -263,7 +315,7 @@ async function loadEdits() {
             <span class="text-muted small">${senderLine(e)}</span>
           </div>
           ${riskyHtml(e)}
-          ${diffHtml(e.old_text, e.new_text)}
+          ${submissionDiffHtml(e)}
           <button class="btn btn-success btn-sm" data-approve="1">
             <i class="fas fa-check me-1"></i>تأیید و انتشار روی چت‌بات
           </button>
@@ -286,13 +338,16 @@ async function loadApproved() {
             <strong>${esc(e.company_name || e.company_title || e.dataset_id)}</strong>
             <span class="text-muted small">
               تأیید شده در ${esc(faDate(e.reviewed_at))}
-              ${e.reviewed_by ? '· ' + esc(e.reviewed_by) : ''}
+              ${e.reviewed_by
+                ? '· ' + (e.reviewed_by === 'contact' ? 'خود شرکت' : esc(e.reviewed_by))
+                : ''}
             </span>
           </div>
-          ${diffHtml(e.old_text, e.new_text)}
+          ${submissionDiffHtml(e)}
+          ${e.edit_kind === 'confirm' ? '' : `
           <button class="btn btn-outline-warning btn-sm" data-revert="1">
-            <i class="fas fa-rotate-left me-1"></i>برگرداندن به متن قبلی
-          </button>
+            <i class="fas fa-rotate-left me-1"></i>برگرداندن به مقادیر قبلی
+          </button>`}
         </div>`).join('');
 }
 

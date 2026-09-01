@@ -164,10 +164,24 @@ def _seed_company_and_lead(visitor_id, dataset_id, status="verified"):
     return lead_id
 
 
+def _begin(phone, token):
+    """The one-time gate's button press — where the booth-phone guard lives
+    now that the link burns on the press instead of on the submit."""
+    return phone.post(f"/api/leads/edit/{token}/begin")
+
+
+def _begin_and_submit(contact, token, text):
+    r = _begin(contact, token)
+    assert r.status_code == 200, r.text
+    return contact.post("/api/leads/edit/submit", json={
+        "fields": {"title": "شرکت نمونه", "text": text}})
+
+
 def test_the_booth_phone_cannot_write_the_companys_own_answer(app_client):
     """The booth holds the QR up for the contact to scan, so the booth can
     also scan it. The invite remembers which visitor minted it and refuses
-    exactly that person."""
+    exactly that person — at the gate now, so the booth phone cannot even
+    SPEND the company's one opening."""
     from app.services import leads as svc
     visitor = svc.create_visitor("پویا")
     phone = _visitor_client(app_client, visitor["code"])
@@ -177,9 +191,14 @@ def test_the_booth_phone_cannot_write_the_companys_own_answer(app_client):
                                issued_by_session=visitor["id"])
     token = invite["invite_url"].rsplit("/edit/", 1)[1]
 
-    r = phone.post(f"/api/leads/edit/{token}", json={"text": "متن تازه"})
+    r = _begin(phone, token)
     assert r.status_code == 403, \
-        "the booth phone submitted the company's own answer"
+        "the booth phone spent the company's one opening"
+
+    # The refusal must cost the contact nothing: the invite is still alive.
+    from app.main import app
+    contact = TestClient(app)
+    assert _begin_and_submit(contact, token, "متن تازه").status_code == 200
 
 
 def test_the_contact_with_no_booth_cookie_can_still_submit(app_client):
@@ -195,7 +214,7 @@ def test_the_contact_with_no_booth_cookie_can_still_submit(app_client):
     token = invite["invite_url"].rsplit("/edit/", 1)[1]
 
     contact = TestClient(app)
-    r = contact.post(f"/api/leads/edit/{token}", json={"text": "متن تازه"})
+    r = _begin_and_submit(contact, token, "متن تازه")
     assert r.status_code == 200, r.text
 
 
@@ -204,7 +223,7 @@ def test_revoking_the_visitor_does_not_unlock_their_own_invite(app_client):
 
     A revoked colleague still holds the QR on their screen. The session is
     gone, but the invite must still know whose it was, or taking someone off
-    the roster would hand them the company's text box.
+    the roster would hand them the company's one opening.
     """
     from app.services import leads as svc
     visitor = svc.create_visitor("شیرین")
@@ -218,9 +237,9 @@ def test_revoking_the_visitor_does_not_unlock_their_own_invite(app_client):
     svc.set_visitor_active(visitor["id"], False)
     assert phone.get("/v").status_code == 403, "the revoked panel is still open"
 
-    r = phone.post(f"/api/leads/edit/{token}", json={"text": "متن تازه"})
+    r = _begin(phone, token)
     assert r.status_code == 403, \
-        "a revoked colleague can write the company's answer with their old QR"
+        "a revoked colleague can spend the company's one opening with their old QR"
 
 
 def test_the_invite_never_stores_the_visitors_live_code(app_client, monkeypatch):
@@ -271,9 +290,10 @@ def test_rotation_does_not_unlock_the_lost_phones_own_invite(app_client):
     That is the exact story rotation is used for. A staff phone captures a
     lead, mints an invite, and the QR is sitting on its screen. The phone is
     lost. The operator rotates the link, so /v correctly answers 403. But the
-    finder could still scan the QR already on the screen and write the
-    company's own answer. Before the cookie moved to the code, that was
-    refused, because the id in the cookie matched the id on the invite.
+    finder could still press the button on the QR already on the screen and
+    spend the company's one opening. Before the cookie moved to the code,
+    that was refused, because the id in the cookie matched the id on the
+    invite.
 
     The fix is not to make the mapping survive rotation. It is that only booth
     staff ever hold a /v cookie, so a request that HAS one and resolves to
@@ -291,9 +311,9 @@ def test_rotation_does_not_unlock_the_lost_phones_own_invite(app_client):
     svc.rotate_visitor_code(visitor["id"])
     assert phone.get("/v").status_code == 403, "the rotated panel is still open"
 
-    r = phone.post(f"/api/leads/edit/{token}", json={"text": "متن تازه"})
+    r = _begin(phone, token)
     assert r.status_code == 403, \
-        "after a rotation the lost phone can still write the company's own answer"
+        "after a rotation the lost phone can still spend the company's one opening"
 
 
 def test_a_cut_off_phone_cannot_write_someone_elses_invite_either(app_client):
@@ -301,9 +321,9 @@ def test_a_cut_off_phone_cannot_write_someone_elses_invite_either(app_client):
 
     This is stricter than the old rule, on purpose, and the cost is named
     here so nobody removes it as an accident: a staff member whose link was
-    just rotated cannot submit an invite a colleague minted until they open
+    just rotated cannot open an invite a colleague minted until they open
     their new link. That is one extra tap for a person who still works here,
-    and the alternative is leaving a lost phone able to write.
+    and the alternative is leaving a lost phone able to spend one.
     """
     from app.services import leads as svc
     mine = svc.create_visitor("سارا")
@@ -316,7 +336,7 @@ def test_a_cut_off_phone_cannot_write_someone_elses_invite_either(app_client):
     token = invite["invite_url"].rsplit("/edit/", 1)[1]
 
     # Still on the roster, holding a colleague's invite: allowed, as before.
-    ok = phone.post(f"/api/leads/edit/{token}", json={"text": "متن اول"})
+    ok = _begin_and_submit(phone, token, "متن اول")
     assert ok.status_code == 200, ok.text
 
     invite2 = svc.create_invite(lead_id, "co-other", "http://x",
@@ -324,6 +344,6 @@ def test_a_cut_off_phone_cannot_write_someone_elses_invite_either(app_client):
     token2 = invite2["invite_url"].rsplit("/edit/", 1)[1]
 
     svc.rotate_visitor_code(mine["id"])
-    cut_off = phone.post(f"/api/leads/edit/{token2}", json={"text": "متن دوم"})
+    cut_off = _begin(phone, token2)
     assert cut_off.status_code == 403, \
-        "a phone whose link was rotated still wrote a colleague's invite"
+        "a phone whose link was rotated still spent a colleague's invite"

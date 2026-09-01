@@ -514,6 +514,10 @@ Core `app` tables:
 | `admin_sessions`  | `app/db/connection.py`           | Active admin sessions with sliding expiry                   |
 | `login_attempts`  | `app/db/connection.py`           | Brute-force counters per IP: attempts, block_until, last_attempt |
 | `otp_challenges`  | `app/services/otp.py` (`ensure_table()`) | OTP challenges: HMAC of the code, expiry, attempt/resend counters, and the profile fields (name, job, position, interests) |
+| `edit_invites` / `edit_sessions` | `app/services/leads.py` (`ensure_tables()`) | One-time edit links (HMAC of the token, burn on the contact's button press, migrations 0021) and the 2-hour session cookie rows that carry the open page afterwards |
+| `dataset_edits`   | `app/services/leads.py` (`ensure_tables()`) | The review queue: multi-field proposals (`old_values`/`new_values` JSON + `edit_kind` change/confirm, migration 0022) between a company contact and the live `companies` row |
+| `sms_messages`    | `app/services/sms_outbox.py` (`ensure_table()`) | One row per gateway send with the msgid and polled delivery status (migration 0023); also carries campaign verdict rows (`skipped`/`send_failed`) |
+| `sms_campaigns`   | `app/services/campaigns.py` (`ensure_table()`) | Bulk confirm campaigns: text, audience, sent/skipped/failed counters, stop reason (migration 0024) |
 
 `init_db()` in `app/db/connection.py` creates the first eight at startup. `otp_challenges` is created on demand by the registration module's `ensure_table()`, so an install without `registration` never grows the table.
 

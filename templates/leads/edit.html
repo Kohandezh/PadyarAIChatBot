@@ -12,16 +12,23 @@
 <body>
 <header class="bar">
   <div class="inner">
-    <!-- The company's own name, read-only, so the contact knows whose
-         information they are confirming. It stays as written here until the
-         server names the company. -->
+    <!-- The company's own name, filled from the server, so the contact knows
+         whose information they are confirming. -->
     <h1 id="company">اطلاعات شرکت شما</h1>
-    <p>یک بار بخوانید، اگر لازم بود اصلاح کنید، و تأیید بزنید.</p>
+    <p>بررسی کنید، اگر لازم بود اصلاح کنید، و تأیید بزنید.</p>
   </div>
 </header>
 
 <div class="wrap">
   <section class="card" id="form-card">
+    <!-- The one-time warning, still true on the form itself: the link is
+         spent, this page is the replacement for it, and it does not stay
+         open forever. -->
+    <div class="onetime small">
+      این لینک فقط یک‌بار قابل استفاده بود و همان حالا غیرفعال شد. این صفحه تا
+      <span id="minutes-left">—</span> دیگر باز است؛ لطفاً پیش از بستن آن، اطلاعات را تأیید کنید.
+    </div>
+
     <!-- What was said out loud at the booth, in writing this time. A noisy
          hall and thirty seconds is not informed consent. -->
     <div class="consent">
@@ -29,22 +36,64 @@
       <blockquote id="consent-text">سلام، من از تیم چت‌بات نمایشگاه هستم. کاری که انجام می‌دهیم تأیید اطلاعات شرکت شما برای نمایش در چت‌بات نمایشگاه است. الان یک کد پیامکی برای شما می‌آید، لطفاً آن را برای من بخوانید. بعد از ثبت، خودتان باید بروید و ببینید اطلاعات شرکتتان درست وارد شده باشد. این اطلاعات شامل یک متن معرفی است که شرکت شما و محصولاتش را توصیف می‌کند.</blockquote>
     </div>
 
-    <h2>متن پاسخ</h2>
+    <div class="note warn" id="pending-note" hidden>تغییرات قبلی شما ثبت شده و در انتظار بررسی است. اگر لازم است اصلاحش کنید و دوباره تأیید بزنید.</div>
+
+    <h2>اطلاعات شرکت</h2>
+    <label for="title">نام شرکت</label>
+    <input type="text" id="title" maxlength="200" autocomplete="off">
+    <label for="activity_field">حوزهٔ فعالیت</label>
+    <input type="text" id="activity_field" maxlength="200" autocomplete="off">
+    <label for="text">متن معرفی</label>
     <p class="hint">این همان متنی است که چت‌بات نمایشگاه در پاسخ به بازدیدکننده‌ها دربارهٔ شرکت شما می‌گوید. هر جای آن را لازم دیدید اصلاح کنید.</p>
-    <div class="note warn" id="pending-note" hidden>متن قبلی شما ثبت شده و در انتظار بررسی است. اگر لازم است اصلاحش کنید و دوباره تأیید بزنید.</div>
     <textarea id="text" maxlength="4000" placeholder="متن معرفی شرکت…"></textarea>
     <div class="counter" id="counter" hidden></div>
+
+    <h2 style="margin-top:22px">اطلاعات تماس</h2>
+    <label for="contact_name">نام مسئول</label>
+    <input type="text" id="contact_name" maxlength="100" autocomplete="name">
+    <label for="contact_position">سمت</label>
+    <input type="text" id="contact_position" maxlength="100" autocomplete="organization-title">
+    <label for="contact_mobile">شماره موبایل</label>
+    <input type="tel" id="contact_mobile" maxlength="20" autocomplete="tel" inputmode="tel" dir="ltr">
+    <label for="email">ایمیل</label>
+    <input type="text" id="email" maxlength="200" autocomplete="email" dir="ltr">
+    <label for="website">وب‌سایت</label>
+    <input type="text" id="website" maxlength="300" autocomplete="url" dir="ltr" placeholder="https://…">
+    <label for="company_phone">تلفن شرکت</label>
+    <input type="tel" id="company_phone" maxlength="24" dir="ltr">
+    <label for="fax">فکس</label>
+    <input type="tel" id="fax" maxlength="24" dir="ltr">
+
+    <h2 style="margin-top:22px">آدرس</h2>
+    <label for="address">نشانی</label>
+    <textarea id="address" maxlength="400" style="min-height:100px"></textarea>
+    <label for="province">استان</label>
+    <input type="text" id="province" maxlength="60" autocomplete="off">
+
+    <!-- The organizer's own assignment, shown read-only so a wrong one gets
+         called in rather than self-served. -->
+    <div class="boothline" id="boothline" hidden>
+      غرفهٔ شما: <strong id="booth-number"></strong>
+      <span id="hall"></span>
+    </div>
+
     <div class="note err" id="error"></div>
-    <div style="margin-top:16px"><button type="button" id="save">تأیید می‌کنم</button></div>
-    <p class="hint" style="margin:10px 0 0">با زدن این دکمه، کار شما تمام می‌شود و این صفحه بسته می‌شود.</p>
+    <div style="margin-top:16px">
+      <button type="button" id="save">ذخیره و ارسال برای بررسی</button>
+      <button type="button" id="confirm" class="ghost">تأیید می‌کنم — بدون تغییر</button>
+    </div>
+    <p class="hint" style="margin:10px 0 0">
+      «ذخیره» تغییرات شما را می‌فرستد و پس از بررسی نمایشگاه منتشر می‌شود؛
+      «تأیید بدون تغییر» یعنی همه‌چیز درست است.
+    </p>
   </section>
 
   <!-- The end of the road. No button, nothing to press twice. -->
   <section class="card final" id="final-card" hidden>
     <div class="tick">✓</div>
-    <h2>ثبت شد. کار شما تمام است.</h2>
-    <p>متن شما را گرفتیم. بعد از بررسی، روی چت‌بات نمایشگاه قرار می‌گیرد.</p>
-    <p class="fine">این لینک دیگر باز نمی‌شود. لازم نیست کار دیگری بکنید.</p>
+    <h2 id="final-title">ثبت شد. کار شما تمام است.</h2>
+    <p id="final-line">اطلاعات شما را گرفتیم. بعد از بررسی، روی چت‌بات نمایشگاه قرار می‌گیرد.</p>
+    <p class="fine">این صفحه دیگر باز نمی‌شود. لازم نیست کار دیگری بکنید.</p>
   </section>
 </div>
 

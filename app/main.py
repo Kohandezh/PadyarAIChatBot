@@ -49,6 +49,29 @@ async def _retention_loop():
             logger.error("[retention] purge cycle failed: %s", type(e).__name__)
 
 
+async def _sms_delivery_loop():
+    """Ask the gateway what became of queued SMS messages.
+
+    A 200 from the gateway only means "queued" (see app/services/sms_outbox.py);
+    the delivery truth is pull-only. Every five minutes, guarded: a poll that
+    fails is a poll that tries again in five minutes, never a reason to lose
+    the loop.
+    """
+    while True:
+        try:
+            await asyncio.to_thread(_poll_sms_deliveries_once)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.error("[sms-outbox] delivery poll failed: %s", type(e).__name__)
+        await asyncio.sleep(5 * 60)
+
+
+def _poll_sms_deliveries_once():
+    from app.services import sms_outbox
+    sms_outbox.poll_deliveries()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # BEFORE anything else. Every setting this checks fails silently — a
@@ -123,6 +146,8 @@ async def lifespan(app: FastAPI):
     from app.services.backup import scheduler_loop
     backup_task = asyncio.create_task(scheduler_loop())
     retention_task = asyncio.create_task(_retention_loop())
+    # SMS delivery receipts: the gateway is pull-only, so the asking is a loop
+    sms_task = asyncio.create_task(_sms_delivery_loop())
 
     yield
 

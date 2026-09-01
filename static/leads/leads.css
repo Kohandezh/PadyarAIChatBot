@@ -142,6 +142,23 @@ button + button { margin-top: 10px; }
 .note.ok   { background: #e6f7f3; color: #076b58; }
 .note:empty { display: none; }
 
+/* The one-time warning. It is the sentence the whole link exists to deliver,
+   so it is the loudest thing on the page: amber field, accent frame, no way
+   to read past it. `.small` is the quieter repeat at the top of the form
+   itself, after the gate has already been passed. */
+.onetime {
+  background: #fff6e5;
+  border: 2px solid var(--brand-accent);
+  border-radius: var(--radius);
+  color: #7a4f00;
+  font-size: 17px;
+  line-height: 1.9;
+  padding: 16px;
+  margin: 0 0 14px;
+}
+.onetime.small { border-width: 1px; font-size: 16px; padding: 12px 14px; }
+.onetime strong { display: block; font-size: 18px; }
+
 /* A question the visitor has to answer, not a message they can wave away.
    Amber, framed, and holding the only two buttons on the card. */
 .ask {
@@ -184,6 +201,13 @@ button + button { margin-top: 10px; }
 .consent blockquote {
   margin: 0; padding-right: 12px; border-right: 4px solid var(--brand-accent);
   font-size: 17px; color: var(--ink);
+}
+
+/* The read-only booth line on the edit form: the organizer's assignment,
+   shown so a wrong one gets called in — never editable here. */
+.boothline {
+  margin-top: 18px; padding: 12px 14px; border-radius: 12px;
+  background: #f7f9fc; color: var(--muted); font-size: 16px;
 }
 
 .counter { text-align: left; font-size: 16px; color: var(--muted); margin-top: 8px; }
