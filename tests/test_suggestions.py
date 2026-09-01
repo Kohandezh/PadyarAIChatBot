@@ -59,9 +59,12 @@ CONTEXTS = [
 ]
 
 
-@pytest.mark.parametrize("context", CONTEXTS)
-def test_every_context_kind_returns_3_to_4_short_unique_questions(context):
-    _invariants(sug.build_suggestions(context))
+# The parameter is `ctx`, never `context`: pytest-playwright ships a
+# `context` fixture (the browser context), and tests/test_suite_isolation.py
+# forbids shadowing it suite-wide.
+@pytest.mark.parametrize("ctx", CONTEXTS)
+def test_every_context_kind_returns_3_to_4_short_unique_questions(ctx):
+    _invariants(sug.build_suggestions(ctx))
 
 
 def test_max_suggestions_is_four():
