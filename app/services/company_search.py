@@ -288,6 +288,9 @@ def _select_facets(tokens: list, companies: list):
     scored = {}
     stem_only = set()
     for value, toks in facets.items():
+        # Glue words organize a facet's DESCRIPTION, they are never the
+        # topic the visitor means — keep them from creating hits at all.
+        toks = toks - _FACET_GLUE_WORDS
         exact = toks & forms
         # Exact first, then suffix derivation (still a fact about the
         # organizer's own naming), fuzzy last and only for the words exact
@@ -734,9 +737,91 @@ _FIELD_WORDS = (
     ("company_phone", {"تلفن", "شماره", "تماس"}),
     ("website", {"سایت", "وبسایت"}),
     ("province", {"استان", "شهر"}),
-    ("address", {"آدرس", "نشانی", "کجاست"}),
+    ("address", {"آدرس", "نشانی", "کجاست", "کجاس"}),
     ("activity_field", {"حوزه"}),
 )
+
+# A follow-up field question names NO entity and NO topic — only a field
+# word plus conversation fillers («کجاس؟», «کدوم غرفه س کدوم سالن», «بابا
+# کدوم غرفه س کدوم سالن»). Live failures, Elecomp 2026-09-01: both of
+# those got «متوجه منظورت نشدم» and a markdown essay, while the company
+# being discussed was one turn up. Anything LEFT over after the field words
+# and these fillers is content — a facet («هوش مصنوعی کجاس» is a LIST
+# question), an entity, a guide word — and must run the ordinary pipeline.
+# GLUE WORDS INSIDE FACET NAMES (live failure, Elecomp 2026-09-01):
+# «نمایشگاه امسال شامل چه حوزه های هست؟» matched the facet «فناوری
+# اطلاعات شامل سخت‌افزار و نرم‌افزار» on the ordinary word «شامل» — it
+# sat in exactly one facet value, so the distinctive-single rule fired and
+# the exhibition-wide question got ONE company. These words organize a
+# field's DESCRIPTION; no visitor ever means them as a topic.
+_FACET_GLUE_WORDS = {"شامل", "انواع", "سایر", "مرکز", "مراکز"}
+
+
+def answer_category_overview(query: str, lang: str = "fa") -> dict | None:
+    """The exhibition's own field overview, or None.
+
+    «نمایشگاه امسال شامل چه حوزه های هست؟» asks about the CATEGORY SET,
+    not any one category: the honest answer is the organizer's own fields
+    with their company counts, exactly what a visitor scans before picking
+    one. None when the query is not an overview question — a query naming a
+    SPECIFIC field («حوزه هوش مصنوعی») is the company-list tier's, and
+    this must never take it.
+    """
+    norm = normalize_persian(query or "", expand_synonyms=False)
+    tokens = set(norm.split())
+    overview_words = {"حوزه", "حوزهها", "حوزههای", "دسته", "دستهبندی",
+                      "زمینه", "زمینهها", "زمینههای"}
+    if not (tokens & overview_words):
+        return None
+    question_words = {"چه", "چی", "چیه", "کدام", "لیست", "فهرست", "ها", "های"}
+    if not (tokens & question_words):
+        return None
+    try:
+        companies = _load_companies()
+    except Exception:  # noqa: BLE001 — degrade, never raise
+        return None
+    if not companies:
+        return None
+    # A SPECIFIC field word would make this a list question, not an
+    # overview — if the query matches real facets, decline.
+    if _select_facets(norm.split(), companies) is not None:
+        return None
+    counts = {}
+    for c in companies:
+        for value in _company_facets(c):
+            counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return None
+    top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+    lines = [f"حوزههای اصلی نمایشگاه امسال:"
+             + " (روی هر کدام بزنید تا شرکت‌هایش را ببینید)" if lang == "fa"
+             else "This year's main fields:"]
+    for name, n in top:
+        lines.append(f"• {name} ({n} شرکت)")
+    more = len(counts) - len(top)
+    if more > 0:
+        lines.append(f"و {more} حوزه دیگر.")
+    return {"kind": "facet_overview", "text": "\n".join(lines),
+            "categories": [name for name, _ in top],
+            "confidence": 0.9}
+
+
+_FIELD_QUESTION_WORDS = {w for _f, words in _FIELD_WORDS for w in words}
+_FIELD_FOLLOWUP_FILLERS = {
+    "کدوم", "س", "بابا", "خب", "یعنی", "چیه", "هست", "است", "این", "شرکتش",
+    "برای", "من", "را", "رو", "از", "تو", "در", "با", "و", "هم", "الان",
+}
+
+
+def bare_field_followup(query: str, lang: str = "fa") -> bool:
+    """True when the query is ONLY a field question about the last entity."""
+    norm = normalize_persian(query or "", expand_synonyms=False)
+    tokens = set(norm.split())
+    if not tokens or not (tokens & _FIELD_QUESTION_WORDS):
+        return False
+    leftover = tokens - _FIELD_QUESTION_WORDS - _FIELD_FOLLOWUP_FILLERS
+    return not leftover
+
 
 _FIELD_LABELS_FA = {
     "booth_number": "شماره غرفه",

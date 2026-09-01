@@ -26,7 +26,7 @@ from app.auth.security import (
 import time as _perf
 
 from app.db.queries import (get_setting, log_chat, recent_turns,
-                            last_offer_state)
+                            last_offer_state, last_entity_id)
 from app.services import applog, conversations, conversational, scope
 from app.services.search import (find_best_match, find_similar_question,
                                   classify_intent_local, unknown_salient_tokens,
@@ -633,6 +633,70 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # reason: «سلام» is four letters and often outside the vocabulary, but
     # it is a greeting — it flows on to the intro handling, exactly as
     # before this gate existed.
+    # Follow-up field tier (live failures, Elecomp 2026-09-01): «کجاس؟» and
+    # «کدوم غرفه س کدوم سالن» right after a company answer got «متوجه
+    # منظورت نشدم» — and worse, «بابا کدوم غرفه س کدوم سالن» paid for a
+    # markdown essay asking WHICH company. The company being discussed is
+    # one turn up in the same conversation: chat_logs.entry_id is the
+    # memory (the same staleness window the pick tier uses for its lists),
+    # and the field tier answers from THAT entry. Only a BARE field
+    # question takes this path — any leftover word is content (a facet, an
+    # entity, a hall identifier) and runs the ordinary pipeline — so this
+    # can never steal «غرفه هوش مصنوعی کجاس» (a list question) or
+    # «غرفه 377» (a booth lookup).
+    if conversational_kind == "none" and not only_greeting:
+        from app.services.company_search import (answer_company_field,
+                                                 bare_field_followup)
+        if bare_field_followup(match_query):
+            last_entity = get_entry(last_entity_id(
+                conversation_id, PICK_WINDOW_MINUTES))
+            if last_entity is not None:
+                followup_answer = answer_company_field(
+                    match_query, last_entity, lang=lang)
+                if followup_answer is None:
+                    # A WHERE question about a company whose ADDRESS column
+                    # is empty must not fall to gibberish — the booth and
+                    # hall are the answer a visitor at the door needs, and
+                    # they are public by construction. The entry dict the
+                    # lookups return carries no profile columns, so read the
+                    # public profile the same way the field tier itself
+                    # does (app/services/company_profiles.py).
+                    where_words = {"کجاست", "کجاس", "غرفه", "سالن"}
+                    try:
+                        from app.services.company_profiles import public_profile
+                        profile = public_profile(
+                            str(last_entity.get("id", ""))) or {}
+                    except Exception:  # noqa: BLE001 — memory degrades, never breaks
+                        profile = {}
+                    booth = str(profile.get("booth_number") or "").strip()
+                    hall = str(profile.get("hall") or "").strip()
+                    if (set(match_query.split()) & where_words
+                            and (booth or hall)):
+                        where = " و ".join(
+                            p for p in (f"غرفه {booth}" if booth else "",
+                                        hall if hall else "") if p)
+                        followup_answer = {
+                            "field": "booth_number",
+                            "text": f"{last_entity.get('title', '')}: {where}"}
+                if followup_answer is not None:
+                    _log_turn(user_query, followup_answer["text"], "text",
+                              "local_company_field", 0.85,
+                              conversation_id=conversation_id,
+                              entry_id=str(last_entity.get("id", "")))
+                    applog.info("chat", "conversation.answer.served",
+                                "پاسخ به بازدیدکننده داده شد",
+                                subcategory="local_company_field",
+                                outcome="ok",
+                                metadata={"tier": "local_company_field",
+                                          "followup": True,
+                                          "field": followup_answer["field"],
+                                          "score": 0.85,
+                                          "entry_id": str(last_entity.get("id", ""))[:60]})
+                    return ChatResponse(
+                        type="text", text=followup_answer["text"],
+                        video_url=None, confidence=0.85,
+                        source="local_company_field")
+
     if (conversational_tier_on and conversational_kind == "none"
             and not only_greeting
             and conversational.is_gibberish(
@@ -836,6 +900,36 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                 type="text", text=booth_answer["text"],
                 video_url=booth_answer.get("video_url") or None,
                 confidence=b_conf, source="local_booth")
+
+    # Category-overview tier (2026-09-01): «نمایشگاه امسال شامل چه حوزه
+    # های هست؟» is a question about the FIELD SET, and the only honest
+    # answer is the organizer's own categories with their counts — before
+    # this, a glue word inside one facet's name matched and the exhibition
+    # wide question got ONE company. Declines automatically when the query
+    # names a specific field (that is the list tier below).
+    if conversational_kind == "none":
+        from app.services.company_search import answer_category_overview
+        overview = answer_category_overview(match_query, lang=lang)
+        if overview is not None:
+            _log_turn(user_query, overview["text"], "text",
+                      "local_facet_overview", 0.9,
+                      conversation_id=conversation_id)
+            applog.info("chat", "conversation.answer.served",
+                        "پاسخ به بازدیدکننده داده شد",
+                        subcategory="local_facet_overview", outcome="ok",
+                        metadata={"tier": "local_facet_overview",
+                                  "categories": len(overview["categories"])})
+            from app.services.suggestions import build_suggestions
+            chips = []
+            try:
+                chips = [f"شرکت‌های {c} کیا هستن؟"
+                         for c in overview["categories"][:3]]
+            except Exception:  # noqa: BLE001 — chips are decoration
+                chips = []
+            return ChatResponse(type="text", text=overview["text"],
+                                video_url=None, confidence=0.9,
+                                source="local_facet_overview",
+                                suggestions=chips)
 
     # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
     # معرفی کن» is a LIST question, but single-document retrieval can only pick

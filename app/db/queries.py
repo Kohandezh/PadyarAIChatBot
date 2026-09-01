@@ -129,6 +129,34 @@ def recent_turns(conversation_id: str, limit: int = 5) -> list:
         return []
 
 
+def last_entity_id(conversation_id: str, within_minutes: int) -> str:
+    """The newest still-fresh served entry for this conversation, or ''.
+
+    The follow-up tier's memory: «کجاس؟» right after a company answer means
+    THAT company's booth, exactly the way the offer state makes a bare «3»
+    mean the third row of the last list. Same staleness rule, same kiosk
+    reasoning, same inlined-minutes idiom as last_offer_state (pg.py
+    rewrites the SQLite datetime literal only when it can see it).
+    """
+    if not conversation_id:
+        return ""
+    minutes = max(1, int(within_minutes))
+    try:
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                "SELECT entry_id FROM chat_logs"
+                " WHERE conversation_id = ? AND entry_id <> ''"
+                f"   AND created_at >= datetime('now','-{minutes} minutes')"
+                " ORDER BY id DESC LIMIT 1",
+                (conversation_id,)).fetchone()
+        finally:
+            conn.close()
+        return (row["entry_id"] if row else "") or ""
+    except Exception:  # noqa: BLE001 — memory is an optimization, never a gate
+        return ""
+
+
 def last_offer_state(conversation_id: str, within_minutes: int) -> str:
     """The newest still-fresh offer JSON for this conversation, or ''.
 
