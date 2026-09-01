@@ -529,6 +529,49 @@ Core `app` tables:
 - **Admin auth:** SHA-256 + salt password hashing, session cookies, brute-force protection (5 attempts → 5 min block, counted in the `login_attempts` table so a restart or a second worker does not reset it)
 - **Sliding sessions:** 1-hour admin sessions, extended on activity
 
+### API Identity Rules (client-agnostic contract)
+
+Learned from a real bug (fixed in PR #128): `/chat`'s conversation memory
+relied entirely on an httpOnly `padyar_conv` cookie. A cross-origin
+Bearer-token client (InotexPWA) can never send or read that cookie, so every
+`/chat` call silently started a brand-new conversation — the bot appeared to
+forget context on every single message, even though the native browser
+widget worked fine. The fix was `X-Conversation-Id`/`X-Message-Id`
+request/response headers, reusing the same ownership check the cookie path
+already had. These rules exist so this class of bug — an endpoint that
+quietly assumes "the caller is a browser with cookies" — cannot ship again.
+
+They apply to the client-facing surface any of web/PWA/native must be able
+to call (`/chat*`, `/api/*` outside `/secure-panel-inotex`). They do NOT
+retroactively ban the admin panel's own browser-only session cookie, or the
+legacy `padyar_conv`/`padyar_vs` cookies kept as a fallback for the native
+browser chat widget — those are an existing, accepted, browser-only surface,
+not the multi-client one these rules protect.
+
+1. Never read user identity from cookies.
+2. Never read conversation identity from cookies.
+3. Never trust `conversation_id`/`message_id` from the client without an
+   ownership check (the pattern already used by
+   `continuable_conversation_id()` and `set_message_feedback()`).
+4. Never use a resource id as an authentication credential.
+5. Every protected endpoint must authenticate the caller.
+6. Every resource endpoint must authorize ownership/access.
+7. APIs must be usable without browser cookies.
+8. Do not use `credentials: "include"`.
+9. Do not emit `Set-Cookie` from API endpoints (see the scope note above —
+   this is about new/extended client-facing endpoints, not the existing
+   admin session or the legacy browser-widget cookies).
+10. Do not depend on browser session state.
+11. Return resource ids explicitly in JSON responses — or, when the
+    response body's shape can't gain a field without touching every call
+    site, a response header (see `X-Conversation-Id`/`X-Message-Id` in
+    `app/routers/chat.py`).
+12. Use `Authorization: Bearer <token>`.
+13. Keep authentication and resource state separate — a chat token proves
+    "this caller may call `/chat`", never "this caller owns conversation X".
+14. Web, PWA, mobile and desktop clients must use the same API contract —
+    no client gets a cookie-only shortcut the others can't also use.
+
 ### Theme System
 
 Themes use a WordPress-style partial template system with Jinja2. The `themes/base/` directory provides default partials (header, messages, video, input, footer, head). Each theme overrides specific partials by placing files with the same name in its own `partials/` directory. Jinja2's `FileSystemLoader` resolves overrides automatically — child theme first, then base.

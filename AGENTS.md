@@ -289,6 +289,28 @@ This is a CMS installed per-customer — branding customization is a first-class
 - CSV exports neutralize spreadsheet formula injection; admin-editable branding injected into public HTML is escaped
 - `data/` is NOT served over HTTP; static mounts cover `/static`, `/media`, `/LOGO`, `/themes/*` only
 
+**API Identity Rules (client-agnostic contract — learned from PR #128, a
+cross-origin Bearer client couldn't send the `padyar_conv` cookie so every
+`/chat` call started a fresh, context-less conversation). Applies to
+`/chat*` and `/api/*` outside `/secure-panel-inotex`; does NOT ban the
+admin panel's own session cookie or the legacy browser-widget cookies kept
+as fallback. Full reasoning in `CLAUDE.md` under the same heading.**
+
+1. Never read user identity from cookies.
+2. Never read conversation identity from cookies.
+3. Never trust `conversation_id`/`message_id` from the client without an ownership check.
+4. Never use a resource id as an authentication credential.
+5. Every protected endpoint must authenticate the caller.
+6. Every resource endpoint must authorize ownership/access.
+7. APIs must be usable without browser cookies.
+8. Do not use `credentials: "include"`.
+9. Do not emit `Set-Cookie` from API endpoints (scope note above applies).
+10. Do not depend on browser session state.
+11. Return resource ids explicitly in JSON responses (or a response header when the body can't gain a field cheaply — see `X-Conversation-Id`/`X-Message-Id`).
+12. Use `Authorization: Bearer <token>`.
+13. Keep authentication and resource state separate.
+14. Web, PWA, mobile and desktop clients must use the same API contract.
+
 ### Theme System
 
 WordPress-style partials in `/themes/{name}/`: each has `theme.json`, a `partials/` folder overriding only what differs from `themes/base/partials/`, and `static/style.css`. Auto-discovered at startup, no registration needed. Active theme stored in DB settings (`active_theme`). Selectable: `inotex` only (the other themes — `liquid-glass`, `minimal`, `haj` — were removed on 2026-08-30). `base` supplies the default partials only, not selectable itself. A `"parent"` field in `theme.json` chains inheritance before falling back to base.
