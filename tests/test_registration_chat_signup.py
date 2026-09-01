@@ -12,7 +12,6 @@ Two halves:
   would otherwise ship silently — the same trade-off tests/test_otp_input_
   autofill.py already makes.
 """
-import re
 from pathlib import Path
 
 import pytest
@@ -105,6 +104,27 @@ def _signed_up(client, outbox, interests=""):
     return cid
 
 
+def _complete_signup(client, name="زهرا کریمی", job="خبرنگار / رسانه",
+                     position="کارشناس", interests="هوش مصنوعی، رسانه و محتوا"):
+    """The in-chat questions, driven through the endpoint that now owns
+    them — the profile endpoint below then tests EDITS, not first writes.
+
+    Asks /api/signup/next and answers only what is pending, exactly like the
+    frontend: a checkbox carried at sign-up can complete interests before the
+    flow ever asks them, and posting them anyway is a 409."""
+    answers = {"name": name, "job": job, "position": position,
+               "interests": interests}
+    for _ in range(6):
+        pending = client.get("/api/signup/next").json()
+        if pending.get("complete"):
+            return
+        key = pending["step"]["key"]
+        r = client.post("/api/signup/answer",
+                        json={"key": key, "value": answers[key]})
+        assert r.status_code == 200, r.text
+    raise AssertionError("the signup flow never reported complete")
+
+
 def test_signup_needs_only_a_number_and_the_checkbox(client, outbox):
     """The card no longer collects a name, a job, a position or interests —
     the request must still be accepted with all of those empty."""
@@ -119,10 +139,11 @@ def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
     the same /api/auth/profile save as the other three — one call, and the
     stored row gains a name for the first time."""
     _signed_up(client, outbox)
+    _complete_signup(client, name="زهرا کریمی")
     r = client.post("/api/auth/profile", json={
         "first_name": "زهرا", "last_name": "کریمی",
         "job": "خبرنگار / رسانه", "position": "کارشناس",
-        "interests": "رسانه و ارتباطات",
+        "interests": "رسانه و محتوا",
     })
     assert r.status_code == 200, r.text
     stored = _stored()
@@ -130,7 +151,8 @@ def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
     assert stored["last_name"] == "کریمی"
     # …and a later edit with no name in the body leaves the name alone.
     client.post("/api/auth/profile", json={
-        "job": "سرمایه‌گذار", "position": "مدیر", "interests": "جذب سرمایه",
+        "job": "سرمایه‌گذار", "position": "مدیر بخش",
+        "interests": "سرمایه‌گذاری و جذب سرمایه",
     })
     stored = _stored()
     assert stored["first_name"] == "زهرا"
@@ -139,10 +161,11 @@ def test_the_name_given_in_chat_reaches_the_profile_endpoint(client, outbox):
 
 def test_the_three_chat_answers_reach_the_existing_profile_endpoint(client, outbox):
     _signed_up(client, outbox)
+    _complete_signup(client, job="خبرنگار / رسانه")
     r = client.post("/api/auth/profile", json={
         "job": "خبرنگار / رسانه",
         "position": "کارشناس",
-        "interests": "رسانه و ارتباطات، هوش مصنوعی",
+        "interests": "رسانه و محتوا، هوش مصنوعی",
     })
     assert r.status_code == 200, r.text
     stored = _stored()
@@ -158,7 +181,9 @@ def test_the_signup_checkbox_survives_the_chat_answers(client, outbox):
     flag = taxonomy.form_options("fa")["flags"][0]["label"]
     _signed_up(client, outbox, interests=flag)
 
-    # Exactly what registration.js sends: the remembered flag, then the taps.
+    # The interests ANSWER carries the remembered flag plus the taps (exactly
+    # what registration.js pre-fills), and the edit below must keep it too.
+    _complete_signup(client, interests=flag + "، " + "هوش مصنوعی")
     client.post("/api/auth/profile", json={
         "job": "مهندس / متخصص فنی", "position": "کارشناس",
         "interests": flag + "، " + "هوش مصنوعی",
@@ -183,6 +208,7 @@ def test_every_interest_at_once_still_fits_the_profile_endpoint(client, outbox):
         [f["label"] for f in options["flags"]] + [i["label"] for i in options["interests"]]
     )
     _signed_up(client, outbox)
+    _complete_signup(client)
     r = client.post("/api/auth/profile", json={
         "job": "کارمند", "position": "کارشناس", "interests": everything,
     })
@@ -197,9 +223,10 @@ def test_the_longest_job_and_position_fit_their_fields(client, outbox):
     longest_job = max((j["label"] for j in options["jobs"]), key=len)
     longest_position = max((p["label"] for p in options["positions"]), key=len)
     _signed_up(client, outbox)
+    _complete_signup(client)
     r = client.post("/api/auth/profile", json={
         "job": longest_job, "position": longest_position,
-        "interests": "عمومی",
+        "interests": "آموزش",
     })
     assert r.status_code == 200, r.text
     assert _stored()["job"] == longest_job
@@ -271,19 +298,40 @@ def test_tapping_a_chosen_option_again_removes_it():
     assert "if (at !== -1) next = current.filter" in toggle
 
 
-def test_job_and_position_take_one_answer_and_interests_takes_many():
-    steps = _function_source("chatSteps")
-    assert "key: 'job', list: 'jobs'" in steps and "multi: false" in steps
-    assert "key: 'position', list: 'positions'" in steps
-    assert "key: 'interests', list: 'interests'" in steps and "multi: true" in steps
+# ── The chat engine's seam, now server-driven ───────────────────────────
+
+def test_the_signup_questions_come_from_the_server():
+    assert "'/api/signup/next?lang='" in REGISTRATION_JS
+    assert "'/api/signup/answer'" in REGISTRATION_JS
+    assert "function chatSteps" not in REGISTRATION_JS
+    assert "saveChatAnswers" not in REGISTRATION_JS
 
 
-def test_the_interests_question_is_one_line_to_switch_off():
-    assert re.search(r"^\s*const ASK_INTERESTS = (true|false);\s*$",
-                     REGISTRATION_JS, re.MULTILINE), (
-        "the owner may move interests to the sign-up card — keep it a one-liner")
-    # …and the step really is behind it.
-    assert "if (ASK_INTERESTS) {" in REGISTRATION_JS
+def test_list_answers_are_checked_against_the_options_first():
+    """UX-only pre-check: anything not on the list is bounced with a hint
+    and the question stays open. The server re-validates regardless."""
+    assert "chooseFromList" in REGISTRATION_JS
+    assert "tapOne: 'یکی را لمس کنید و دکمهٔ ارسال را بزنید.'" in REGISTRATION_JS
+    assert "(یا خودتان بنویسید)" not in REGISTRATION_JS
+
+
+def test_wrong_step_resyncs_from_the_server():
+    assert "409" in REGISTRATION_JS
+    assert "fetchNext()" in REGISTRATION_JS
+    # A resync that lands on complete (another tab finished the signup)
+    # must run the completion path too, or the held message is stranded
+    # with its bubble already on screen.
+    branch = _function_source("acceptAnswer")
+    branch = branch[branch.index("409"):]
+    branch = branch[:branch.index("return;")]
+    assert "deliverHeld()" in branch
+    assert "profileSaved" in branch
+
+
+def test_boot_and_new_chat_resume_the_pending_question():
+    assert "addEventListener('chat:new'" in REGISTRATION_JS
+    boot = REGISTRATION_JS[REGISTRATION_JS.index("fetch('/api/auth/registration-status')"):]
+    assert "fetchNext()" in boot
 
 
 def test_the_options_come_from_the_taxonomy_endpoint_not_from_js():
@@ -320,16 +368,6 @@ def test_the_card_title_is_sign_in_not_registration():
     assert "signupSub" not in REGISTRATION_JS
 
 
-def test_the_name_is_asked_in_the_chat_before_the_other_questions():
-    steps = _function_source("chatSteps")
-    assert steps.index("key: 'name'") < steps.index("key: 'job'"), (
-        "the name comes first — it replaced the card's name field")
-    # Free text: no option list to tap for a person's name.
-    assert "list: null" in steps
-    # Only asked when the stored profile has no name yet.
-    assert "if (!(known.first_name || known.last_name))" in steps
-
-
 def test_the_signup_card_still_asks_the_existing_otp_endpoints():
     assert "'/api/auth/otp/request'" in REGISTRATION_JS
     assert "'/api/auth/otp/verify'" in REGISTRATION_JS
@@ -346,3 +384,19 @@ def test_the_option_buttons_are_thumb_sized_and_wrap():
     options = THEME_CSS[THEME_CSS.index(".reg-ask-options {"):]
     options = options[:options.index("}")]
     assert "flex-wrap: wrap" in options, "18 interests must wrap, never scroll sideways"
+
+
+# ── The engine's seam for the incomplete-signup 403 ─────────────────────
+
+def test_core_hands_signup_incomplete_to_the_registration_module():
+    assert "signupRequiredFn: null" in CORE_JS
+    assert "detail.code === 'signup_incomplete'" in CORE_JS
+    assert "ChatConfig.signupRequiredFn" in CORE_JS
+
+
+def test_new_chat_announces_itself():
+    """The registration module re-renders its pending question after the
+    transcript wipe — the event is the reader/writer pair that closes the
+    'chips gone, gate still swallowing messages' hole."""
+    assert "new CustomEvent('chat:new')" in CORE_JS
+    assert "addEventListener('chat:new'" in REGISTRATION_JS

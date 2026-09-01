@@ -45,6 +45,7 @@ from app.auth.security import (check_rate_limits, client_ip,
                                validate_request_origin, verify_admin)
 from app.services import conversations
 from app.services import otp as otp_service
+from app.services import signup as signup_service
 
 router = APIRouter()
 
@@ -140,6 +141,10 @@ def _promote_to_visitor(request: Request, challenge_id: str) -> str:
     record = _verified_registration(challenge_id)
     if not record:
         return ""
+    # The challenge body is not a bypass around the signup flow's rules:
+    # anything invalid is dropped here, leaving the question to be asked
+    # properly in the chat (spec §6).
+    record = signup_service.sanitize_registration(record)
     conversation_id = (request.cookies.get("padyar_conv") or "")[:64]
     return conversations.register_visitor(conversation_id, {
         "first_name": record.get("first_name", ""),
@@ -185,58 +190,6 @@ def _visitor_profile(visitor_id: str) -> dict:
         "interests": row.get("interests") or "",
         "destination_masked": otp_service.mask_destination(phone) if phone else "",
     }
-
-
-def _write_visitor_profile(visitor_id: str, job: str, position: str,
-                           interests: str, first_name: str = "",
-                           last_name: str = "") -> bool:
-    """Rewrite the work fields of ONE visitor row, plus its name when given.
-
-    BY ID AND NOTHING ELSE. The id comes from `require_visitor`, which reads it
-    off the session the middleware resolved from the cookie, so the only row a
-    request can ever write is its own. There is no phone, no challenge and no
-    body field in this query to aim it somewhere else.
-
-    Blanks are written, not skipped. `upsert_visitor` deliberately keeps an old
-    value when a new registration leaves the field empty (a re-verification to
-    fix a typo must not erase a name); this is the opposite case — a visitor
-    clearing every interest is withdrawing consent and has to be obeyed.
-
-    The name columns are the exception: they are written ONLY when this call
-    carries a non-empty value. The name question lives in the chat now (the
-    sign-up card takes only the number), so exactly the save that answers it
-    writes it — and every later profile edit leaves it alone. The phone is
-    absent on purpose: the code proved it, and nothing reachable from a
-    browser is allowed to change it.
-    """
-    from app.db.connection import get_db_connection
-    try:
-        conn = get_db_connection()
-        try:
-            sets = ["job = ?", "position = ?", "interests = ?"]
-            params = [job.strip()[:80], position.strip()[:80],
-                      interests.strip()[:400]]
-            if first_name.strip():
-                sets.append("first_name = ?")
-                params.append(first_name.strip()[:60])
-            if last_name.strip():
-                sets.append("last_name = ?")
-                params.append(last_name.strip()[:60])
-            # datetime('now') is INLINE, not a bound parameter: app/db/pg.py
-            # rewrites it into the PostgreSQL form only when it can see the
-            # literal. Same idiom as app/services/conversations.py.
-            sets.append("last_seen_at = datetime('now')")
-            changed = conn.execute(
-                "UPDATE visitors SET " + ", ".join(sets) + " WHERE id = ?",
-                (*params, visitor_id)).rowcount or 0
-            conn.commit()
-        finally:
-            conn.close()
-        return changed > 0
-    except Exception as e:  # noqa: BLE001
-        logger.error("[registration] profile write failed: %s: %s",
-                     type(e).__name__, e)
-        return False
 
 
 def check_rate_limit(request: Request) -> None:
@@ -445,6 +398,60 @@ async def registration_options(lang: str = "fa"):
     return taxonomy.form_options("en" if lang.lower().startswith("en") else "fa")
 
 
+class SignupAnswerBody(BaseModel):
+    key: str = Field(..., min_length=2, max_length=16)
+    value: str = Field(..., min_length=1, max_length=500)
+    lang: str = Field("fa", max_length=8)
+
+
+@router.get("/api/signup/next")
+async def signup_next(lang: str = "fa",
+                      visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """The question this visitor still owes, or complete.
+
+    Anonymous gets the same machine-readable 401 as /chat, so the browser
+    opens the sign-up card rather than printing an error sentence. The
+    order is the SERVER's (name → job → position → interests, skipping
+    what is stored); the browser renders, it does not decide."""
+    row = conversations.get_visitor(visitor_id) or {}
+    lang = "en" if lang.lower().startswith("en") else "fa"
+    return signup_service.pending_step(row, lang)
+
+
+@router.post("/api/signup/answer",
+             dependencies=[Depends(validate_request_origin)])
+async def signup_answer(body: SignupAnswerBody, request: Request,
+                        visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """Take ONE answer, validate it against the taxonomy, keep it or refuse
+    it. This — not /api/auth/profile — is the only writer while signup is
+    incomplete (spec §6.2)."""
+    request.state.otp_limit_identity = f"otp:visitor:{visitor_id}"
+    check_rate_limit(request)
+    row = conversations.get_visitor(visitor_id) or {}
+    pending = signup_service.pending_step(row, body.lang)
+    # REQ-002: a no-position job answers سمت by itself (REQ-009), so the
+    # flow never asks it — but a client that posts a title anyway gets the
+    # validator's real refusal (400), not a wrong-step resync: the pair
+    # دانش‌آموز + کارشناس is the incident this feature exists to fix.
+    if ((pending.get("complete") or pending["step"]["key"] != body.key)
+            and not (body.key == "position"
+                     and signup_service.position_locked(row))):
+        detail = {"code": signup_service.WRONG_STEP_CODE,
+                  "message": "این پرسش الان نوبتِ او نیست.",
+                  "step": {"complete": True} if pending.get("complete")
+                  else pending["step"]}
+        raise HTTPException(status_code=409, detail=detail)
+    ok, message, fields = signup_service.validate_answer(row, body.key, body.value)
+    if not ok:
+        raise HTTPException(status_code=400, detail={
+            "code": signup_service.INVALID_CODE, "message": message})
+    if not signup_service.write_fields(visitor_id, fields):
+        raise HTTPException(status_code=403, detail="این نشست معتبر نیست.")
+    row = conversations.get_visitor(visitor_id) or {}
+    lang = "en" if body.lang.lower().startswith("en") else "fa"
+    return {"ok": True, "next": signup_service.pending_step(row, lang)}
+
+
 @router.post("/api/auth/profile",
              dependencies=[Depends(validate_request_origin)])
 async def update_profile(body: ProfileUpdateBody, request: Request,
@@ -456,6 +463,12 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
     session cookie; anonymous gets a 401 carrying the registration_required
     marker, which is what opens the signup card in the browser.
 
+    Closed while signup is incomplete (403 signup_incomplete): until the flow
+    has collected every answer, /api/signup/answer is the only writer. Once
+    open, every value must be a taxonomy label — the same standard the flow's
+    own answers meet, so an edit cannot smuggle in a pair the flow would have
+    refused.
+
     The descriptive fields always move. The name moves only when this call
     carries one — it is asked in the chat right after the code is proved, and
     is otherwise as fixed as the phone.
@@ -465,9 +478,25 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
     # and only the per-IP backstop ever counted them.
     request.state.otp_limit_identity = f"otp:visitor:{visitor_id}"
     check_rate_limit(request)
-    if not _write_visitor_profile(visitor_id, body.job, body.position,
-                                  body.interests, body.first_name,
-                                  body.last_name):
+    # While signup is incomplete this endpoint is closed: /api/signup/answer
+    # is the only writer, so the flow cannot be bypassed by posting a
+    # "complete" profile in one call (spec §6.2, REQ-006).
+    if not signup_service.visitor_complete(visitor_id):
+        raise HTTPException(status_code=403, detail={
+            "code": signup_service.INCOMPLETE_CODE,
+            "message": "برای ادامه، به چند پرسش کوتاه پاسخ دهید.",
+        })
+    problem = signup_service.validate_profile_edit(
+        body.job, body.position, body.interests)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    fields = {"job": body.job, "position": body.position,
+              "interests": body.interests}
+    if body.first_name.strip():
+        fields["first_name"] = body.first_name
+    if body.last_name.strip():
+        fields["last_name"] = body.last_name
+    if not signup_service.write_fields(visitor_id, fields):
         # The session resolved but its person is gone (a deleted visitor row,
         # or a storage fault). Nothing was written, so say so rather than
         # reporting a save that did not happen.
@@ -669,6 +698,26 @@ def _rows_the_loader_would_drop(doc: dict) -> list:
             keywords = row.get("keywords")
             if key == "sections" and not (isinstance(keywords, list) and keywords):
                 problems.append(f"«{label}» ردیف {number}: کلیدواژه‌ها خالی است.")
+
+    # The loader would silently drop unknown no_position_jobs ids — a person
+    # editing the rule must be told instead of losing half of it on save.
+    raw_np = doc.get("no_position_jobs")
+    if raw_np is not None:
+        if not isinstance(raw_np, list):
+            problems.append("«شغل‌های بدون سمت» باید یک فهرست باشد.")
+        else:
+            job_ids = {str(r.get("id", "")).strip() for r in (doc.get("jobs") or [])
+                       if isinstance(r, dict)}
+            for i, jid in enumerate(raw_np, 1):
+                # A non-string item must be named, not compared: an unhashable
+                # value (a dict) would crash the save into a 500 instead of a
+                # readable refusal.
+                if not isinstance(jid, str):
+                    problems.append(
+                        f"«no_position_jobs»: ردیف {i} باید شناسهٔ شغل باشد.")
+                elif jid not in job_ids:
+                    problems.append(
+                        f"«no_position_jobs»: شناسهٔ «{jid}» در فهرست شغل‌ها نیست.")
     return problems
 
 

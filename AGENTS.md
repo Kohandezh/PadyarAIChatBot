@@ -150,6 +150,7 @@ PadyarAIChatbot/
       answer.py                  # Selection tier + grounding firewalls + list renderer
       openai.py                  # GPT classification, chat, Whisper
       themes.py                  # Theme discovery
+      signup.py                  # Server-owned signup flow: validation + steps
 
     db/                          # Database layer
       connection.py              # SQLite init, schema, seeding

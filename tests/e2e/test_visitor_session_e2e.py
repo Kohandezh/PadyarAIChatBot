@@ -67,6 +67,19 @@ VERIFIED_PROFILE = {
     "interests": "",
 }
 
+# The in-chat questions are server-driven now: this is what the stub serves
+# from /api/signup/next, in the server's order, until every answer has
+# arrived. The prompts are the real ones (app/services/signup.py PROMPTS);
+# the options come from OPTIONS_STUB so the taps stay on their normal path.
+SIGNUP_ORDER = ("name", "job", "position", "interests")
+SIGNUP_PROMPTS = {
+    "name": "نام و نام خانوادگی شما چیست؟",
+    "job": "شغل یا حوزهٔ فعالیت شما چیست؟",
+    "position": "سمت شما چیست؟",
+    "interests": "به کدام زمینه‌ها علاقه دارید؟",
+}
+SIGNUP_LISTS = {"job": "jobs", "position": "positions", "interests": "interests"}
+
 # The blob the old code kept: a whole profile plus the challenge id, which was
 # treated as the login. A browser that still holds one must not be let in by
 # it, and the module must delete it on sight.
@@ -131,6 +144,26 @@ class Server:
         self.profile_bodies = []
         self.session_calls = 0
         self.logout_calls = 0
+        # Signup state, mirroring app.visitors: a visitor the page loads
+        # already signed in finished the in-chat questions before it, so the
+        # boot resume must find nothing to ask; one who verifies mid-test
+        # starts owing all four, exactly like a fresh row.
+        self.signup_complete = signed_in
+        self.signup_answers = {}
+        self.signup_bodies = []
+
+    def signup_pending(self):
+        if self.signup_complete:
+            return {"complete": True}
+        for key in SIGNUP_ORDER:
+            if key in self.signup_answers:
+                continue
+            step = {"key": key, "multi": key == "interests",
+                    "prompt": SIGNUP_PROMPTS[key],
+                    "options": ([] if key == "name"
+                                else OPTIONS_STUB[SIGNUP_LISTS[key]])}
+            return {"step": step}
+        return {"complete": True}
 
     def session_payload(self):
         if not self.signed_in:
@@ -216,6 +249,20 @@ async def open_chat(browser, tmp_path, monkeypatch):
                     if body.get(key):
                         saved[key] = body[key]
                 return await _json(route, {"profile": saved})
+            if path == "/api/signup/next":
+                # The real endpoint is 401 for a stranger; fetchNext()
+                # treats any non-ok answer as "nothing to ask".
+                if not server.signed_in:
+                    return await route.fulfill(status=401,
+                                               content_type="application/json",
+                                               body="{}")
+                return await _json(route, server.signup_pending())
+            if path == "/api/signup/answer":
+                server.signup_bodies.append(body)
+                server.signup_answers[body.get("key", "")] = \
+                    body.get("value", "")
+                return await _json(route, {"ok": True,
+                                           "next": server.signup_pending()})
             if path == "/chat":
                 server.chat_bodies.append(body)
                 if server.chat_status == 401:
@@ -394,15 +441,17 @@ async def test_the_held_message_is_delivered_after_verification(open_chat):
     assert "visitor" not in server.chat_bodies[0], server.chat_bodies[0]
 
     # Hole 2: the challenge id used to be re-sent as proof of identity.
-    assert server.profile_bodies, "the in-chat answers were never saved"
-    for body in server.profile_bodies:
+    assert server.signup_bodies, "the in-chat answers were never saved"
+    for body in server.signup_bodies:
         assert "challenge_id" not in body, body
-    # The name question really moved into the chat: its answer is in the
-    # profile body, split the way the card used to split it.
-    assert server.profile_bodies[-1].get("first_name") == "سارا", (
-        server.profile_bodies)
-    assert server.profile_bodies[-1].get("last_name") == "محمدی", (
-        server.profile_bodies)
+    # The name question really moved into the chat, and the whole set now
+    # goes through the signup endpoint in the server's order, one answer
+    # per post. The name is one typed line — the first/last split is the
+    # server's job now, not something the client assembles.
+    assert [b["key"] for b in server.signup_bodies] == [
+        "name", "job", "position", "interests"], server.signup_bodies
+    assert server.signup_bodies[0]["value"] == "سارا محمدی", (
+        server.signup_bodies)
 
     # The question appears once. The gate held it before it was ever printed,
     # so a second bubble would mean the delivery echoed it again.

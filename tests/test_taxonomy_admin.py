@@ -289,6 +289,8 @@ def test_the_raw_editor_can_change_sections(client, taxonomy_file):
     (_text(dict(GOOD, jobs=[{"id": "student", "fa": "دانشجو"},
                             {"id": "", "fa": "بی‌شناسه"}])), "a row the loader would drop"),
     (_text(dict(GOOD, jobs=[{"id": "a", "fa": "یک"}, {"id": "a", "fa": "دو"}])), "duplicate id"),
+    (_text(dict(GOOD, no_position_jobs="student")), "no_position_jobs is not a list"),
+    (_text(dict(GOOD, no_position_jobs=[{"id": "x"}])), "no_position_jobs item is not a job id"),
 ])
 def test_an_invalid_save_is_refused_and_the_file_is_unchanged(client, taxonomy_file, payload, why):
     before = taxonomy_file.read_text(encoding="utf-8")
@@ -311,6 +313,20 @@ def test_the_refusal_names_the_row_that_is_wrong(client, taxonomy_file):
     detail = client.post("/admin/api/taxonomy", json={"text": _text(bad)}).json()["detail"]
     assert "شغل‌ها" in detail, detail   # which list
     assert "2" in detail, detail        # which row
+
+
+def test_save_rejects_no_position_jobs_ids_not_in_jobs(client, taxonomy_file):
+    bad = _text(dict(GOOD, no_position_jobs=["not-a-job"]))
+    res = client.post("/admin/api/taxonomy", json={"text": bad})
+    assert res.status_code == 400
+    assert "not-a-job" in res.text
+
+
+def test_the_refusal_names_the_no_position_item_that_is_not_an_id(client, taxonomy_file):
+    bad = _text(dict(GOOD, no_position_jobs=["student", {"id": "x"}]))
+    detail = client.post("/admin/api/taxonomy", json={"text": bad}).json()["detail"]
+    assert "no_position_jobs" in detail, detail   # which rule
+    assert "2" in detail, detail                  # which row
 
 
 def test_a_refused_save_does_not_stop_the_next_good_one(client, taxonomy_file):

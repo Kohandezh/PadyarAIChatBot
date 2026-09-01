@@ -116,10 +116,10 @@ def test_a_valid_cookie_with_no_bearer_header_is_unchanged(app_instance, outbox)
 def test_cookie_wins_over_bearer_when_a_request_carries_both(app_instance, outbox):
     """SEC-002: the cookie is checked first and, if valid, Bearer is never read."""
     client_a = _new_client(app_instance)
-    _register(client_a, outbox, DEST_A, job="مهندس")
+    _register(client_a, outbox, DEST_A, job="مهندس / متخصص فنی")
 
     client_b = _new_client(app_instance)
-    data_b = _register(client_b, outbox, DEST_B, x_client_pwa=True, job="خبرنگار")
+    data_b = _register(client_b, outbox, DEST_B, x_client_pwa=True, job="خبرنگار / رسانه")
     token_b = data_b["access_token"]
 
     # client_a's jar carries A's valid cookie; force B's Bearer onto the SAME
@@ -129,7 +129,7 @@ def test_cookie_wins_over_bearer_when_a_request_carries_both(app_instance, outbo
     assert r.status_code == 200
     body = r.json()
     assert body["signed_in"] is True
-    assert body["profile"]["job"] == "مهندس"
+    assert body["profile"]["job"] == "مهندس / متخصص فنی"
 
 
 def test_a_garbage_bearer_token_is_anonymous_not_a_crash(app_instance):

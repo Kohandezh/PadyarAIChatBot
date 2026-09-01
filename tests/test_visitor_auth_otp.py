@@ -192,18 +192,18 @@ def test_verifying_takes_the_browser_off_the_previous_visitor(client, outbox):
     Both people go through the real endpoints on ONE cookie jar, because a
     kiosk is exactly one browser.
     """
-    _register(client, outbox, DEST_A, job="مهندس")
+    _register(client, outbox, DEST_A, job="مهندس / متخصص فنی")
     first_token = client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME)
     assert first_token, "the first visitor never got a session"
 
-    _register(client, outbox, DEST_B, job="خبرنگار")
+    _register(client, outbox, DEST_B, job="خبرنگار / رسانه")
     second_token = client.cookies.get(visitor_auth.VISITOR_COOKIE_NAME)
 
     assert second_token and second_token != first_token
     assert visitor_auth.resolve(second_token)["visitor_id"] == _visitor_id(DEST_B)
     assert visitor_auth.resolve(first_token) is None, (
         "the previous visitor's session row is still alive and still resolves")
-    assert client.get("/api/auth/session").json()["profile"]["job"] == "خبرنگار"
+    assert client.get("/api/auth/session").json()["profile"]["job"] == "خبرنگار / رسانه"
 
 
 def test_a_failed_mint_leaves_the_kiosk_anonymous_not_the_last_visitor(
@@ -274,7 +274,8 @@ def test_a_visitor_id_in_the_body_or_a_header_is_not_identity(
     a body field and a header — with no session cookie of our own. It must be
     401, and the victim's row must be untouched afterwards.
     """
-    _register(other_client, outbox, DEST_B, job="خبرنگار", interests="رسانه")
+    _register(other_client, outbox, DEST_B, job="خبرنگار / رسانه",
+              interests="رسانه و محتوا")
     victim = _visitor_id(DEST_B)
     before = _stored(DEST_B)
 
@@ -289,7 +290,7 @@ def test_a_visitor_id_in_the_body_or_a_header_is_not_identity(
         assert r.status_code == 401, f"{attempt} was accepted: {r.text}"
 
     after = _stored(DEST_B)
-    assert after["job"] == before["job"] == "خبرنگار"
+    assert after["job"] == before["job"] == "خبرنگار / رسانه"
     assert after["interests"] == before["interests"]
 
 
@@ -319,35 +320,44 @@ def test_one_visitor_cannot_write_another_visitors_profile(
     Being signed in is not permission to edit anyone: the UPDATE is keyed on
     the id the cookie resolved to, and no field of the request reaches it.
     """
-    _register(client, outbox, DEST_A, job="مهندس")
-    _register(other_client, outbox, DEST_B, job="خبرنگار")
+    # The caller's row is COMPLETE (a full valid set) because the edit below
+    # must be a 200 — /api/auth/profile is closed while signup is incomplete.
+    _register(client, outbox, DEST_A, job="مهندس / متخصص فنی",
+              position="کارشناس", interests="هوش مصنوعی")
+    _register(other_client, outbox, DEST_B, job="خبرنگار / رسانه")
     victim = _visitor_id(DEST_B)
 
     r = client.post("/api/auth/profile",
-                    json={"job": "سرمایه‌گذار", "position": "مدیر", "interests": "همه چیز",
+                    json={"job": "سرمایه‌گذار", "position": "مدیر بخش",
+                          "interests": "سرمایه‌گذاری و جذب سرمایه",
                           "visitor_id": victim},
                     headers={"X-Visitor-Id": victim})
     assert r.status_code == 200, r.text
 
     assert _stored(DEST_A)["job"] == "سرمایه‌گذار", "the caller's own row was not written"
-    assert _stored(DEST_B)["job"] == "خبرنگار", "another visitor's row was rewritten"
+    assert _stored(DEST_B)["job"] == "خبرنگار / رسانه", "another visitor's row was rewritten"
 
 
 def test_a_signed_in_visitor_cannot_clear_their_own_profile(client, outbox):
     """The 3 onboarding questions are mandatory now: an empty submission from
     a real session must be refused, and must not overwrite what was stored."""
-    _register(client, outbox, DEST_A, job="خبرنگار", interests="رسانه")
+    _register(client, outbox, DEST_A, job="خبرنگار / رسانه",
+              position="کارشناس", interests="رسانه و محتوا")
 
     r = client.post("/api/auth/profile",
                     json={"job": "", "position": "", "interests": ""})
     assert r.status_code == 422
-    assert _stored(DEST_A)["interests"] == "رسانه"
+    assert _stored(DEST_A)["interests"] == "رسانه و محتوا"
 
 
 def test_the_profile_reply_never_carries_the_raw_number(client, outbox):
-    _register(client, outbox, DEST_A)
+    # Complete + valid: /api/auth/profile is closed while signup is
+    # incomplete, and its edit must carry taxonomy labels now.
+    _register(client, outbox, DEST_A, job="مهندس / متخصص فنی",
+              position="کارشناس", interests="هوش مصنوعی")
     r = client.post("/api/auth/profile",
-                    json={"job": "مهندس", "position": "مدیر", "interests": "همه چیز"})
+                    json={"job": "مهندس / متخصص فنی", "position": "مدیر بخش",
+                          "interests": "آموزش"})
     assert DEST_A not in r.text and DEST_A.lstrip("+") not in r.text
     assert r.json()["profile"]["destination_masked"].endswith(DEST_A[-4:])
 
@@ -363,14 +373,14 @@ def test_session_is_anonymous_without_a_cookie(client):
 def test_session_masks_the_phone_number(client, outbox):
     """The durable row keeps the real number so the exhibition can call back.
     Nothing a browser can read is allowed to show it."""
-    _register(client, outbox, DEST_A, job="مهندس")
+    _register(client, outbox, DEST_A, job="مهندس / متخصص فنی")
 
     r = client.get("/api/auth/session")
     assert r.status_code == 200
     body = r.json()
     assert body["signed_in"] is True
     assert body["profile"]["first_name"] == "علی"
-    assert body["profile"]["job"] == "مهندس"
+    assert body["profile"]["job"] == "مهندس / متخصص فنی"
 
     masked = body["profile"]["destination_masked"]
     assert masked and "*" in masked
@@ -442,7 +452,8 @@ def test_a_stored_profile_wins_over_the_body(client, outbox):
 
     The browser cannot edit the stored copy, which is exactly why it wins.
     """
-    _register(client, outbox, DEST_A, job="خبرنگار", interests="رسانه")
+    _register(client, outbox, DEST_A, job="خبرنگار / رسانه",
+              interests="رسانه و محتوا")
 
     r = client.post("/api/visit-plan", json={"interests": "هوش مصنوعی"})
     matched = [s["id"] for s in r.json()["sections"] if not s["general"]]
@@ -453,9 +464,12 @@ def test_a_stored_profile_wins_over_the_body(client, outbox):
 def test_a_challenge_id_no_longer_pulls_a_stranger_profile_into_the_plan(
         client, other_client, outbox):
     """The old leak: the plan came back shaped by whoever owned that id."""
+    # Real labels, so the stranger's stored profile genuinely exists — with
+    # values sanitize would drop, the "must not shape the plan" assert below
+    # would pass vacuously against an empty profile.
     r = other_client.post("/api/auth/otp/request", json={
         "destination": DEST_B, "first_name": "زهرا", "last_name": "ک",
-        "job": "خبرنگار", "interests": "رسانه"})
+        "job": "خبرنگار / رسانه", "interests": "رسانه و محتوا"})
     challenge = r.json()["challenge_id"]
     other_client.post("/api/auth/otp/verify",
                       json={"challenge_id": challenge, "code": outbox[-1][1]})
@@ -485,8 +499,9 @@ def test_the_tight_bucket_is_keyed_on_the_session_not_the_body(
                 json={"job": "x", "position": "x", "interests": "x",
                       "challenge_id": "z" * 40, "visitor_id": "spoof"})
     client.post("/api/visit-plan", json={"challenge_id": "z" * 40})
+    client.post("/api/signup/answer", json={"key": "name", "value": "آزمون"})
 
-    assert seen == [f"otp:visitor:{_visitor_id(DEST_A)}"] * 2
+    assert seen == [f"otp:visitor:{_visitor_id(DEST_A)}"] * 3
 
 
 def test_an_anonymous_plan_gets_no_tight_bucket(client, monkeypatch):
@@ -510,7 +525,7 @@ def test_a_cross_origin_post_is_refused(client, outbox):
     this, evil.example.com could rewrite a visitor's profile just because they
     happened to have the tab open.
     """
-    _register(client, outbox, DEST_A, job="مهندس")
+    _register(client, outbox, DEST_A, job="مهندس / متخصص فنی")
     evil = {"Origin": "https://evil.example.com"}
 
     for path, body in (("/api/auth/profile", {"job": "مهاجم"}),
@@ -519,7 +534,7 @@ def test_a_cross_origin_post_is_refused(client, outbox):
         r = client.post(path, json=body, headers=evil)
         assert r.status_code == 403, f"{path} accepted a cross-site POST: {r.text}"
 
-    assert _stored(DEST_A)["job"] == "مهندس"
+    assert _stored(DEST_A)["job"] == "مهندس / متخصص فنی"
     assert client.get("/api/auth/session").json()["signed_in"] is True
 
 

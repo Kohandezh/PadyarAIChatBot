@@ -183,6 +183,7 @@ PadyarAIChatbot/
       openai.py                  # GPT classification, chat, Whisper
       conversations.py           # Write side: visitors, conversations, messages
       otp.py                     # OTP issue/verify/resend, otp_challenges table
+      signup.py                  # Server-owned signup flow: validation + steps
       sms.py                     # SMS gateway providers (Asanak)
       taxonomy.py                # Loads/validates data/visit-taxonomy.json (hot-reload)
       visit_plan.py              # Matches a visitor profile to INOTEX sections

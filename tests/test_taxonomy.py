@@ -101,6 +101,30 @@ def test_the_shipped_taxonomy_offers_positions():
     assert taxonomy.form_options("fa")["positions"], "سمت dropdown would be empty"
 
 
+# ── The no-سمت rule ──────────────────────────────────────────────────────
+
+def test_no_position_jobs_is_normalised_to_known_job_ids():
+    """Unknown ids are dropped by the loader, so the rule can never point at
+    a job the form does not offer."""
+    doc = taxonomy._validate(minimal_doc(
+        jobs=[{"id": "school-student", "fa": "دانش‌آموز", "en": "School student"}],
+        no_position_jobs=["school-student", "ghost-job"],
+    ))
+    assert doc["no_position_jobs"] == ["school-student"]
+
+
+def test_form_options_exposes_the_rule_in_labels(temp_taxonomy):
+    temp_taxonomy(minimal_doc(
+        jobs=[{"id": "school-student", "fa": "دانش‌آموز", "en": "School student"}],
+        positions=[{"id": "none", "fa": "سمت سازمانی ندارم", "en": "No organisational title"}],
+        no_position_jobs=["school-student"],
+    ))
+    fa = taxonomy.form_options("fa")
+    assert "دانش‌آموز" in fa["no_position_jobs"]
+    assert fa["no_position_label"] == "سمت سازمانی ندارم"
+    assert taxonomy.form_options("en")["no_position_label"] == "No organisational title"
+
+
 # ── Bad files must not reach the product ─────────────────────────────────
 
 def test_broken_json_keeps_the_previous_taxonomy(temp_taxonomy, tmp_path):

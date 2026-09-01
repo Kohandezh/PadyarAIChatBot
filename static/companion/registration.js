@@ -73,15 +73,6 @@
     const KEY_LEGACY = 'inotex-visitor';
     const OTP_LENGTH = 6;
 
-    /* Ask about interests in the chat? The owner may decide these belong on
-       the sign-up card instead. Flip this to false and the third in-chat
-       question disappears — nothing else changes.
-       Careful: /api/auth/profile now REQUIRES a non-empty interests value on
-       every call. Flipping this to false means interests must come from
-       somewhere else (e.g. the sign-up checkboxes/flags), or every profile
-       save will fail with a 422. */
-    const ASK_INTERESTS = true;
-
     // What /api/auth/profile accepts. Clamping here means a chatty answer is
     // shortened rather than rejected with a 422 the visitor cannot read.
     const MAX_JOB = 80, MAX_POSITION = 80, MAX_INTERESTS = 400;
@@ -122,17 +113,11 @@
             saveEdit: 'ذخیره و به‌روزرسانی پیشنهادها',
             // Holding the first message
             held: 'سؤال شما را نگه داشتم. اول در چند ثانیه ثبت‌نام کنید تا پاسخ را بفرستم.',
-            // The in-chat questions — the name first, then the three fields
-            hello2: function (name) {
-                return (name ? 'خوش آمدید ' + name + '!' : 'خوش آمدید!')
-                    + ' چند سؤال کوتاه می‌پرسم تا بهتر راهنمایی‌تان کنم.';
-            },
-            askName: 'نام و نام خانوادگی شما چیست؟',
-            askJob: 'شغل یا حوزهٔ فعالیت شما چیست؟',
-            askPosition: 'سمت شما چیست؟',
-            askInterests: 'به کدام زمینه‌ها علاقه دارید؟',
-            tapOne: 'یکی را لمس کنید (یا خودتان بنویسید) و دکمهٔ ارسال را بزنید.',
+            // The in-chat questions — the prompts themselves come from the
+            // server (GET /api/signup/next); these are only their hints.
+            tapOne: 'یکی را لمس کنید و دکمهٔ ارسال را بزنید.',
             tapMany: 'هر چند مورد که خواستید لمس کنید و دکمهٔ ارسال را بزنید.',
+            chooseFromList: 'یکی را از گزینه‌های بالا انتخاب کنید و دکمهٔ ارسال را بزنید.',
             typeAnswer: 'پاسخ را بنویسید و دکمهٔ ارسال را بزنید.',
             skip: 'رد کردن',
             profileSaved: 'ممنون! ثبت شد.'
@@ -170,16 +155,11 @@
             editSub: 'Name and number stay fixed; your job, title and interests can change.',
             saveEdit: 'Save and update suggestions',
             held: 'I am holding your question. Sign up — it takes seconds — and I will answer it.',
-            hello2: function (name) {
-                return 'Welcome' + (name ? ' ' + name : '') + '!'
-                    + ' A few short questions so I can help you better.';
-            },
-            askName: 'What is your full name?',
-            askJob: 'What is your field of work?',
-            askPosition: 'What is your job title?',
-            askInterests: 'Which topics do you care about?',
-            tapOne: 'Tap one (or type your own), then press send.',
+            // The in-chat questions — the prompts themselves come from the
+            // server (GET /api/signup/next); these are only their hints.
+            tapOne: 'Tap one, then press send.',
             tapMany: 'Tap as many as you like, then press send.',
+            chooseFromList: 'Pick one of the options above, then press send.',
             typeAnswer: 'Type your answer and press send.',
             skip: 'Skip',
             profileSaved: 'Thank you — saved.'
@@ -428,10 +408,11 @@
     }
 
     // ── Searchable multi-select ──────────────────────────────────────
-    /* One text box that filters the list and also accepts anything the visitor
-       types — a taxonomy can never be complete, and a visitor whose field is
-       missing must not be forced into an approximate one. */
-    function multiSelect(items, preselected) {
+    /* One text box that filters the list and, when `allowAdd` is not false,
+       also accepts anything the visitor types. The caller decides whether a
+       free-typed addition can actually save: the backend now validates the
+       interests against the taxonomy, so the profile editor passes false. */
+    function multiSelect(items, preselected, allowAdd) {
         const chosen = [];
         const wrap = el('div', 'reg-multi');
 
@@ -489,7 +470,7 @@
             });
             // Nothing in the list matches what they typed → offer to add it.
             const typed = search.value.trim();
-            const canAdd = typed.length > 1 && !has(typed) &&
+            const canAdd = allowAdd !== false && typed.length > 1 && !has(typed) &&
                 !items.some(function (i) { return i.label.toLowerCase() === typed.toLowerCase(); });
             addBtn.hidden = !canAdd;
             addBtn.textContent = t().addItem(typed);
@@ -528,7 +509,7 @@
     /* The card takes ONLY the mobile number and whatever checkbox the
        taxonomy defines. The visitor's NAME is no longer asked here: it is
        asked in the chat, right after the code is proved, as the first of
-       the in-chat questions (see chatSteps). */
+       the server-driven questions (see /api/signup/next). */
     function renderSignupStep() {
         state.body.textContent = '';
         setHead(t().title, '');
@@ -670,9 +651,10 @@
 
         let picker = null, posField = null;
 
-        /* A saved answer that is no longer in the taxonomy is kept as an extra
-           option. Replacing the taxonomy must never silently erase what someone
-           already told us. */
+        /* A saved answer that is no longer in the taxonomy is NOT kept as a
+           pickable extra option: the backend refuses values that left the
+           list, so offering one would be a button that cannot save. The
+           select starts from the live list only. */
         function fillSelect(sel, items, saved) {
             const blank = el('option', null, t().choose);
             blank.value = '';
@@ -682,12 +664,7 @@
                 opt.value = i.label;
                 sel.append(opt);
             });
-            if (saved) {
-                if (!Array.prototype.some.call(sel.options, function (op) { return op.value === saved; })) {
-                    const kept = el('option', null, saved);
-                    kept.value = saved;
-                    sel.append(kept);
-                }
+            if (saved && Array.prototype.some.call(sel.options, function (op) { return op.value === saved; })) {
                 sel.value = saved;
             }
         }
@@ -719,7 +696,7 @@
             const saved = splitInterests(prefill.interests);
             picker = multiSelect(o.interests || [], saved.filter(function (s) {
                 return flagLabels.indexOf(s) === -1;
-            }));
+            }), false);
             interestWrap.append(picker.node);
 
             (o.flags || []).forEach(function (f) {
@@ -1047,18 +1024,11 @@
                 // asking again would just be annoying.
                 setTimeout(function () {
                     closeModal();
-                    sessionReady.then(function (s) {
-                        const known = (s && s.profile) || {};
-                        // Complete means the name too now: the card no longer
-                        // collects it, so a profile without a name still owes
-                        // the visitor one question — the name — in the chat.
-                        const complete = (known.first_name || known.last_name)
-                            && known.job && known.position && known.interests;
-                        if (complete) {
-                            deliverHeld();
-                        } else {
-                            startChatQuestions(known);
-                        }
+                    sessionReady.then(function () {
+                        fetchNext().then(function (p) {
+                            if (p && !p.complete) askNext(p);
+                            else deliverHeld();
+                        });
                     });
                 }, 900);
             })
@@ -1109,52 +1079,20 @@
         return detail;
     }
 
-    // ── In the chat: a welcome, then the questions ───────────────────
+    // ── In the chat: the server-driven questions ─────────────────────
     /* Why the questions live here and not on the sign-up card: on a phone a
        <select> is a spinning wheel and eighteen interests are a scroll inside
        a scroll. A chip is one tap. And because a tap WRITES INTO THE MESSAGE
-       BOX instead of sending, the visitor can still edit the answer — or type
-       something the list never had — before pressing the send button they
-       already know.
+       BOX instead of sending, the visitor can still edit the answer before
+       pressing the send button they already know.
 
-       The three questions are the same three fields /api/auth/profile has
-       always accepted; only the way they are asked has changed. */
+       WHAT is asked, in what order, and which answers are acceptable are the
+       server's decisions (GET /api/signup/next, POST /api/signup/answer);
+       this half only asks and relays. A question with options accepts the
+       options — anything else is bounced with a hint, here for the UX and
+       again on the server for real. The name is free text. */
 
-    function chatSteps(known) {
-        known = known || {};
-        const steps = [];
-        /* The NAME question comes first and only when the profile has no
-           name yet — the sign-up card no longer asks it. It is free text:
-           no list, so renderChoices shows no chips, just the type-answer
-           hint. */
-        if (!(known.first_name || known.last_name)) {
-            steps.push({ key: 'name', list: null, prompt: t().askName, multi: false, max: 120 });
-        }
-        /* شغل and سمت take ONE answer each. They are single facts about a
-           person, and the endpoint stores each in its own 80-character
-           field — a joined list would be truncated mid-word and would make
-           the visit planner match on two contradictory jobs. Interests is
-           the opposite: a list is the honest answer, and the endpoint
-           gives it 400 characters. Each question is asked only when the
-           stored profile does not already carry its answer. */
-        if (!known.job) {
-            steps.push({ key: 'job', list: 'jobs', prompt: t().askJob, multi: false, max: MAX_JOB });
-        }
-        if (!known.position) {
-            steps.push({ key: 'position', list: 'positions', prompt: t().askPosition, multi: false, max: MAX_POSITION });
-        }
-        if (ASK_INTERESTS) {
-            if (!known.interests) {
-                steps.push({
-                    key: 'interests', list: 'interests', prompt: t().askInterests,
-                    multi: true, max: MAX_INTERESTS
-                });
-            }
-        }
-        return steps;
-    }
-
-    const ask = { steps: [], index: -1, answers: {}, box: null, watcher: null };
+    var ask = { current: null, box: null, watcher: null };
     let heldMessage = '';
     // True when the held message is ALREADY a bubble in the transcript, which
     // happens when the server refused it rather than the gate holding it. See
@@ -1197,28 +1135,99 @@
         return server.known && server.signed_in;
     }
 
-    function startChatQuestions(known) {
-        if (typeof switchTab === 'function') { try { switchTab('text'); } catch (e) { } }
-        // A first-timer has no name yet — the welcome reads fine without one,
-        // and the name is the very next thing asked.
-        const who = (known && (known.first_name || known.last_name))
-            ? displayName(known) : '';
-        botSay(t().hello2(who));
-        ask.steps = chatSteps(known);
-        ask.answers = {};
-        ask.index = -1;
-        // The options are already cached from the sign-up card; this only
-        // matters when that fetch failed, in which case the question is still
-        // asked and simply has no chips to tap.
-        loadOptions().then(nextQuestion, nextQuestion);
+    function signupLang() { return isFa() ? 'fa' : 'en'; }
+
+    function fetchNext() {
+        return fetch('/api/signup/next?lang=' + signupLang(),
+                     { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; });
     }
 
-    function nextQuestion() {
-        ask.index += 1;
-        const step = ask.steps[ask.index];
-        if (!step) { saveChatAnswers(); return; }
-        botSay(step.prompt);
-        renderChoices(step);
+    function askNext(payload) {
+        if (!payload || payload.complete || !payload.step) return;
+        // The theme may have landed the visitor on the video view (the
+        // inotex avatar does), and a question nobody can see is not a
+        // question. The old flow switched here for exactly this reason.
+        if (typeof switchTab === 'function') { try { switchTab('text'); } catch (e) { } }
+        ask.current = payload.step;
+        botSay(payload.step.prompt);
+        renderChoices(payload.step);
+    }
+
+    function answerAccepted(data) {
+        if (data && data.next && data.next.complete) {
+            ask.current = null;
+            botSay(t().profileSaved);
+            deliverHeld();
+            return;
+        }
+        askNext(data && data.next);
+    }
+
+    function mergeFlags(value) {
+        /* The sign-up checkbox lives in the same stored field as the
+           interests, so the posted value must carry it — answering the
+           question must never silently untick it. */
+        const flags = (state.flags && state.flags.length)
+            ? state.flags : splitInterests((server.profile || {}).interests || '');
+        const all = flags.concat(splitInterests(value));
+        return all.filter(function (v, i) {
+            let first = -1;
+            all.forEach(function (o, j) { if (first === -1 && sameLabel(o, v)) first = j; });
+            return first === i;
+        }).join('، ').slice(0, MAX_INTERESTS);
+    }
+
+    function answerOnList(step, value) {
+        const items = splitInterests(value);
+        if (!items.length) return false;
+        return items.every(function (item) {
+            return (step.options || []).some(function (o) { return sameLabel(o.label, item); });
+        });
+    }
+
+    function acceptAnswer(text) {
+        const step = ask.current;
+        if (!step) return;
+        const value = String(text || '').trim().slice(0, 500);
+        /* UX-only pre-check — the server re-validates everything, so a
+           crafted client gains nothing by skipping this. */
+        if (step.key !== 'name' && (step.options || []).length
+            && !answerOnList(step, value)) {
+            botSay(t().chooseFromList);
+            renderChoices(step);
+            return;
+        }
+        clearChoices();
+        if (value) visitorSaid(value);
+        setInput('');
+        post('/api/signup/answer', {
+            key: step.key,
+            value: step.key === 'interests' ? mergeFlags(value) : value,
+            lang: signupLang()
+        })
+            .then(answerAccepted)
+            .catch(function (err) {
+                if (err && err.status === 409) {
+                    /* Out of step with the server: resync to whatever it
+                       says is still owed, and continue from there — or,
+                       if another tab already finished the signup, close
+                       out the same way answerAccepted does, so the held
+                       message is delivered instead of stranded. */
+                    ask.current = null;
+                    fetchNext().then(function (p) {
+                        if (p && p.complete) {
+                            ask.current = null;
+                            botSay(t().profileSaved);
+                            deliverHeld();
+                        } else askNext(p);
+                    });
+                    return;
+                }
+                botSay(err.detail || t().network);
+                renderChoices(step);
+            });
     }
 
     function sameLabel(a, b) {
@@ -1232,7 +1241,9 @@
 
     function renderChoices(step) {
         clearChoices();
-        const items = (step.list && options && options[step.list]) || [];
+        // The options arrive WITH the step — the server decides what is
+        // offered, in the same {id, label} shape the chips have always eaten.
+        const items = step.options || [];
         // Deliberately NOT a `.message`: the companion's mini chat mirrors
         // messages as plain text, and a mirrored wall of option labels helps
         // nobody. This block is transient UI, so it is not saved to history
@@ -1297,63 +1308,6 @@
         ask.box = null;
     }
 
-    function acceptAnswer(text) {
-        const step = ask.steps[ask.index];
-        if (!step) return;
-        const value = String(text || '').trim().slice(0, step.max);
-        clearChoices();
-        if (value) visitorSaid(value);
-        ask.answers[step.key] = value;
-        setInput('');
-        nextQuestion();
-    }
-
-    function saveChatAnswers() {
-        const stored = server.profile || {};
-        /* The sign-up checkbox is stored in the SAME field as the interests
-           (that is the existing schema), so it is merged back in here —
-           answering the interests question must never silently untick it. */
-        const flags = (state.flags && state.flags.length)
-            ? state.flags : splitInterests(stored.interests);
-        const all = flags.concat(splitInterests(ask.answers.interests || ''));
-        const interests = all.filter(function (v, i) {
-            let first = -1;
-            all.forEach(function (o, j) { if (first === -1 && sameLabel(o, v)) first = j; });
-            return first === i;
-        }).join('، ').slice(0, MAX_INTERESTS);
-
-        // Fields that were NOT asked this time keep their stored value, so
-        // the endpoint's required-field validation still passes.
-        const body = {
-            job: ask.answers.job || stored.job || '',
-            position: ask.answers.position || stored.position || '',
-            interests: interests || stored.interests || ''
-        };
-        // The name answer is split the way the sign-up card used to split
-        // it: the first word is the given name, the rest the family name.
-        // 60 characters each is what the endpoint stores.
-        const fullName = (ask.answers.name || '').trim().replace(/\s+/g, ' ');
-        if (fullName) {
-            const parts = fullName.split(' ');
-            body.first_name = parts.shift().slice(0, 60);
-            body.last_name = parts.join(' ').slice(0, 60);
-        }
-
-        // Again, no identity in the body — the cookie carries it.
-        post('/api/auth/profile', body)
-            .then(function (data) {
-                server.profile = Object.assign({}, stored, data.profile || {});
-                rememberName(server.profile);
-                paintSession();
-                botSay(t().profileSaved);
-            })
-            .catch(function () {
-                // The visitor's own question matters more than their profile:
-                // a failed save must not swallow the answer they are waiting for.
-            })
-            .then(deliverHeld);
-    }
-
     /** Send the message that was held back at the start, now that there is
         someone to answer. It goes through the normal path, so it appears in
         the chat and is answered exactly as if it had just been typed. */
@@ -1379,7 +1333,7 @@
         Returns true when this module has taken the message. */
     function gate(text) {
         // An open question owns the message box until it is answered.
-        if (ask.steps[ask.index]) { acceptAnswer(text); return true; }
+        if (ask.current) { acceptAnswer(text); return true; }
         if (isSignedIn()) return false;
         // Session unknown (the probe failed, or has not answered yet). Do not
         // guess in either direction: send it and let the server rule. A signed
@@ -1409,6 +1363,29 @@
         return true;
     }
 
+    /** ChatConfig.signupRequiredFn — the server answered 403: signed in,
+        signup incomplete. The message was already sent, so it is already
+        on screen (heldEchoed) and is delivered once the flow completes. */
+    function signupIncomplete(info) {
+        heldMessage = (info && info.text) || '';
+        heldEchoed = true;
+        setInput('');
+        fetchNext().then(askNext);
+        return true;
+    }
+
+    document.addEventListener('chat:new', function () {
+        /* New chat wiped the DOM the chips lived in. Mid-question ⇒
+           re-ask the same step; otherwise an incomplete profile resumes
+           (the refresh/new-chat hole the spec's incident 1 was). */
+        if (ask.current) {
+            botSay(ask.current.prompt);
+            renderChoices(ask.current);
+            return;
+        }
+        if (isSignedIn()) fetchNext().then(askNext);
+    });
+
     function holdAndAsk(text, alreadyEchoed) {
         heldMessage = text;
         heldEchoed = !!alreadyEchoed;
@@ -1428,10 +1405,12 @@
     // is installed and the chat behaves exactly as it does on an install that
     // never had the module: the first message is answered, not held.
     //
-    // The 401 handler is installed either way. It costs nothing on an install
-    // that can never send that status, and it is the safety net for the case
-    // the gate cannot cover: registration switched on after this page loaded.
+    // The 401 and 403 handlers are installed either way. They cost nothing on
+    // an install that can never send those statuses, and they are the safety
+    // net for the cases the gate cannot cover: registration switched on after
+    // this page loaded, or a signup left half-finished.
     if (typeof ChatConfig !== 'undefined') ChatConfig.signInRequiredFn = serverGate;
+    if (typeof ChatConfig !== 'undefined') ChatConfig.signupRequiredFn = signupIncomplete;
 
     fetch('/api/auth/registration-status')
         .then(function (r) { return r.ok ? r.json() : { enabled: false }; })
@@ -1442,6 +1421,11 @@
             // trip and open a sign-up card they do not need.
             return refreshServerSession().then(function () {
                 ChatConfig.sendGateFn = gate;
+                // Resume: a visitor whose signup was interrupted (refresh,
+                // New chat, a closed tab) is asked exactly what is missing.
+                if (server.signed_in) {
+                    fetchNext().then(function (p) { if (p && !p.complete) askNext(p); });
+                }
             });
         })
         .catch(function () { /* status unknown — leave the chat ungated */ });

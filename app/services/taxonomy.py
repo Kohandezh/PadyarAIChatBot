@@ -37,6 +37,7 @@ _MINIMUM = {
     "interests": [],
     "flags": [],
     "fallback_ids": [],
+    "no_position_jobs": [],
     "sections": [],
 }
 
@@ -96,16 +97,26 @@ def _validate(raw: dict) -> Optional[dict]:
         fallback = [sections[0]["id"]]
         logger.error("[taxonomy] fallback_ids empty or unknown — using %s", fallback)
 
+    jobs = _clean_items(raw.get("jobs"), required=("id", "fa"))
+    positions = _clean_items(raw.get("positions"), required=("id", "fa"))
+    job_ids = {j["id"] for j in jobs}
+    # Jobs whose only valid سمت is "none". Unknown ids are dropped silently —
+    # the same forgiving rule as everywhere else here — so the rule can never
+    # point at a job the form does not offer.
+    no_position = [i for i in raw.get("no_position_jobs", [])
+                   if isinstance(i, str) and i in job_ids]
+
     return {
         "version": str(raw.get("version", "unversioned")),
         "status": str(raw.get("status", "")),
-        "jobs": _clean_items(raw.get("jobs"), required=("id", "fa")),
+        "jobs": jobs,
         # Optional: a taxonomy with no positions leaves the سمت field a free-text
         # input rather than an empty dropdown.
-        "positions": _clean_items(raw.get("positions"), required=("id", "fa")),
+        "positions": positions,
         "interests": _clean_items(raw.get("interests"), required=("id", "fa")),
         "flags": _clean_items(raw.get("flags"), required=("id", "fa")),
         "fallback_ids": fallback,
+        "no_position_jobs": no_position,
         "sections": sections,
     }
 
@@ -177,12 +188,24 @@ def form_options(lang: str = "fa") -> dict:
             for i in items
         ]
 
+    def label_of(item):
+        return (item.get("fa") if lang == "fa" else item.get("en")) or item.get("fa", "")
+
+    job_labels = {j["id"]: label_of(j) for j in doc["jobs"]}
+    no_position_label = ""
+    for p in doc.get("positions", []):
+        if p.get("id") == "none":
+            no_position_label = label_of(p)
+
     return {
         "version": doc["version"],
         "jobs": localise(doc["jobs"]),
         "positions": localise(doc.get("positions", [])),
         "interests": localise(doc["interests"]),
         "flags": localise(doc["flags"]),
+        "no_position_jobs": [job_labels[i] for i in doc.get("no_position_jobs", [])
+                             if i in job_labels],
+        "no_position_label": no_position_label,
     }
 
 

@@ -299,6 +299,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     if (is_module_enabled("registration")
             and get_setting("registration_enabled", "false") == "true"):
         visitor_auth.require_visitor(http_request)
+        # Signed in is not signed UP. An incomplete profile must finish the
+        # signup flow first: its message is an answer the flow still owes,
+        # not a question the pipeline may answer (spec §6.1, REQ-001).
+        from app.services import signup as _signup_service
+        if not _signup_service.visitor_complete(visitor_id):
+            raise HTTPException(status_code=403, detail={
+                "code": _signup_service.INCOMPLETE_CODE,
+                "message": "برای ادامه، به چند پرسش کوتاه پاسخ دهید.",
+            })
 
     lang = "en" if (request.lang or "").lower().startswith("en") else "fa"
     user_query = request.message.strip()
