@@ -84,6 +84,15 @@ _GUIDE_TABLES = (
 )
 
 
+# The crawl schema named facts for the WEBSITE'S pages; guide.py names them
+# for the questions visitors ask. One explicit map, so a re-run of the
+# import can never leave half-renamed keys behind (the first production run
+# did exactly that and «ساعت بازدید» silently stopped answering).
+_FACT_KEY_MAP = {"visit_hours": "hours", "peak_hours": "peak",
+                 "event_dates": "dates", "venue_address": "address",
+                 "weather": "weather"}
+
+
 def read_crawl(conn) -> dict:
     """Every crawl row, per table, as tuples in _GUIDE_TABLES column order.
 
@@ -121,6 +130,8 @@ def _normalize(name: str, row: tuple) -> tuple:
     BOOLEAN column and died with DatatypeMismatch on the first real run.
     """
     row = list(row)
+    if name == "guide_facts":
+        row[0] = _FACT_KEY_MAP.get(row[0], row[0])
     if name == "restaurants":
         links = row[6]
         if not isinstance(links, str):
