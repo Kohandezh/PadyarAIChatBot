@@ -356,3 +356,37 @@ def test_bank_word_lists_the_bankdari_facet(db, client, monkeypatch):
     banks = [c for c in COMPANIES if "بانکداری" in (c[3] or "")]
     for c in banks:
         assert c[1] in body["text"]
+
+
+# ── The stem UNION: one base word, several organizer spellings ────────────
+
+def test_bank_word_unions_across_facet_spellings(db, monkeypatch):
+    """«بانک» when the organizer wrote «بانکداری» for one exhibitor and
+    «بانکداری دیجیتال» for another: the derived token is shared by two
+    facet VALUES, the distinctive-single rule alone rejects both, and the
+    live Elecomp answer was NOTHING. The stem union must return both
+    facets' companies."""
+    from app.services.company_search import answer_company_list
+    _seed(monkeypatch, companies=COMPANIES + [
+        ("co-b1", "بانک نمونه", "بانک نمونه خدمات بانکی ارائه می دهد.",
+         "بانکداری", "سالن ۷", "7-1"),
+        ("co-b2", "نئوبانک دیجی", "نئوبانک دیجی بانکداری دیجیتال می کند.",
+         "بانکداری دیجیتال", "سالن ۷", "7-2"),
+    ])
+    ans = answer_company_list("چه بانک هایی هستن تو نمایشگاه")
+    assert ans is not None, "the stem union must fire when two spellings share the base"
+    assert "بانک نمونه" in ans["text"]
+    assert "نئوبانک دیجی" in ans["text"]
+
+
+def test_exact_distinctive_word_still_beats_the_stem(db, monkeypatch):
+    """A stem may never displace an exact distinctive word: «رباتیک» with
+    one رباتیک facet and a رباتیک‌سازی company elsewhere answers from the
+    exact facet only when it is distinctive, per the pre-existing rule."""
+    from app.services.company_search import answer_company_list
+    _seed(monkeypatch, companies=COMPANIES + [
+        ("co-r2", "شرکت ربات ساز ۲", "شرکت ربات ساز ۲ ربات سازی می کند.",
+         "ربات سازی", "سالن ۷", "7-3"),
+    ])
+    ans = answer_company_list("شرکت های رباتیک")
+    assert ans is not None
