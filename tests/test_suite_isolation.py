@@ -40,6 +40,31 @@ def _is_fixture(node) -> bool:
     return any("fixture" in ast.dump(d) for d in node.decorator_list)
 
 
+def _parametrized_names(node) -> set:
+    """Argument names this function receives from @pytest.mark.parametrize.
+
+    A parametrized argument is PROVIDED, not requested: pytest fills it from
+    the decorator's table and never looks up a fixture of that name, which
+    is how a test may legitimately take a parameter called `context`
+    (test_suggestions.py, 2026-08-31) without waking the sync driver.
+    """
+    names = set()
+    for dec in node.decorator_list:
+        if not (isinstance(dec, ast.Call) and dec.args):
+            continue
+        func = dec.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "parametrize"):
+            continue
+        first = dec.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            names |= {p.strip() for p in first.value.split(",") if p.strip()}
+        elif isinstance(first, (ast.List, ast.Tuple)):
+            for elt in first.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    names.add(elt.value.strip())
+    return names
+
+
 def _plugin_fixtures_asked_for(path: Path) -> set:
     """The pytest-playwright fixtures this module reaches, read from its own
     function signatures. A fixture is requested by NAME, so the signature is
@@ -48,7 +73,8 @@ def _plugin_fixtures_asked_for(path: Path) -> set:
     Only tests and fixtures request fixtures; a plain helper that happens to
     take a `page` argument does not. A module that DEFINES a fixture of that
     name shadows the plugin\'s, which is how both browser test files drive
-    Chromium safely.
+    Chromium safely. A name PARAMETRIZED onto the function is likewise never
+    resolved as a fixture — see _parametrized_names.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     defined, asked = set(), set()
@@ -61,8 +87,9 @@ def _plugin_fixtures_asked_for(path: Path) -> set:
         if not fixture and not node.name.startswith("test_"):
             continue
         args = node.args
-        asked |= {a.arg for a in
-                  args.posonlyargs + args.args + args.kwonlyargs}
+        asked |= ({a.arg for a in
+                   args.posonlyargs + args.args + args.kwonlyargs}
+                  - _parametrized_names(node))
     return (asked & BROWSER_FIXTURES) - defined
 
 
@@ -78,6 +105,52 @@ def test_no_test_file_uses_the_sync_playwright_fixtures():
             stray[str(path.relative_to(TESTS))] = sorted(asked)
     assert stray == {}, (
         f"pytest-playwright fixtures used in the suite: {stray}")
+
+
+# ── The scanner's own precision ───────────────────────────────────────────
+# A parametrized argument is PROVIDED by the decorator's table, not requested
+# from a fixture: pytest never resolves a plugin fixture for a name that
+# parametrize fills. Treating those names as fixture asks (the 2026-08-31
+# test_suggestions.py `context` parametrize) flags innocent files and trains
+# people to weaken this guard. These tests pin both halves of the rule.
+
+def _scan(tmp_path, source):
+    import textwrap
+    path = tmp_path / "test_sample.py"
+    path.write_text(textwrap.dedent(source), encoding="utf-8")
+    return _plugin_fixtures_asked_for(path)
+
+
+def test_a_parametrized_name_is_not_a_fixture_ask(tmp_path):
+    """`@pytest.mark.parametrize("context", ...)` shadows the plugin fixture
+    for that test — the sync driver can never start. Must not flag."""
+    assert _scan(tmp_path, """
+        import pytest
+        CONTEXTS = [{"kind": "entry"}, {"kind": "options"}]
+
+        @pytest.mark.parametrize("context", CONTEXTS)
+        def test_kinds(context):
+            assert context
+    """) == set()
+
+
+def test_a_parametrized_name_list_is_not_a_fixture_ask(tmp_path):
+    assert _scan(tmp_path, """
+        import pytest
+
+        @pytest.mark.parametrize(["context", "page"], [(1, 2)])
+        def test_pairs(context, page):
+            assert context + page
+    """) == set()
+
+
+def test_a_plain_context_argument_is_still_a_fixture_ask(tmp_path):
+    """No parametrize, no local fixture: this IS the plugin fixture being
+    requested — the poisoning case the guard exists for."""
+    assert _scan(tmp_path, """
+        def test_asks_the_plugin(context):
+            assert context
+    """) == {"context"}
 
 
 def test_the_browser_tests_are_actually_collected():
