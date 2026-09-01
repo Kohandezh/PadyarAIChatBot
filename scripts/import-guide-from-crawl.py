@@ -112,11 +112,13 @@ def read_crawl(conn) -> dict:
 
 
 def _normalize(name: str, row: tuple) -> tuple:
-    """Coerce one crawl row to the app table's SQLite-compatible shape.
+    """Coerce one crawl row to the app table's portable shape.
 
-    jsonb `links` arrives from psycopg as a Python object and must be TEXT
-    here; the two BOOLEAN columns become 0/1, the stand-in SQLite has used
-    everywhere since migrations/0005.
+    jsonb `links` arrives from psycopg as a Python object and must be TEXT.
+    The BOOLEAN columns stay Python bools ON PURPOSE: psycopg adapts them
+    to PostgreSQL boolean, and SQLite stores Python bools natively as 0/1 —
+    the int(bool(...)) cast this used to do fed SMALLINT into a PostgreSQL
+    BOOLEAN column and died with DatatypeMismatch on the first real run.
     """
     row = list(row)
     if name == "restaurants":
@@ -125,9 +127,9 @@ def _normalize(name: str, row: tuple) -> tuple:
             links = json.dumps(links if links is not None else [],
                                ensure_ascii=False)
         row[6] = links
-        row[7] = int(bool(row[7]))
+        row[7] = bool(row[7])
     elif name == "news":
-        row[6] = int(bool(row[6]))
+        row[6] = bool(row[6])
     return tuple(row)
 
 
