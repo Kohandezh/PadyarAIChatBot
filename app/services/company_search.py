@@ -286,19 +286,36 @@ def _select_facets(tokens: list, companies: list):
             shared[t] = shared.get(t, 0) + 1
 
     scored = {}
+    stem_only = set()
     for value, toks in facets.items():
-        hit = toks & forms
+        exact = toks & forms
         # Exact first, then suffix derivation (still a fact about the
         # organizer's own naming), fuzzy last and only for the words exact
         # and stem did not already find, and only FROM query words the corpus
         # does not know. An exact match must never be displaced by an
         # approximate one.
-        hit = hit | {t for t in toks - hit if _stem_hit(t, forms)}
+        stemmed = {t for t in toks - exact if _stem_hit(t, forms)}
+        # A stem hit (بانک -> بانکداری) is a fact about the field's NAME but
+        # never a DISTINCTIVE one: the organizer writes the same field as
+        # «بانکداری» for one exhibitor and «بانکداری دیجیتال» for the next,
+        # so the derived token legitimately sits in several facet VALUES and
+        # the shared==1 rule below rejects it exactly when the data is
+        # richest (live failure, Elecomp 2026-09-01: «چه بانک هایی…» met
+        # both spellings and got NOTHING). Stem-only facets therefore take
+        # the UNION path — and only when exact scoring found nothing, since
+        # an exact distinctive word always beats a stem.
+        if stemmed and not exact:
+            stem_only.add(value)
+        hit = exact | stemmed
         hit = hit | {t for t in toks - hit if _fuzzy_hit(t, correctable)}
         if len(hit) >= 2 or (len(hit) == 1 and shared[next(iter(hit))] == 1):
             scored[value] = len(hit)
     if not scored:
-        return None
+        # The union of every facet the visitor's base word derives into.
+        # Several tied exact facets already return as a set; a stem tie gets
+        # the same treatment — the filter label falls back to the visitor's
+        # own words, which is exactly right for «بانک».
+        return stem_only or None
     best = max(scored.values())
     return {v for v, n in scored.items() if n == best}
 
