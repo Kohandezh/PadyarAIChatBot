@@ -157,3 +157,36 @@ def test_specific_field_question_is_still_a_list(client):
     r = _ask(client, "شرکت های حوزه هوش مصنوعی")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local_company_search", r.text
+
+
+# ── the NAMED-entity where question (live failure: مدبران) ────────────────
+
+def test_named_company_where_answers_with_the_place(client):
+    """«شرکت مدبران کجاست؟» has booth 70 and NO address and NO hall: the
+    answer must be the booth, never the generic profile with its
+    «می‌توانید به غرفه این شرکت مراجعه نمایید» that says nothing."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO companies (id, title, text, video_url, hall,"
+        " booth_number, activity_field)"
+        " VALUES ('co-mod', 'مهندسی مدبران فناوران پاسارگاد',"
+        " 'مهندسی مدبران فناوران پاسارگاد در زمینه امنیت شبکه فعالیت"
+        " می‌کند. برای اطلاعات بیشتر می‌توانید به غرفه این شرکت مراجعه"
+        " نمایید.', '', '', '70', 'امنیت شبکه')")
+    # NOT the where-question itself: a curated row with the visitor's
+    # exact words would win at Tier 0 and serve the blurb by design — the
+    # live failure reached the field tier through the entity anchor, and
+    # this seed reproduces that path.
+    conn.execute(
+        "INSERT INTO questions (question, dataset_id, video_url)"
+        " VALUES ('درباره شرکت مدبران', 'co-mod', '')")
+    conn.commit()
+    conn.close()
+    from app.services.search import reindex_and_publish
+    reindex_and_publish()
+    r = _ask(client, "شرکت مدبران کجاست؟")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "70" in body["text"], body
+    assert body["text"].count("غرفه") <= 2  # the place, not the blurb's filler
