@@ -33,7 +33,8 @@ final, the other is a question the visitor answers by sending the form again.
 import html
 import os
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import (APIRouter, BackgroundTasks, Body, Depends, HTTPException,
+                     Request)
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -279,79 +280,126 @@ async def create_note(body: NoteBody, request: Request,
 
 @router.get("/edit/{token}", response_class=HTMLResponse)
 async def edit_page(token: str, request: Request):
-    """Open the edit page. This does NOT burn the invite.
+    """The link's landing page — a gate, not the form.
 
-    Rate limited and audited with the caller's address: this is the one route
-    on the whole feature that an unauthenticated stranger can hammer, and a
-    guessing run has to be visible in the log with an IP beside it.
+    GET never burns anything: messengers (Telegram, WhatsApp) prefetch URLs
+    server-side before the human taps, and a link that died on GET was a link
+    the contact never had. So this serves a start screen whose only button
+    POSTs; the burn and the data both arrive with that press (see begin).
+
+    A browser already holding a live edit-session cookie (the same contact,
+    refreshing) is taken straight past the gate to the form. Rate limited and
+    audited with the caller's address: this is the one route on the whole
+    feature an unauthenticated stranger can hammer, and a guessing run has to
+    be visible in the log with an IP beside it.
     """
     check_rate_limit(request)
-    try:
-        leads_service.invite_view(token, ip=client_ip(request))
-    except LeadError as e:
-        return _dead_page(str(e), e.status)
-    return HTMLResponse(_brand(_page("edit.html")))
+    secret = request.cookies.get(leads_service.EDIT_SESSION_COOKIE, "")
+    if secret:
+        try:
+            leads_service.session_view(secret, ip=client_ip(request))
+            return HTMLResponse(_brand(_page("edit.html")))
+        except LeadError:
+            pass  # submitted or expired: fall through and judge the token
+    if not leads_service.invite_alive(token, ip=client_ip(request)):
+        return _dead_page(leads_service.DEAD_INVITE_MESSAGE, 410)
+    return HTMLResponse(_brand(_page("begin.html")))
 
 
-@router.get("/api/leads/edit/{token}")
-async def edit_state(token: str, request: Request):
-    check_rate_limit(request)
-    try:
-        view = leads_service.invite_view(token, ip=client_ip(request))
-    except LeadError as e:
-        raise _fail(e)
-    # `متن پاسخ`, plus the company name as a read-only heading so the contact
-    # knows whose text this is. `id`, `video_url` and the English columns are
-    # not in this response, because they are not part of this conversation.
-    return {"company": view["company"], "text": view["text"],
-            "pending": view["pending"], "expires_at": view["expires_at"],
-            "consent_script": leads_service.consent_script()["text"]}
+@router.post("/api/leads/edit/{token}/begin")
+async def begin_edit(token: str, request: Request, payload: dict = Body(default={})):
+    """The button press that spends the one-time link.
 
-
-def _only_text(payload: dict) -> str:
-    """Exactly one field, `text`. Anything else is a `400`.
-
-    Ignoring an unexpected field is not the same as refusing it: silence is how
-    `dataset_id` or `status` gets wired through by someone who assumed the
-    endpoint was already checking.
+    The burn happens here and only here. A browser carrying a /v visitor
+    cookie is a booth phone: refused WITHOUT burning, so neither the person
+    who captured the lead nor a phone whose link was rotated can spend the
+    company's one opening. The same params and the same refusal rule the old
+    submit-time guard used, one step earlier.
     """
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="درخواست معتبر نیست.")
-    extra = sorted(k for k in payload if k != "text")
-    if extra:
-        raise HTTPException(status_code=400,
-                            detail="فقط متن پاسخ قابل ارسال است: " + "، ".join(extra))
-    value = payload.get("text")
-    if not isinstance(value, str):
-        raise HTTPException(status_code=400, detail="متن پاسخ را وارد کنید.")
-    return value
-
-
-@router.post("/api/leads/edit/{token}")
-async def save_edit(token: str, request: Request, payload: dict = Body(default={})):
     check_rate_limit(request)
-    text = _only_text(payload)
-    # Is this the booth's own phone, submitting the answer it was supposed to
-    # hand to the company? The cookie carries a code, so it is turned back
-    # into a visitor id here, matching what verify() wrote on the invite.
-    # There is no login on this page: a stranger with no cookie gets "", and
-    # "" refuses nothing.
-    #
-    # `from_booth_phone` is sent separately because the two "" answers mean
-    # opposite things. A contact has no cookie at all, and must be let through.
-    # A booth phone whose link was rotated still HAS the cookie, and the code
-    # in it no longer matches any row, so it also maps to "". Without this flag
-    # the rotated phone reads as a contact and the guard below falls open,
-    # which is the lost-phone story rotation exists for.
     visitor_code = request.cookies.get(leads_service.VISITOR_COOKIE, "")
     try:
-        return leads_service.submit_edit(
-            token, text,
+        opened = leads_service.open_invite(
+            token,
             visitor_session=(leads_service.visitor_id_for_session(visitor_code)
                              if visitor_code else ""),
             from_booth_phone=bool(visitor_code),
             ip=client_ip(request),
         )
+    except LeadError as e:
+        raise _fail(e)
+    response = JSONResponse({
+        "ok": True, "company": opened["company"],
+        "expires_at": opened["expires_at"], "expires_in": opened["expires_in"],
+    })
+    response.set_cookie(
+        key=leads_service.EDIT_SESSION_COOKIE, value=opened["session_secret"],
+        httponly=True, secure=COOKIE_SECURE, samesite="lax",
+        max_age=leads_service.EDIT_SESSION_TTL_SECONDS,
+    )
+    return response
+
+
+@router.get("/api/leads/edit/state")
+async def edit_state(request: Request):
+    """What the open page shows, held by the session cookie — never by the
+    URL, which died with the invite. `fields` is the whole editable profile,
+    `context` the read-only booth/hall block. `id`, `video_url` and the
+    English columns are not in this response, because they are not part of
+    this conversation."""
+    check_rate_limit(request)
+    secret = request.cookies.get(leads_service.EDIT_SESSION_COOKIE, "")
+    try:
+        view = leads_service.session_view(secret, ip=client_ip(request))
+    except LeadError as e:
+        raise _fail(e)
+    return {"company": view["company"], "fields": view["fields"],
+            "context": view["context"], "text": view["text"],
+            "pending": view["pending"], "expires_at": view["expires_at"],
+            "consent_script": leads_service.consent_script()["text"]}
+
+
+def _edit_payload(payload: dict):
+    """Either {"confirm": true} or {"fields": {editable fields}} — nothing else.
+
+    Ignoring an unexpected field is not the same as refusing it: silence is
+    how `dataset_id` or `status` gets wired through by someone who assumed the
+    endpoint was already checking. Returns (confirm, fields).
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="درخواست معتبر نیست.")
+    extra = sorted(k for k in payload if k not in ("confirm", "fields"))
+    if extra:
+        raise HTTPException(status_code=400,
+                            detail="این درخواست فیلدشناخته ندارد: " + "، ".join(extra))
+    confirm = payload.get("confirm", False)
+    fields = payload.get("fields")
+    if confirm not in (True, False):
+        raise HTTPException(status_code=400, detail="درخواست معتبر نیست.")
+    if confirm:
+        return True, None
+    if not isinstance(fields, dict):
+        raise HTTPException(status_code=400, detail="اطلاعات فرم ارسال نشده است.")
+    unknown = sorted(k for k in fields if k not in leads_service.EDITABLE_FIELDS)
+    if unknown:
+        raise HTTPException(status_code=400,
+                            detail="این موارد قابل ارسال نیست: " + "، ".join(unknown))
+    if not all(isinstance(v, str) for v in fields.values()):
+        raise HTTPException(status_code=400, detail="مقدار واردشده معتبر نیست.")
+    return False, fields
+
+
+@router.post("/api/leads/edit/submit")
+async def save_edit(request: Request, payload: dict = Body(default={})):
+    """Submit through the open page's session cookie. The link in the URL bar
+    is already dead; this is the only door left, and it closes with the
+    submit."""
+    check_rate_limit(request)
+    confirm, fields = _edit_payload(payload)
+    secret = request.cookies.get(leads_service.EDIT_SESSION_COOKIE, "")
+    try:
+        return leads_service.submit_edit_session(
+            secret, fields or {}, ip=client_ip(request), confirm=confirm)
     except LeadError as e:
         raise _fail(e)
 
@@ -564,6 +612,50 @@ async def admin_set_company_priority_boost(dataset_id: str, body: CompanyPriorit
                 company_profiles.set_priority_boost(dataset_id, body.priority_boost)}
     except company_profiles.ProfileError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
+
+
+def _trigger_reindex():
+    """Rebuild this worker's indexes after a company delete and publish a new
+    version stamp so every other worker rebuilds too (same contract as
+    app/routers/dataset.py:_trigger_reindex — see search.reindex_and_publish).
+
+    A delete is what removes a company from the chatbot's answers: without
+    this, companies_lookup and the intent head would keep serving a company
+    whose row is gone."""
+    import asyncio
+    from app.services.search import reindex_and_publish
+    try:
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, reindex_and_publish)
+    except RuntimeError:
+        reindex_and_publish()
+
+
+@router.delete("/admin/api/company-profiles/{dataset_id}",
+               dependencies=[Depends(verify_admin)])
+async def admin_delete_company(dataset_id: str):
+    """Delete one company and its whole footprint (curated question anchors,
+    capture history) — see company_profiles.delete_companies."""
+    from app.services import company_profiles
+    deleted = company_profiles.delete_companies([dataset_id])
+    if not deleted:
+        raise HTTPException(status_code=404, detail="این شرکت در دانش‌نامه نیست.")
+    _trigger_reindex()
+    return {"status": "deleted", "deleted": deleted}
+
+
+@router.post("/admin/api/company-profiles/bulk-delete",
+             dependencies=[Depends(verify_admin)])
+async def admin_bulk_delete_companies(payload: dict):
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="هیچ موردی برای حذف انتخاب نشده است.")
+    if not all(isinstance(i, str) for i in ids):
+        raise HTTPException(status_code=400, detail="لیست شناسه‌ها نامعتبر است.")
+    from app.services import company_profiles
+    deleted = company_profiles.delete_companies(ids)
+    _trigger_reindex()
+    return {"status": "deleted", "deleted": deleted}
 
 
 @router.get("/admin/api/leads/funnel", dependencies=[Depends(verify_admin)])
@@ -791,6 +883,51 @@ async def admin_bulk_set_visitors_active(body: BulkVisitorActiveBody):
 @router.get("/admin/api/leads/edits", dependencies=[Depends(verify_admin)])
 async def admin_edits(status: str = "pending"):
     return {"edits": leads_service.list_edits(status)}
+
+
+# ── Bulk confirm campaigns (migrations/0024) ─────────────────────────────
+# The organizer texts every company with a mobile on file, each with its own
+# one-time link. The send itself is paced (~1/second) and lives in a
+# background task; these endpoints launch it and report on it.
+
+@router.get("/admin/api/leads/campaigns", dependencies=[Depends(verify_admin)])
+async def admin_campaigns():
+    from app.services import campaigns, sms_outbox
+    listed = campaigns.list_campaigns()
+    # Delivery counts per campaign: the report the operator reads is "how many
+    # actually arrived", which only the outbox knows.
+    for row in listed:
+        row["delivery"] = sms_outbox.status_counts(row["id"])
+    return {"campaigns": listed, "capability": campaigns.capability()}
+
+
+class CampaignBody(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/admin/api/leads/campaigns")
+async def admin_launch_campaign(body: CampaignBody, request: Request,
+                                background: BackgroundTasks,
+                                admin: str = Depends(verify_admin)):
+    from app.services import campaigns
+    try:
+        launched = campaigns.launch(body.text, _base_url(request), actor=admin)
+    except campaigns.CampaignError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    # Paced by the second, so the run must not hold the request open: the
+    # panel gets the campaign id and watches the report fill in.
+    background.add_task(campaigns.run, launched["id"], _base_url(request))
+    return launched
+
+
+@router.get("/admin/api/leads/campaigns/{campaign_id}",
+            dependencies=[Depends(verify_admin)])
+async def admin_campaign_detail(campaign_id: str):
+    from app.services import campaigns
+    try:
+        return campaigns.campaign_detail(campaign_id)
+    except campaigns.CampaignError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
 
 
 class ReviewBody(BaseModel):

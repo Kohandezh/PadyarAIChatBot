@@ -503,6 +503,30 @@ async def test_sms(req: SmsTestRequest):
     return {"status": "queued", "destination": mask_destination(destination), "msgid": msgid}
 
 
+@router.post("/admin/api/sms/refresh-statuses", dependencies=[Depends(verify_admin)])
+async def sms_refresh_statuses():
+    """Ask the gateway RIGHT NOW what became of queued messages.
+
+    The background loop already asks every five minutes; this button exists
+    because an operator standing at the panel wants the answer after the call
+    they just made, not at the next tick.
+    """
+    from app.services import sms_outbox
+    return {"summary": await asyncio.to_thread(sms_outbox.poll_deliveries),
+            "counts": sms_outbox.status_counts()}
+
+
+@router.get("/admin/api/sms/outbox", dependencies=[Depends(verify_admin)])
+async def sms_outbox_list(campaign_id: str = "", kind: str = "", limit: int = 100):
+    """The delivery ledger: every send with its current status. Destinations
+    are masked on write (see sms_outbox.record) — the raw number stays where
+    the flow needs it, not in a list the panel renders."""
+    from app.services import sms_outbox
+    return {"messages": sms_outbox.list_messages(campaign_id=campaign_id, kind=kind,
+                                                 limit=limit),
+            "counts": sms_outbox.status_counts(campaign_id=campaign_id)}
+
+
 def _stt_status() -> dict:
     """Transcription binding summary for the settings page.
 

@@ -8,23 +8,34 @@ number this is agreed to it, and only they can change the company's text":
 
     visitor opens their own link      -> a visitor session (12 h)
     visitor searches the company      -> a row of `companies`, never free text,
-                                         and never a company someone already owns
+                                          and never a company someone already owns
     visitor enters name/role/phone    -> a lead, status `unverified`, OTP sent
     contact reads the code out loud   -> OTP verified, status `verified`
     system mints a ONE-TIME invite    -> a QR on the visitor's screen, or an SMS
-    contact opens it and reads        -> nothing burns; the link still works
-    contact submits their text        -> THE INVITE BURNS, status `completed`,
-                                         and a PENDING edit, not the live answer
+    contact presses "start"           -> THE INVITE BURNS and an edit session
+                                          (2 h cookie) carries the page forward
+    contact submits their data        -> the session ends, status `completed`,
+                                          and a PENDING edit, not the live answer
     admin approves                    -> the text lands in `companies`
 
-WHY THE INVITE BURNS ON SUBMIT AND NOT ON OPEN
----------------------------------------------
-A token that dies on GET also kills the POST that follows it, so the previous
-design needed a second table to carry the same window forward. Burning on the
-successful submit removes that table, that cookie and the contradiction behind
-them: the token in the URL is the credential for the whole interaction, and it
-dies at the moment the work is done. Until then it lives 24 hours, because a
-contact at a busy booth may not scan anything until the evening.
+WHY THE INVITE BURNS ON A BUTTON PRESS AND NOT ON GET
+-----------------------------------------------------
+The link must open exactly once (migrations/0021): a second device, a second
+tap on the link, gets the dead page. But a token that dies on any GET is a
+token messengers kill for free — Telegram and WhatsApp prefetch URLs server
+side before the human taps, and a prefetched link is a burned link. So GET
+serves a shell with no data on it, and only the button press (a POST a
+prefetcher never makes) burns the invite and hands over the form.
+
+The open page still needs a credential after its invite is gone, so
+`edit_sessions` (back, per 0020, after 0006 removed it) holds the same window
+in an HttpOnly cookie: two hours, the same browser, refresh allowed, the link
+itself dead to everyone.
+
+Only the contact may press that button. A browser carrying a /v visitor
+cookie is a booth phone, and refusing it there — without burning — extends the
+old submit-time guard: the person who captured the lead may not spend the
+company's one opening either.
 
 THREE STATUSES, NOT SIX
 -----------------------
@@ -52,6 +63,7 @@ duplicate checks never need the plaintext and never have to normalise twice.
 import hmac
 import hashlib
 import io
+import json
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -62,17 +74,26 @@ from app.db.timeutil import to_naive_utc
 from app.services import otp as otp_service
 
 # --- Lifetimes -----------------------------------------------------------
-# 24 hours, and the invite dies earlier the moment the contact submits. The
-# window is this wide because the contact is standing in a loud hall with a
-# queue behind them; the thing that actually limits exposure is that the link
-# is handed over face to face and stops working as soon as it is used.
+# 24 hours, and the invite dies earlier the moment the contact presses the
+# start button. The window is this wide because the contact is standing in a
+# loud hall with a queue behind them; the thing that actually limits exposure
+# is that the link is handed over face to face and stops working as soon as it
+# is opened.
 INVITE_TTL_SECONDS = 24 * 3600
 # A visitor works one exhibition day on one phone. Long enough that nobody is
 # re-scanning their own badge between booths, short enough that a lost phone
 # stops being an open door overnight.
 VISITOR_SESSION_TTL_SECONDS = 12 * 3600
 
+# How long the OPEN page keeps working after its invite burned. The link
+# itself is dead to every device; this is the same browser's window to finish
+# the form, refresh included. Two hours, not the invite's 24: the contact is
+# holding the page right now, and the shorter the window the smaller the
+# chance a shared phone is still sitting on a live company form.
+EDIT_SESSION_TTL_SECONDS = 2 * 3600
+
 VISITOR_COOKIE = "padyar_visitor"
+EDIT_SESSION_COOKIE = "padyar_edit_s"
 
 # Where the contact got to. Nothing else is a status: `approved`/`rejected` are
 # a review outcome and live on `dataset_edits`.
@@ -84,6 +105,122 @@ STATUSES = ("unverified", "verified", "completed")
 DEAD_INVITE_MESSAGE = "اینجا چیزی برای نمایش نیست."
 
 MAX_EDIT_CHARS = 4000
+
+# ── What the contact may edit (migrations/0022) ──────────────────────────
+# The whole Persian profile, minus the organizer's own columns. English
+# fields (`title_en`, `text_en`) and `video_url` are the organizer's work and
+# stay admin-only; `booth_number`/`hall` are shown read-only so the contact
+# can spot a wrong assignment and call, not self-serve it.
+#
+# (name, max chars, required). Validation per field lives in
+# `_clean_edit_fields` — one function, because the diff, the confirm and the
+# review all have to agree on what a clean value is.
+EDITABLE_FIELDS = {
+    "title":            (200, True),
+    "text":             (MAX_EDIT_CHARS, True),
+    "activity_field":   (200, False),
+    "contact_name":     (100, False),
+    "contact_position": (100, False),
+    "contact_mobile":   (20, False),
+    "email":            (200, False),
+    "website":          (300, False),
+    "company_phone":    (24, False),
+    "fax":              (24, False),
+    "address":          (400, False),
+    "province":         (60, False),
+}
+# Read-only context the edit page shows beside the form.
+EDIT_CONTEXT_FIELDS = ("booth_number", "hall")
+
+EDIT_KINDS = ("change", "confirm")
+
+# One company read for every edit-page path: the editable profile plus the
+# read-only context the form shows beside it.
+_EDIT_COMPANY_COLUMNS = ("id, title, text, activity_field, contact_name,"
+                         " contact_position, contact_mobile, email, website,"
+                         " company_phone, fax, address, province,"
+                         " booth_number, hall")
+
+
+def _live_fields(company_row) -> dict:
+    return {f: (company_row[f] or "") for f in EDITABLE_FIELDS}
+
+
+def _page_state(row, company, expires_at: str = "") -> dict:
+    """The shape both the just-opened page and a refresh see.
+
+    `fields` is what sits in the boxes: the company's live values, overlaid
+    with the contact's own unreviewed draft when one exists (a legacy
+    text-only draft still applies to `text`). `context` is read-only display
+    data — booth and hall — so a wrong assignment gets called in, not
+    self-served. `expires_at` is the SESSION's clock (a session row's value,
+    or the freshly computed one on the open path).
+    """
+    fields = _live_fields(company)
+    pending = pending_edit_for(row["dataset_id"])
+    if pending:
+        if pending["new_values"]:
+            try:
+                fields.update(json.loads(pending["new_values"]))
+            except (ValueError, TypeError):
+                pass
+        else:
+            fields["text"] = pending["new_text"]
+    return {
+        "lead_id": row["lead_id"], "dataset_id": company["id"],
+        "issued_by_session": row["issued_by_session"],
+        "company": company["title"],
+        "fields": fields,
+        # Kept as a top-level key: the pending-note logic and older readers
+        # branch on it.
+        "text": fields["text"],
+        "live_text": company["text"] or "",
+        "pending": bool(pending),
+        "context": {f: (company[f] or "") for f in EDIT_CONTEXT_FIELDS},
+        "expires_at": expires_at or row["expires_at"],
+    }
+
+
+def _fold_digits(value: str) -> str:
+    """Persian digits fold to ASCII so a typed «۰۹…» phone stays comparable."""
+    return "".join(str("۰۱۲۳۴۵۶۷۸۹".find(ch)) if ch in "۰۱۲۳۴۵۶۷۸۹" else ch
+                   for ch in value)
+
+
+def _clean_edit_fields(payload: dict) -> dict:
+    """Validate one submission's fields. Returns {field: clean string}.
+
+    Every value must already be a string (the router checked the payload's
+    shape); this is where lengths, requiredness, and the two formats that
+    have a right and a wrong answer — mobile numbers and URLs — are decided.
+    """
+    cleaned = {}
+    for name, (max_chars, required) in EDITABLE_FIELDS.items():
+        value = payload.get(name, "")
+        if not isinstance(value, str):
+            raise LeadError("مقدار واردشده معتبر نیست.", code="bad_value")
+        value = _fold_digits(value).strip()
+        if required and not value:
+            what = "نام شرکت" if name == "title" else "متن معرفی"
+            raise LeadError(f"{what} نمی‌تواند خالی باشد.", code=f"empty_{name}")
+        if len(value) > max_chars:
+            raise LeadError("یکی از موارد بیش از حد مجاز بلند است.",
+                            code=f"{name}_too_long")
+        if name == "contact_mobile" and value:
+            normalized = otp_service.normalize_destination(value)
+            if normalized is None:
+                raise LeadError("شماره موبایل واردشده معتبر نیست.",
+                                code="bad_contact_mobile")
+            value = normalized
+        if name in ("company_phone", "fax") and value:
+            value = value.replace(" ", "")[:24]
+        if name == "email" and value and ("@" not in value or " " in value):
+            raise LeadError("نشانی ایمیل معتبر نیست.", code="bad_email")
+        if name == "website" and value and not value.lower().startswith(
+                ("http://", "https://")):
+            raise LeadError("نشانی وب‌سایت باید با http شروع شود.", code="bad_website")
+        cleaned[name] = value
+    return cleaned
 
 # How the invite reaches the contact. `qr` needs no gateway, no permission and
 # no delivery: the visitor shows their own screen. `sms` needs the account's
@@ -182,6 +319,7 @@ _TABLES = (
         duplicate_override_at  TEXT,
         released_at            TEXT,
         consent_script_version TEXT NOT NULL DEFAULT 'v1',
+        origin                 TEXT NOT NULL DEFAULT 'booth',
         created_at             TEXT NOT NULL,
         verified_at            TEXT,
         ip                     TEXT NOT NULL DEFAULT '',
@@ -196,7 +334,26 @@ _TABLES = (
         issued_by_session TEXT NOT NULL DEFAULT '',
         expires_at        TEXT NOT NULL,
         used_at           TEXT,
+        opened_at         TEXT,
         created_at        TEXT NOT NULL
+    )
+    """,
+    # The SQLite half of migrations/0021: what carries the open page after its
+    # invite burned. Same lifetime rule as the invite's own TTL but counted
+    # from the button press, and one row per opening — a submitted session is
+    # kept (submitted_at set), not deleted, so the audit trail of "who opened
+    # and finished" survives the cleanup that re-issuing does.
+    """
+    CREATE TABLE IF NOT EXISTS edit_sessions (
+        session_hash       TEXT PRIMARY KEY,
+        invite_hash        TEXT NOT NULL,
+        lead_id            TEXT NOT NULL,
+        dataset_id         TEXT NOT NULL,
+        issued_by_session  TEXT NOT NULL DEFAULT '',
+        expires_at         TEXT NOT NULL,
+        submitted_at       TEXT,
+        ip                 TEXT NOT NULL DEFAULT '',
+        created_at         TEXT NOT NULL
     )
     """,
     """
@@ -206,6 +363,9 @@ _TABLES = (
         lead_id      TEXT NOT NULL DEFAULT '',
         old_text     TEXT NOT NULL DEFAULT '',
         new_text     TEXT NOT NULL DEFAULT '',
+        old_values   TEXT,
+        new_values   TEXT,
+        edit_kind    TEXT NOT NULL DEFAULT 'change',
         status       TEXT NOT NULL DEFAULT 'pending',
         created_at   TEXT NOT NULL,
         reviewed_at  TEXT,
@@ -244,6 +404,7 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS ix_leads_status  ON company_leads(status)",
     "CREATE INDEX IF NOT EXISTS ix_edits_status  ON dataset_edits(status)",
     "CREATE INDEX IF NOT EXISTS ix_visitor_code  ON lead_visitors(code)",
+    "CREATE INDEX IF NOT EXISTS ix_edit_sessions_expiry ON edit_sessions(expires_at)",
     "CREATE INDEX IF NOT EXISTS ix_marketing_notes_dataset ON marketing_notes(dataset_id)",
     "CREATE INDEX IF NOT EXISTS ix_marketing_notes_created ON marketing_notes(created_at)",
 )
@@ -265,7 +426,24 @@ _SQLITE_UPGRADE = (
     "   WHEN 'duplicate' THEN 'unverified'"
     "   ELSE status END",
     "ALTER TABLE company_leads DROP COLUMN is_duplicate",
-    "DROP TABLE IF EXISTS edit_sessions",
+)
+
+# The SQLite half of migrations/0021: the invite now records when it was
+# opened (burned), and edit_sessions exists again in _TABLES above. An install
+# that still carries the 0005-shaped edit_sessions (from before 0006 dropped
+# it) has a table with no session_hash column; it is dropped and recreated
+# empty — its rows were 2-hour sessions from a previous exhibition and are
+# years expired either way.
+_SQLITE_UPGRADE_ONE_TIME_OPEN = (
+    "ALTER TABLE edit_invites ADD COLUMN opened_at TEXT",
+)
+
+# The SQLite half of migrations/0022: the multi-field edit and its kinds.
+_SQLITE_UPGRADE_EDIT_FIELDS = (
+    "ALTER TABLE dataset_edits ADD COLUMN old_values TEXT",
+    "ALTER TABLE dataset_edits ADD COLUMN new_values TEXT",
+    "ALTER TABLE dataset_edits ADD COLUMN edit_kind TEXT NOT NULL DEFAULT 'change'",
+    "ALTER TABLE company_leads ADD COLUMN origin TEXT NOT NULL DEFAULT 'booth'",
 )
 
 
@@ -280,8 +458,58 @@ def ensure_tables() -> None:
         conn.commit()
         if DB_BACKEND != "postgres":
             _upgrade_sqlite(conn)
+            _upgrade_sqlite_one_time_open(conn)
+            _upgrade_sqlite_edit_fields(conn)
     finally:
         conn.close()
+
+
+def _upgrade_sqlite_one_time_open(conn) -> None:
+    """Bring an install created before 0020 up to the one-time-open schema.
+
+    Same probe-then-write shape as _upgrade_sqlite: on a current database this
+    costs two cheap SELECTs and writes nothing.
+    """
+    needs = False
+    try:
+        conn.execute("SELECT opened_at FROM edit_invites LIMIT 1")
+    except Exception:  # noqa: BLE001 (any dialect's "no such column")
+        needs = True
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'edit_sessions'"
+    ).fetchone()
+    if exists:
+        try:
+            conn.execute("SELECT session_hash FROM edit_sessions LIMIT 1")
+        except Exception:  # noqa: BLE001 — the 0005 shape, or something older
+            conn.execute("DROP TABLE edit_sessions")
+            conn.execute(
+                [ddl for ddl in _TABLES if "edit_sessions" in ddl][0].strip()
+            )
+            needs = True
+    if not needs:
+        return
+    for statement in _SQLITE_UPGRADE_ONE_TIME_OPEN:
+        try:
+            conn.execute(statement)
+        except Exception as e:  # noqa: BLE001
+            logger.info("[leads] sqlite upgrade skipped: %s (%s)", statement[:60], e)
+    conn.commit()
+
+
+def _upgrade_sqlite_edit_fields(conn) -> None:
+    """The multi-field edit columns (migrations/0022), same probe pattern."""
+    try:
+        conn.execute("SELECT edit_kind FROM dataset_edits LIMIT 1")
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    for statement in _SQLITE_UPGRADE_EDIT_FIELDS:
+        try:
+            conn.execute(statement)
+        except Exception as e:  # noqa: BLE001
+            logger.info("[leads] sqlite upgrade skipped: %s (%s)", statement[:60], e)
+    conn.commit()
 
 
 def _upgrade_sqlite(conn) -> None:
@@ -1121,8 +1349,12 @@ def create_invite(lead_id: str, dataset_id: str, base_url: str,
     conn = get_db_connection()
     try:
         # A lead has ONE live invite. Re-issuing kills the previous one, so a
-        # rejected edit does not leave two working links behind.
+        # rejected edit does not leave two working links behind — and the page
+        # the old one opened dies with it, so there is never a second door
+        # into the same company.
         conn.execute("DELETE FROM edit_invites WHERE lead_id = ? AND used_at IS NULL",
+                     (lead_id,))
+        conn.execute("DELETE FROM edit_sessions WHERE lead_id = ? AND submitted_at IS NULL",
                      (lead_id,))
         conn.execute(
             "INSERT INTO edit_invites (token_hash, lead_id, dataset_id,"
@@ -1138,14 +1370,59 @@ def create_invite(lead_id: str, dataset_id: str, base_url: str,
             "expires_at": expires.isoformat(), "expires_in": INVITE_TTL_SECONDS}
 
 
-def invite_view(token: str, ip: str = "") -> dict:
-    """What the invite opens, WITHOUT burning it.
+def invite_alive(token: str, ip: str = "") -> bool:
+    """Whether GET should serve the start screen — a read, never a burn.
 
-    Opening the link, reading it, closing it and coming back an hour later is
-    normal behaviour, not an attack. Only a successful submit ends the invite.
+    Audits the same events the burn path audits (unknown, reused, expired,
+    with the caller's IP), but answers a bool: the router only chooses between
+    the gate page and the dead page here, and the audits keep a guessing run
+    visible in the log.
     """
     ensure_tables()
     token_hash = _digest(token or "")
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT lead_id, used_at, expires_at FROM edit_invites WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        _audit("invite_unknown", "", ip=ip)
+        return False
+    if row["used_at"]:
+        _audit("invite_reused", "", lead_id=row["lead_id"], ip=ip)
+        return False
+    if to_naive_utc(row["expires_at"]) < _now():
+        _audit("invite_expired", "", lead_id=row["lead_id"], ip=ip)
+        return False
+    return True
+
+
+def open_invite(token: str, ip: str = "", visitor_session: str = "",
+                from_booth_phone: bool = False) -> dict:
+    """Consume the one-time invite on the contact's button press.
+
+    This is the burn. GET never reaches here (messengers prefetch GETs), and a
+    refused booth phone does not reach the UPDATE either, so neither can spend
+    the company's one opening. The burn is the conditional UPDATE itself: a
+    hundred simultaneous presses produce exactly one session and ninety-nine
+    dead pages.
+
+    Returns the new session's SECRET plus the page state. The secret goes into
+    an HttpOnly cookie and is never stored raw — `edit_sessions` keeps only its
+    keyed HMAC, so a database read cannot forge a session.
+    """
+    ensure_tables()
+    # Hashed BEFORE the connection opens: _digest reads the HMAC key, which on
+    # a fresh install writes it, and a second writer inside an open write
+    # transaction is a self-inflicted "database is locked" (same note as
+    # create_invite).
+    token_hash = _digest(token or "")
+    secret = secrets.token_urlsafe(24)
+    session_hash = _digest(secret)
+    now = _now()
     conn = get_db_connection()
     try:
         row = conn.execute(
@@ -1157,33 +1434,97 @@ def invite_view(token: str, ip: str = "") -> dict:
         if row["used_at"]:
             _audit("invite_reused", "", lead_id=row["lead_id"], ip=ip)
             raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
-        if to_naive_utc(row["expires_at"]) < _now():
+        if to_naive_utc(row["expires_at"]) < now:
             _audit("invite_expired", "", lead_id=row["lead_id"], ip=ip)
             raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
+        # The booth guard, moved to the front of the one-time era: the person
+        # who captured the lead (or a phone whose /v cookie names nobody after
+        # a rotation) must not SPEND the link either. Checked before the burn
+        # so a refusal costs the contact nothing.
+        if from_booth_phone and (not visitor_session
+                                 or visitor_session == row["issued_by_session"]):
+            _audit("edit_refused_own_session", "", lead_id=row["lead_id"], ip=ip)
+            raise LeadError(DEAD_INVITE_MESSAGE, status=403, code="dead_invite")
+
+        cur = conn.execute(
+            "UPDATE edit_invites SET used_at = ?, opened_at = ?"
+            " WHERE token_hash = ? AND used_at IS NULL",
+            (now.isoformat(), now.isoformat(), token_hash),
+        )
+        if (cur.rowcount or 0) != 1:
+            _audit("invite_reused", "", lead_id=row["lead_id"], ip=ip)
+            raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
+
+        # Two hours, but never past the invite's own expiry — the contact may
+        # press the button in the invite's last minute.
+        expires = min(now + timedelta(seconds=EDIT_SESSION_TTL_SECONDS),
+                      to_naive_utc(row["expires_at"]))
+        conn.execute(
+            "INSERT INTO edit_sessions (session_hash, invite_hash, lead_id,"
+            " dataset_id, issued_by_session, expires_at, ip, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_hash, token_hash, row["lead_id"], row["dataset_id"],
+             row["issued_by_session"], expires.isoformat(), (ip or "")[:60],
+             now.isoformat()),
+        )
         company = conn.execute(
-            "SELECT id, title, text FROM companies WHERE id = ?", (row["dataset_id"],)
+            f"SELECT {_EDIT_COMPANY_COLUMNS} FROM companies WHERE id = ?",
+            (row["dataset_id"],),
+        ).fetchone()
+        if company is None:
+            # The company row is gone. The invite has burned; there is
+            # genuinely nothing here to show.
+            conn.commit()
+            _audit("invite_company_missing", "", lead_id=row["lead_id"], ip=ip)
+            raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _audit("invite_opened", "", lead_id=row["lead_id"], ip=ip)
+    state = _page_state(row, company, expires_at=expires.isoformat())
+    return {
+        "session_secret": secret,
+        "expires_at": expires.isoformat(),
+        "expires_in": int((expires - now).total_seconds()),
+        **state,
+    }
+
+
+def session_view(secret: str, ip: str = "") -> dict:
+    """What the open page is allowed to see, held by the cookie's secret.
+
+    A session that has submitted, expired, or never existed all answer with
+    the same sentence, for the same reason a used invite does: a different
+    answer tells a stranger the secret was real.
+    """
+    ensure_tables()
+    session_hash = _digest(secret or "")
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM edit_sessions WHERE session_hash = ?", (session_hash,)
+        ).fetchone()
+        if row is None:
+            _audit("session_unknown", "", ip=ip)
+            raise LeadError(DEAD_INVITE_MESSAGE, status=404, code="dead_invite")
+        if row["submitted_at"]:
+            _audit("session_reused", "", lead_id=row["lead_id"], ip=ip)
+            raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
+        if to_naive_utc(row["expires_at"]) < _now():
+            _audit("session_expired", "", lead_id=row["lead_id"], ip=ip)
+            raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
+        company = conn.execute(
+            f"SELECT {_EDIT_COMPANY_COLUMNS} FROM companies WHERE id = ?",
+            (row["dataset_id"],),
         ).fetchone()
     finally:
         conn.close()
     if company is None:
-        # The company row is gone. Same sentence as a dead link: there is
-        # genuinely nothing here to show.
-        _audit("invite_company_missing", "", lead_id=row["lead_id"], ip=ip)
+        _audit("session_company_missing", "", lead_id=row["lead_id"], ip=ip)
         raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
 
-    pending = pending_edit_for(row["dataset_id"])
-    return {
-        "lead_id": row["lead_id"], "dataset_id": company["id"],
-        "issued_by_session": row["issued_by_session"],
-        "company": company["title"],
-        # What they see in the box: their own unreviewed text if there is one,
-        # otherwise the live answer. Coming back must not silently discard a
-        # rewrite that was already sent.
-        "text": pending["new_text"] if pending else company["text"],
-        "live_text": company["text"],
-        "pending": bool(pending),
-        "expires_at": row["expires_at"],
-    }
+    return _page_state(row, company)
 
 
 def pending_edit_for(dataset_id: str) -> Optional[dict]:
@@ -1205,69 +1546,79 @@ def pending_edit_for(dataset_id: str) -> Optional[dict]:
 
 # ── The edit itself ──────────────────────────────────────────────────────
 
-def submit_edit(token: str, new_text: str, visitor_session: str = "",
-                ip: str = "", *, from_booth_phone: bool = False) -> dict:
-    """Queue the contact's rewrite for review and burn the invite.
+def submit_edit_session(secret: str, payload: dict, ip: str = "",
+                        confirm: bool = False) -> dict:
+    """Queue the contact's submission for review and end the session.
 
-    The live answer is untouched. Everything that can refuse this edit refuses
-    it BEFORE the burn, so a rejected submit leaves the link working.
+    A submission is one of two kinds (migrations/0022):
 
-    `visitor_session` is a lead_visitors.id, or "" for anyone not carrying a
-    /v cookie. The router turns the cookie into that id with
-    `visitor_id_for_session`; do not pass the cookie itself, or the guard
-    below starts comparing a live personal-link code and stops matching the
-    moment that link is rotated.
+    `change`  — fields differ from the live row. It lands as a PENDING edit
+                with both sides kept (`old_values`/`new_values`), and nothing
+                reaches `companies` until a human approves it.
+    `confirm` — the contact pressed "correct as-is": auto-approved, the
+                company row untouched, the lead `completed`. Pressing review
+                with no actual diff is the same thing — a form that came back
+                identical is a confirmation, not an empty draft to review.
 
-    `from_booth_phone` says whether the request carried a /v cookie AT ALL,
-    which is a different question from which visitor it named. Only booth
-    staff ever hold that cookie; a contact opening the link from an SMS never
-    does. So a request that carries one but names nobody is a booth phone
-    whose link was rotated or whose visitor row is gone, and it is refused.
-    Without this the phone the operator just cut off reads as an anonymous
-    contact and walks through the guard below, which is exactly the phone
-    rotation was used to lock out.
+    Either way the live answer is untouched here and the session burns with a
+    conditional UPDATE, so a double-submit produces exactly one row.
     """
-    view = invite_view(token, ip=ip)
-    text = (new_text or "").strip()
-    if not text:
-        raise LeadError("متن پاسخ نمی‌تواند خالی باشد.", code="empty_text")
-    if len(text) > MAX_EDIT_CHARS:
-        raise LeadError(f"متن پاسخ نباید از {MAX_EDIT_CHARS} نویسه بیشتر باشد.",
-                        code="text_too_long")
-    if from_booth_phone and (not visitor_session
-                             or visitor_session == view["issued_by_session"]):
-        _audit("edit_refused_own_session", view["company"], lead_id=view["lead_id"], ip=ip)
-        raise LeadError(DEAD_INVITE_MESSAGE, status=403, code="dead_invite")
+    view = session_view(secret, ip=ip)
+    live = _live_fields_for(view["dataset_id"])
+
+    if confirm:
+        cleaned = dict(live)
+        kind = "confirm"
+        diff = {}
+    else:
+        cleaned = _clean_edit_fields(payload)
+        diff = {f: (live[f], cleaned[f]) for f in EDITABLE_FIELDS
+                if cleaned[f] != live[f]}
+        kind = "change" if diff else "confirm"
 
     now = _now()
-    token_hash = _digest(token or "")
+    session_hash = _digest(secret or "")
     conn = get_db_connection()
     try:
-        # The burn is the gate. The condition lives in the UPDATE, so a hundred
-        # simultaneous submits produce exactly one row with `used_at` set and
-        # exactly one edit; the other ninety-nine read a rowcount of 0 here and
-        # never reach the INSERT.
         cur = conn.execute(
-            "UPDATE edit_invites SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
-            (now.isoformat(), token_hash),
+            "UPDATE edit_sessions SET submitted_at = ?"
+            " WHERE session_hash = ? AND submitted_at IS NULL",
+            (now.isoformat(), session_hash),
         )
         if (cur.rowcount or 0) != 1:
-            _audit("invite_reused", "", lead_id=view["lead_id"], ip=ip)
+            _audit("session_reused", "", lead_id=view["lead_id"], ip=ip)
             raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
 
-        # One live pending edit per company. Sending again replaces the draft
-        # instead of queueing a second one for the reviewer to reconcile.
+        # One live pending edit per company. A confirm replaces the draft the
+        # same way a new draft does: the contact saw the pending values in
+        # their boxes and chose to say "as-is" of the live ones instead, so
+        # the draft is abandoned, on the record.
         conn.execute(
             "UPDATE dataset_edits SET status = 'superseded', reviewed_at = ?"
             " WHERE dataset_id = ? AND status = 'pending'",
             (now.isoformat(), view["dataset_id"]),
         )
-        conn.execute(
-            "INSERT INTO dataset_edits (id, dataset_id, lead_id, old_text, new_text,"
-            " status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-            (secrets.token_urlsafe(12), view["dataset_id"], view["lead_id"],
-             view["live_text"], text, now.isoformat()),
-        )
+        if kind == "confirm":
+            conn.execute(
+                "INSERT INTO dataset_edits (id, dataset_id, lead_id, old_text,"
+                " new_text, edit_kind, status, created_at, reviewed_at, reviewed_by)"
+                " VALUES (?, ?, ?, ?, ?, 'confirm', 'approved', ?, ?, 'contact')",
+                (secrets.token_urlsafe(12), view["dataset_id"], view["lead_id"],
+                 live["text"], live["text"], now.isoformat(), now.isoformat()),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO dataset_edits (id, dataset_id, lead_id, old_text,"
+                " new_text, old_values, new_values, edit_kind, status, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'change', 'pending', ?)",
+                (secrets.token_urlsafe(12), view["dataset_id"], view["lead_id"],
+                 live["text"], cleaned["text"],
+                 json.dumps({f: old for f, (old, _) in diff.items()},
+                            ensure_ascii=False),
+                 json.dumps({f: new for f, (_, new) in diff.items()},
+                            ensure_ascii=False),
+                 now.isoformat()),
+            )
         conn.execute(
             "UPDATE company_leads SET status = 'completed' WHERE id = ? AND status = 'verified'",
             (view["lead_id"],),
@@ -1275,8 +1626,24 @@ def submit_edit(token: str, new_text: str, visitor_session: str = "",
         conn.commit()
     finally:
         conn.close()
-    _audit("edit_submitted", view["company"], lead_id=view["lead_id"], ip=ip)
-    return {"ok": True, "company": view["company"]}
+    _audit("edit_submitted", view["company"], lead_id=view["lead_id"],
+           ip=ip, kind=kind, changed=len(diff))
+    return {"ok": True, "company": view["company"], "kind": kind}
+
+
+def _live_fields_for(dataset_id: str) -> dict:
+    """The company's current editable values, as `submit` diffs against."""
+    conn = get_db_connection()
+    try:
+        company = conn.execute(
+            f"SELECT {_EDIT_COMPANY_COLUMNS} FROM companies WHERE id = ?",
+            (dataset_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if company is None:
+        raise LeadError(DEAD_INVITE_MESSAGE, status=410, code="dead_invite")
+    return _live_fields(company)
 
 
 def list_edits(status: str = "pending", limit: int = 200) -> list:
@@ -1284,7 +1651,8 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
 
     Columns are named rather than starred: this row goes to a browser, and
     `SELECT *` on a joined table hands over whatever column the next migration
-    adds.
+    adds. `old_values`/`new_values` ride along as parsed dicts (the queue
+    renders a per-field diff); a legacy text-only row keeps them None.
 
     `company_title` is the fallback name for a proposed company's first edit:
     that one has no `lead_id` (see propose_company), so `company_name` (joined
@@ -1295,7 +1663,8 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     conn = get_db_connection()
     try:
         rows = conn.execute(
-            "SELECT e.id, e.dataset_id, e.lead_id, e.old_text, e.new_text, e.status,"
+            "SELECT e.id, e.dataset_id, e.lead_id, e.old_text, e.new_text,"
+            " e.old_values, e.new_values, e.edit_kind, e.status,"
             " e.created_at, e.reviewed_at, e.reviewed_by, l.company_name,"
             " l.first_name, l.last_name, l.position, l.phone, c.title AS company_title"
             " FROM dataset_edits e LEFT JOIN company_leads l ON l.id = e.lead_id"
@@ -1308,6 +1677,16 @@ def list_edits(status: str = "pending", limit: int = 200) -> list:
     for r in rows:
         d = dict(r)
         d["phone"] = otp_service.mask_destination(d.get("phone") or "")
+        for key in ("old_values", "new_values"):
+            raw = d.get(key)
+            if raw:
+                try:
+                    d[key] = json.loads(raw)
+                except (ValueError, TypeError):
+                    d[key] = None
+            else:
+                d[key] = None
+        d.setdefault("edit_kind", "change")
         out.append(d)
     return out
 
@@ -1316,9 +1695,11 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
                 base_url: str = "") -> dict:
     """Approve (write into `companies`, reindex) or reject a pending edit.
 
-    Approval sends nothing: the text appears on the chatbot, which is the
-    notification. Rejection has to be told, and is told with a fresh 24-hour
-    invite so the contact can act on it.
+    Approval writes every field the contact changed (`new_values`, plus the
+    text via the legacy columns), and a changed `contact_mobile` flows back
+    to the lead it came from — the number the campaign texts is the number
+    the company itself last confirmed. Rejection has to be told, and is told
+    with a fresh 24-hour invite so the contact can act on it.
     """
     ensure_tables()
     now = _now()
@@ -1333,8 +1714,22 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
         if row["status"] != "pending":
             raise LeadError("این ویرایش قبلاً بررسی شده است.", code="already_reviewed")
         if approve:
-            conn.execute("UPDATE companies SET text = ? WHERE id = ?",
-                         (row["new_text"], row["dataset_id"]))
+            new_values = _json_or_none(row["new_values"]) or {}
+            sets = ", ".join(f"{f} = ?" for f in new_values)
+            if sets:
+                conn.execute(
+                    f"UPDATE companies SET {sets} WHERE id = ?",
+                    (*new_values.values(), row["dataset_id"]),
+                )
+            else:
+                conn.execute("UPDATE companies SET text = ? WHERE id = ?",
+                             (row["new_text"], row["dataset_id"]))
+            if "contact_mobile" in new_values and new_values["contact_mobile"] and row["lead_id"]:
+                conn.execute(
+                    "UPDATE company_leads SET phone = ?, phone_hash = ? WHERE id = ?",
+                    (new_values["contact_mobile"],
+                     _digest(new_values["contact_mobile"]), row["lead_id"]),
+                )
         conn.execute(
             "UPDATE dataset_edits SET status = ?, reviewed_at = ?, reviewed_by = ?"
             " WHERE id = ?",
@@ -1363,18 +1758,30 @@ def review_edit(edit_id: str, approve: bool, reviewer: str = "",
     return {**result, "notified": sent, "notify_error": reason}
 
 
-def revert_edit(edit_id: str, actor: str = "") -> dict:
-    """Put back the text an approval replaced.
+def _json_or_none(raw) -> Optional[dict]:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
 
-    `old_text` is the live answer as it was at the moment of submission, which
-    is the whole reason it is kept. One click, no retyping, and the edit leaves
-    the approved list so it cannot be reverted twice onto a newer text.
+
+def revert_edit(edit_id: str, actor: str = "") -> dict:
+    """Put back what an approval replaced.
+
+    `old_values` holds every field as it was at the moment of submission
+    (and `old_text` the answer, for the rows that predate the multi-field
+    edit), which is the whole reason both are kept. One click, no retyping,
+    and the edit leaves the approved list so it cannot be reverted twice onto
+    a newer text.
     """
     ensure_tables()
     conn = get_db_connection()
     try:
         row = conn.execute(
-            "SELECT id, dataset_id, old_text, status FROM dataset_edits WHERE id = ?",
+            "SELECT id, dataset_id, old_text, old_values, status FROM dataset_edits"
+            " WHERE id = ?",
             (edit_id,),
         ).fetchone()
         if row is None:
@@ -1382,8 +1789,16 @@ def revert_edit(edit_id: str, actor: str = "") -> dict:
         if row["status"] != "approved":
             raise LeadError("فقط یک ویرایش تأییدشده قابل برگرداندن است.",
                             code="not_revertable")
-        conn.execute("UPDATE companies SET text = ? WHERE id = ?",
-                     (row["old_text"], row["dataset_id"]))
+        old_values = _json_or_none(row["old_values"]) or {}
+        sets = ", ".join(f"{f} = ?" for f in old_values)
+        if sets:
+            conn.execute(
+                f"UPDATE companies SET {sets} WHERE id = ?",
+                (*old_values.values(), row["dataset_id"]),
+            )
+        else:
+            conn.execute("UPDATE companies SET text = ? WHERE id = ?",
+                         (row["old_text"], row["dataset_id"]))
         conn.execute("UPDATE dataset_edits SET status = 'reverted' WHERE id = ?", (edit_id,))
         conn.commit()
     finally:
@@ -1391,7 +1806,7 @@ def revert_edit(edit_id: str, actor: str = "") -> dict:
     from app.routers.dataset import _trigger_reindex
     _trigger_reindex()
     from app.services import applog
-    applog.audit("leads.edit_reverted", "متن تأییدشده به حالت قبل برگشت",
+    applog.audit("leads.edit_reverted", "تغییرات تأییدشده به حالت قبل برگشت",
                  actor=actor, target=edit_id)
     _audit("edit_reverted", edit_id, actor=actor)
     return {"ok": True, "status": "reverted"}
@@ -1560,8 +1975,10 @@ def delete_company(dataset_id: str, actor: str = "") -> dict:
         ).fetchall()
         lead_ids = [r["id"] for r in leads]
         # The edit queue too: an unreviewed draft for a deleted company must
-        # not sit in the reviewer's list as a ghost.
+        # not sit in the reviewer's list as a ghost, and a page the contact
+        # still has open must not submit into a company that is gone.
         conn.execute("DELETE FROM dataset_edits WHERE dataset_id = ?", (dataset_id,))
+        conn.execute("DELETE FROM edit_sessions WHERE dataset_id = ?", (dataset_id,))
         for lead_id in lead_ids:
             conn.execute("DELETE FROM edit_invites WHERE lead_id = ?", (lead_id,))
         conn.execute("DELETE FROM company_leads WHERE dataset_id = ?", (dataset_id,))
@@ -1629,6 +2046,8 @@ def release_lead(lead_id: str, actor: str = "", ip: str = "") -> dict:
         released = (cur.rowcount or 0) == 1
         if released:
             conn.execute("DELETE FROM edit_invites WHERE lead_id = ? AND used_at IS NULL",
+                         (lead_id,))
+            conn.execute("DELETE FROM edit_sessions WHERE lead_id = ? AND submitted_at IS NULL",
                          (lead_id,))
         conn.commit()
     finally:

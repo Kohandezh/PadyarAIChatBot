@@ -326,6 +326,146 @@ async function refreshAutofillCount() {
     } catch { badge.textContent = '—'; }
 }
 
+// ── Bulk confirm campaigns (migrations/0024) ─────────────────────────────
+// Text every company with a mobile on file, each with its own one-time edit
+// link. The send is paced on the server (~1/second) inside a background
+// task, so launching returns immediately and this panel polls the report.
+// Delivery ("did it arrive") is the outbox's word, polled by the button and
+// the background loop — a green "sent" here means the gateway took it, not
+// that a phone rang.
+
+const SMS_STATUS = {
+    delivered:    ['رسیده', 'success'],
+    queued:       ['در صف ارسال', 'warning'],
+    unknown:      ['وضعیت نامعلوم', 'secondary'],
+    failed:       ['ناموفق', 'danger'],
+    skipped:      ['رد شد (پیش‌نویس در بررسی)', 'secondary'],
+    send_failed:  ['ارسال نشد', 'danger'],
+};
+
+async function getJSON(url) {
+    const res = await fetchAuth(url);
+    if (!res.ok) return null;
+    return res.json().catch(() => null);
+}
+
+async function loadCampaigns() {
+    const data = await getJSON('/admin/api/leads/campaigns');
+    if (!data) return;
+    const cap = data.capability || {};
+    const capEl = document.getElementById('campaign-capability');
+    capEl.textContent = cap.available
+        ? `${fa(cap.audience)} شرکت شمارهٔ موبایل در پرونده دارند` +
+          (cap.dev ? ' — حالت آزمایشی: پیام‌ها در صندوق آزمایشی می‌نشینند' : '')
+        : (cap.reason || 'ارسال ممکن نیست.');
+    const textEl = document.getElementById('campaign-text');
+    if (!textEl.value.trim() && cap.text) textEl.value = cap.text;
+    document.getElementById('campaign-send').disabled = !cap.available;
+
+    const box = document.getElementById('campaign-history');
+    if (!(data.campaigns || []).length) {
+        box.innerHTML = '<p class="text-muted small mb-0">هنوز کمپینی ارسال نشده است.</p>';
+        return;
+    }
+    const statusFa = { running: ['در حال ارسال', 'warning'], done: ['تمام شد', 'success'], stopped: ['متوقف شد', 'danger'] };
+    box.innerHTML = data.campaigns.map(c => {
+        const [label, tone] = statusFa[c.status] || [c.status, 'secondary'];
+        const d = c.delivery || {};
+        const counts = [
+            `${fa(c.sent)} ارسال`,
+            c.skipped ? `${fa(c.skipped)} رد` : '',
+            c.failed ? `${fa(c.failed)} ناموفق` : '',
+            `${fa(d.delivered)} رسیده`,
+            `${fa(d.queued)} در صف`,
+        ].filter(Boolean).join('، ');
+        return `
+          <div class="border rounded p-2 mb-2" data-campaign="${esc(c.id)}">
+            <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center">
+              <span class="small">
+                <span class="badge bg-${tone} ms-1">${label}</span>
+                ${esc(new Date(c.created_at).toLocaleString('fa-IR'))}
+              </span>
+              <span class="small text-muted">${counts}</span>
+              <button class="btn btn-outline-secondary btn-sm" data-campaign-detail="${esc(c.id)}">
+                جزئیات
+              </button>
+            </div>
+            ${c.stop_reason ? `<div class="small text-danger mt-1">${esc(c.stop_reason)}</div>` : ''}
+            <div class="campaign-detail mt-2" id="campaign-detail-${esc(c.id)}" hidden></div>
+          </div>`;
+    }).join('');
+    box.querySelectorAll('[data-campaign-detail]').forEach(btn => {
+        btn.addEventListener('click', () => toggleCampaignDetail(btn.dataset.campaignDetail));
+    });
+}
+
+async function toggleCampaignDetail(campaignId) {
+    const box = document.getElementById(`campaign-detail-${campaignId}`);
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = '<span class="text-muted small">در حال بارگذاری…</span>';
+    const data = await getJSON(`/admin/api/leads/campaigns/${encodeURIComponent(campaignId)}`);
+    if (!data) { box.innerHTML = '<span class="text-muted small">خواندن جزئیات ناموفق بود.</span>'; return; }
+    const rows = (data.messages || []).map(m => {
+        const [label, tone] = SMS_STATUS[m.status] || [m.status, 'secondary'];
+        return `
+          <tr>
+            <td class="small">${esc(m.status_detail || m.reference || '—')}</td>
+            <td><span class="badge bg-${tone}">${label}</span></td>
+            <td class="small text-muted">${esc(m.status_checked_at
+                ? new Date(m.status_checked_at).toLocaleString('fa-IR') : '—')}</td>
+          </tr>`;
+    }).join('');
+    box.innerHTML = rows
+        ? `<table class="table table-sm mb-0"><tbody>${rows}</tbody></table>`
+        : '<span class="text-muted small">پیامی ثبت نشده است.</span>';
+}
+
+async function launchCampaign() {
+    const btn = document.getElementById('campaign-send');
+    const textEl = document.getElementById('campaign-text');
+    const progress = document.getElementById('campaign-progress');
+    if (!textEl.value.includes('{magic_link}')) {
+        alertBox('متن پیامک باید عبارت {magic_link} را داشته باشد؛ همان‌جا لینک هر شرکت جایگزین می‌شود.');
+        return;
+    }
+    const cap = (await getJSON('/admin/api/leads/campaigns') || {}).capability;
+    if (!cap || !cap.available) { alertBox(cap && cap.reason); return; }
+    if (!confirm(`به ${fa(cap.audience)} شرکت پیامک «بررسی و تأیید اطلاعات» ارسال شود؟ هر شرکت لینک یک‌بارمصرف خودش را می‌گیرد.`)) return;
+    btn.disabled = true;
+    progress.textContent = 'کمپین آغاز شد؛ در حال ارسال…';
+    const data = await post('/admin/api/leads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textEl.value.trim() }),
+    });
+    if (!data) { progress.textContent = ''; btn.disabled = false; return; }
+    // The send runs paced in the background; poll the report until it ends.
+    const timer = setInterval(async () => {
+        await loadCampaigns();
+        const state = (await getJSON('/admin/api/leads/campaigns') || {}).campaigns || [];
+        if (!state.some(c => c.status === 'running')) {
+            clearInterval(timer);
+            progress.textContent = 'ارسال تمام شد.';
+            btn.disabled = false;
+        }
+    }, 5000);
+}
+
+async function initCampaigns() {
+    const btn = document.getElementById('campaign-send');
+    if (!btn) return;
+    await loadCampaigns();
+    btn.addEventListener('click', launchCampaign);
+    document.getElementById('campaign-refresh').addEventListener('click', async () => {
+        const progress = document.getElementById('campaign-progress');
+        progress.textContent = 'در حال پرسیدن وضعیت از سامانهٔ پیامک…';
+        await post('/admin/api/sms/refresh-statuses');
+        progress.textContent = '';
+        await loadCampaigns();
+    });
+}
+
 async function initAutofill() {
     await refreshAutofillCount();
     const btn = document.getElementById('autofill-btn');
@@ -378,6 +518,7 @@ async function initAutofill() {
 }
 
 export function initCompanies() {
+    initCampaigns();
     modal = new bootstrap.Modal(document.getElementById('profile-modal'));
     companiesPager = createPager({
         pageSizeEl: document.getElementById('companies-page-size'),

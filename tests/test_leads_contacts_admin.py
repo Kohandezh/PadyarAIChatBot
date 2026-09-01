@@ -74,10 +74,13 @@ def test_admin_adds_a_contact_and_gets_a_working_invite(admin_client):
     from app.services import leads as svc
     assert all(c["id"] != "co-a" for c in svc.search_companies(""))
 
-    # The invite actually opens the edit page and a submit reaches the queue.
+    # The invite serves the one-time gate, the button press opens it, and a
+    # submit through the session reaches the queue.
     token = body["link"].rsplit("/edit/", 1)[1]
     assert admin_client.get(f"/edit/{token}").status_code == 200
-    r = admin_client.post(f"/api/leads/edit/{token}", json={"text": "متن تازه"})
+    assert admin_client.post(f"/api/leads/edit/{token}/begin").status_code == 200
+    r = admin_client.post("/api/leads/edit/submit", json={
+        "fields": {"title": "شرکت آ", "text": "متن تازه"}})
     assert r.status_code == 200
     edits = admin_client.get("/admin/api/leads/edits").json()["edits"]
     assert any(e["new_text"] == "متن تازه" and e["dataset_id"] == "co-a" for e in edits)

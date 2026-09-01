@@ -82,14 +82,17 @@ def test_reissue_mints_a_working_link_and_kills_the_previous(admin_client):
     assert "/edit/" in body["link"] and "<svg" in body["qr"]
 
     # The old link is dead (deleted, so 404 — same page as any other dead
-    # invite); the new one opens the edit page and a submit reaches the queue
-    # attributed to the same lead.
+    # invite); the new one serves the one-time gate, the button press opens
+    # it, and a submit through the session reaches the queue attributed to
+    # the same lead.
     old_token = first["invite_url"].rsplit("/edit/", 1)[1]
     assert admin_client.get(f"/edit/{old_token}").status_code in (404, 410)
     new_token = body["link"].rsplit("/edit/", 1)[1]
     assert admin_client.get(f"/edit/{new_token}").status_code == 200
-    assert admin_client.post(f"/api/leads/edit/{new_token}",
-                             json={"text": "متن تازه"}).status_code == 200
+    assert admin_client.post(f"/api/leads/edit/{new_token}/begin").status_code == 200
+    assert admin_client.get("/api/leads/edit/state").status_code == 200
+    assert admin_client.post("/api/leads/edit/submit", json={
+        "fields": {"title": "شرکت آ", "text": "متن تازه"}}).status_code == 200
     edits = admin_client.get("/admin/api/leads/edits").json()["edits"]
     assert any(e["lead_id"] == lead_id for e in edits)
 

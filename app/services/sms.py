@@ -160,6 +160,12 @@ _DEFAULT_INVITE_TEXT = ("جهت تأیید اطلاعات خود در چت‌ب�
                         "مراجعه کنید.\n{magic_link}")
 _DEFAULT_REJECT_TEXT = ("متن ثبت‌شدهٔ شرکت شما تأیید نشد. برای اصلاح آن به آدرس "
                         "زیر مراجعه کنید.\n{magic_link}")
+# The bulk "please confirm your details" campaign (migrations/0023). Same
+# {magic_link} rule as the two above; a separate sentence because it asks a
+# whole exhibition's worth of companies the same question at once.
+_DEFAULT_CAMPAIGN_TEXT = ("نمایشگاه INOTEX برای نمایش درست اطلاعات شرکت شما به "
+                          "تأیید خود شما نیاز دارد.\nلطفاً از طریق لینک زیر "
+                          "وارد شوید، اطلاعات را بررسی و تأیید کنید:\n{magic_link}")
 
 
 @dataclass(frozen=True)
@@ -191,6 +197,8 @@ ASANAK_FIELDS = (
     # because one field was blank.
     Field("sms_asanak_invite_text", "ASANAK_INVITE_TEXT", default=_DEFAULT_INVITE_TEXT),
     Field("sms_asanak_reject_text", "ASANAK_REJECT_TEXT", default=_DEFAULT_REJECT_TEXT),
+    # The bulk confirm campaign's text (app/services/campaigns.py reads it).
+    Field("sms_campaign_text", "SMS_CAMPAIGN_TEXT", default=_DEFAULT_CAMPAIGN_TEXT),
     # Global daily spend cap, counted across every message this module sends.
     # 0 = no cap; see the header for why that is the default.
     Field("sms_daily_budget", "SMS_DAILY_BUDGET", default="0"),
@@ -504,6 +512,15 @@ def _credentials() -> dict:
     }
 
 
+def _outbox(provider: str, kind: str, destination: str, msgid, reference: str = "",
+            campaign_id: str = ""):
+    """Hand one finished send to the outbox table. Lazy import, best effort:
+    the outbox is telemetry and must never be the reason a send fails."""
+    from app.services import sms_outbox
+    return sms_outbox.record(provider, kind, destination, msgid or "",
+                             reference=reference, campaign_id=campaign_id)
+
+
 def asanak_status(msgid: str):
     """Delivery status of a previously sent message (operator diagnostics)."""
     payload = _credentials()
@@ -628,6 +645,7 @@ def _send_template(template_id: str, destination: str, parameters: dict,
                 target=asanak_destination(destination),
                 metadata={"template_id": template_id, "msgid": msgid,
                           "destination": applog.mask_phone(destination)})
+    _outbox("asanak", subcategory, destination, msgid)
     return msgid
 
 
@@ -709,6 +727,7 @@ def send_asanak(destination: str, message: str, code: str = None):
                 duration_ms=int((time.perf_counter() - _started) * 1000),
                 metadata={"msgid": msgid,
                           "destination": applog.mask_phone(destination)})
+    _outbox("asanak", "freetext", destination, msgid)
     return msgid
 
 
@@ -751,7 +770,8 @@ def _dev_outbox(destination: str, purpose: str, link: str) -> None:
 
 
 def _send_link(destination: str, link: str, text_key: str,
-               subcategory: str, missing_detail: str, reference: str = ""):
+               subcategory: str, missing_detail: str, reference: str = "",
+               campaign_id: str = ""):
     """Deliver one link through the configured provider. Returns the msgid.
 
     Sends FREE TEXT through the same `sendsms` path `send_asanak`'s free-text
@@ -765,9 +785,10 @@ def _send_link(destination: str, link: str, text_key: str,
     Raises SmsError on every failure, never returns a falsy "probably fine".
     `reference` is a caller-side id (a lead id) kept in the log so an operator
     can answer "did this contact ever get the SMS" without the link itself.
-    The link — and the message text built from it — never reach a log line
-    or applog metadata; only the masked destination, msgid and
-    reference/subcategory do.
+    `campaign_id` ties the outbox row to the bulk send it belongs to, so the
+    campaign report is one query over sms_messages. The link — and the
+    message text built from it — never reach a log line or applog metadata;
+    only the masked destination, msgid and reference/subcategory do.
     """
     from app.db.queries import get_setting
     provider = (get_setting("sms_provider", "") or os.getenv("OTP_DELIVERY", "dev")).strip().lower()
@@ -778,6 +799,8 @@ def _send_link(destination: str, link: str, text_key: str,
                     provider="dev", subcategory=subcategory, outcome="queued",
                     metadata={"destination": applog.mask_phone(destination),
                               "reference": reference})
+        _outbox("dev", subcategory, destination, None, reference,
+                campaign_id=campaign_id)
         return None
 
     if not asanak_configured():
@@ -827,6 +850,8 @@ def _send_link(destination: str, link: str, text_key: str,
                 target=asanak_destination(destination),
                 metadata={"msgid": msgid, "reference": reference,
                           "destination": applog.mask_phone(destination)})
+    _outbox("asanak", subcategory, destination, msgid, reference,
+            campaign_id=campaign_id)
     return msgid
 
 
@@ -852,6 +877,21 @@ def send_reject_notice(destination: str, link: str, reference: str = ""):
     """
     return _send_link(destination, link, "sms_asanak_reject_text",
                       "reject", _MISSING_REJECT_TEXT, reference)
+
+
+def send_campaign_link(destination: str, link: str, campaign_id: str = "",
+                       reference: str = ""):
+    """The bulk "please confirm your details" message (app/services/campaigns.py).
+
+    Same failure contract as send_invite_link, plus one: `is_link_refusal(e)`
+    on this path stops the whole campaign rather than falling back to a QR —
+    a QR is a thing one shows one person, not a thing a campaign texts to a
+    hundred. The caller decides that; this just carries the campaign id onto
+    the outbox row so the report is one query.
+    """
+    return _send_link(destination, link, "sms_campaign_text",
+                      "campaign", _MISSING_INVITE_TEXT, reference,
+                      campaign_id=campaign_id)
 
 
 PROVIDERS = {
