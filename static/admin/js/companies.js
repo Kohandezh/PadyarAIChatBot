@@ -9,7 +9,7 @@
 // why those stay structurally separate from the profile fields below.
 
 import { API_BASE } from './state.js';
-import { fetchAuth, escapeHtml } from './utils.js';
+import { fetchAuth, escapeHtml, initBulkSelection } from './utils.js';
 import { createPager } from './pager.js';
 
 const fa = (n) => Number(n || 0).toLocaleString('fa-IR');
@@ -47,6 +47,7 @@ let searchTimer = null;
 let onlyMissing = false;
 let companiesPager = null;
 let currentSearch = '';
+let bulkSelection = null;
 
 function alertBox(text) {
     const el = document.getElementById('companies-alert');
@@ -96,8 +97,11 @@ async function load(q = '') {
     const withProfile = rows.filter(c => c.has_profile).length;
     document.getElementById('profile-count').textContent = fa(withProfile);
     const body = document.getElementById('companies');
+    // Rows are re-rendered wholesale: selections referencing them are gone,
+    // so the toolbar must not keep counting ghosts (same as dataset.js).
+    if (bulkSelection) bulkSelection.clear();
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">'
+        body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">'
             + (onlyMissing ? 'شرکتِ بی‌اطلاعِ باقی‌مانده‌ای در این صفحه نیست.'
                            : 'شرکتی پیدا نشد.') + '</td></tr>';
         return;
@@ -113,6 +117,7 @@ async function load(q = '') {
             : '<span class="text-muted small">—</span>';
         return `
         <tr data-id="${esc(c.id)}">
+          <td><input type="checkbox" class="form-check-input row-check" value="${esc(c.id)}" aria-label="انتخاب ${esc(c.title)}"></td>
           <td class="ps-4">${esc(c.title)}</td>
           <td>${orDash(c.contact_name)}${c.contact_position
               ? `<div class="text-muted small">${esc(c.contact_position)}</div>` : ''}</td>
@@ -130,6 +135,10 @@ async function load(q = '') {
           <td class="text-end">
             <button class="btn btn-sm btn-outline-primary" data-edit="1">
               <i class="fas fa-folder-open me-1"></i>پرونده
+            </button>
+            <button class="btn btn-sm btn-outline-danger" data-del="1"
+                    title="حذف شرکت">
+              <i class="fas fa-trash"></i>
             </button>
           </td>
         </tr>`;
@@ -517,9 +526,45 @@ async function initAutofill() {
     });
 }
 
+// ── Delete (single + bulk) ─────────────────────────────────────────────────
+// A delete takes the company's whole footprint with it — profile, curated
+// questions, capture history — and the chatbot stops answering for it. The
+// confirm says so in plain words because it is the one action here with no
+// undo.
+
+async function deleteCompanyRow(id, title) {
+    if (!confirm(`آیا از حذف «${title}» مطمئن هستید؟ اطلاعات و سرنخ‌های این شرکت هم حذف می‌شود و چت‌بات دیگر آن را معرفی نمی‌کند. این عمل قابل بازگشت نیست.`)) return;
+    const data = await post(
+        `/admin/api/company-profiles/${encodeURIComponent(id)}`,
+        { method: 'DELETE' });
+    if (!data) return;
+    await load(document.getElementById('company-search').value.trim());
+    await refreshAutofillCount();
+}
+
+async function bulkDeleteCompanies() {
+    const ids = bulkSelection ? bulkSelection.getSelected() : [];
+    if (!ids.length) return;
+    if (!confirm(`آیا از حذف ${fa(ids.length)} شرکت انتخاب‌شده مطمئن هستید؟ اطلاعات و سرنخ‌های آن‌ها هم حذف می‌شود و چت‌بات دیگر آن‌ها را معرفی نمی‌کند. این عمل قابل بازگشت نیست.`)) return;
+    const data = await post('/admin/api/company-profiles/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+    });
+    if (!data) return;
+    await load(document.getElementById('company-search').value.trim());
+    await refreshAutofillCount();
+}
+
 export function initCompanies() {
-    initCampaigns();
     modal = new bootstrap.Modal(document.getElementById('profile-modal'));
+    initCampaigns();
+    bulkSelection = initBulkSelection({
+        selectAllEl: document.getElementById('companies-select-all'),
+        toolbarEl: document.getElementById('companies-bulk-toolbar'),
+        countEl: document.getElementById('companies-bulk-count'),
+    });
+    bulkSelection.attach(document.getElementById('companies'));
     companiesPager = createPager({
         pageSizeEl: document.getElementById('companies-page-size'),
         prevBtnEl: document.getElementById('companies-btn-prev'),
@@ -531,13 +576,20 @@ export function initCompanies() {
 
     load().then(() => {
         document.getElementById('companies').addEventListener('click', async (ev) => {
+            const del = ev.target.closest('[data-del]');
+            if (del) {
+                const row = del.closest('[data-id]');
+                await deleteCompanyRow(row.dataset.id,
+                                       row.cells[1].textContent.trim());
+                return;
+            }
             const btn = ev.target.closest('[data-edit]');
             if (!btn) return;
             const row = btn.closest('[data-id]');
             const id = row.dataset.id;
             const data = await post(`/admin/api/company-profiles/${encodeURIComponent(id)}`);
             if (!data) return;
-            openModal({ id, title: row.cells[0].textContent.trim() }, data.profile,
+            openModal({ id, title: row.cells[1].textContent.trim() }, data.profile,
                      data.video_url, data.content, data.priority_boost);
         });
     });
@@ -627,6 +679,7 @@ export function initCompanies() {
     window.selectCompanyVideo = selectCompanyVideo;
     window.deleteCompanyMediaVideo = deleteCompanyMediaVideo;
     window.uploadFromCompanyMediaBrowser = uploadFromCompanyMediaBrowser;
+    window.bulkDeleteCompanies = bulkDeleteCompanies;
 
     document.getElementById('media-search')?.addEventListener('input', async () => {
         const res = await fetchAuth(API_BASE + '/videos');
