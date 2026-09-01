@@ -94,9 +94,15 @@ def read_crawl(conn) -> dict:
     answer some kinds and silently drop others.
     """
     out = {}
-    for name, sql, _t, _c, _pk in _GUIDE_TABLES:
+    for name, sql, _t, cols, _pk in _GUIDE_TABLES:
         try:
-            out[name] = [tuple(r) for r in conn.execute(sql).fetchall()]
+            # The pg layer returns rows as DICTS (the app-wide convention,
+            # r["column"]) — tuple(r) on a dict yields its KEYS, which is
+            # how the first production run fed the literal string "lat"
+            # into the lat column and died on the double-precision cast.
+            # Order every row by the table's own column contract instead.
+            out[name] = [tuple(r[c] for c in cols)
+                         for r in conn.execute(sql).fetchall()]
         except Exception as e:  # noqa: BLE001 — any backend, any dialect
             sys.exit(f"cannot read the crawl tables ({type(e).__name__}: {e}).\n"
                      "The crawl schema lives only on the production"
