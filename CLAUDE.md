@@ -845,9 +845,77 @@ The `docs/` folder is the project's knowledge base. Keep it current.
 
 One feature, one folder in `docs/features/{slug}/`.
 
+**Engineering standards:** before implementing any feature or endpoint, read
+`docs/ENGINEERING_STANDARDS.md`. It is the binding rulebook for API-first
+design, authorization, error handling, idempotency, and test depth. When it
+conflicts with a shortcut, the standards win.
+
 > `docs/_other-product-padyar-ai/` describes a DIFFERENT product (a pnpm/Next.js
 > monorepo) and is kept only for reference — never update it for work done here,
 > and never follow its setup instructions. See its README.
+
+---
+
+## Architecture-First Task Workflow
+
+For every task, do NOT immediately implement. First perform an architecture
+review.
+
+Your job is not to make the smallest patch that passes the current tests.
+Your job is to produce the smallest CORRECT architectural change that fits
+the entire system.
+
+If the requested approach is technically valid but architecturally inferior,
+do not blindly implement it. Explain why and propose the better design.
+
+Do not introduce a new pattern if an existing project-wide pattern already
+solves the problem.
+
+Do not create a local exception to compensate for a broken abstraction.
+
+Think about how this feature will behave when the system has:
+
+- 10x more data
+- multiple clients
+- concurrent requests
+- retries
+- partial failures
+- malicious clients
+- future developers
+- evolving API contracts
+
+Before coding, inspect the repository and identify the relevant existing
+abstractions.
+
+After coding, review your own implementation as a senior engineer and look
+specifically for:
+
+- unnecessary complexity
+- duplicated logic
+- security holes
+- race conditions
+- inconsistent API design
+- weak validation
+- missing authorization
+- hidden browser assumptions
+- poor error handling
+- scalability problems
+- insufficient tests
+
+Then improve the implementation before declaring the task complete.
+
+Non-negotiable rules:
+
+- Every resource endpoint must perform authentication and authorization
+  independently. Never infer authorization from possession of a resource ID.
+- Any endpoint returning an unbounded collection must define pagination. Do
+  not load an entire collection into memory.
+- Business rules must not be duplicated across route handlers. Shared domain
+  rules must have a single authoritative implementation.
+
+The concrete five-phase process — Understand, Architecture, Implement, Self
+Review, Verify — is in `docs/CODINGW_WORKFLOW_STANDARD.md`. Follow it for
+every task.
 
 ---
 

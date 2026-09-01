@@ -491,6 +491,49 @@ The full version, with the reasoning, is in `CLAUDE.md` under the same heading.
 
 One feature, one folder in `docs/features/{slug}/`.
 
+**Engineering standards:** `docs/ENGINEERING_STANDARDS.md` is the binding
+rulebook for API-first design, authorization, error handling, idempotency,
+and test depth. Read it before implementing any feature or endpoint. The full
+version lives there; `CLAUDE.md` -> "Documentation Rules" points to it too.
+
+---
+
+## Architecture-First Workflow
+
+For every task, do NOT immediately implement — first perform an architecture
+review. The goal is the smallest CORRECT architectural change that fits the
+entire system, not the smallest patch that passes the current tests. If the
+requested approach is architecturally inferior, do not blindly implement it —
+explain why and propose the better design. Reuse existing project-wide
+patterns; never create a local exception to compensate for a broken
+abstraction.
+
+Think ahead: 10x more data, multiple clients, concurrent requests, retries,
+partial failures, malicious clients, future developers, evolving API
+contracts.
+
+Before coding, inspect the repo and identify the relevant existing
+abstractions. After coding, self-review as a senior engineer — unnecessary
+complexity, duplicated logic, security holes, race conditions, inconsistent
+API design, weak validation, missing authorization, hidden browser
+assumptions, poor error handling, scalability problems, insufficient tests —
+and improve before declaring the task complete.
+
+The full version is in `CLAUDE.md` under "Architecture-First Task Workflow".
+
+Non-negotiable rules:
+
+- Every resource endpoint must perform authentication and authorization
+  independently. Never infer authorization from possession of a resource ID.
+- Any endpoint returning an unbounded collection must define pagination. Do
+  not load an entire collection into memory.
+- Business rules must not be duplicated across route handlers. Shared domain
+  rules must have a single authoritative implementation.
+
+The concrete five-phase process — Understand, Architecture, Implement, Self
+Review, Verify — is in `docs/CODINGW_WORKFLOW_STANDARD.md`. Follow it for
+every task.
+
 ---
 
 ## Session Handoff — 2026-08-14 (INOTEX instance, Padyar platform)
