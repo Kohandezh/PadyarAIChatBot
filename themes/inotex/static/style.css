@@ -1844,20 +1844,22 @@ body.light-mode .theme-btn .theme-icon-sun { display: inline-flex; }
 /* The 3-4 tappable follow-ups the assistant offers under its latest
    answer (server side: app/services/suggestions.py; frontend wiring:
    renderSuggestions() in static/chat/core.js, container from the theme's
-   suggestions.html partial). The row docks in the band base.css leaves
-   under the transcript (#text-view height is calc(100% - 117px)), centred
-   on the reading measure — always in the same place, one tap sends.
-   Every color reads from the theme's semantic tokens, which all feed
-   from the --wl-* branding custom properties (Settings > Branding owns
-   ALL theme colors). */
+   suggestions.html partial). The row floats above the input region
+   (bottom: 135px), centred on the reading measure, and keeps every chip
+   on ONE horizontal line: the row scrolls sideways instead of wrapping,
+   so overflow never stacks chips over the input. Every color reads from
+   the theme's semantic tokens, which all feed from the --wl-* branding
+   custom properties (Settings > Branding owns ALL theme colors). */
 .chat-suggestions {
     position: absolute;
-    bottom: 12px;
+    bottom: 135px;
     left: 50%;
     transform: translateX(-50%);
     width: min(var(--chat-measure), calc(100% - 24px));
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 5px 5px 12px;
     gap: 8px;
     z-index: 5;
 }
@@ -1873,6 +1875,8 @@ body.video-mode .chat-suggestions { display: none; }
     border: var(--border-width) solid var(--color-border-interactive);
     border-radius: 999px;
     color: var(--color-text-primary);
+    flex: 0 0 auto;
+    white-space: nowrap;
     min-height: 40px;
     padding: 8px 16px;
     font-size: 13px;
