@@ -156,6 +156,33 @@ def test_a_pick_turn_records_the_record_and_the_clip_it_played(client):
     assert answer["video_url"].endswith(".mp4"), answer
 
 
+# ── X-Message-Id: the reply's own row id, for InotexPWA's feedback control ─
+#
+# A Bearer/cross-origin client cannot read the assistant row's id any other
+# way for a message it JUST received live — GET /api/chat/conversations/{id}
+# (which does carry `id` on every row, via _message_row) only has something
+# to return once the conversation is reopened later. The header is how the
+# SAME turn's reply can be rated with POST /api/chat/messages/{id}/feedback
+# right away.
+
+def test_the_response_carries_the_assistant_rows_own_id(client):
+    r = _ask(client, LIST_QUESTION)
+    assert r.status_code == 200, r.text
+
+    answer_row = _messages()[-1]
+    assert answer_row["role"] == "assistant"
+    assert r.headers.get("X-Message-Id") == str(answer_row["id"])
+
+
+def test_a_second_turn_gets_a_different_message_id(client):
+    first = _ask(client, LIST_QUESTION)
+    second = _ask(client, CURATED_QUESTION)
+
+    assert first.headers["X-Message-Id"] != second.headers["X-Message-Id"]
+    # And it is always the newest assistant row, never a stale one.
+    assert second.headers["X-Message-Id"] == str(_messages()[-1]["id"])
+
+
 def test_the_curated_questions_tier_is_written_too(client):
     r = _ask(client, CURATED_QUESTION)
     assert r.status_code == 200, r.text
@@ -288,6 +315,12 @@ def test_a_question_nobody_answered_keeps_its_visitor_message(client, monkeypatc
     rows = _messages()
     assert [m["role"] for m in rows] == ["visitor"], rows
     assert rows[0]["text"] == "یک پرسش بی‌پاسخ"
+    # No assistant row was written, so there is nothing an X-Message-Id could
+    # correctly name — and FastAPI's exception handling replaces the injected
+    # Response outright on a raised HTTPException anyway (same reason the
+    # padyar_conv cookie set earlier in this same request never reaches a
+    # 503, per the comment beside response.set_cookie in chat_endpoint).
+    assert "X-Message-Id" not in r.headers
 
 
 # ── Registering halfway through ──────────────────────────────────────────

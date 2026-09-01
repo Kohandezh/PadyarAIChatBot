@@ -3,11 +3,11 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-08-30 |
-| Updated | 2026-08-30 |
+| Updated | 2026-09-01 |
 | Status | Draft |
 | Domain | pwa_api |
 | Author | تیم پادیار |
-| Sources | InotexPWA repo — `docs/ARCHITECTURE.md` §۲، `docs/API.md` (منبع اصلی نیازمندی‌ها)، تصمیم‌های مالک محصول و عامل برنامه‌ریزی، ۲۰۲۶-۰۸-۳۰ |
+| Sources | InotexPWA repo — `docs/ARCHITECTURE.md` §۲، `docs/API.md` (منبع اصلی نیازمندی‌ها)، تصمیم‌های مالک محصول و عامل برنامه‌ریزی، ۲۰۲۶-۰۸-۳۰؛ گروه F (۲۰۲۶-۰۹-۰۱) توسط orchestrator نشست InotexPWA بررسی و به همین مخزن سفارش داده شد — کد و تست‌ها اینجا |
 
 این سند صرفاً تصمیم‌های از قبل گرفته‌شده را به شکل یک اسپک قابل‌اجرا در همین
 مخزن (PadyarAIChatbot) می‌نویسد. طراحی مجدد نمی‌کند. هر کجا که رفتار فعلی کد
@@ -146,6 +146,12 @@ directory_is_not_published`) نشان می‌دهد تا امروز عدم ان�
 | `app/db/connection.py` | ستون `visitor_settings` روی `visitors` برای بک‌اند تست SQLite |
 | `migrations/0017_visitor_settings.sql` (جدید) | schema فقط برای D |
 | `tests/test_pwa_api.py` (جدید) | تست این ماژول |
+| `app/routers/chat.py` (۲۰۲۶-۰۹-۰۱) | گروه F: هدر `X-Conversation-Id` در `/chat`، هدرهای پاسخ، endpoint تازهٔ feedback — کد در ماژول core (`chat`)، نه در `pwa_api` |
+| `app/services/conversations.py` (۲۰۲۶-۰۹-۰۱) | گروه F: تابع تازهٔ `set_message_feedback` |
+| `app/models.py` (۲۰۲۶-۰۹-۰۱) | گروه F: مدل تازهٔ `MessageFeedbackRequest` |
+| `app/db/connection.py`، `migrations/0025_message_feedback.sql` (۲۰۲۶-۰۹-۰۱) | گروه F: ستون `feedback` روی `messages` |
+| `app/main.py` (۲۰۲۶-۰۹-۰۱) | گروه F: `expose_headers` روی `CORSMiddleware` |
+| `tests/test_chat_visitor_identity.py`، `tests/test_chat_transcript.py`، `tests/test_message_feedback.py` (جدید، ۲۰۲۶-۰۹-۰۱) | تست گروه F |
 
 هیچ جدول یا ستونی روی `companies`، `company_leads` یا `dataset_owners` تغییر
 نمی‌کند.
@@ -285,6 +291,73 @@ directory_is_not_published`) نشان می‌دهد تا امروز عدم ان�
   mint می‌شود، نه کش می‌شود — یک گوشی گم‌شده یا افتاده‌دست‌کسی نباید یک QR
   همیشه‌معتبر روی صفحه‌اش داشته باشد.
 
+### گروه F: تداوم گفتگو (Bearer) + بازخورد پیام (۲۰۲۶-۰۹-۰۱)
+
+این گروه در همین مخزن (نه در ماژول `pwa_api`، بلکه در `app/routers/chat.py`
+موجود) پیاده‌سازی شد، چون هر دو نیازمندی مستقیماً روی endpoint `/chat` و
+جدول `messages` سوارند — همان endpoint و جدولی که پیش از این گروه هم توسط
+InotexPWA (با توکن چتِ مینت‌شده از REQ-009 تا REQ-012) صدا زده می‌شد. کد آن
+در ماژول core (`chat`) است، نه در ماژول اختیاری `pwa_api` — دلیلش این است که
+`/chat` قبلاً هم برای هر کلاینتی (وب کوکی‌محور یا Bearer) یکی است؛ اضافه‌کردن
+یک مسیر دوم فقط برای Bearer یعنی دو پیاده‌سازی جدا از یک پایپ‌لاین که باید
+همیشه هم‌رفتار بمانند.
+
+**صورت مسئله:** تداوم گفتگوی `/chat` تا امروز فقط از طریق کوکی httpOnly
+`padyar_conv` کار می‌کرد (`response.set_cookie` در `app/routers/chat.py`).
+یک کلاینت Bearer/cross-origin مثل InotexPWA (`withCredentials: false`) هرگز
+نمی‌تواند این کوکی را بفرستد یا بخواند، پس هر پیام آن یک `conversation_id`
+تصادفی تازه می‌گرفت (`applog.new_id()`) و ربات هر بار «همه‌چیز را فراموش
+می‌کرد» — درحالی‌که چت وب بومی همان نصب با همان endpoint، از طریق کوکی، حافظه
+را درست حفظ می‌کند.
+
+- REQ-020: `conversation_id` در `chat_endpoint`
+  (`app/routers/chat.py`، جایی که `conversations.continuable_conversation_id`
+  صدا زده می‌شود) از هدر درخواست `X-Conversation-Id` هم می‌خواند، **قبل از**
+  کوکی `padyar_conv`: `headers.get("x-conversation-id") or
+  cookies.get("padyar_conv") or ""`. هر دو کانال از همان یک تابع
+  `continuable_conversation_id()` عبور می‌کنند — یعنی قاعدهٔ مالکیت (بخش
+  «AND WHOSE conversation is it» در همان فایل: یک `conversation_id` متعلق به
+  بازدیدکنندهٔ دیگر رد می‌شود و شناسهٔ تازه صادر می‌شود) عیناً روی هر دو کانال
+  اعمال می‌شود — هیچ سطح اعتماد تازه‌ای برای هدر باز نشد.
+- REQ-021: چرا هدر روی کوکی اولویت دارد (نه برعکس): کلاینتی که عمداً هدر را
+  می‌فرستد صریح‌تر از کوکی‌ای است که خود مرورگر خودکار می‌چسباند؛ یک کلاینت
+  بومی که یک webview هم دارد می‌تواند هر دو را داشته باشد، و چون بررسی
+  مالکیت روی هر دو کانال یکسان است، این ترتیب هیچ ریسک تازه‌ای اضافه
+  نمی‌کند.
+- REQ-022: پاسخ موفق `/chat` همیشه هدر `X-Conversation-Id` را حمل می‌کند —
+  چه کلاینت هدر فرستاده باشد چه نه، چه کوکی داشته باشد چه نه (همان الگوی
+  echo کوکی که از قبل هست، فقط روی کانال هدر هم). مسیرهای خطا (۴۰۰/۴۲۹/۵۰۳)
+  این هدر را ندارند — هیچ پاسخی سرو نشده، همان استثنای کوکی.
+- REQ-023: پاسخ موفق `/chat` هدر `X-Message-Id` را هم حمل می‌کند: id سطر
+  `messages` که پاسخ دستیار در آن نوشته شد. این جدا از REQ-022 است چون یک
+  کلاینت Bearer راهی برای خواندن id همان پیامی که همین الان زنده دریافت کرده
+  ندارد — `GET /api/chat/conversations/{id}` (که id را روی هر سطر برمی‌گرداند)
+  فقط وقتی چیزی برای برگرداندن دارد که گفتگو بعداً دوباره باز شود. روی
+  مسیرهایی که هیچ پیام دستیاری نوشته نمی‌شود (مثلاً پاسخ ناموفق ۵۰۳ که فقط
+  پیام بازدیدکننده را نگه می‌دارد) این هدر اصلاً ست نمی‌شود — نه خطا،
+  فقط غایب.
+- REQ-024: `POST /api/chat/new-conversation` (endpoint موجود «فراموش کن») هیچ
+  تغییری نگرفت. کارش حذف همان کوکی سرور-نوشته‌شده است؛ یک کلاینت Bearer از
+  اول کوکی‌ای نداشت که حذف شود — «شروع تازه» برایش یعنی «هدر
+  `X-Conversation-Id` را در پیام بعدی نفرست»، که به‌خودی‌خود شناسهٔ تازه
+  می‌گیرد (REQ-020). تصمیم و دلیلش به‌صورت کامنت کد هم در بالای همان
+  endpoint (`app/routers/chat.py`) نوشته شده.
+- REQ-025: `POST /api/chat/messages/{message_id}/feedback` (endpoint تازه)
+  یک پیام دستیار متعلق به گفتگوی خودِ بازدیدکننده را «پسندیدم / نپسندیدم»
+  می‌کند. بدنه: `{"rating": "up" | "down" | null}` — `null` یا نبود فیلد یعنی
+  پاک‌کردن بازخورد قبلی (همان رفتار «دوباره لمس کردن یک دکمهٔ فعال یعنی
+  لغوش کن»). پاسخ موفق `{"ok": true}`. `404` وقتی پیام وجود ندارد یا به
+  گفتگوی بازدیدکنندهٔ دیگری تعلق دارد — همان الگوی «قابل‌تفکیک‌نبودن این دو
+  حالت از بیرون» که `GET`/`DELETE /api/chat/conversations/{id}` از قبل
+  دارند (`docs/features/visitor-chat-history/SPEC.md` REQ-002/REQ-003).
+  گیت‌شده با `Depends(visitor_auth.require_visitor)` و
+  `Depends(validate_request_origin)`، دقیقاً مثل آن دو endpoint.
+- REQ-026: `messages.feedback` (migration 0025, ستون TEXT، پیش‌فرض `''`،
+  مقادیر `'up'`/`'down'`/`''`) روی هر سطر `GET /api/chat/conversations/{id}`
+  هم برمی‌گردد، چون `conversation_messages()` از قبل `SELECT *` می‌زند —
+  یعنی بازدیدکننده‌ای که یک گفتگوی قدیمی را دوباره باز می‌کند، بازخورد
+  قبلی‌اش را هم می‌بیند، بدون هیچ تغییر کدی روی مسیر خواندن.
+
 ---
 
 ## ۸. نیازمندی‌های غیرکارکردی
@@ -385,6 +458,8 @@ InotexPWA (native / cross-origin web)
 | DELETE | `/api/me/calendar/{event_id}` | جدید: حذف یک رویداد (REQ-016) |
 | POST | `/api/me/contacts/connect` | جدید: اتصال دو بازدیدکننده با QR (REQ-017) |
 | GET | `/api/me/qr` | جدید: QR شخصی کوتاه‌عمر (REQ-018، REQ-019) |
+| POST | `/chat` | تغییر (۲۰۲۶-۰۹-۰۱، `app/routers/chat.py`): `conversation_id` از هدر `X-Conversation-Id` هم می‌خواند (اولویت با هدر)؛ پاسخ موفق هدرهای `X-Conversation-Id` و `X-Message-Id` را حمل می‌کند (REQ-020 تا REQ-023) |
+| POST | `/api/chat/messages/{message_id}/feedback` | جدید (۲۰۲۶-۰۹-۰۱، `app/routers/chat.py`): بازخورد up/down/پاک‌کردن روی یک پیام (REQ-025) |
 
 ### ۹.۳ تغییرات دیتابیس
 
@@ -411,8 +486,28 @@ connection.py` برای بک‌اند تست SQLite هم آینه‌کاری م�
 همان الگوی `answers TEXT NOT NULL DEFAULT '{}'` که همین جدول از قبل دارد،
 خط ۳۹۶).
 
-هیچ جدول یا ستون دیگری لازم نیست: بخش B فقط می‌خواند
-(`app.companies`، از قبل موجود)، بخش A و C هیچ schema تازه‌ای نمی‌خواهند.
+بخش B فقط می‌خواند (`app.companies`، از قبل موجود)، بخش A و C هیچ schema
+تازه‌ای نمی‌خواهند.
+
+**۲۰۲۶-۰۹-۰۱ — گروه F:** `migrations/0025_message_feedback.sql`:
+
+```sql
+ALTER TABLE app.messages ADD COLUMN IF NOT EXISTS feedback TEXT NOT NULL DEFAULT '';
+```
+
+آینه‌کاری SQLite در `app/db/connection.py`: ستون در تعریف
+`CREATE TABLE IF NOT EXISTS messages` اضافه شد، به‌علاوهٔ یک پاس `ALTER
+TABLE` برای دیتابیس‌های تست موجود که از قبل این جدول را داشتند — همان الگوی
+`ensure_chat_log_columns()` که این فایل از قبل برای `chat_logs` دارد.
+
+**همچنین (بدون migration، فقط پیکربندی):** `app/main.py`، `CORSMiddleware`
+مقدار `expose_headers=["X-Conversation-Id", "X-Message-Id"]` گرفت. بدون این،
+`allow_headers=["*"]` کافی نبود — آن فقط چیزی را که **مرورگر می‌فرستد** پوشش
+می‌دهد؛ هدری که **سرور برمی‌گرداند** روی یک پاسخ cross-origin برای JS صفحه
+نامرئی می‌ماند مگر صریحاً expose شود. بدون این خط، REQ-022/REQ-023 در کد
+درست کار می‌کردند ولی هیچ `fetch()` مرورگری در InotexPWA نمی‌توانست این دو
+هدر را بخواند — نوع باگی که فقط در مرورگر واقعی دیده می‌شود، نه در تست
+`TestClient`/`httpx` که این محدودیت CORS را اصلاً شبیه‌سازی نمی‌کند.
 
 ---
 

@@ -873,6 +873,48 @@ def delete_conversation_for_visitor(conversation_id: str, visitor_id: str) -> bo
         conn.close()
 
 
+_FEEDBACK_VALUES = {"up", "down"}
+
+
+def set_message_feedback(message_id, visitor_id: str, rating) -> bool:
+    """Rate one of the visitor's OWN messages 'up' / 'down', or clear it.
+
+    Same ownership shape as delete_conversation_for_visitor: the check is a
+    JOIN through conversations.visitor_id, never a visitor_id trusted off the
+    request, and the caller cannot tell "no such message" apart from "exists,
+    but is not yours" — both return False, and the router turns that into one
+    404 either way (get_conversation_for_visitor documents the same reason).
+
+    `rating` outside {"up", "down"} (including None/"" — a visitor tapping an
+    already-active thumb again to take it back) clears the column to '',
+    rather than being rejected: the router already validates the Pydantic
+    field's type, so anything reaching here that is not "up"/"down" is a
+    clear, not an error.
+    """
+    if not message_id or not visitor_id:
+        return False
+    value = rating if rating in _FEEDBACK_VALUES else ""
+    conn = get_db_connection()
+    try:
+        owned = conn.execute(
+            "SELECT 1 FROM messages m JOIN conversations c"
+            " ON c.id = m.conversation_id"
+            " WHERE m.id = ? AND c.visitor_id = ?",
+            (message_id, visitor_id)).fetchone()
+        if not owned:
+            return False
+        conn.execute("UPDATE messages SET feedback = ? WHERE id = ?",
+                     (value, message_id))
+        conn.commit()
+        return True
+    except Exception as e:  # noqa: BLE001 — see the module docstring
+        logger.error("[conversations] set_message_feedback failed: %s: %s",
+                     type(e).__name__, e)
+        return False
+    finally:
+        conn.close()
+
+
 # ── Visitor settings (calendar, contacts, language) ────────────────────────
 # Same {} → dict contract as `answers` above, on the sibling `visitor_settings`
 # column (migrations/0017_visitor_settings.sql). See

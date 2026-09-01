@@ -1,0 +1,31 @@
+-- Let a visitor rate one of the bot's own replies: thumbs up / down.
+--
+-- WHY A COLUMN ON `messages` AND NOT A NEW TABLE
+-- ------------------------------------------------
+-- `messages` (migrations/0010_conversations.sql) is already one row per
+-- message, tied to a conversation, tied to a visitor. Feedback is a fact
+-- about ONE message, given by the ONE visitor who owns the conversation it
+-- belongs to — there is no second actor, no history of changing one's mind
+-- worth keeping, and no query shape that needs its own table. CLAUDE.md's
+-- "No unnecessary abstraction" rule applies directly: three states on the
+-- row that already IS the message beats a `message_feedback` table that
+-- would exist to hold one TEXT value with a 1:1 relationship to `messages.id`.
+--
+-- WHY A THREE-STATE TEXT AND NOT A BOOLEAN
+-- ------------------------------------------
+-- 'up' / 'down' / '' (the default, meaning "no feedback given") is not
+-- representable as a single BOOLEAN, which can only tell "up" apart from
+-- "everything else" and would need a second nullable column to also
+-- distinguish "down" from "never rated" — two columns for one fact. Same
+-- '' -> "no value yet" convention this table already uses on `source`,
+-- `entry_id` and `video_url` (migrations/0010_conversations.sql), so a reader
+-- of this table does not learn a second empty-string convention.
+--
+-- WHAT THIS DESTROYS: nothing. One column, defaulting to '' on every existing
+-- row, which is exactly "never rated" — the state every message was already
+-- in. There is no downgrade path: rolling back means restoring a backup
+-- (app/services/pg_backup.py).
+--
+-- Take a backup before running this.
+
+ALTER TABLE app.messages ADD COLUMN IF NOT EXISTS feedback TEXT NOT NULL DEFAULT '';

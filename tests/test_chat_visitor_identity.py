@@ -494,3 +494,108 @@ class TestConversationOwnership:
 
         assert first == second
         assert _owner(conv) == first
+
+
+# ── X-Conversation-Id: the Bearer/cross-origin path ──────────────────────
+#
+# InotexPWA (Bearer-token, cross-origin, `withCredentials: false`) can never
+# send or read the httpOnly `padyar_conv` cookie — this is the header that
+# stands in for it. The ownership rules above are exercised again here
+# because continuable_conversation_id() is the SAME function either way; the
+# only thing under test in this section is which channel carries the id.
+
+def _ask_with_header(client, conversation_id=None, message=PLAIN_QUESTION):
+    headers = {}
+    if conversation_id is not None:
+        headers["X-Conversation-Id"] = conversation_id
+    return client.post("/chat", json={"message": message, "lang": "fa"},
+                       headers=headers)
+
+
+class TestConversationIdHeader:
+
+    def test_every_successful_response_carries_the_header(self, client):
+        r = _ask(client, PLAIN_QUESTION)
+
+        assert r.status_code == 200, r.text
+        assert r.headers.get("X-Conversation-Id"), "header missing"
+        # And it names the same conversation the cookie does — one id, two
+        # channels, never two different conversations for one turn.
+        assert r.headers["X-Conversation-Id"] == _conv(r)
+
+    def test_a_bearer_style_client_continues_via_the_header_alone(self, app):
+        """No cookie at all — only the header, exactly as a cross-origin
+        Bearer client (no cookie jar it can read or send) would call it.
+        `httpx`'s TestClient DOES keep a jar and would otherwise resend the
+        Set-Cookie from the first response on its own, which would prove
+        nothing about the header — so it is dropped between calls, the same
+        way `test_the_gate_never_reads_a_header_or_a_body_field` above
+        simulates a client that never had the cookie."""
+        bearer = _client(app)
+        first = _ask_with_header(bearer, message=PLAIN_QUESTION)
+        conv = first.headers["X-Conversation-Id"]
+        assert conv
+        bearer.cookies.delete("padyar_conv")
+
+        # A second call sends the id back over the header, never the cookie.
+        second = _ask_with_header(bearer, conversation_id=conv,
+                                  message=TARGETED_QUESTION)
+
+        assert second.status_code == 200, second.text
+        assert second.headers["X-Conversation-Id"] == conv
+        assert len(_messages(conv)) == 4  # both turns landed in one thread
+
+    def test_no_header_and_no_cookie_gets_a_fresh_id_back_on_the_header(self, client):
+        r = _ask_with_header(client, conversation_id=None)
+
+        assert r.status_code == 200, r.text
+        assert r.headers.get("X-Conversation-Id")
+
+    def test_a_header_naming_another_visitors_conversation_does_not_leak_it(
+            self, app):
+        """Mirrors test_a_visitor_cannot_continue_another_visitors_conversation
+        above, one channel over: pasting someone else's id into the HEADER
+        must be refused exactly like pasting it into the cookie."""
+        alice = _client(app)
+        alice_id = _sign_in(alice, phone="09120000011")
+        conv_a = _conv(_ask(alice, PLAIN_QUESTION))
+        assert conv_a and _owner(conv_a) == alice_id
+
+        bob = _client(app)
+        _sign_in(bob, phone="09120000012")
+        answer = _ask_with_header(bob, conversation_id=conv_a,
+                                  message=PLAIN_QUESTION)
+
+        assert answer.status_code == 200, answer.text
+        conv_b = answer.headers["X-Conversation-Id"]
+        assert conv_b and conv_b != conv_a
+        assert len(_messages(conv_a)) == 2       # untouched
+        assert _owner(conv_a) == alice_id
+
+    def test_the_header_wins_over_a_cookie_naming_a_different_conversation(
+            self, app):
+        """A caller that sends BOTH is being MORE explicit via the header —
+        see the comment above conversation_id's resolution in
+        app/routers/chat.py for why the header is checked first."""
+        alice = _client(app)
+        conv_via_cookie = _conv(_ask(alice, PLAIN_QUESTION))
+        assert alice.cookies.get("padyar_conv") == conv_via_cookie
+
+        # A second, distinct conversation for the same browser, minted via
+        # the header alone. The cookie is dropped first so this call cannot
+        # silently pick the first conversation back up through it.
+        alice.cookies.delete("padyar_conv")
+        other = _ask_with_header(alice, conversation_id=None,
+                                 message=TARGETED_QUESTION)
+        conv_via_header = other.headers["X-Conversation-Id"]
+        assert conv_via_header and conv_via_header != conv_via_cookie
+
+        # Put the FIRST cookie back by hand (a real browser still has it) and
+        # send a request carrying BOTH: that cookie, and a header naming the
+        # SECOND conversation. The header must win.
+        _set_cookie(alice, "padyar_conv", conv_via_cookie)
+        r = alice.post("/chat", json={"message": PLAIN_QUESTION, "lang": "fa"},
+                       headers={"X-Conversation-Id": conv_via_header})
+
+        assert r.status_code == 200, r.text
+        assert r.headers["X-Conversation-Id"] == conv_via_header
