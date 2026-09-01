@@ -396,6 +396,34 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # plays. Runs BEFORE retrieval on purpose: a bare "3" means nothing to a
     # retriever, and this way the whole list → pick → video path works with the
     # AI provider switched off.
+    if offer is None:
+        # A bare NUMBER with no list on the table is a booth address
+        # («377» after hearing about غرفه numbers, or just the number on
+        # the door). The booth lookup is exact-match only, so this guesses
+        # nothing: an unknown number falls through to the ordinary pipeline.
+        import re as _re
+        from app.utils.normalizer import normalize_persian as _np
+        _folded = _np(user_query or "", expand_synonyms=False).translate(
+            str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")).strip()
+        if _folded and _re.fullmatch(r"[0-9]+(?:-[0-9]+)?", _folded):
+            from app.services.company_search import answer_booth_lookup
+            booth_answer = answer_booth_lookup(f"غرفه {_folded}", lang=lang)
+            if booth_answer is not None:
+                b_conf = float(booth_answer.get("confidence", 0.95))
+                _log_turn(user_query, booth_answer["text"], "text",
+                          "local_booth", b_conf,
+                          conversation_id=conversation_id,
+                          entry_id=str(booth_answer.get("company_id", "")))
+                applog.info("chat", "conversation.answer.served",
+                            "پاسخ به بازدیدکننده داده شد",
+                            subcategory="local_booth", outcome="ok",
+                            metadata={"tier": "local_booth", "bare": True,
+                                      "booth": booth_answer.get("value")})
+                return ChatResponse(
+                    type="text", text=booth_answer["text"],
+                    video_url=booth_answer.get("video_url") or None,
+                    confidence=b_conf, source="local_booth")
+
     if offer is not None:
         picked_id = resolve_pick(user_query, offer, lang)
         if picked_id:
@@ -440,8 +468,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             # 51..70 were unreachable. Re-running the deterministic list tier
             # on the query that produced the list brings the whole set back.
             if offer["query"] and len(offer["ids"]) < offer["total"]:
-                from app.services.company_search import answer_company_list
-                again = answer_company_list(offer["query"], lang=lang)
+                from app.services.company_search import (answer_company_list,
+                                                          answer_hall_list)
+                again = (answer_hall_list(offer["query"], lang=lang)
+                         or answer_company_list(offer["query"], lang=lang))
                 # Only when the list still STARTS the same way. Staff correct
                 # content while visitors read it, and a set that shifted under
                 # the numbering would make "7" a different company on the two
@@ -782,6 +812,31 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             return ChatResponse(type="text", text=g_text, video_url=None,
                                 confidence=g_conf, source="local_guide")
 
+    # Booth lookup (2026-09-01): «غرفه 377» is an ADDRESS, not a search —
+    # the organizer's own booth_number column answers it exactly, the way
+    # the field tier answers «سایت شرکت X». No retrieval, no model; a bare
+    # all-digit message reaches the same place from the pick tier below.
+    if conversational_kind == "none":
+        from app.services.company_search import answer_booth_lookup
+        booth_answer = answer_booth_lookup(match_query, lang=lang)
+        if booth_answer is not None:
+            b_conf = float(booth_answer.get("confidence", 0.95))
+            _log_turn(user_query, booth_answer["text"], "text",
+                      "local_booth", b_conf,
+                      conversation_id=conversation_id,
+                      entry_id=str(booth_answer.get("company_id", "")))
+            applog.info("chat", "conversation.answer.served",
+                        "پاسخ به بازدیدکننده داده شد",
+                        subcategory="local_booth", outcome="ok",
+                        metadata={"tier": "local_booth",
+                                  "score": round(b_conf, 3),
+                                  "booth": booth_answer.get("value"),
+                                  "entry_id": str(booth_answer.get("company_id", ""))[:60]})
+            return ChatResponse(
+                type="text", text=booth_answer["text"],
+                video_url=booth_answer.get("video_url") or None,
+                confidence=b_conf, source="local_booth")
+
     # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
     # معرفی کن» is a LIST question, but single-document retrieval can only pick
     # one entry — Tier 1 served faq-20, the out-of-scope REFUSAL text, at 0.81
@@ -797,8 +852,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # the nulling above).
     if (not unknown_tokens and conversational_kind == "none"
             and entity_entry is None):
-        from app.services.company_search import answer_company_list
-        company_list = answer_company_list(match_query, lang=lang)
+        from app.services.company_search import (answer_company_list,
+                                                  answer_hall_list)
+        # Hall first: «شرکت‌های سالن ۶» names a PLACE, and the hall filter
+        # is exact where a facet match would be a guess. Same dict shape,
+        # same renderer, same offer_state contract.
+        company_list = (answer_hall_list(match_query, lang=lang)
+                        or answer_company_list(match_query, lang=lang))
         if company_list is not None:
             # 0.9 is nominal: the answer is a deterministic database listing,
             # not a similarity estimate — there is no score to report.
