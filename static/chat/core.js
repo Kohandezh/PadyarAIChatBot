@@ -626,6 +626,11 @@ async function sendMessage(fromPreset = false, opts = {}) {
 
     if (opts.echo !== false) addMessage(text, 'user');
 
+    // The chips on screen belong to the ANSWER that just ended; committing
+    // to a new question retires them, so a chip can never be mistaken for
+    // a follow-up to an older turn.
+    renderSuggestions([]);
+
     userInput.value = '';
     userInput.disabled = true;
     sendBtn.disabled = true;
@@ -741,6 +746,7 @@ async function sendMessage(fromPreset = false, opts = {}) {
 
         addMessage(data.text, 'bot');
         renderOptions(data.options);
+        renderSuggestions(data.suggestions);
 
     } catch (error) {
         console.error('Error:', error);
@@ -815,6 +821,45 @@ function renderOptions(options) {
     if (loadingBubble) chatContent.insertBefore(msgDiv, loadingBubble);
     else chatContent.appendChild(msgDiv);
     chatContent.scrollTop = chatContent.scrollHeight;
+}
+
+// ── Context suggestion chips ───────────────────────────────────────────
+
+/* The 3-4 follow-up questions the SERVER built from the conversation
+   context (app/services/suggestions.py) ride along on every /chat answer
+   as `suggestions`. They render as one tappable chip row inside the
+   #chat-suggestions container the theme's suggestions.html partial ships.
+
+   Both base and inotex load this shared engine, so ONE renderer serves
+   both themes — that is the deliberate base/inotex split decision: there
+   is no per-theme chat JS to duplicate into, and a theme whose partial is
+   missing simply never shows chips (the container lookup fails, the call
+   is a no-op). With no suggestions the container stays empty and its own
+   CSS hides it.
+
+   ONE row, not one row per message: the chips always describe the LATEST
+   answer. Every send clears the row first (see sendMessage), so only this
+   render ever fills it. */
+function renderSuggestions(suggestions) {
+    const box = document.getElementById('chat-suggestions');
+    if (!box) return;
+    box.textContent = '';
+    if (!Array.isArray(suggestions)) return;
+    suggestions.forEach(function (text) {
+        if (typeof text !== 'string' || !text.trim()) return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.dir = 'auto';
+        // textContent, never innerHTML — the strings come from our own
+        // service, but the habit that keeps renderMarkdown() safe applies
+        // to every sink all the same.
+        chip.textContent = text;
+        // One tap fills the composer and sends — the same path the
+        // options chips and the starter questions already take.
+        chip.onclick = function () { sendPreset(text); };
+        box.appendChild(chip);
+    });
+    if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
 }
 
 
@@ -1262,6 +1307,9 @@ function initChat() {
         // server's copy, dropped by the request above; forgetTranscript()
         // drops the browser's, both the store and the bubbles on screen.
         forgetTranscript();
+        // Same reason as the transcript: the chips on screen answered the
+        // previous visitor's last question. The next stranger starts clean.
+        renderSuggestions([]);
         switchTab('text');
         addMessage(t().newChatDone, 'bot');
         showQuestions();
