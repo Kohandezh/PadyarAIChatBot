@@ -94,15 +94,20 @@
                     </button>
                 </div>
                 <div class="text-muted small d-none mb-2" id="autofill-progress"></div>
+                <div id="companies-bulk-toolbar" class="d-none d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded border">
+                    <span id="companies-bulk-count" class="small fw-bold text-muted">0 مورد انتخاب شده</span>
+                    <button class="btn btn-outline-danger btn-sm" onclick="window.bulkDeleteCompanies()"><i class="fas fa-trash me-1"></i> حذف انتخاب‌شده‌ها</button>
+                </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="bg-light"><tr>
+                            <th style="width:36px"><input type="checkbox" class="form-check-input" id="companies-select-all" aria-label="انتخاب همه"></th>
                             <th class="ps-4">شرکت</th><th>مسئول</th><th>تماس</th>
                             <th>استان</th><th>حوزهٔ فعالیت</th><th>علاقه‌مندی</th><th>سرنخ</th><th>پرونده</th>
                             <th>ویدیو</th><th></th>
                         </tr></thead>
                         <tbody id="companies">
-                            <tr><td colspan="10" class="text-center text-muted py-4">در حال بارگذاری…</td></tr>
+                            <tr><td colspan="11" class="text-center text-muted py-4">در حال بارگذاری…</td></tr>
                         </tbody>
                     </table>
                 </div>

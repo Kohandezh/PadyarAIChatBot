@@ -263,3 +263,32 @@ immediately before running this for real on production (the dump tested
 above is a point-in-time copy, not a substitute for a pre-deploy backup),
 then follow the normal PR → merge to main → CI deploy path (no manual rsync
 — see `padyar-deployment-state`).
+
+---
+
+## Follow-up 2026-09-01: admin delete (single + bulk)
+
+The companies admin page shipped read/edit only. Deleting a company — one
+row or a selection — is now wired end to end:
+
+- `DELETE /admin/api/company-profiles/{id}` and
+  `POST /admin/api/company-profiles/bulk-delete`
+  (`app/routers/leads.py`) → `company_profiles.delete_companies()`
+  (`app/services/company_profiles.py`).
+- A delete takes the company's WHOLE footprint in one transaction: the
+  `companies` row, the curated `questions` anchors mapped to it (840 of
+  those on production — an anchor whose record is gone is a Tier 0 match
+  that serves nothing), and its `company_leads` capture history (a lead
+  nobody can act on). Sina picked "clean delete" over leaving orphans.
+- Both routes call `reindex_and_publish` afterwards (same
+  `_trigger_reindex` contract as `app/routers/dataset.py`) so every
+  worker's `companies_lookup` and intent head stop serving the deleted
+  company.
+- UI mirrors the dataset page: `row-check` checkboxes + select-all +
+  bulk toolbar (`initBulkSelection`) + a per-row trash button, each behind
+  a confirm that says the footprint and the no-undo in plain words.
+- Tests: `tests/test_company_profiles.py` (footprint, bulk, 404/400,
+  401, and a static wiring guard). The same file's fixture had a
+  local-only TZ bug (naive-UTC expiry compared against local `now()` —
+  401 on any machine ahead of UTC, green on CI); fixed with a local-now
+  expiry so the whole file runs locally again.

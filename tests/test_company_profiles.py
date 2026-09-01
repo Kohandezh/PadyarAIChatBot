@@ -41,7 +41,12 @@ def admin_client(tmp_path, monkeypatch):
         conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
                      " VALUES (?,?,?)",
                      (token, "padmin",
-                      (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()))
+                      # LOCAL now, not utcnow: verify_admin compares a naive
+                      # expiry against datetime.now() (app/db/timeutil.py
+                      # compare_now), so a UTC timestamp expires instantly on
+                      # any machine ahead of UTC — the whole fixture 401'd
+                      # locally while passing on CI.
+                      (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat()))
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)
@@ -292,6 +297,151 @@ def test_the_page_and_apis_require_an_admin(tmp_path, monkeypatch):
                         json={"video_url": "x"}).status_code in (401, 403)
         assert anon.put("/admin/api/company-profiles/co-a/content",
                         json={"title": "x"}).status_code in (401, 403)
+        assert anon.delete("/admin/api/company-profiles/co-a").status_code in (401, 403)
+        assert anon.post("/admin/api/company-profiles/bulk-delete",
+                         json={"ids": ["co-a"]}).status_code in (401, 403)
         page = anon.get("/secure-panel-inotex/companies",
                         follow_redirects=False)
         assert page.status_code in (302, 303, 401, 403)
+
+
+# --- Delete (single + bulk) ------------------------------------------------
+#
+# A delete takes the company's WHOLE footprint: the companies row, the
+# curated questions mapped to it (import-content.py's per-company anchors —
+# an anchor whose record is gone is a Tier 0 match that serves nothing), and
+# the capture history in company_leads (a lead without its company is a
+# capture event nobody can act on).
+
+def _seed_delete_footprint(admin_client):
+    """co-a gets a curated question and a live lead; co-b gets a question
+    only. Deleting co-a must leave every co-b trace intact.
+
+    The lead row goes in by direct SQL, same as
+    tests/test_leads_visitors_admin.py:_seed_lead — the register path's OTP
+    side is another module's business and flaky on a laptop; the delete
+    scenario only needs the row to exist.
+    """
+    from app.db.connection import get_db_connection
+    from app.services import leads as leads_svc
+    visitor_id = leads_svc.create_visitor("علی")["id"]
+    conn = get_db_connection()
+    try:
+        conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
+                     " VALUES ('شرکت آ چیست؟', 'co-a', '')")
+        conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
+                     " VALUES ('شرکت ب چیست؟', 'co-b', '')")
+        conn.execute(
+            "INSERT INTO company_leads (id, dataset_id, company_name, visitor_id,"
+            " phone, phone_hash, status, created_at)"
+            " VALUES (?, 'co-a', 'شرکت آ', ?, '09120000000', 'hash',"
+            " 'verified', ?)",
+            (secrets.token_urlsafe(8), visitor_id,
+             datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _table_pairs(admin_client):
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        companies = sorted(r["id"] for r in
+                           conn.execute("SELECT id FROM companies").fetchall())
+        questions = sorted(r["dataset_id"] for r in
+                           conn.execute("SELECT dataset_id FROM questions").fetchall())
+        leads = sorted(r["dataset_id"] for r in
+                       conn.execute("SELECT dataset_id FROM company_leads").fetchall())
+    finally:
+        conn.close()
+    return companies, questions, leads
+
+
+def test_delete_company_takes_its_whole_footprint(admin_client):
+    _seed_delete_footprint(admin_client)
+
+    r = admin_client.delete("/admin/api/company-profiles/co-a")
+    assert r.status_code == 200
+    assert r.json()["status"] == "deleted"
+
+    companies, questions, leads = _table_pairs(admin_client)
+    assert companies == ["co-b"]
+    assert questions == ["co-b"]
+    assert leads == []
+
+    # The list page reflects the delete immediately.
+    rows = admin_client.get("/admin/api/company-profiles").json()["companies"]
+    assert [c["id"] for c in rows] == ["co-b"]
+
+
+def test_delete_company_refuses_unknown_company(admin_client):
+    assert admin_client.delete(
+        "/admin/api/company-profiles/nope").status_code == 404
+    companies, _, _ = _table_pairs(admin_client)
+    assert companies == ["co-a", "co-b"]
+
+
+def test_bulk_delete_takes_only_the_named_companies(admin_client):
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        conn.execute("INSERT INTO companies (id, title, text)"
+                     " VALUES ('co-c', 'شرکت پ', 'متن پ')")
+        conn.commit()
+    finally:
+        conn.close()
+    _seed_delete_footprint(admin_client)
+    conn = get_db_connection()
+    try:
+        conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
+                     " VALUES ('شرکت پ چیست؟', 'co-c', '')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    r = admin_client.post("/admin/api/company-profiles/bulk-delete",
+                          json={"ids": ["co-a", "co-c"]})
+    assert r.status_code == 200
+    assert r.json() == {"status": "deleted", "deleted": 2}
+
+    companies, questions, leads = _table_pairs(admin_client)
+    assert companies == ["co-b"]
+    assert questions == ["co-b"]
+    assert leads == []
+
+
+def test_bulk_delete_rejects_bad_payloads(admin_client):
+    for body in ({}, {"ids": []}, {"ids": [1, 2]}, {"ids": "co-a"}):
+        r = admin_client.post("/admin/api/company-profiles/bulk-delete",
+                              json=body)
+        assert r.status_code == 400, body
+    companies, _, _ = _table_pairs(admin_client)
+    assert companies == ["co-a", "co-b"]
+
+
+def test_bulk_delete_of_unknown_ids_reports_zero(admin_client):
+    r = admin_client.post("/admin/api/company-profiles/bulk-delete",
+                          json={"ids": ["nope-1", "nope-2"]})
+    assert r.status_code == 200
+    assert r.json() == {"status": "deleted", "deleted": 0}
+    companies, _, _ = _table_pairs(admin_client)
+    assert companies == ["co-a", "co-b"]
+
+
+def test_the_companies_page_wires_the_delete_ui():
+    """The anti-scaffold guard: the page must actually carry the delete
+    wiring (checkbox column, bulk toolbar, per-row delete) — endpoints with
+    no caller are the defect class PR #17 flushed out seven times."""
+    from pathlib import Path
+    from app.config import BASE_DIR
+    base = Path(BASE_DIR)
+    html = (base / "templates" / "admin" / "companies.html").read_text(
+        encoding="utf-8")
+    js = (base / "static" / "admin" / "js" / "companies.js").read_text(
+        encoding="utf-8")
+    assert "companies-bulk-toolbar" in html
+    assert "companies-select-all" in html
+    assert "row-check" in js
+    assert "/admin/api/company-profiles/bulk-delete" in js
+    assert "data-del" in js

@@ -512,3 +512,41 @@ def count_companies(query: str = "", warmth: str = "") -> int:
     finally:
         conn.close()
     return int(dict(row)["n"])
+
+
+def delete_companies(ids) -> int:
+    """Delete companies and their whole footprint; returns how many went.
+
+    A company is never just its row: scripts/import-content.py gives each one
+    up to five curated question anchors, and the booth's captures live in
+    company_leads keyed by the same id. Deleting the row alone would leave a
+    Tier 0 match that serves nothing and a lead nobody can act on, so all
+    three go in one transaction — the caller reindexes afterwards so every
+    worker stops serving the company (companies_lookup, the intent head) on
+    its next request.
+
+    `company_leads` is a leads-module table (see app/services/leads.py
+    `_TABLES`), so — same as list_companies — this ensures it exists before
+    the DELETE touches it. Unknown ids simply delete nothing: a bulk delete
+    racing another admin's delete reports what IT removed, not a 404.
+    """
+    from app.db.connection import get_db_connection
+    from app.services.leads import ensure_tables
+    ensure_tables()
+    clean = list(dict.fromkeys(str(i) for i in ids))
+    if not clean:
+        return 0
+    placeholders = ",".join("?" * len(clean))
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            f"DELETE FROM questions WHERE dataset_id IN ({placeholders})", clean)
+        conn.execute(
+            f"DELETE FROM company_leads WHERE dataset_id IN ({placeholders})", clean)
+        cur = conn.execute(
+            f"DELETE FROM companies WHERE id IN ({placeholders})", clean)
+        conn.commit()
+        deleted = cur.rowcount
+    finally:
+        conn.close()
+    return deleted
