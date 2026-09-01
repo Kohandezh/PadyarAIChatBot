@@ -491,6 +491,102 @@ The full version, with the reasoning, is in `CLAUDE.md` under the same heading.
 
 One feature, one folder in `docs/features/{slug}/`.
 
+**Engineering standards:** `docs/engineering/ENGINEERING_CONSTITUTION.md` is
+the binding constitution — non-negotiable principles plus the topic standards
+in `docs/engineering/` (`API_STANDARDS.md`, `SECURITY.md`, `DATABASE.md`,
+`TESTING.md`). Read it before implementing any feature or endpoint. `CLAUDE.md`
+-> "Documentation Rules" points to it too.
+
+---
+
+## Architecture-First Workflow
+
+For every task, do NOT immediately implement — first perform an architecture
+review. The goal is the smallest CORRECT architectural change that fits the
+entire system, not the smallest patch that passes the current tests. If the
+requested approach is architecturally inferior, do not blindly implement it —
+explain why and propose the better design. Reuse existing project-wide
+patterns; never create a local exception to compensate for a broken
+abstraction.
+
+Think ahead: 10x more data, multiple clients, concurrent requests, retries,
+partial failures, malicious clients, future developers, evolving API
+contracts.
+
+Before coding, inspect the repo and identify the relevant existing
+abstractions. After coding, self-review as a senior engineer — unnecessary
+complexity, duplicated logic, security holes, race conditions, inconsistent
+API design, weak validation, missing authorization, hidden browser
+assumptions, poor error handling, scalability problems, insufficient tests —
+and improve before declaring the task complete.
+
+The full version is in `CLAUDE.md` under "Required Workflow".
+
+Non-negotiable rules:
+
+- Every resource endpoint must perform authentication and authorization
+  independently. Never infer authorization from possession of a resource ID.
+- Any endpoint returning an unbounded collection must define pagination. Do
+  not load an entire collection into memory.
+- Business rules must not be duplicated across route handlers. Shared domain
+  rules must have a single authoritative implementation.
+
+The full six-phase workflow — Understand, Architecture, Implement, Test,
+Self Review, Verify — is in `CLAUDE.md` under "Required Workflow". Follow it
+for every task.
+
+## Engineering Judgment
+
+The user's requested implementation approach is not necessarily the
+correct architectural approach.
+
+You are allowed to reject the requested implementation approach when it
+conflicts with the architecture, security, maintainability,
+scalability, or established patterns of the repository.
+
+Preserve the user's intended outcome, not necessarily their proposed
+implementation.
+
+If the requested approach is inferior, explain why and implement the
+better approach when the intended outcome is clear.
+
+## Avoid Over-Engineering
+
+Do not over-engineer.
+
+Senior engineering does not mean maximum abstraction, maximum
+architecture, or maximum code.
+
+Prefer the simplest design that correctly satisfies:
+
+- current requirements
+- known architectural constraints
+- security requirements
+- expected scale
+- maintainability
+- consistency with the existing codebase
+
+Do not introduce abstractions for hypothetical future requirements
+unless there is a strong architectural reason.
+
+Do not add:
+
+- unnecessary interfaces
+- unnecessary abstraction layers
+- speculative extension points
+- premature design patterns
+- infrastructure for hypothetical use cases
+
+A simple solution is preferred when it is genuinely sufficient.
+
+However, do not choose a superficially simple local workaround when
+a small additional amount of design would produce a substantially
+cleaner system-wide solution.
+
+The goal is:
+
+**minimum necessary complexity, not minimum lines of code.**
+
 ---
 
 ## Session Handoff — 2026-08-14 (INOTEX instance, Padyar platform)
