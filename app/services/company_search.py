@@ -17,6 +17,7 @@ intent, no companies, a topic no company matches), it returns None and the
 existing pipeline proceeds unchanged.
 """
 
+import re
 from difflib import SequenceMatcher
 
 from app.config import logger
@@ -234,6 +235,37 @@ def _fuzzy_hit(facet_token: str, forms: set) -> bool:
     return False
 
 
+# SUFFIX DERIVATION (live failure, Elecomp 2026-09-01): «چه بانک هایی هستن
+# تو نمایشگاه» came back «اطلاعات دقیقی ندارم» because the visitor's word
+# «بانک» never matched the facet token «بانکداری» — the organizer names
+# fields with DERIVED nouns, the visitor types the base word. One closed
+# suffix list, and only ever FACET = QUERY + suffix, never the other way: the
+# facet vocabulary is the organizer's controlled list, so growing a word by a
+# known derivational suffix is safe there, while trimming arbitrary endings
+# off query words («بانکک» for «بانکک‌ها») would match things nobody typed.
+_STEM_SUFFIXES = ("داری", "ها", "سازی", "ی")
+
+
+def _stem_hit(facet_token: str, forms: set) -> bool:
+    """Does this facet token derive from a word the visitor typed?
+
+    «بانکداری» is «بانک» + «داری» — a fact about how the field is NAMED, not
+    a similarity guess, which is why this runs beside exact matching and
+    before the fuzzy corrector. A base of two letters or fewer never stems:
+    with «ی» attached, two letters make a three-letter word and half the
+    short function words would suddenly "derive" from something («آب» ->
+    «آبها»). And «بانک» must not match «بانکک» — «ک» is not on the closed
+    suffix list, so it cannot.
+    """
+    for form in forms:
+        if len(form) <= 2:
+            continue
+        if (facet_token.startswith(form)
+                and facet_token[len(form):] in _STEM_SUFFIXES):
+            return True
+    return False
+
+
 def _select_facets(tokens: list, companies: list):
     """The facets this query filters by, or None when it names none.
 
@@ -256,9 +288,12 @@ def _select_facets(tokens: list, companies: list):
     scored = {}
     for value, toks in facets.items():
         hit = toks & forms
-        # Exact first, fuzzy only for the words it did not already find, and
-        # only FROM query words the corpus does not know. An exact match must
-        # never be displaced by an approximate one.
+        # Exact first, then suffix derivation (still a fact about the
+        # organizer's own naming), fuzzy last and only for the words exact
+        # and stem did not already find, and only FROM query words the corpus
+        # does not know. An exact match must never be displaced by an
+        # approximate one.
+        hit = hit | {t for t in toks - hit if _stem_hit(t, forms)}
         hit = hit | {t for t in toks - hit if _fuzzy_hit(t, correctable)}
         if len(hit) >= 2 or (len(hit) == 1 and shared[next(iter(hit))] == 1):
             scored[value] = len(hit)
@@ -286,9 +321,14 @@ def _load_companies() -> list:
         rows = conn.execute(
             # video_url comes along because a listed company is a PICKABLE
             # company: the chip the visitor taps carries its booth clip, and a
-            # title and its clip must never be looked up separately.
+            # title and its clip must never be looked up separately. hall and
+            # booth_number (migrations 0015/0016) come along for the same
+            # reason a title does: the hall-list and booth-lookup tiers answer
+            # from these same approved rows, and reading them in a second
+            # query would just re-state the `text <> ''` approval rule.
             "SELECT id, title, title_en, text, video_url,"
-            " activity_field, province, company_type, priority_boost"
+            " activity_field, province, company_type, priority_boost,"
+            " hall, booth_number"
             " FROM companies"
             " WHERE text <> ''"
         ).fetchall()
@@ -380,6 +420,28 @@ def answer_company_list(query: str, lang: str = "fa"):
             filter_label = (" ".join(dict.fromkeys(hit))
                             or "، ".join(sorted(selected)))
 
+    return _render_list(matched, selected, filter_label, lang, query or "")
+
+
+def _render_list(matched: list, selected, filter_label: str, lang: str,
+                 query: str, lead: str = "") -> dict:
+    """Sort, render and return the list answer every list-shaped tier serves.
+
+    Split out of answer_company_list (2026-09-01) because a second tier needed
+    the exact same tail: the hall list filters by hall instead of by facet,
+    but the sorted page, the offer_state and the returned dict must stay ONE
+    shape — the router logs `count`/`displayed_ids`/`keywords` and hands
+    `offer_state` to the next turn without knowing which tier produced them.
+
+    `lead` is a head line the CALLER authored deterministically (the hall tier
+    names the hall). It is not offered to render_options' lead parameter:
+    that pathway exists for MODEL sentences and its firewall rejects ANY digit
+    — «شرکت‌های سالن ۶:» carries the hall number and would be logged as
+    rejected on every hall answer. Our head carries only the organizer's own
+    hall value, the same trust level as the filter_label digits render_options
+    itself prints inside its standard head; swapping line 0 keeps the numbered
+    slice and the offer_state single-written by render_options.
+    """
     # Boosted companies first (organizer-set sponsor placement), alphabetical
     # within each group — a boost changes ORDER only, never WHICH companies
     # matched above. See migrations/0014_company_priority_boost.sql.
@@ -401,6 +463,8 @@ def answer_company_list(query: str, lang: str = "fa"):
     text, options, offer_state = render_options(
         matched, "", lang, start_index=1, total=len(matched),
         filter_label=filter_label, source_query=query or "")
+    if (lead or "").strip():
+        text = "\n".join([lead.strip(), *text.splitlines()[1:]])
     return {
         "text": text,
         "count": len(matched),
@@ -413,6 +477,195 @@ def answer_company_list(query: str, lang: str = "fa"):
         # a field name, and the pager needs the same string on every page.
         "filter_label": filter_label,
     }
+
+
+# ── The hall-list and booth-lookup tiers ──────────────────────────────────
+#
+# Why these exist (live, Elecomp 2026-09-01): «شرکت های سالن 6» was REFUSED
+# («من فقط می‌توانم درباره نمایشگاه...») because no tier had a hall
+# dimension, and «غرفه 377» went out of scope because nothing looked a booth
+# number up. Both facts are already recorded per company (migrations
+# 0015/0016: `hall` like «سالن ۶» / «میلاد (31B)» / «سالن ۳۸B», `booth_number`
+# like «377» / «5-4»), so both questions are answerable deterministically from
+# the same approved rows the list tier reads — no AI, no similarity model.
+
+# normalize_persian deliberately keeps Persian digits as Persian, so both
+# sides of a hall/booth comparison run through this fold first: ۰-۹ (and the
+# Arabic ٠-٩ variants) become ASCII, and the alef/ye/kaf fold above applies so
+# «سالن» spelled with ي still compares equal.
+_DIGIT_FOLD = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def _hall_key(value: str) -> str:
+    """One canonical form for a hall label or a query token: normalized,
+    digit-folded, letter-folded. «سالن ۳۸B» and «سالن 38b» meet here."""
+    return _fold(normalize_persian(value or "",
+                                   expand_synonyms=False).translate(_DIGIT_FOLD))
+
+
+def _match_hall(qtokens: list, halls: dict):
+    """The canonical hall key this query names, or None.
+
+    Two match shapes, because hall labels come in two shapes. «سالن ۳۸B» is
+    fully typed by the visitor, so its whole token run is looked for in the
+    query — a run, never a substring, so «سالن ۳» cannot hit «سالن ۳۸B» and
+    «37» cannot hit «377». «میلاد (31B)» carries a site code the visitor
+    does NOT type — they say «میلاد پایین» — and «فضای باز» is said as
+    «محوطه», so for those the label's own word is the anchor and a
+    پایین/بالا hint only PREFERs among several میلاد halls, it never rejects
+    the one hall an install actually has.
+    """
+    ordered = sorted(halls, key=lambda k: (-len(k.split()), k))
+    for key in ordered:
+        ktoks = key.split()
+        span = len(ktoks)
+        if span and any(qtokens[i:i + span] == ktoks
+                        for i in range(len(qtokens) - span + 1)):
+            return key
+    if "میلاد" in qtokens:
+        milad = [k for k in ordered if "میلاد" in k.split()]
+        if milad:
+            level = ("پایین" if "پایین" in qtokens
+                     else "بالا" if "بالا" in qtokens else "")
+            if level:
+                for k in milad:
+                    if level in k.split():
+                        return k
+            return milad[0]
+    if "محوطه" in qtokens or ("فضای" in qtokens and "باز" in qtokens):
+        for k in ordered:
+            if {"فضای", "باز", "محوطه"} & set(k.split()):
+                return k
+    return None
+
+
+def answer_hall_list(query: str, lang: str = "fa") -> dict | None:
+    """The list of companies in the hall this query names, or None.
+
+    None means "not mine": no hall word+identifier the visitor typed, a hall
+    no recorded company sits in, no hall data at all, or any DB fault — in
+    every such case the caller's pipeline proceeds as if this tier did not
+    exist. Companies without a hall value never match any hall question.
+    Degrades, never raises.
+    """
+    norm = normalize_persian(query or "", expand_synonyms=False)
+    tokens = norm.split()
+
+    try:
+        companies = _load_companies()
+    except Exception as e:  # noqa: BLE001 — missing table or any DB fault: tier off
+        logger.info(f"[hall-list] tier unavailable: {type(e).__name__}: {e}")
+        return None
+
+    # The DISTINCT hall values, each keeping its first-seen DB spelling so
+    # the headline prints the organizer's own label («سالن ۶», not the
+    # visitor's «سالن 6»).
+    halls: dict = {}
+    for c in companies:
+        label = (c.get("hall") or "").strip()
+        if not label:
+            continue
+        key = _hall_key(label)
+        entry = halls.setdefault(key, {"label": label, "rows": []})
+        entry["rows"].append(c)
+    if not halls:
+        return None
+
+    key = _match_hall([_hall_key(t) for t in tokens], halls)
+    if key is None:
+        return None
+    hall = halls[key]
+    if not hall["rows"]:
+        return None
+    # The lead names the hall in the organizer's spelling: at a booth, «۲
+    # شرکت در زمینه «سالن ۶»» makes the visitor parse a zemine phrase to
+    # learn where to walk, while «شرکت‌های سالن ۶:» says it directly.
+    lead = (f"Companies in {hall['label']}:" if lang == "en"
+            else f"شرکت‌های {hall['label']}:")
+    return _render_list(hall["rows"], None, hall["label"], lang,
+                        query or "", lead=lead)
+
+
+# normalize_persian turns every non-word character into a space, so the
+# hyphen in a booth like «6-10» arrives as TWO tokens («6», «10») while the
+# recorded value keeps it. Comparing digits-only on both sides joins them
+# back without ever making «37» equal «377»: equality is still whole-string.
+_BOOTH_DIGITS = re.compile(r"[0-9]+")
+
+
+def _booth_candidate(tokens: list):
+    """The booth number this query carries, digits-folded, or None.
+
+    «غرفه 377» (also «شماره غرفه 377» — the word غرفه with the number right
+    after it) and a bare all-digit query — the ROUTER decides when a bare
+    number is booth-shaped enough to send here; this only reads it.
+    """
+    folded = [t.translate(_DIGIT_FOLD) for t in tokens]
+    for i, t in enumerate(folded):
+        if t == "غرفه":
+            j, digits = i + 1, []
+            while j < len(folded) and _BOOTH_DIGITS.fullmatch(folded[j]):
+                digits.append(folded[j])
+                j += 1
+            if digits:
+                return "".join(digits)
+    if folded and all(_BOOTH_DIGITS.fullmatch(t) for t in folded):
+        return "".join(folded)
+    return None
+
+
+def answer_booth_lookup(query: str, lang: str = "fa") -> dict | None:
+    """The company at the booth number this query carries, or None.
+
+    Mirrors the answer_company_field contract (text/field/label/value — the
+    router serves it as that company's answer) plus `confidence` 0.95: the
+    match is an exact database equality, not a similarity estimate, so it is
+    trusted the way the other deterministic tiers are. None when the query
+    carries no booth token or no recorded booth matches. Degrades, never
+    raises.
+    """
+    norm = normalize_persian(query or "", expand_synonyms=False)
+    candidate = _booth_candidate(norm.split())
+    if not candidate:
+        return None
+
+    try:
+        companies = _load_companies()
+    except Exception as e:  # noqa: BLE001 — missing table or any DB fault: tier off
+        logger.info(f"[booth-lookup] tier unavailable: {type(e).__name__}: {e}")
+        return None
+
+    # Whole-string equality on the folded digits: «377» matches «377», never
+    # «37» or «3777». Two companies CAN share a booth; the visitor still
+    # needs one answer, so the same boost-then-alphabetical order the lists
+    # use picks it, deterministically.
+    matched = []
+    for c in companies:
+        key = re.sub(r"\D", "",
+                     (c.get("booth_number") or "").translate(_DIGIT_FOLD))
+        if key and key == candidate:
+            matched.append(c)
+    if not matched:
+        return None
+    matched.sort(key=lambda c: (0 if c.get("priority_boost") else 1,
+                                c.get("title") or ""))
+    c = matched[0]
+
+    title = ((c.get("title_en") or "").strip() if lang == "en" else "") \
+        or (c.get("title") or "").strip()
+    booth = (c.get("booth_number") or "").strip()
+    # «غرفه 377: …» plus the company text the public may see — the same
+    # `text <> ''` approved description every other company answer serves.
+    if lang == "en":
+        label = "Booth number"
+        text = f"Booth {booth}: {title}\n{(c.get('text') or '').strip()}".rstrip()
+    else:
+        label = "شماره غرفه"
+        text = f"غرفه {booth}: {title}\n{(c.get('text') or '').strip()}".rstrip()
+    return {"text": text, "field": "booth_number", "label": label,
+            "value": booth, "confidence": 0.95,
+            "company_id": c.get("id", ""), "title": title,
+            "video_url": (c.get("video_url") or "").strip()}
 
 
 # ── The company-field tier ───────────────────────────────────────────────
