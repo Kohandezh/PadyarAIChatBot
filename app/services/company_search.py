@@ -925,8 +925,29 @@ def answer_company_field(query: str, entry: dict, lang: str = "fa"):
         field = "address_en"
     value = profile.get(field, "")
     if not value:
-        # Nothing recorded for this company — decline so the visitor still
+        # A WHERE question must not fall through to the generic blurb with
+        # its «می‌توانید به غرفه این شرکت مراجعه نمایید» that says nothing
+        # (live failure, Elecomp 2026-09-01: «شرکت مدبران کجاست؟» — the
+        # company HAS booth 70, the address column is empty, and the visitor
+        # got a profile instead of a place). When the empty field is a
+        # WHERE-shaped one and the booth or hall IS recorded, answer with
+        # the place. Any other empty field still declines, so the visitor
         # gets the company's own entry instead of a blank line.
+        where_fields = {"address", "booth_number", "hall"}
+        where_words = {"کجاست", "کجاس", "غرفه", "سالن"}
+        booth = str(profile.get("booth_number") or "").strip()
+        hall = str(profile.get("hall") or "").strip()
+        # `tokens` (normalized, punctuation-free), never the raw query:
+        # «کجاست؟» with its question mark never equals «کجاست» as a raw
+        # split — this exact miss is why the live مدبران answer was a blurb.
+        if (field in where_fields
+                and any(t in where_words for t in tokens)
+                and (booth or hall)):
+            where = " و ".join(
+                part for part in (f"غرفه {booth}" if booth else "",
+                                  hall if hall else "") if part)
+            return {"text": f"نشانی {title}: {where}", "field": "booth_number",
+                    "label": "نشانی", "value": where}
         return None
 
     if lang == "en":
