@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-08-29 |
-| Updated | 2026-08-30 |
+| Updated | 2026-09-01 |
 | Status | Implemented |
 | Domain | chat |
 | Author | Sina Shamsizadeh (requested), drafted by Claude |
@@ -23,7 +23,7 @@ Phase 1 of `docs/features/hamburger-menu/` built the drawer's history section as
 
 - Not changing anonymous (not-signed-in) behavior at all — the history section stays hidden for them, exactly as Phase 1 left it.
 - ~~Not adding pagination~~ — **superseded 2026-08-30**: the drawer now pages 10 at a time, loading more as the visitor scrolls `#menu-history` itself; see `docs/features/hamburger-menu/SPEC.md`'s Phase 3 note. `list_conversations_for_visitor`'s 100-row cap and offset cap stand regardless.
-- Not touching `/chat` itself — reopening reuses its existing `continuable_conversation_id()` ownership check via a cookie rebind, rather than adding new continuation logic.
+- Not touching `/chat` itself — reopening reuses its existing `continuable_conversation_id()` ownership check via a cookie rebind, rather than adding new continuation logic. **Partially superseded 2026-09-01**: `/chat`'s conversation-id resolution now also reads an `X-Conversation-Id` request/response header, checked before the `padyar_conv` cookie — added for InotexPWA, a Bearer-token cross-origin client that cannot send or read that httpOnly cookie at all. The ownership rule (`continuable_conversation_id`) itself is unchanged and applies identically to both channels; only the id's transport grew a second option. See `docs/features/pwa-api/SPEC.md` §"گروه F" for the full contract.
 - Not handling "delete the conversation you're currently mid-typing-in" as a special case in the UI — see RESEARCH.md's Risks table for why the existing backend behavior already degrades safely there.
 
 ## Rationale
@@ -46,7 +46,7 @@ Reopening a conversation via cookie rebind (rather than inventing a parallel "ac
 ## Functional Requirements
 
 - REQ-001: `GET /api/chat/conversations?offset=N` returns one page (`MENU_HISTORY_PAGE_SIZE` = 10) of the current session's own conversations (id, timestamps, message count, a short text preview) plus `has_more`, gated by `Depends(visitor_auth.require_visitor)` — anonymous gets a 401 with the `registration_required` marker, same as every other visitor-only endpoint. Added 2026-08-30 — see `docs/features/hamburger-menu/SPEC.md`'s Phase 3 note.
-- REQ-002: `GET /api/chat/conversations/{id}` returns one conversation's full message list, only when `id` belongs to the session's visitor_id (checked in the service layer, never trusting the URL). A non-owned or nonexistent id returns the same 404 either way. As a side effect, it rebinds the `padyar_conv` cookie to `id`.
+- REQ-002: `GET /api/chat/conversations/{id}` returns one conversation's full message list, only when `id` belongs to the session's visitor_id (checked in the service layer, never trusting the URL). A non-owned or nonexistent id returns the same 404 either way. As a side effect, it rebinds the `padyar_conv` cookie to `id`. Each message row carries a `feedback` field (`'up'` / `'down'` / `''`, migration 0025, 2026-09-01) — `conversation_messages()` already does `SELECT *`, so this needed no change here, only in the schema.
 - REQ-003: `DELETE /api/chat/conversations/{id}` deletes the conversation's messages then the conversation row, only when owned by the session's visitor_id. Same 404-either-way rule as REQ-002.
 - REQ-004: The drawer's `#menu-history` section is fetched and rendered once per drawer-open (not on every page load), and stays hidden whenever `document.documentElement.dataset.visitor !== 'in'` or the list is empty.
 - REQ-005: Clicking a history row clears the visible chat, replays that conversation's messages instantly (no typewriter animation), switches to the chat tab, and closes the drawer.
@@ -88,7 +88,7 @@ Frontend: `static/chat/core.js` gained `refreshMenuHistory()`, `renderMenuHistor
 
 ### Database Changes
 
-None — reuses the existing `conversations`/`messages` tables from migration 0010.
+None at the time this feature shipped — reused the existing `conversations`/`messages` tables from migration 0010. **2026-09-01**: migration 0025 added a `feedback` column to `messages` for the thumbs up/down feature (see `docs/features/pwa-api/SPEC.md` §"گروه F"); it rides through this feature's read path with no code change here.
 
 ## Dependencies
 

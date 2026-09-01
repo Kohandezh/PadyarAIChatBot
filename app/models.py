@@ -65,6 +65,18 @@ class ChatResponse(BaseModel):
     suggestions: list[str] = []
 
 
+class MessageFeedbackRequest(BaseModel):
+    """POST /api/chat/messages/{id}/feedback body (InotexPWA's thumbs up/down).
+
+    `rating` is `None` (JSON `null`, or the field simply omitted) to CLEAR any
+    existing feedback — a visitor tapping an already-active thumb again is the
+    obvious way to take it back, and the endpoint has to tell "clear it" apart
+    from "leave it alone", so an empty/missing body defaults to the same
+    clearing behaviour rather than doing nothing.
+    """
+    rating: Optional[str] = None
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str

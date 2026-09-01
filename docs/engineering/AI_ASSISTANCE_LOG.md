@@ -49,6 +49,50 @@
   اسکرین‌شات دسکتاپ و موبایل.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۶/۱۰ (2026-09-01) — تداوم گفتگو برای Bearer + بازخورد پیام
+
+- **مدل/ارکستراتور:** Claude Sonnet 5 (claude-sonnet-5)، به‌عنوان ساب‌ایجنت یک
+  session ارکستراتور Opus 5 که روی مخزن InotexPWA کار می‌کرد؛ در یک git
+  worktree جدا (`.worktrees/pwa-chat-continuity`) روی همین مخزن اجرا شد.
+- **کارهای انجام‌شده (پچ‌های پذیرفته‌شده):**
+  1. `/chat` حالا `conversation_id` را از هدر `X-Conversation-Id` هم می‌خواند
+     (قبل از کوکی `padyar_conv`)، چون InotexPWA (Bearer، cross-origin،
+     `withCredentials: false`) هرگز نمی‌تواند آن کوکی httpOnly را بفرستد یا
+     بخواند — قبل از این تغییر، هر پیام PWA یک گفتگوی تازه می‌گرفت و ربات
+     همه‌چیز را فراموش می‌کرد.
+  2. پاسخ موفق `/chat` دو هدر تازه حمل می‌کند: `X-Conversation-Id` (همیشه) و
+     `X-Message-Id` (id سطر پیام دستیار، وقتی نوشته شده باشد) — دومی طبق
+     درخواست میان‌کاری orchestrator اضافه شد تا کنترل پسندیدن/نپسندیدنِ
+     InotexPWA بتواند همان پیامی را که همین الان زنده دریافت کرده، بدون باز
+     کردن دوبارهٔ گفتگو از تاریخچه، رتبه‌گذاری کند.
+  3. یک ContextVar (الگوی `app/services/applog.py`) برای رساندن `Response`
+     تزریق‌شدهٔ FastAPI به `_log_turn` — تابع مشترکی که همهٔ شاخه‌های پاسخ‌دهی
+     `/chat` از آن عبور می‌کنند — بدون این‌که `response` به‌عنوان پارامتر به
+     ده‌ها call site آن تابع اضافه شود.
+  4. endpoint تازهٔ `POST /api/chat/messages/{id}/feedback` (بازخورد up/down/
+     پاک‌کردن)، با همان الگوی مالکیت و ۴۰۴ یک‌شکل `GET`/`DELETE
+     /api/chat/conversations/{id}` (`docs/features/visitor-chat-history/SPEC.md`).
+  5. ستون `feedback` روی `messages` (`migrations/0025_message_feedback.sql` +
+     آینه‌کاری SQLite در `app/db/connection.py`).
+  6. `expose_headers` روی `CORSMiddleware` در `app/main.py` — بدون آن دو هدر
+     بالا برای `fetch()` مرورگری InotexPWA نامرئی می‌ماندند، حتی با
+     `allow_headers=["*"]`.
+  7. ۲۰ تست تازه (`tests/test_chat_visitor_identity.py`،
+     `tests/test_chat_transcript.py`، `tests/test_message_feedback.py`
+     تازه) — تداوم از طریق هدر، رد یک هدر متعلق‌به‌دیگری، اولویت هدر روی
+     کوکی، `X-Message-Id` روی چند شاخهٔ واقعی، بازخورد up/down/پاک‌کردن، ۴۰۴
+     روی مالکیت غلط.
+  8. مستندسازی: `docs/features/pwa-api/SPEC.md` گروه F (قرارداد کامل)،
+     `docs/features/visitor-chat-history/SPEC.md` (یادداشت superseded روی
+     Non-Goals و REQ-002).
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی هر فایل
+  تغییریافته؛ ۲۰ تست تازه سبز؛ کل `tests/test_chat_*.py`،
+  `tests/test_conversation*.py`، `tests/test_menu_and_history_pagination.py`
+  (۱۶۱ تست) بدون رگرسیون سبز؛ `pytest --collect-only` روی کل مجموعه
+  (۲۶۰۵ تست) بدون خطای collection.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.

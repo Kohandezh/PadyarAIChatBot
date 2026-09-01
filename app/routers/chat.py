@@ -1,7 +1,7 @@
 from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException,
                      Request, Response)
 
-from app.models import ChatRequest, ChatResponse
+from app.models import ChatRequest, ChatResponse, MessageFeedbackRequest
 from app.config import (
     logger,
     is_module_enabled,
@@ -24,6 +24,7 @@ from app.auth.security import (
     client_ip, validate_chat_token, validate_request_origin,
 )
 import time as _perf
+from contextvars import ContextVar
 
 from app.db.queries import (get_setting, log_chat, recent_turns,
                             last_offer_state, last_entity_id)
@@ -56,6 +57,25 @@ _NEGATE_NORM = frozenset(
 # The one entry whose answer is personalised. Everything else in the knowledge
 # base is the same for every visitor, which is what makes it verifiable.
 TARGETED_VISIT_ID = "inotex-targeted-visit"
+
+# Set once, at the top of chat_endpoint, to THAT request's injected Response
+# object. WHY: _log_turn needs to stamp the assistant message's row id onto
+# an `X-Message-Id` response header (so a Bearer/cross-origin client — no
+# httpOnly cookie it can read — can rate the reply it just got back, see
+# POST /api/chat/messages/{id}/feedback below), but _log_turn is a plain
+# module function called from ~30 places scattered across chat_endpoint's
+# dozen-plus answering branches (directly, and via _answer_from_entry), none
+# of which are nested closures over chat_endpoint's `response` local. Adding
+# `response=response` to every one of those call sites would be the kind of
+# 30-site diff this file's ChatResponse(...) sites already avoid (see the
+# module docstring on _log_turn). A ContextVar is the same trick
+# app/services/applog.py already uses for exactly this shape of problem
+# (correlation_id, conversation_id reaching deep code without being threaded
+# as a parameter everywhere) — each request gets its own value because
+# Starlette runs each one in its own asyncio task/context, so concurrent
+# requests never see each other's Response object.
+_current_response: ContextVar[Response | None] = ContextVar(
+    "chat_current_response", default=None)
 
 
 def _targeted_visit_suffix(entry: dict, visitor, lang: str) -> str:
@@ -158,10 +178,21 @@ def _log_turn(user_query: str, answer_text: str, r_type: str, source: str,
     try:
         conversations.append_visitor_message(conversation_id, user_query)
         if answered:
-            conversations.append_assistant_message(
+            message_id = conversations.append_assistant_message(
                 conversation_id, answer_text, source=source,
                 confidence=confidence, entry_id=entry_id, video_url=video_url,
                 tokens=tokens, cost=cost)
+            # X-Message-Id: the id of the row just written, so a client can
+            # call POST /api/chat/messages/{id}/feedback on the reply it just
+            # received without waiting to reopen it later from
+            # GET /api/chat/conversations/{id} (where every row already
+            # carries its own id via _message_row). append_assistant_message
+            # returns 0 on any storage fault — never set a header naming a
+            # row that was not actually written.
+            if message_id:
+                current_response = _current_response.get()
+                if current_response is not None:
+                    current_response.headers["X-Message-Id"] = str(message_id)
     except Exception as e:  # noqa: BLE001 — chat is the product, logging is not
         logger.error(f"[transcript] turn not recorded: {type(e).__name__}: {e}")
 
@@ -248,6 +279,10 @@ def _answer_from_entry(entry: dict, score: float, source: str, user_query: str,
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, http_request: Request,
                         response: Response, background_tasks: BackgroundTasks):
+    # See _current_response above this function: every answering branch below
+    # (and _answer_from_entry, and _log_turn) may need to set a header on
+    # THIS exact Response object, however deep in the pipeline that happens.
+    _current_response.set(response)
     # Maintenance blocks VISITOR traffic only; the admin panel stays reachable
     # so an operator can watch and end the maintenance they started.
     from app.services.maintenance import guard as _maintenance_guard
@@ -329,8 +364,22 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # belongs to a DIFFERENT visitor, and a fresh id is minted instead. An
     # unowned conversation still passes, because the person who registers
     # halfway through has to keep the questions they already asked.
+    #
+    # `X-Conversation-Id` REQUEST header, checked BEFORE the cookie. A
+    # Bearer/cross-origin client (InotexPWA) has no httpOnly cookie jar it can
+    # read or send — `padyar_conv` is invisible to it — so the header is the
+    # ONLY way such a client can continue a conversation at all. The header
+    # wins over the cookie when both are present (rather than the cookie
+    # winning) because a caller that deliberately sets the header is being
+    # MORE explicit about which conversation it means than a cookie the
+    # browser attaches automatically; a native app embedding a webview could
+    # in principle carry both; the ownership check below
+    # (continuable_conversation_id) applies identically either way, so this
+    # ordering adds no new trust — a header-named conversation is refused
+    # exactly like a cookie-named one when it belongs to someone else.
     conversation_id = conversations.continuable_conversation_id(
-        (http_request.cookies.get("padyar_conv") or "")[:64],
+        (http_request.headers.get("x-conversation-id")
+         or http_request.cookies.get("padyar_conv") or "")[:64],
         visitor_id) or applog.new_id()
     # Echo the conversation id on EVERY successful response. The read above
     # shipped long ago but nothing ever wrote the cookie, so every message
@@ -340,6 +389,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # attribute set as the leads visitor cookie; HttpOnly because only the
     # server reads it. Exception paths (400/429/503) skip this — no answer
     # was served, and the next successful message starts/continues the cookie.
+    #
+    # `X-Conversation-Id` RESPONSE header — set unconditionally here (not just
+    # for the Bearer path), same reasoning as the cookie: a client that never
+    # sent one still needs to learn the id it was assigned so its NEXT
+    # message can continue this conversation. Exposed to browser JS via
+    # app/main.py's CORS `expose_headers` (a header the server sends is
+    # otherwise invisible to cross-origin page JS regardless of
+    # `allow_headers`, which only covers what the browser may SEND).
+    response.headers["X-Conversation-Id"] = conversation_id
     response.set_cookie(
         key="padyar_conv", value=conversation_id,
         httponly=True, secure=COOKIE_SECURE, samesite="lax",
@@ -1296,6 +1354,13 @@ async def new_conversation(http_request: Request, response: Response):
 
     Same guards as a chat turn: it is a state-changing visitor endpoint on the
     public surface, so origin and the signed chat token both apply.
+
+    NO Bearer/`X-Conversation-Id` EQUIVALENT NEEDED. This endpoint's whole job
+    is deleting the SERVER-SET cookie so the booth's shared browser stops
+    offering it. A Bearer client (InotexPWA) never had a cookie to delete in
+    the first place — "starting new" for it is simply "send no
+    X-Conversation-Id header on the next /chat call", which mints a fresh id
+    for free (see chat_endpoint above). There is nothing here for it to call.
     """
     validate_request_origin(http_request)
     validate_chat_token(http_request)
@@ -1375,6 +1440,34 @@ async def delete_my_conversation(conversation_id: str,
     """
     if not conversations.delete_conversation_for_visitor(conversation_id, visitor_id):
         raise HTTPException(status_code=404, detail="گفتگویی یافت نشد.")
+    return {"ok": True}
+
+
+@router.post("/api/chat/messages/{message_id}/feedback",
+            dependencies=[Depends(validate_request_origin)])
+async def rate_message(message_id: int, body: MessageFeedbackRequest,
+                       visitor_id: str = Depends(visitor_auth.require_visitor)):
+    """Thumbs up/down on one of the visitor's own assistant replies.
+
+    `message_id` is either the `X-Message-Id` response header chat_endpoint
+    just set on a live turn, or an `id` read back from a message row in
+    GET /api/chat/conversations/{id} (conversation_messages() already does
+    `SELECT *`, so `feedback` rides along with no extra work on that path).
+
+    Ownership is checked in the service layer (set_message_feedback), by
+    joining through the message's OWN conversation's visitor_id — never by
+    trusting a visitor_id the caller could put in the URL or body. A message
+    that does not exist and a message that exists but belongs to someone
+    else's conversation come back as the exact same 404, same "can't tell
+    those apart" privacy pattern as get_my_conversation/delete_my_conversation
+    above.
+
+    `rating: null` (or the field omitted) clears any existing feedback —
+    that is not an error, it is the same tap-to-undo a visitor expects from a
+    toggle button.
+    """
+    if not conversations.set_message_feedback(message_id, visitor_id, body.rating):
+        raise HTTPException(status_code=404, detail="پیامی یافت نشد.")
     return {"ok": True}
 
 

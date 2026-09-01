@@ -236,12 +236,21 @@ app = FastAPI(
 # session. The admin panel is same-origin (CORS does not apply to it), and the
 # public /chat endpoint is guarded separately by validate_request_origin against
 # ALLOWED_ORIGINS. "*" is kept so customers can embed the chat on their own site.
+#
+# expose_headers: allow_headers=["*"] only covers what the BROWSER may SEND;
+# a custom response header is invisible to page JS on a cross-origin response
+# unless it is explicitly exposed here, "*" or not. `X-Conversation-Id` and
+# `X-Message-Id` are how a Bearer/cross-origin client (InotexPWA — no cookie
+# jar it can read, see app/routers/chat.py) learns which conversation and
+# which message it just got back, since it cannot read the httpOnly
+# `padyar_conv` cookie the native chat page relies on.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Conversation-Id", "X-Message-Id"],
 )
 
 
