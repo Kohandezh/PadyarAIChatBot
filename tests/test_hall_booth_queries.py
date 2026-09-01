@@ -390,3 +390,20 @@ def test_exact_distinctive_word_still_beats_the_stem(db, monkeypatch):
     ])
     ans = answer_company_list("شرکت های رباتیک")
     assert ans is not None
+
+
+def test_stem_union_label_uses_the_visitors_word(db, monkeypatch):
+    """The tie headline must stay the visitor's word («بانک»), never the
+    union of every organizer spelling — the 800-character headline this
+    code path exists to prevent."""
+    from app.services.company_search import answer_company_list
+    _seed(monkeypatch, companies=COMPANIES + [
+        ("co-b1", "بانک نمونه", "بانک نمونه خدمات بانکی ارائه می دهد.",
+         "بانکداری", "سالن ۷", "7-1"),
+        ("co-b2", "نئوبانک دیجی", "نئوبانک دیجی بانکداری دیجیتال می کند.",
+         "بانکداری دیجیتال", "سالن ۷", "7-2"),
+    ])
+    ans = answer_company_list("چه بانک هایی هستن تو نمایشگاه")
+    assert ans is not None
+    assert "بانک" in ans["text"].split("\n")[0]
+    assert "بانکداری دیجیتال" not in ans["text"].split("\n")[0]

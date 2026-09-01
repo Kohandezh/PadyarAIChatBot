@@ -430,7 +430,17 @@ def answer_company_list(query: str, lang: str = "fa"):
             facet_map = _facets(companies)
             for value in selected:
                 facet_words |= facet_map.get(value, set())
-            hit = [t for t in tokens if _fold(t) in facet_words]
+            # A stem-union tie (بانک across بانکداری spellings) has the
+            # visitor's word in NO facet token, so the label would fall
+            # back to the facet NAMES — the 800-character headline this
+            # branch exists to prevent. Let a query word that DERIVES into
+            # a facet token count as the visitor's own matched word.
+            def _derives(t):
+                f = _fold(t)
+                return any(ft.startswith(f) and ft[len(f):] in _STEM_SUFFIXES
+                           for ft in facet_words if len(f) > 2)
+            hit = [t for t in tokens
+                   if _fold(t) in facet_words or _derives(t)]
             hit += [tokens[i] + tokens[i + 1]
                     for i in range(len(tokens) - 1)
                     if _fold(tokens[i] + tokens[i + 1]) in facet_words]
