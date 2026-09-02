@@ -318,9 +318,10 @@ INOTEX_DATASET = [
     },
 ]
 
-# Ids of the 2026 program block above (everything after inotex-news).
-# scripts/import-inotex-programs.py upserts exactly these ids — and nothing
-# else — into an already-installed database.
+# Ids of the crawled 2026 block above (everything after inotex-news) plus the
+# core menu rows refreshed by the 2026-09-02 crawl. scripts/import-inotex-
+# programs.py upserts exactly these ids — and nothing else — into an
+# already-installed database (title/text only; position/video_url untouched).
 INOTEX_2026_PROGRAM_IDS = frozenset({
     "inotex-schedule-2026",
     "inotex-express-2026",
@@ -342,6 +343,10 @@ INOTEX_2026_PROGRAM_IDS = frozenset({
     "inotex-topics",
     "inotex-access",
     "inotex-new-programs-2026",
+    # core rows refreshed by the 2026-09-02 crawl:
+    "inotex-organizers",
+    "inotex-programs",
+    "inotex-stats",
 })
 
 # Question → dataset-id index. Persian first, English variants at the end of
