@@ -299,3 +299,54 @@ def test_a_boosted_company_sorts_ahead_of_alphabetically_earlier_ones(client, mo
     # Non-boosted rows keep their alphabetical order among themselves.
     assert numbered[1].endswith("شرکت آوا"), body["text"]
     assert numbered[2].endswith("شرکت نگار"), body["text"]
+
+
+def test_a_rare_shared_topic_word_unions_its_facets(client, monkeypatch):
+    """«چه شرکت هایی CRM دارند» — the word sits in SEVERAL facet values
+    (five on the live Elecomp sheet), so the shared==1 rule alone returned
+    None and the visitor got a model-tier deflection while the data held
+    the answer. A single exact word shared by a HANDFUL of facets answers
+    as the union of those facets. Live failure, Elecomp 2026-09-02."""
+    crm_rows = [
+        ("co-crm-a", "شرکت الف", "معرفی شرکت الف: سازنده سامانه های سازمانی.",
+         "نرم افزار CRM سازمانی"),
+        ("co-crm-b", "شرکت ب", "معرفی شرکت ب: ارائه دهنده سامانه ابری.",
+         "سامانه CRM ابری"),
+        ("co-crm-c", "شرکت پ", "معرفی شرکت پ: مرکز تماس هوشمند.",
+         "CRM و مرکز تماس"),
+    ] + COMPANIES
+    _seed(crm_rows)
+    _mock_ai(monkeypatch, forbid=True)
+    r = _ask(client, "شرکت‌های CRM را معرفی کن")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "local_company_search", body
+    for _, title, _, _ in crm_rows[:3]:
+        assert title in body["text"], body["text"]
+
+
+def test_a_too_common_topic_word_still_falls_through(monkeypatch):
+    """The union bound: a word that organizes most of the fair (فناوری sat
+    in 28 facets on the live sheet) is not an answer, it is noise — the
+    tier stays None and the pipeline decides. The corpus vocabulary is
+    provided explicitly: the rare-shared union trusts it to account for
+    non-topic words («دارند»), exactly as the loaded pipeline does."""
+    from app.services import search as search_service
+    from app.services.company_search import _select_facets
+    from app.utils.normalizer import normalize_persian
+
+    monkeypatch.setattr(search_service, "_corpus_vocab", {"دارند", "معرفی"})
+
+    def row(i, field):
+        return {"title": f"شرکت {i}", "activity_field": field,
+                "province": "", "company_type": ""}
+
+    def forms(query):
+        return normalize_persian(query, expand_synonyms=False).split()
+
+    common = [row(i, f"حوزه {i} فناوری") for i in range(10)]
+    assert _select_facets(forms("فناوری"), common) is None
+
+    rare = [row(i, f"حوزه {i} CRM") for i in range(5)]
+    picked = _select_facets(forms("CRM دارند"), rare)
+    assert picked is not None and len(picked) == 5

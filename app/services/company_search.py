@@ -134,6 +134,37 @@ def _query_forms(tokens: list) -> set:
 _FACET_MAX_TOKENS = 8
 _FACET_MAX_CHARS = 70
 
+# A single exact word shared by at most this many facets still answers as the
+# UNION of those facets (see _select_facets for the measured failure).
+_RARE_SHARED_MAX_FACETS = 8
+
+
+def _validated_rare_shared(rare: set, tokens: list, facets: dict) -> set:
+    """The union is only an answer when the query names no OTHER niche.
+
+    «شرکت های حوزه فناوری های کوانتومی» — فناوری is shared-rare, but
+    کوانتومی matches nothing anywhere: the visitor asked a niche the
+    corpus cannot serve, and printing the generic فناوری companies is a
+    confident wrong answer where deferring is a correct one. So every
+    SALIENT token must be accounted for — by a facet, or by the corpus
+    vocabulary at large («معرفی» is not a facet word but the corpus knows
+    it). An unloaded vocabulary fails OPEN, exactly like the unknown-token
+    gate it mirrors: a cold unit test must not silently change behavior.
+    """
+    facet_tokens = set()
+    for toks in facets.values():
+        facet_tokens |= toks
+    from app.services import search as _search
+    vocab = _search._corpus_vocab or set()
+    for t in tokens:
+        f = _fold(t)
+        if len(f) < 4 or (f.isascii() and len(f) < 5):
+            continue
+        if f in facet_tokens or f in vocab:
+            continue
+        return set()
+    return rare
+
 
 def _is_category_label(value: str) -> bool:
     return (len(value) <= _FACET_MAX_CHARS
@@ -287,6 +318,15 @@ def _select_facets(tokens: list, companies: list):
 
     scored = {}
     stem_only = set()
+    # A single DISTINCTIVE word (shared==1) scores above. A single RARE word
+    # — shared by a handful of facets — is not a guess either: the answer is
+    # the UNION of those facets. Live failure this rule fixes (Elecomp,
+    # 2026-09-02): «چه شرکت هایی CRM دارند» — crm sits in 5 facets
+    # (7 exhibitors) and the shared!=1 rule returned None, so the visitor
+    # got a deflection while the data held the answer. Above the bound the
+    # word organizes too much of the fair to be an answer: فناوری spans 28
+    # facets, هوش 38 — measured on the Elecomp sheet.
+    rare_shared = set()
     for value, toks in facets.items():
         # Glue words organize a facet's DESCRIPTION, they are never the
         # topic the visitor means — keep them from creating hits at all.
@@ -313,12 +353,17 @@ def _select_facets(tokens: list, companies: list):
         hit = hit | {t for t in toks - hit if _fuzzy_hit(t, correctable)}
         if len(hit) >= 2 or (len(hit) == 1 and shared[next(iter(hit))] == 1):
             scored[value] = len(hit)
+        elif (exact and len(exact) == 1 and len(hit) == 1
+              and shared[next(iter(exact))] <= _RARE_SHARED_MAX_FACETS):
+            rare_shared.add(value)
     if not scored:
         # The union of every facet the visitor's base word derives into.
         # Several tied exact facets already return as a set; a stem tie gets
         # the same treatment — the filter label falls back to the visitor's
         # own words, which is exactly right for «بانک».
-        return stem_only or None
+        if rare_shared:
+            rare_shared = _validated_rare_shared(rare_shared, tokens, facets)
+        return stem_only or rare_shared or None
     best = max(scored.values())
     return {v for v, n in scored.items() if n == best}
 
