@@ -2,8 +2,8 @@
   "manifest_version": "1.0",
   "project_instance": "inotex",
   "primary_source_of_truth": "https://inotex.com/",
-  "knowledge_version": "inotex-kb-2026-08-27.1",
-  "retrieved_at": "2026-08-27",
+  "knowledge_version": "inotex-kb-2026-09-02.1",
+  "retrieved_at": "2026-09-02",
   "policy": {
     "robots_txt": "checked 2026-08-14 — no restrictions returned",
     "no_authentication_bypass": true,
@@ -37,7 +37,7 @@
       "title": "سوالات متداول اینوتکس ۲۰۲۶",
       "language": "fa",
       "content_type": "faq",
-      "retrieved_at": "2026-08-14",
+      "retrieved_at": "2026-09-02",
       "facts_supplied": [
         "15th edition (پانزدهمین رویداد)",
         "dates: 11–14 Shahrivar 1405",
@@ -56,10 +56,12 @@
       "title": "رویدادهای اینوتکس ۲۰۲۶",
       "language": "fa",
       "content_type": "programs",
-      "retrieved_at": "2026-08-14",
+      "retrieved_at": "2026-09-02",
       "facts_supplied": [
-        "INOTEX Stage, Governance & Legislation Forum, INOTEX Pitch & Battle, Capital Café, Consultants Pavilion, Crowdfunding platform, Reverse Pitch, Pioneers Festival, Media Hub, National AI & IoT Conference, Investors Pavilion, Technology Experience, Work Station, INOTEX Demo, tours",
-        "most programs free admission"
+        "2026 event list with per-event dates and admission: INOTEX Stage, InoNight (camping networking), Capital Café, Consultants Pavilion, INOTEX Pitch & Battle, Work Station, Reverse Pitch, INOTEX tour, Media Hub, National AI & IoT Conference, Investors Pavilion, InoBrick (recess), 10X, Selection Day, Product Launch, Human Capital Development session",
+        "most programs free admission; InoNight and Work Station marked 'متغیر'",
+        "10X on 11 Shahrivar; Selection Day 13 Shahrivar; Product Launch and Pitch & Battle final 14 Shahrivar; Human Capital session 12 Shahrivar",
+        "NOTE: Pioneers Festival and the crowdfunding platform, listed on the 2026-08-14 snapshot, no longer appear on this page"
       ],
       "freshness_status": "current",
       "approval_status": "approved"
@@ -70,10 +72,10 @@
       "title": "زمان‌بندی رویدادهای اینوتکس ۲۰۲۶ (برنامه زمانی)",
       "language": "fa",
       "content_type": "timetable",
-      "retrieved_at": "2026-08-27",
+      "retrieved_at": "2026-09-02",
       "facts_supplied": [
         "four event days; stages/halls: استیج اصلی، استیج جانبی، سالن فن‌بازار، سالن سراج، اینونایت، میت‌آپ، هاب رسانه",
-        "opening ceremony 15:30–17:30; closing ceremony 18:00–20:00; INOTEX Pitch & Battle 14:00–18:00",
+        "opening ceremony 14:00–15:00 (CHANGED from 15:30–17:30 on the 2026-08-27 snapshot — see conflict opening-ceremony-change-1); closing ceremony 18:00–20:00; INOTEX Pitch & Battle 14:00–18:00",
         "INOTEX Stage one-day program 14:00–20:25",
         "روز انتخاب product showcases 14:10–20:10 (AI content, mobile game, Majooris builder, standards platform, real-estate AI, SYNAPSE, ریزدونه, trading robots, waste-sorting robotics, AI film)",
         "AI & IoT conference days 1–3 panels: fintech/smart health; IoT security/smart industry/smart mining; AI-in-innovation/AI-IoT/cognitive science (14:00–20:00 blocks)",
@@ -82,6 +84,72 @@
         "26th national FanBazar gathering 08:00–16:00; FanBazar training workshop 08:00–12:00",
         "InoNight 20:00–23:59; four numbered meetups; Media Hub 10:00–18:00; Esteghlal–Persepolis screening 19:30–21:30; product launch space 14:00–19:00",
         "footer on this page lists secretariat as Seraj Building Unit 121 (conflicts with Unit 125 elsewhere)"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-introduction",
+      "url": "https://inotex.com/fa/Introduction",
+      "title": "معرفی رویداد اینوتکس — زیست بوم نوآوری، زیر یک سقف",
+      "language": "fa",
+      "content_type": "event_overview",
+      "retrieved_at": "2026-09-02",
+      "facts_supplied": [
+        "15th edition; largest innovation & technology event in Iran; 100,000+ annual in-person and virtual audience from around the world",
+        "goals: empowering entrepreneurs, financing, market entry path, connecting ecosystem players",
+        "Pardis Technology Park (techpark.ir) is the exhibition owner/licensee; secretariat run with private-sector companies",
+        "permanent supporters: معاونت علمی، فناوری و اقتصاد دانش‌بنیان ریاست جمهوری (isti.ir) و مرکز همکاری‌های تحول و پیشرفت ریاست جمهوری (citc.ir)",
+        "Pardis Technology Park founded 1380, 400+ member companies; upgraded to منطقه بین‌المللی نوآوری ایران by cabinet decree in 1403",
+        "access routes: shuttle buses from ایستگاه نوبنیاد (بزرگراه بابایی) and ایستگاه تهران‌پارس (اتوبان شهید یاسینی), both via آزادراه تهران–پردیس first exit after the main toll, past Pardis Azad University",
+        "virtual exhibition at https://inotex.com/ex",
+        "dates 11–14 Shahrivar 1405, hours 14–20 (corroborates FAQ); secretariat Seraj Building Unit 125"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-topics",
+      "url": "https://inotex.com/fa/pages/?id=17",
+      "title": "موضوعات نمایشگاه",
+      "language": "fa",
+      "content_type": "topics",
+      "retrieved_at": "2026-09-02",
+      "facts_supplied": [
+        "no restriction to a specific technology domain; goal is gathering entrepreneurs and experts for synergy",
+        "annual approach reviews latest innovation trends; 2025 trends in three categories: Smart (هوشمندسازی), Digital (دیجیتال), Sustainable Development (توسعه پایدار)"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-about",
+      "url": "https://inotex.com/fa/about",
+      "title": "اینوتکس چیست — اهداف و ماموریت‌ها",
+      "language": "fa",
+      "content_type": "about",
+      "retrieved_at": "2026-09-02",
+      "facts_supplied": [
+        "INOTEX held since 1390 (2011) by Pardis Technology Park with international companies",
+        "three goals: investment (domestic & international investors ↔ companies/startups), partnership & collaboration, dialogue & networking",
+        "connects cutting-edge tech to large and medium industries, tech-product customers to producers, investors to tech projects and startups",
+        "since 1400 (2021) the Pardis Innovation District hosts INOTEX"
+      ],
+      "freshness_status": "current",
+      "approval_status": "approved"
+    },
+    {
+      "source_id": "inotex-organizer",
+      "url": "https://inotex.com/fa/pages/?id=18",
+      "title": "برگزارکننده",
+      "language": "fa",
+      "content_type": "organizer",
+      "retrieved_at": "2026-09-02",
+      "facts_supplied": [
+        "پارک فناوری پردیس is the main owner/licensee (صاحب امتیاز اصلی) of INOTEX",
+        "park founded 1380, 400+ tech and knowledge-based member companies",
+        "upgraded in 1403 by cabinet decree to منطقه بین‌المللی نوآوری ایران so members get special facilities",
+        "footer organizer logos: isti.ir, iiid.tech, techpark.ir, asna.ir"
       ],
       "freshness_status": "current",
       "approval_status": "approved"
@@ -320,6 +388,13 @@
       "description": "News id=576 (1404/12/2) announced INOTEX 2026 for 30 Ordibehesht–2 Khordad 1405; the exhibition was later moved to 11–14 Shahrivar 1405 (news 593/594, FAQ).",
       "resolution": "current answers use 11–14 Shahrivar only; id=576 marked historical_superseded and excluded from answers",
       "status": "resolved_superseded",
+      "logged_in": "content/review-queue.md"
+    },
+    {
+      "conflict_id": "opening-ceremony-change-1",
+      "description": "The /programs timetable snapshot of 2026-08-27 showed the opening ceremony at 15:30–17:30; the 2026-09-02 fetch shows افتتاحیه 14:00–15:00.",
+      "resolution": "the current live page wins; record inotex-schedule-2026 updated to 14:00–15:00 with the usual advisory to confirm on the official timetable",
+      "status": "resolved_with_evidence",
       "logged_in": "content/review-queue.md"
     }
   ]

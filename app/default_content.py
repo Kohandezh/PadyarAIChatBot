@@ -70,9 +70,9 @@ INOTEX_DATASET = [
     {
         "id": "inotex-programs",
         "title": "برنامه‌های اینوتکس چیست؟",
-        "text": "اینوتکس ۲۰۲۶ مجموعه‌ای از برنامه‌ها را در چهار روز برگزاری میزبانی می‌کند؛ از جمله: استیج اینوتکس (سخنرانی‌ها و گفتگوهای نوآورانه)، رقابت استارتاپی اینوتکس پیچ و بتل، فروم حکمرانی و قانون‌گذاری، کافه سرمایه (تأمین مالی)، پاویون مشاوران، سکوی تأمین مالی جمعی، ریورس پیچ (نیازهای فناورانه صنایع)، جشنوارهٔ پیشگامان، مدیا هاب، همایش ملی هوش مصنوعی و اینترنت اشیا و پاویون سرمایه‌گذاران. ورود به بیشتر برنامه‌ها رایگان است. جزئیات: https://inotex.com/fa/events",
+        "text": "اینوتکس ۲۰۲۶ در چهار روز برگزاری میزبان این برنامه‌ها و بخش‌های جانبی است: استیج اینوتکس (سخنرانی‌ها و گفتگوهای نوآورانه)، اینونایت (شب‌نشینی شبکه‌سازی در قالب کمپینگ)، کافه سرمایه (تأمین مالی)، پاویون مشاوران، رقابت استارتاپی اینوتکس‌پیچ و بتل، ایستگاه کار (فرصت‌های شغلی)، ریورس‌پیچ (ارائه نیازهای فناورانه صنایع)، تور بازدید اینوتکس، هاب رسانه، همایش ملی هوش مصنوعی و اینترنت اشیا، پاویون سرمایه‌گذاران، اینوبریک (زنگ تفریح)، 10X، روز انتخاب، لانچ محصول و نشست توسعهٔ سرمایهٔ انسانی. ورود به بیشتر برنامه‌ها رایگان است. فهرست و توضیح هر رویداد: https://inotex.com/fa/events",
         "title_en": "What are the INOTEX programs?",
-        "text_en": "INOTEX 2026 hosts a range of programs across its four days, including: INOTEX Stage (keynotes and innovation talks), the INOTEX Pitch & Battle startup competition, the Governance and Legislation Forum, Capital Café (financing), the Consultants Pavilion, a crowdfunding platform, Reverse Pitch (industry technology needs), the Pioneers Festival, Media Hub, the National AI & IoT Conference, and the Investors Pavilion. Most programs are free to attend. Details: https://inotex.com/fa/events",
+        "text_en": "Across its four days, INOTEX 2026 hosts these programs and side sections: the INOTEX Stage (keynotes and innovation talks), InoNight (evening networking camp), Capital Café (financing), the Consultants Pavilion, the INOTEX Pitch & Battle startup competition, the Work Station (job opportunities), Reverse Pitch (industry technology needs), the INOTEX tour, Media Hub, the National AI & IoT Conference, the Investors Pavilion, InoBrick (recess), 10X, Selection Day, Product Launch and the Human Capital Development session. Most programs are free to attend. The full list with details: https://inotex.com/fa/events",
         "video_url": "",
     },
     {
@@ -110,9 +110,9 @@ INOTEX_DATASET = [
     {
         "id": "inotex-stats",
         "title": "ابعاد رویداد اینوتکس",
-        "text": "طبق صفحهٔ اصلی سایت رسمی، اینوتکس ۲۰۲۶ میزبان بیش از ۴۵۰ شرکت فناور و نوآور، بیش از ۳۰,۰۰۰ بازدیدکننده از زیست‌بوم نوآوری، بیش از ۱۵۰ سرمایه‌گذار، بیش از ۴۰۰ جلسهٔ B2B و بیش از ۳۰ رویداد جانبی است. منبع: https://inotex.com/",
+        "text": "طبق صفحهٔ اصلی سایت رسمی، اینوتکس ۲۰۲۶ میزبان بیش از ۴۵۰ شرکت فناور و نوآور، بیش از ۳۰,۰۰۰ بازدیدکننده از زیست‌بوم نوآوری، بیش از ۱۵۰ سرمایه‌گذار، بیش از ۴۰۰ جلسهٔ B2B و بیش از ۳۰ رویداد جانبی است. طبق صفحهٔ معرفی رسمی نیز این رویداد هر سال میزبان بیش از ۱۰۰ هزار مخاطب از سراسر جهان به‌صورت حضوری و مجازی است. منابع: https://inotex.com/ و https://inotex.com/fa/Introduction",
         "title_en": "How big is INOTEX?",
-        "text_en": "According to the official home page, INOTEX 2026 hosts 450+ technology and innovation companies, 30,000+ visitors from the innovation ecosystem, 150+ investors, 400+ B2B meetings and 30+ side events. Source: https://inotex.com/",
+        "text_en": "According to the official home page, INOTEX 2026 hosts 450+ technology and innovation companies, 30,000+ visitors from the innovation ecosystem, 150+ investors, 400+ B2B meetings and 30+ side events. Per the official introduction page, the event also welcomes more than 100,000 in-person and virtual attendees from around the world each year. Sources: https://inotex.com/ and https://inotex.com/fa/Introduction",
         "video_url": "",
     },
     {
@@ -134,9 +134,9 @@ INOTEX_DATASET = [
     {
         "id": "inotex-organizers",
         "title": "برگزارکنندگان اینوتکس",
-        "text": "اینوتکس با مشارکت نهادهای زیست‌بوم نوآوری کشور و با میزبانی پارک فناوری پردیس برگزار می‌شود. فهرست دقیق برگزارکنندگان و حامیان هر دوره در سایت رسمی https://inotex.com/ اعلام می‌شود.",
+        "text": "پارک فناوری پردیس صاحب امتیاز اصلی رویداد اینوتکس است و دبیرخانهٔ نمایشگاه با همکاری شرکت‌هایی از بخش خصوصی این رویداد را برگزار می‌کند. معاونت علمی، فناوری و اقتصاد دانش‌بنیان ریاست جمهوری و مرکز همکاری‌های تحول و پیشرفت ریاست جمهوری نیز از حامیان و پشتیبان‌های دائمی نمایشگاه هستند. پارک فناوری پردیس در سال ۱۳۸۰ تأسیس شد، با عضویت بیش از ۴۰۰ شرکت فناور و دانش‌بنیان به یکی از نقاط تلاقی برجستهٔ فناوری و نوآوری کشور تبدیل شده است و در سال ۱۴۰۳ با مصوبهٔ هیئت وزیران به «منطقهٔ بین‌المللی نوآوری ایران» ارتقا یافت. منابع: https://inotex.com/fa/pages/?id=18 و https://inotex.com/fa/Introduction",
         "title_en": "Who organizes INOTEX?",
-        "text_en": "INOTEX is organized with the participation of Iran's innovation-ecosystem institutions and hosted by Pardis Technology Park. The exact list of organizers and sponsors of each edition is announced on the official site https://inotex.com/",
+        "text_en": "Pardis Technology Park is the owner and licensee of INOTEX, and the exhibition secretariat organizes the event in cooperation with private-sector companies. The Vice-Presidency for Science, Technology and Knowledge-Based Economy and the Presidential Center for Transformation and Progress Cooperation are permanent supporters of the exhibition. Pardis Technology Park was founded in 1380 (2001), has grown into one of the country's leading technology and innovation hubs with more than 400 member technology and knowledge-based companies, and was upgraded to the 'Iran International Innovation Zone' by cabinet decree in 1403 (2024). Sources: https://inotex.com/fa/pages/?id=18 and https://inotex.com/fa/Introduction",
         "video_url": "",
     },
     {
@@ -164,9 +164,9 @@ INOTEX_DATASET = [
     {
         "id": "inotex-schedule-2026",
         "title": "جدول زمان‌بندی برنامه‌های اینوتکس ۲۰۲۶",
-        "text": "برنامهٔ زمانی رسمی همهٔ رویدادهای اینوتکس ۲۰۲۶ در صفحهٔ «برنامه زمانی» سایت منتشر شده است: https://inotex.com/programs — در این جدول می‌توانید برنامه را بر اساس روزهای برگزاری و مکان‌ها (استیج اصلی، استیج جانبی، سالن فن‌بازار، سالن سراج، اینونایت، میت‌آپ و هاب رسانه) دنبال کنید. چند ساعت کلیدی طبق این جدول: افتتاحیه ۱۵:۳۰ تا ۱۷:۳۰، برنامهٔ استیج اینوتکس از ساعت ۱۴، فینال اینوتکس‌پیچ و بتل ۱۴ تا ۱۸ و اختتامیه ۱۸ تا ۲۰ در روز پایانی، پخش زندهٔ بازی استقلال و پرسپولیس ۱۹:۳۰ تا ۲۱:۳۰ و هاب رسانه ۱۰ تا ۱۸. برای دیدن برنامهٔ دقیق هر روز و هر سالن به همان صفحه مراجعه کنید.",
+        "text": "برنامهٔ زمانی رسمی همهٔ رویدادهای اینوتکس ۲۰۲۶ در صفحهٔ «برنامه زمانی» سایت منتشر شده است: https://inotex.com/programs — در این جدول می‌توانید برنامه را بر اساس روزهای برگزاری و مکان‌ها (استیج اصلی، استیج جانبی، سالن فن‌بازار، سالن سراج، اینونایت، میت‌آپ و هاب رسانه) دنبال کنید. چند ساعت کلیدی طبق این جدول: افتتاحیه ۱۴ تا ۱۵ روز اول، برنامهٔ استیج اینوتکس از ساعت ۱۴، فینال اینوتکس‌پیچ و بتل ۱۴ تا ۱۸ و اختتامیه ۱۸ تا ۲۰ در روز پایانی، پخش زندهٔ بازی استقلال و پرسپولیس ۱۹:۳۰ تا ۲۱:۳۰ و هاب رسانه ۱۰ تا ۱۸. برای دیدن برنامهٔ دقیق هر روز و هر سالن به همان صفحه مراجعه کنید.",
         "title_en": "INOTEX 2026 event schedule",
-        "text_en": "The official timetable for all INOTEX 2026 programs is published on the schedule page: https://inotex.com/programs — browse it by event day and by stage (main stage, side stage, FanBazar hall, Seraj hall, InoNight, Meetup and Media Hub). Key times from the table: opening ceremony 15:30–17:30, INOTEX Stage program from 14:00, the INOTEX Pitch & Battle final 14:00–18:00 and the closing ceremony 18:00–20:00 on the final day, a live screening of the Esteghlal–Persepolis match 19:30–21:30, and the Media Hub 10:00–18:00. Check that page for the exact per-day, per-hall program.",
+        "text_en": "The official timetable for all INOTEX 2026 programs is published on the schedule page: https://inotex.com/programs — browse it by event day and by stage (main stage, side stage, FanBazar hall, Seraj hall, InoNight, Meetup and Media Hub). Key times from the table: opening ceremony 14:00–15:00 on day one, the INOTEX Stage program from 14:00, the INOTEX Pitch & Battle final 14:00–18:00 and the closing ceremony 18:00–20:00 on the final day, a live screening of the Esteghlal–Persepolis match 19:30–21:30, and the Media Hub 10:00–18:00. Check that page for the exact per-day, per-hall program.",
         "video_url": "",
     },
     {
@@ -281,6 +281,41 @@ INOTEX_DATASET = [
         "text_en": "Per the timetable, 'Selection Day' (14:10–20:10) is dedicated to introducing and launching smart products and platforms, including: AI digital-content creation, a multiplayer mobile game, the Majooris app/site builder, a smart standards-compliance platform, an Iranian real-estate AI trading platform, the SYNAPSE multi-layer intelligent processing architecture, the Rizdooneh smart growth platform, a marketplace-finance robot ordering platform, a robotic waste-sorting system, and AI filmmaking. The 'Product Launch' space also runs 14:00–19:00 per the timetable. Source: https://inotex.com/programs",
         "video_url": "",
     },
+    # --- crawled 2026-09-02 from the official site ------------------------
+    # Introduction, events index, topics, about and organizer pages
+    # (see content/sources.json, knowledge_version inotex-kb-2026-09-02.1).
+    {
+        "id": "inotex-history",
+        "title": "تاریخچه اینوتکس",
+        "text": "نمایشگاه بین‌المللی نوآوری و فناوری اینوتکس از سال ۱۳۹۰ با همت پارک فناوری پردیس و با حضور شرکت‌های بین‌المللی برگزار می‌شود و اکنون به یکی از مهم‌ترین رویدادهای سال در حوزهٔ نوآوری و فناوری کشور تبدیل شده است. اهداف اصلی برگزاری: سرمایه‌گذاری (ارتباط سرمایه‌گذاران داخلی و بین‌المللی با شرکت‌ها و استارتاپ‌ها)، مشارکت و همکاری (میان شرکت‌های فناور و استارتاپ‌های داخلی و بین‌المللی) و گفتگو و شبکه‌سازی (میان فعالان زیست‌بوم نوآوری و فناوری). از سال ۱۴۰۰ ناحیهٔ نوآوری پردیس میزبان این رویداد بوده است. منبع: https://inotex.com/fa/about",
+        "title_en": "The history of INOTEX",
+        "text_en": "INOTEX, the International Innovation and Technology Exhibition, has been held since 1390 (2011) by Pardis Technology Park with international companies attending, and is now one of the most important annual innovation and technology events in Iran. Its main goals: investment (connecting domestic and international investors with companies and startups), partnership and collaboration (between domestic and international tech companies and startups), and dialogue and networking (among innovation-ecosystem players). Since 1400 (2021), the Pardis Innovation District has hosted the event. Source: https://inotex.com/fa/about",
+        "video_url": "",
+    },
+    {
+        "id": "inotex-topics",
+        "title": "موضوعات نمایشگاه اینوتکس",
+        "text": "در نمایشگاه اینوتکس محدودیتی برای حوزهٔ خاصی از فناوری و نوآوری قائل نیستند؛ هدف ایجاد محلی برای گردهمایی کارآفرینان و صاحب‌نظران حوزه‌های فناورانه و افزایش سینرژی حاصل از این شبکه‌سازی است. رویکرد هر سال، بررسی آخرین ترندهای نوآوری و فناوری است؛ طبق صفحهٔ موضوعات نمایشگاه، ترندهای ۲۰۲۵ در سه دستهٔ کلی دسته‌بندی می‌شوند: هوشمندی (Smart)، دیجیتال (Digital) و توسعهٔ پایدار (Sustainable Development). منبع: https://inotex.com/fa/pages/?id=17",
+        "title_en": "INOTEX exhibition topics",
+        "text_en": "INOTEX sets no limit on any specific technology or innovation domain; the goal is a gathering place for entrepreneurs and experts across tech fields that increases the synergy of this networking. Each year's approach reviews the latest innovation and technology trends; per the official topics page, the 2025 trends fall into three broad categories: Smart, Digital and Sustainable Development. Source: https://inotex.com/fa/pages/?id=17",
+        "video_url": "",
+    },
+    {
+        "id": "inotex-access",
+        "title": "راه‌های دسترسی به اینوتکس",
+        "text": "دسترسی حضوری به نمایشگاه با اتوبوس از دو ایستگاه ممکن است: ایستگاه نوبنیاد (بزرگراه بابایی) و ایستگاه تهران‌پارس (اتوبان شهید یاسینی). مسیر هر دو: آزادراه تهران–پردیس، خروجی اول بعد از عوارضی اصلی، بعد از دانشگاه آزاد پردیس، به پارک فناوری پردیس. بخش مجازی نمایشگاه نیز در آدرس https://inotex.com/ex در دسترس است. منبع: https://inotex.com/fa/Introduction",
+        "title_en": "How to get to INOTEX",
+        "text_en": "To attend in person, shuttle buses run from two stations: Nobonyad Station (Babaei Expressway) and Tehranpars Station (Shahid Yasini Expressway). Both routes follow the Tehran–Pardis freeway, first exit after the main toll gate, past Pardis Azad University, to Pardis Technology Park. The virtual exhibition is also available at https://inotex.com/ex. Source: https://inotex.com/fa/Introduction",
+        "video_url": "",
+    },
+    {
+        "id": "inotex-new-programs-2026",
+        "title": "برنامه‌های جدید اینوتکس ۲۰۲۶",
+        "text": "طبق صفحهٔ رویدادها، این برنامه‌ها نیز در اینوتکس ۲۰۲۶ برگزار می‌شود: «10X» (روز اول، رایگان — ارائه‌ها و پنل‌های جهش بزرگ، از جمله مقیاس‌پذیری در تله‌مدیسین و پنل استارتاپ‌ها)، «اینوبریک» (زنگ تفریح، رایگان، همهٔ روزها)، «تور بازدید اینوتکس» (بازدید از نمایشگاه و پارک فناوری پردیس، رایگان) و «نشست توسعهٔ سرمایهٔ انسانی» (۱۲ شهریور، رایگان — رویکردهای نوین مدیریت سرمایهٔ انسانی در دوران بحران و بازسازی). فهرست کامل رویدادها: https://inotex.com/fa/events",
+        "title_en": "New programs at INOTEX 2026",
+        "text_en": "Per the events page, INOTEX 2026 also runs: '10X' (day one, free — big-leap talks and panels, including scalability in telemedicine and a startup panel), 'InoBrick' (recess, free, all days), the 'INOTEX tour' (visiting the exhibition and Pardis Technology Park, free) and the 'Human Capital Development session' (12 Shahrivar, free — new approaches to human-capital management in crisis and rebuilding). Full event list: https://inotex.com/fa/events",
+        "video_url": "",
+    },
 ]
 
 # Ids of the 2026 program block above (everything after inotex-news).
@@ -302,6 +337,11 @@ INOTEX_2026_PROGRAM_IDS = frozenset({
     "inotex-governance-forum-2026",
     "inotex-pardis-summit-2026",
     "inotex-selection-day-2026",
+    # crawled 2026-09-02:
+    "inotex-history",
+    "inotex-topics",
+    "inotex-access",
+    "inotex-new-programs-2026",
 })
 
 # Question → dataset-id index. Persian first, English variants at the end of
@@ -532,6 +572,35 @@ INOTEX_QUESTIONS = [
     ("رونمایی محصول در اینوتکس", "inotex-selection-day-2026"),
     ("لانچ محصول اینوتکس", "inotex-selection-day-2026"),
     ("product launch inotex", "inotex-selection-day-2026"),
+    # --- history (crawled 2026-09-02) ---
+    ("تاریخچه اینوتکس", "inotex-history"),
+    ("اینوتکس از چه سالی برگزار می‌شود", "inotex-history"),
+    ("اینوتکس چند ساله است", "inotex-history"),
+    ("اهداف اینوتکس چیست", "inotex-history"),
+    ("اینوتکس از کجا شروع شد", "inotex-history"),
+    ("history of inotex", "inotex-history"),
+    # --- topics ---
+    ("موضوعات نمایشگاه اینوتکس", "inotex-topics"),
+    ("حوزه‌های نمایشگاه چیست", "inotex-topics"),
+    ("چه فناوری‌هایی در اینوتکس ارائه می‌شود", "inotex-topics"),
+    ("ترندهای نوآوری اینوتکس", "inotex-topics"),
+    ("توسعه پایدار در اینوتکس", "inotex-topics"),
+    ("inotex topics", "inotex-topics"),
+    # --- access ---
+    ("راه‌های دسترسی به اینوتکس", "inotex-access"),
+    ("چطور به پارک فناوری پردیس بروم", "inotex-access"),
+    ("اتوبوس اینوتکس از کجا حرکت می‌کند", "inotex-access"),
+    ("ایستگاه نوبنیاد", "inotex-access"),
+    ("ایستگاه تهران‌پارس", "inotex-access"),
+    ("نمایشگاه مجازی اینوتکس", "inotex-access"),
+    ("how to get to inotex", "inotex-access"),
+    # --- new programs ---
+    ("برنامه‌های جدید اینوتکس", "inotex-new-programs-2026"),
+    ("10x چیست", "inotex-new-programs-2026"),
+    ("ده ایکس اینوتکس", "inotex-new-programs-2026"),
+    ("اینوبریک چیست", "inotex-new-programs-2026"),
+    ("نشست توسعه سرمایه انسانی", "inotex-new-programs-2026"),
+    ("تور بازدید اینوتکس", "inotex-new-programs-2026"),
 ]
 
 # Persian normalization helpers. Sourced here so both init_db() and the
@@ -622,6 +691,13 @@ INOTEX_2026_PROGRAM_SYNONYMS = [
     ("کارجو", "کارجویان جویای کار استخدام job"),
     ("منتور", "منتورها منتورشیپ مشاور mentor"),
     ("شتاب دهنده", "شتاب‌دهنده شتابدهنده اکسلراتور accelerator"),
+    # crawled 2026-09-02:
+    ("تاریخچه", "تاریخ سابقه گذشته"),
+    ("موضوعات", "موضوع حوزه‌ها حوزه بخش‌ها"),
+    ("دسترسی", "مسیر رفت‌وآمد رسیدن ایاب ذهاب"),
+    ("اتوبوس", "سرویس اتوبوس shuttle"),
+    ("ده ایکس", "10x ده‌ایکس"),
+    ("تور", "تور بازدید گشت visite"),
 ]
 
 INOTEX_SYNONYMS.extend(INOTEX_2026_PROGRAM_SYNONYMS)
