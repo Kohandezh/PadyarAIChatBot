@@ -139,6 +139,33 @@ _FACET_MAX_CHARS = 70
 _RARE_SHARED_MAX_FACETS = 8
 
 
+def _validated_rare_shared(rare: set, tokens: list, facets: dict) -> set:
+    """The union is only an answer when the query names no OTHER niche.
+
+    «شرکت های حوزه فناوری های کوانتومی» — فناوری is shared-rare, but
+    کوانتومی matches nothing anywhere: the visitor asked a niche the
+    corpus cannot serve, and printing the generic فناوری companies is a
+    confident wrong answer where deferring is a correct one. So every
+    SALIENT token must be accounted for — by a facet, or by the corpus
+    vocabulary at large («معرفی» is not a facet word but the corpus knows
+    it). An unloaded vocabulary fails OPEN, exactly like the unknown-token
+    gate it mirrors: a cold unit test must not silently change behavior.
+    """
+    facet_tokens = set()
+    for toks in facets.values():
+        facet_tokens |= toks
+    from app.services import search as _search
+    vocab = _search._corpus_vocab or set()
+    for t in tokens:
+        f = _fold(t)
+        if len(f) < 4 or (f.isascii() and len(f) < 5):
+            continue
+        if f in facet_tokens or f in vocab:
+            continue
+        return set()
+    return rare
+
+
 def _is_category_label(value: str) -> bool:
     return (len(value) <= _FACET_MAX_CHARS
             and len(value.split()) <= _FACET_MAX_TOKENS)
@@ -334,6 +361,8 @@ def _select_facets(tokens: list, companies: list):
         # Several tied exact facets already return as a set; a stem tie gets
         # the same treatment — the filter label falls back to the visitor's
         # own words, which is exactly right for «بانک».
+        if rare_shared:
+            rare_shared = _validated_rare_shared(rare_shared, tokens, facets)
         return stem_only or rare_shared or None
     best = max(scored.values())
     return {v for v, n in scored.items() if n == best}

@@ -325,12 +325,17 @@ def test_a_rare_shared_topic_word_unions_its_facets(client, monkeypatch):
         assert title in body["text"], body["text"]
 
 
-def test_a_too_common_topic_word_still_falls_through():
+def test_a_too_common_topic_word_still_falls_through(monkeypatch):
     """The union bound: a word that organizes most of the fair (فناوری sat
     in 28 facets on the live sheet) is not an answer, it is noise — the
-    tier stays None and the pipeline decides."""
+    tier stays None and the pipeline decides. The corpus vocabulary is
+    provided explicitly: the rare-shared union trusts it to account for
+    non-topic words («دارند»), exactly as the loaded pipeline does."""
+    from app.services import search as search_service
     from app.services.company_search import _select_facets
     from app.utils.normalizer import normalize_persian
+
+    monkeypatch.setattr(search_service, "_corpus_vocab", {"دارند", "معرفی"})
 
     def row(i, field):
         return {"title": f"شرکت {i}", "activity_field": field,
