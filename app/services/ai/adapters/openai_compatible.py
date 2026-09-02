@@ -129,7 +129,21 @@ class OpenAICompatibleAdapter(BaseAdapter):
     def apply_reasoning_body(self, rt: ProviderRuntime, model_id: str,
                              req: AIRequest) -> dict:
         """Provider-specific reasoning/thinking controls. Default: none —
-        an unknown compatible server must not receive undocumented fields."""
+        an unknown compatible server must not receive undocumented fields.
+
+        Opt-in per instance via config `reasoning_param: "enable_thinking"`
+        (the vLLM/SGLang switch behind chat_template_kwargs). Verified live
+        on RMG Pilot (Rayen) 2026-09-01: reasoning_effort is rejected by
+        every model there (litellm maps them to plain openai), while
+        chat_template_kwargs.enable_thinking is accepted and measurably
+        changes output length. "off" sends the explicit False so a backend
+        whose default is thinking-on can be quieted."""
+        if (rt.config or {}).get("reasoning_param") != "enable_thinking":
+            return {}
+        if req.reasoning in ("low", "medium", "high"):
+            return {"chat_template_kwargs": {"enable_thinking": True}}
+        if req.reasoning == "off":
+            return {"chat_template_kwargs": {"enable_thinking": False}}
         return {}
 
     # ── Invoke ──────────────────────────────────────────────────────────

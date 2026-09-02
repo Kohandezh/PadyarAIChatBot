@@ -243,6 +243,54 @@ async def reorder_route(request: Request):
     return _ok()
 
 
+@router.post("/admin/api/ai/routes/{task}/reasoning")
+async def set_route_reasoning(task: str, request: Request):
+    """The route's reasoning effort — the AI Control Plane owns this knob,
+    right next to the targets it applies to."""
+    body = await _json(request)
+    try:
+        store.set_route_reasoning(task, (body.get("reasoning") or ""),
+                                  actor=_actor(request))
+    except ai_errors.AIError as e:
+        _fail(400, e.redacted_detail())
+    return _ok()
+
+
+@router.post("/admin/api/ai/reasoning-test")
+async def test_route_reasoning(request: Request):
+    """Live-check a reasoning level against the routed provider.
+
+    Two real chat calls through the wrapper (reasoning off vs the requested
+    level) so the operator gets a fact, not a guess — the same standard as
+    the provider Test Connection on the neighboring pages. The level comes
+    from the dropdown as it stands (test-before-save); empty means the
+    route's saved value."""
+    from app.services.ai.wrapper import padyar_ai
+
+    body = await _json(request)
+    task = (body.get("task") or "chat").strip()
+    level = (body.get("level") or "").strip().lower()
+    if level not in ("default", "off", "low", "medium", "high"):
+        level = store.route_reasoning(task) or "default"
+    result = await padyar_ai.probe_reasoning(level)
+    off, lvl = result["off"], result["level_result"]
+
+    if not off["ok"]:
+        verdict = ("ارائه‌دهنده در دسترس نیست — ابتدا اتصال و مسیرها را بررسی کنید."
+                   f" (کد خطا: {off['error']})")
+    elif not lvl["ok"]:
+        verdict = ("پاسخ‌گویی کار می‌کند، اما این سطح تفکر توسط ارائه‌دهنده پذیرفته"
+                   f" نشد. (کد خطا: {lvl['error']}) — همان پیش‌فرض او استفاده می‌شود.")
+    elif lvl["tokens"] > max(1, off["tokens"]) * 1.2:
+        verdict = ("کار می‌کند — با سطح انتخاب‌شده مدل بیشتر فکر کرد و پاسخ داد"
+                   f" ({off['tokens']} توکن خاموش در برابر {lvl['tokens']} توکن).")
+    else:
+        verdict = ("پاسخ موفق بود، اما تفاوتی در تفکر دیده نشد — ممکن است این"
+                   " ارائه‌دهنده تنظیم سطح تفکر را اعمال نکند.")
+    return {"task": task, "level": level, "verdict_fa": verdict,
+            "off": off, "level_result": lvl}
+
+
 # ── Pricing ─────────────────────────────────────────────────────────────
 
 @router.post("/admin/api/ai/pricing")
