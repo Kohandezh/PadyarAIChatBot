@@ -32,7 +32,8 @@ from app.routers.public import SUGGESTION_LIMIT
 # The curated reading order, as served before the PostgreSQL migration.
 # Taken from the rowid sequence of the pre-migration SQLite database, which
 # was the only surviving record of it. Extended 2026-08-27 with the crawled
-# 2026 program block (app/default_content.py, same seed order).
+# 2026 program block, and 2026-09-02 with the crawled history/topics/access/
+# new-programs block (app/default_content.py, same seed order both times).
 CURATED = [
     "inotex-overview", "inotex-date", "inotex-venue", "inotex-hours",
     "inotex-booth", "inotex-programs", "inotex-pitch", "inotex-contact",
@@ -46,6 +47,7 @@ CURATED = [
     "inotex-mentors-2026", "inotex-inonight-meetups-2026",
     "inotex-governance-forum-2026", "inotex-pardis-summit-2026",
     "inotex-selection-day-2026",
+    "inotex-history", "inotex-topics", "inotex-access", "inotex-new-programs-2026",
 ]
 
 
