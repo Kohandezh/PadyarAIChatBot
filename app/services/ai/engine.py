@@ -96,8 +96,14 @@ async def execute_request(req: AIRequest) -> AIResponse:
         req.max_output_tokens = TASK_MAX_OUTPUT_TOKENS.get(task, 1024)
     if req.reasoning == "default":
         # CLASSIFICATION defaults reasoning OFF (matrix §5): five providers
-        # think by default and bill it as output tokens.
-        req.reasoning = "off" if task == "classify" else "default"
+        # think by default and bill it as output tokens. CHAT takes the
+        # operator's per-route choice (Admin -> AI -> Routing; '' keeps the
+        # provider's own behavior). An explicit caller preference never
+        # reaches this branch.
+        if task == "classify":
+            req.reasoning = "off"
+        else:
+            req.reasoning = store.route_reasoning(task) or "default"
     if not req.request_id:
         req.request_id = applog.current_request_id() or applog.new_id()
     if not req.correlation_id:

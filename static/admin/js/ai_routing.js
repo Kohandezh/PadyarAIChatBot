@@ -82,10 +82,33 @@ function fillModelList() {
     list.innerHTML = models.map(m => `<option value="${escapeHtml(m.model_id)}">`).join('');
 }
 
+// Reasoning-effort options, shared by the route header selector. Shown for
+// the CHAT route only — classification reasoning is pinned OFF by the engine
+// (it bills real money for zero visitor benefit).
+const REASONING_FA = Object.assign(Object.create(null), {
+    default: 'پیش‌فرض ارائه‌دهنده', off: 'خاموش',
+    low: 'کم', medium: 'متوسط', high: 'زیاد',
+});
+
+function routeReasoningHeader(task, reasoning) {
+    if (task !== 'chat') return '';
+    const opts = Object.entries(REASONING_FA)
+        .map(([v, fa]) => `<option value="${v}"${v === (reasoning || 'default') ? ' selected' : ''}>${fa}</option>`)
+        .join('');
+    return `
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <label class="form-label mb-0 me-1 small text-muted">سطح تفکر مدل</label>
+        <select class="form-select form-select-sm" style="width:auto" data-reasoning="${task}">${opts}</select>
+        <button class="btn btn-sm btn-outline-secondary" data-reasoning-test="${task}">آزمایش</button>
+        <span class="small text-muted" data-reasoning-state="${task}"></span>
+      </div>`;
+}
+
 function renderRoutes() {
     const host = document.getElementById('routes-container');
     const tasks = (routesData.routes || []).map(r => r.task);
     host.innerHTML = tasks.map(task => {
+        const route = (routesData.routes || []).find(r => r.task === task) || {};
         const targets = (routesData.targets || []).filter(t => t.task === task)
             .sort((a, b) => a.priority - b.priority);
         const rows = targets.map((t, idx) => `
@@ -113,7 +136,10 @@ function renderRoutes() {
             '<tr><td colspan="9" class="text-center text-muted py-3">هدفی تعریف نشده است.</td></tr>';
         return `<div class="col-lg-6">
           <div class="card">
-            <div class="card-header"><h3 class="card-title">${escapeHtml(TASK_FA[task] || task)}</h3></div>
+            <div class="card-header d-flex align-items-center">
+              <h3 class="card-title">${escapeHtml(TASK_FA[task] || task)}</h3>
+              ${routeReasoningHeader(task, route.reasoning)}
+            </div>
             <div class="table-responsive">
               <table class="table table-sm card-table">
                 <thead><tr><th></th><th>اولویت</th><th>سرویس‌دهنده</th><th>مدل</th>
@@ -127,6 +153,32 @@ function renderRoutes() {
     host.querySelectorAll('[data-toggle]').forEach(b => b.onclick = () => toggleTarget(Number(b.dataset.toggle), b.dataset.enabled === 'true'));
     host.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => removeTarget(Number(b.dataset.remove)));
     host.querySelectorAll('[data-circuit]').forEach(b => b.onclick = () => resetCircuit(b.dataset.circuit));
+    host.querySelectorAll('[data-reasoning]').forEach(sel => sel.onchange = () => saveReasoning(sel.dataset.reasoning, sel.value));
+    host.querySelectorAll('[data-reasoning-test]').forEach(b => b.onclick = () => testReasoning(b.dataset.reasoningTest));
+}
+
+// The reasoning effort saves immediately on change — a dropdown is not a
+// form; the change IS the intent. The test button probes what the dropdown
+// shows right now (test-before-you-trust), before or after saving.
+async function saveReasoning(task, level) {
+    const res = await fetchAuth(`/admin/api/ai/routes/${encodeURIComponent(task)}/reasoning`, {
+        method: 'POST', body: JSON.stringify({ reasoning: level }) });
+    showMsg('ai-routing-msg', res.ok ? 'سطح تفکر ذخیره شد' : 'ذخیرهٔ سطح تفکر ممکن نشد',
+            res.ok ? 'success' : 'danger');
+}
+
+async function testReasoning(task) {
+    const state = document.querySelector(`[data-reasoning-state="${task}"]`);
+    const sel = document.querySelector(`[data-reasoning="${task}"]`);
+    if (state) state.textContent = 'در حال آزمایش… چند ثانیه طول می‌کشد.';
+    try {
+        const res = await fetchAuth('/admin/api/ai/reasoning-test', {
+            method: 'POST', body: JSON.stringify({ task, level: sel ? sel.value : '' }) });
+        const d = await res.json();
+        if (state) state.textContent = res.ok ? (d.verdict_fa || 'نتیجه نامشخص') : 'خطا در آزمایش';
+    } catch {
+        if (state) state.textContent = 'خطای ارتباط با سرور';
+    }
 }
 
 // Reset the breaker for the provider behind this target. The endpoint is

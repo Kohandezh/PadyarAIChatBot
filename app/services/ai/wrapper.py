@@ -16,7 +16,8 @@ Boot sequence (app/main.py lifespan):
     legacy_import.run_import() → one-time, idempotent
 """
 from . import engine, store
-from .request import AIRequest, AIResponse, AIMessage  # noqa: F401
+from .request import (AIRequest, AIResponse, AIMessage,  # noqa: F401
+                      REASONING_LEVELS)
 
 
 class PadyarAI:
@@ -29,6 +30,9 @@ class PadyarAI:
                        max_output_tokens=None, temperature=None, top_p=None,
                        reasoning="default", response_format="text",
                        timeout_s=None, metadata=None) -> AIResponse:
+        # Reasoning preference stays caller-or-route owned: an explicit value
+        # here wins, anything else resolves in the engine from the route's
+        # operator setting (Admin -> AI -> Routing). No second knob here.
         req = AIRequest(
             task=task,
             messages=[AIMessage(role=m.role, content=m.content)
@@ -57,6 +61,39 @@ class PadyarAI:
         return await engine.execute_request(req)
 
     # ── Status for Admin/diagnostics (never secrets) ────────────────────
+
+    async def probe_reasoning(self, level: str) -> dict:
+        """Live admin check: does THIS install's provider actually honor the
+        selected reasoning level? Sends the same tiny prompt twice — once
+        with reasoning forced OFF, once with `level` — through the real
+        routing stack, and reports facts only (no secrets, no raw bodies).
+        The comparison is what a human needs: if the level call fails, the
+        provider rejects the parameter; if both succeed with near-identical
+        token counts, the level was likely not applied."""
+        from app.services.ai.errors import AIError
+        # Mildly tricky on purpose: rush answers get it wrong, so a level
+        # that actually engages thinking shows a visible token gap.
+        prompt = ("اگر ۵ ماشین در ۵ روز ۵ وسیله بسازند، ۱۰۰ ماشین در چند روز"
+                  " ۱۰۰ وسیله می‌سازند؟ فقط عدد بنویس.")
+
+        async def _one(reasoning: str) -> dict:
+            try:
+                resp = await self.generate(
+                    [AIMessage(role="user", content=prompt)],
+                    system_prompt="پاسخ کوتاه بده.",
+                    task="chat", max_output_tokens=600,
+                    reasoning=reasoning, timeout_s=45.0)
+                return {"ok": True, "tokens": resp.tokens_total or 0,
+                        "reasoning_tokens": resp.reasoning_tokens,
+                        "model": resp.model, "provider": resp.provider_name,
+                        "error": ""}
+            except AIError as e:
+                return {"ok": False, "tokens": 0, "reasoning_tokens": None,
+                        "model": "", "provider": "", "error": e.code}
+
+        off = await _one("off")
+        lvl = await _one(level if level in REASONING_LEVELS else "default")
+        return {"level": level, "off": off, "level_result": lvl}
 
     def external_ai_enabled(self) -> bool:
         return not engine._kill_switch_on()

@@ -77,6 +77,7 @@ _TABLES = {
             task TEXT PRIMARY KEY,
             description TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
+            reasoning TEXT NOT NULL DEFAULT 'default',
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )""",
     "ai_route_targets": """
@@ -672,6 +673,51 @@ def ordered_targets(task: str) -> list:
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+def route_reasoning(task: str) -> str:
+    """The operator's reasoning-effort choice for a route, '' when unset.
+
+    Read by the engine at request time — a panel save takes effect on the
+    next request with no restart. Any DB fault degrades to '' (the engine
+    then leaves the provider default); this must never take chat down."""
+    from app.db.connection import get_db_connection
+    try:
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                "SELECT reasoning FROM ai_routes WHERE task = ?",
+                (task,)).fetchone()
+        finally:
+            conn.close()
+        value = ((row["reasoning"] if row else "") or "").strip().lower()
+        return value if value in ("off", "low", "medium", "high") else ""
+    except Exception:
+        return ""
+
+
+def set_route_reasoning(task: str, reasoning: str, actor: str = "") -> None:
+    from app.db.connection import get_db_connection
+    from app.services import applog
+    value = (reasoning or "").strip().lower()
+    if value not in ("default", "off", "low", "medium", "high"):
+        raise ai_errors.AIError(code="invalid_request",
+                                provider_detail="unknown reasoning level")
+    if task not in _KNOWN_TASKS:
+        raise ai_errors.AIError(code="invalid_request", provider_detail="unknown task")
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO ai_routes (task) VALUES (?)", (task,))
+        conn.execute(
+            "UPDATE ai_routes SET reasoning = ?,"
+            " updated_at = CURRENT_TIMESTAMP WHERE task = ?", (value, task))
+        conn.commit()
+    finally:
+        conn.close()
+    applog.info("admin", "admin.ai_route.reasoning",
+                "سطح تفکر مسیر هوش مصنوعی تغییر کرد",
+                task=task, actor=actor or "admin", reasoning=value)
 
 
 def list_routes() -> dict:
