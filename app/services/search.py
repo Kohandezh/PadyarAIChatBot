@@ -470,7 +470,8 @@ def load_dataset_internal():
         # `resolve_named_entity`/`get_entry` and answer nothing sensible —
         # visible before any review, which is the whole leak this line closes.
         rows = conn.execute(
-            "SELECT id, title, text, video_url, title_en, text_en FROM companies"
+            "SELECT id, title, text, video_url, title_en, text_en,"
+            " activity_field FROM companies"
             " WHERE text <> ''"
         ).fetchall()
         conn.close()
@@ -546,6 +547,14 @@ def load_dataset_internal():
     for _item in _companies:
         _vocab.update(normalize_persian(
             f"{_item.get('title', '')} {_item.get('text', '')}").split())
+        # activity_field is the organizer's own categorization vocabulary —
+        # exactly the words a visitor asks with («چه شرکت هایی CRM دارند»).
+        # Without it a product word that appears ONLY in the field column
+        # reads as an unknown salient token and every local tier defers to
+        # the model, which has no booth data and deflects (live, Elecomp
+        # 2026-09-02).
+        _vocab.update(normalize_persian(
+            _item.get("activity_field") or "").split())
         _vocab.update(normalize_persian(_item.get("title_en") or "").split())
         _vocab.update(normalize_persian(_item.get("text_en") or "").split())
     for _src, _dst in _active_synonyms:
