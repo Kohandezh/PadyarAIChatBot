@@ -1,6 +1,7 @@
 """Guide knowledge tier: deterministic answers for visitor-guide questions.
 
-WHY THIS EXISTS: opening hours, entrances, transit, restaurants and news are
+WHY THIS EXISTS: opening hours, entrances, transit, restaurants, news and
+the talks/panels/pitches program are
 questions the database can answer EXACTLY — they live in their own tables
 (migrations/0020_guide_tables.sql, filled by scripts/import-guide-from-crawl.py)
 with their own query shapes. Sending them through retrieval or the model pays
@@ -159,6 +160,178 @@ def _news_answer(conn):
             "text": "آخرین اخبار نمایشگاه:", "confidence": 0.85}
 
 
+# Talks/panels/pitches (talksiran crawl, migrations/0021_talks_events.sql).
+# Event words beat the fact words when both appear: «تاریخ پنل ...» asks
+# about a talk, not the show dates. «برنامه» alone stays with retrieval —
+# only day-scoped program phrases are ours.
+_EVENT_TYPE_WORDS = {"پنل": "panel", "تاکس": "talk", "پیچ": "pitch"}
+_EVENT_WORDS = ("پنل", "تاکس", "پیچ", "رویداد")
+_PROGRAM_PHRASES = ("برنامه امروز", "برنامه فردا", "برنامه دیروز",
+                    "برنامه نمایشگاه", "برنامه رویداد", "برنامه ها",
+                    "برنامه روز", "چه برنامه")
+_DAY_OFFSETS = {"امروز": 0, "فردا": 1, "دیروز": -1}
+_EVENT_TYPE_LABELS = {"panel": "پنل", "talk": "تاکس", "pitch": "پیچ"}
+_EVENT_LIST_MAX = 8
+_MONTH_NAMES = {1: "فروردین", 2: "اردیبهشت", 3: "خرداد", 4: "تیر",
+                5: "مرداد", 6: "شهریور", 7: "مهر", 8: "آبان",
+                9: "آذر", 10: "دی", 11: "بهمن", 12: "اسفند"}
+
+
+def _jalali_from_gregorian(gy: int, gm: int, gd: int):
+    g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    jy = 979
+    gy -= 1600
+    gy2 = gy + 1 if gm > 2 else gy
+    days = (365 * gy + (gy2 + 3) // 4 - (gy2 + 99) // 100
+            + (gy2 + 399) // 400 - 80 + gd + g_d_m[gm - 1])
+    jy += 33 * (days // 12053)
+    days %= 12053
+    jy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        jy += (days - 1) // 365
+        days = (days - 1) % 365
+    if days < 186:
+        jm, jd = 1 + days // 31, days % 31 + 1
+    else:
+        jm, jd = 7 + (days - 186) // 30, (days - 186) % 30 + 1
+    return jy, jm, jd
+
+
+def _jalali_today():
+    """(jy, jm, jd) in Tehran time."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone(timedelta(hours=3, minutes=30)))
+    return _jalali_from_gregorian(now.year, now.month, now.day)
+
+
+def _jdate(jy: int, jm: int, jd: int) -> str:
+    return f"{jy:04d}/{jm:02d}/{jd:02d}"
+
+
+def _resolve_day(norm: str, rows) -> str:
+    """The jdate the visitor asked about, '' when they did not."""
+    import re
+    from datetime import date, datetime, timedelta, timezone
+    m = re.search(r"\d{4}/\d{2}/\d{2}", norm)
+    if m and any(r["jdate"] == m.group(0) for r in rows):
+        return m.group(0)
+    # Shift in GREGORIAN days, then read the Jalali calendar off the result.
+    today = datetime.now(timezone(timedelta(hours=3, minutes=30))).date()
+    tokens = set(norm.split())
+    for word, off in _DAY_OFFSETS.items():
+        if word in tokens:
+            g = today + timedelta(days=off)
+            return _jdate(*_jalali_from_gregorian(g.year, g.month, g.day))
+    return ""
+
+
+_SPECIFIC_WORDS = ("کی", "کیه", "کیست", "چیست", "چیه", "کجاست", "چه موضوع")
+_TITLE_STOPWORDS = {"کی", "چی", "چه", "هست", "این", "آن", "برای", "اند",
+                    "هستم", "است", "شد", "بود", "میشه", "هستند",
+                    "های", "ها", "ان", "برنامه", "پنل", "تاکس", "پیچ",
+                    "رویداد", "موضوع"}
+
+
+def _event_title_answer(tokens, rows, etype: str = "") -> dict | None:
+    pool = [r for r in rows if not etype or (r["etype"] or "") == etype] or rows
+    best, best_score = None, 0
+    for r in pool:
+        title = (r["title"] or "").strip()
+        if not title:
+            continue
+        ttokens = set(normalize_persian(title, expand_synonyms=False).split())
+        score = 0
+        for t in tokens:
+            if len(t) < 3 or t in _TITLE_STOPWORDS:
+                continue
+            if t in ttokens:
+                score += 1
+            elif len(t) >= 6 and t in title:
+                score += 1
+        if score > best_score:
+            best, best_score = r, score
+    if best is None or best_score < 2:
+        return None
+    label = _EVENT_TYPE_LABELS.get((best["etype"] or "").lower(), "رویداد")
+    when = " ".join(p for p in (best["jdate"], best["start_time"]) if p)
+    where = best["hall"] or ""
+    desc = (best["description"] or "").strip()
+    if len(desc) > 350:
+        desc = desc[:350].rsplit(" ", 1)[0] + "…"
+    lines = [f"{label} «{best['title']}»"]
+    if when:
+        lines.append(f"زمان: {when}" + (f"، {where}" if where else ""))
+    elif where:
+        lines.append(f"محل: {where}")
+    if desc:
+        lines.append(desc)
+    return {"kind": "event", "text": "\n".join(lines), "confidence": 0.9}
+
+
+def _events_answer(conn, norm: str, padded: str) -> dict | None:
+    rows = conn.execute(
+        "SELECT etype, title, description, jdate, start_time, hall"
+        " FROM talks_events ORDER BY jdate, start_time").fetchall()
+    if not rows:
+        return None
+    tokens = norm.split()
+
+    etype = ""
+    for word, code in _EVENT_TYPE_WORDS.items():
+        if f" {word} " in padded or f" {word} ها " in padded:
+            etype = code
+            break
+    day = _resolve_day(norm, rows)
+
+    title_hit = _event_title_answer(tokens, rows, etype)
+    if title_hit is not None:
+        return title_hit
+
+    # «پنل X کی هست» with no title hit is a SPECIFIC question this tier
+    # cannot answer — defer to the model tiers instead of listing whatever
+    # happens to run today. A day word or a plural («پنل‌ها») still lists.
+    if day == "" and "ها" not in tokens \
+            and any(w in tokens for w in _SPECIFIC_WORDS):
+        return None
+
+    picked = [r for r in rows
+              if (not etype or (r["etype"] or "") == etype)
+              and (not day or r["jdate"] == day)]
+    if not picked and day:
+        # The asked-about day has nothing: serve the nearest day that does,
+        # under ITS OWN date — never list one day's program under another.
+        picked = [r for r in rows if not etype or (r["etype"] or "") == etype]
+        day = ""
+    if not picked:
+        return None
+
+    if not day:
+        jy, jm, jd = _jalali_today()
+        today = _jdate(jy, jm, jd)
+        days = sorted({r["jdate"] for r in picked if r["jdate"]})
+        day = next((d for d in days if d >= today), days[-1] if days else "")
+        picked = [r for r in picked if r["jdate"] == day]
+
+    label = _EVENT_TYPE_LABELS.get(etype, "برنامه")
+    jy, jm, jd = (int(x) for x in day.split("/")) if day else (0, 1, 0)
+    title = f"{label}‌های {jd} {_MONTH_NAMES.get(jm, '')}:" if day else f"{label}:"
+
+    lines = []
+    for r in picked[:_EVENT_LIST_MAX]:
+        when = r["start_time"] or ""
+        hall = r["hall"] or ""
+        line = f"• {when} — {r['title']}" if when else f"• {r['title']}"
+        if hall:
+            line += f" ({hall})"
+        lines.append(line)
+    extra = len(picked) - _EVENT_LIST_MAX
+    if extra > 0:
+        lines.append(f"و {extra} مورد دیگر…")
+    return {"kind": "events", "text": title + "\n" + "\n".join(lines),
+            "confidence": 0.9}
+
+
 def match_guide(query: str, lang: str = "fa") -> dict | None:
     """The guide answer for a visitor question, or None.
 
@@ -182,9 +355,21 @@ def match_guide(query: str, lang: str = "fa") -> dict | None:
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
+        # Event words beat the fact words when both appear: «تاریخ پنل ...»
+        # asks about a talk, not the show dates. A missing talks_events
+        # table lands in the except below and this tier stays inert.
+        if _has(padded, _EVENT_WORDS) or _has(padded, _PROGRAM_PHRASES):
+            ev = _events_answer(conn, norm, padded)
+            if ev is not None:
+                return ev
+
         # Facts beat everything: a hours/dates/weather/address/crowding word
         # is answered from guide_facts or not at all — no guessing tier.
+        # Except dates: «تاریخ/کی برگزار پنل X» names an EVENT, and the
+        # events tier above just deferred it to the model tiers on purpose.
         for key, words in _FACT_TRIGGERS:
+            if key == "dates" and _has(padded, _EVENT_WORDS):
+                continue
             if _has(padded, words):
                 return _fact_answer(conn, key)
 
