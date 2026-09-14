@@ -41,9 +41,14 @@
         <div class="content-card h-100">
             <div class="card-header border-0">
                 <span><i class="fas fa-list me-2"></i>لیست مترادف‌ها</span>
-                <button class="btn btn-sm btn-outline-primary" onclick="window.loadSynonyms()">
-                    <i class="fas fa-sync"></i>
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary" id="suggest-synonyms-btn">
+                        <i class="fas fa-wand-magic-sparkles me-1"></i>پیشنهاد هوشمند مترادف
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="window.loadSynonyms()">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div id="synonyms-bulk-toolbar" class="d-none d-flex align-items-center gap-2 m-2 p-2 bg-light rounded border">
@@ -80,6 +85,26 @@
                     <button class="btn btn-outline-secondary" id="synonyms-btn-prev">قبلی</button>
                     <button class="btn btn-outline-secondary" id="synonyms-btn-next">بعدی</button>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Smart suggestion modal: the model proposes, the operator picks -->
+<div class="modal fade" id="suggestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">پیشنهاد هوشمند مترادف</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="suggest-list-msg" class="text-center fw-bold mb-2"></div>
+                <div id="suggest-list" class="list-group"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-primary" id="suggest-apply-btn">افزودن انتخاب‌شده‌ها</button>
             </div>
         </div>
     </div>
