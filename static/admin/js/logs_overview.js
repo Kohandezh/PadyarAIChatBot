@@ -63,7 +63,7 @@ async function load(days) {
     const tr = document.createElement('tr');
     const name = document.createElement('td');
     const link = document.createElement('a');
-    link.href = '/secure-panel-inotex/logs?category=' + encodeURIComponent(slug);
+    link.href = '/secure-panel-admin/logs?category=' + encodeURIComponent(slug);
     link.textContent = d.categories[slug];
     name.append(link);
     const c1 = document.createElement('td'); c1.textContent = fa(total);

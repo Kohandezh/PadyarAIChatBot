@@ -56,11 +56,11 @@ def _post(client, url, body=None):
 # ── HTML pages render ───────────────────────────────────────────────────
 
 @pytest.mark.parametrize("path,marker", [
-    ("/secure-panel-inotex/ai/providers", "سرویس‌دهنده‌های هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/models", "مدل‌های هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/routing", "مسیریابی هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/usage", "مصرف و هزینهٔ هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/debug", "اشکال‌زادی RAG"),
+    ("/secure-panel-admin/ai/providers", "سرویس‌دهنده‌های هوش مصنوعی"),
+    ("/secure-panel-admin/ai/models", "مدل‌های هوش مصنوعی"),
+    ("/secure-panel-admin/ai/routing", "مسیریابی هوش مصنوعی"),
+    ("/secure-panel-admin/ai/usage", "مصرف و هزینهٔ هوش مصنوعی"),
+    ("/secure-panel-admin/ai/debug", "اشکال‌زادی RAG"),
 ])
 def test_ai_pages_render_real_html(client, path, marker):
     res = client.get(path)
@@ -69,13 +69,13 @@ def test_ai_pages_render_real_html(client, path, marker):
 
 
 def test_ai_menu_present_in_sidebar(client):
-    res = client.get("/secure-panel-inotex/ai/providers")
-    assert '/secure-panel-inotex/ai/models' in res.text
-    assert '/secure-panel-inotex/ai/routing' in res.text
+    res = client.get("/secure-panel-admin/ai/providers")
+    assert '/secure-panel-admin/ai/models' in res.text
+    assert '/secure-panel-admin/ai/routing' in res.text
 
 
 def test_dashboard_contains_ai_summary_cards(client):
-    res = client.get("/secure-panel-inotex")
+    res = client.get("/secure-panel-admin")
     assert "ai-providers-active" in res.text
     assert "ai-cost-today" in res.text
 
@@ -86,7 +86,7 @@ def test_pages_require_admin(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     from app.main import app
     with TestClient(app) as c:
-        res = c.get("/secure-panel-inotex/ai/providers", follow_redirects=False)
+        res = c.get("/secure-panel-admin/ai/providers", follow_redirects=False)
         assert res.status_code == 303
 
 
@@ -361,9 +361,9 @@ def test_sakoo_provider_full_admin_lifecycle(client):
     "gw_live_SENTINEL9f8e7d6c5b4a3210",          # enterprise gateway
 ])
 @pytest.mark.parametrize("path", [
-    "/secure-panel-inotex/ai/providers",
-    "/secure-panel-inotex/ai/models",
-    "/secure-panel-inotex/ai/routing",
+    "/secure-panel-admin/ai/providers",
+    "/secure-panel-admin/ai/models",
+    "/secure-panel-admin/ai/routing",
 ])
 def test_a_stored_secret_never_appears_in_a_rendered_ai_page(client, secret, path):
     store.create_instance("openai_compatible", "Sentinel GW",
@@ -380,7 +380,7 @@ def test_the_password_input_ships_with_no_value_attribute(client):
     store.create_instance("openai_compatible", "GW",
                           {"base_url": "https://93.184.216.34/v1"},
                           "sk-SENTINEL-0123456789abcdef")
-    html = client.get("/secure-panel-inotex/ai/providers").text
+    html = client.get("/secure-panel-admin/ai/providers").text
     import re
     tag = re.search(r'<input[^>]*id="ai-secret"[^>]*>', html)
     if tag is None:                      # id differs — fall back to any password input

@@ -79,7 +79,7 @@ The request has been blocked from your IP or your location!
 
 **کاری که باید بشود:**
 1. از سروری که آسانک دسترسی‌اش را می‌پذیرد (یا با IP مجازشده در پنل آسانک) وارد
-   `/secure-panel-inotex/settings/sms` شوید.
+   `/secure-panel-admin/settings/sms` شوید.
 2. تب **آسانک** را انتخاب کنید (نه «حالت آزمایشی» — وگرنه هیچ پیامکی نمی‌رود).
 3. **اول «بررسی اعتبار» را بزنید.** بدون خرج کردن پیامک ثابت می‌کند نام کاربری،
    رمز و هاست درست‌اند.
@@ -108,7 +108,7 @@ The request has been blocked from your IP or your location!
 
 زیرساخت آماده است: فایل را جایگزین کنید، **بدون تغییر کد و بدون ری‌استارت** زنده
 می‌شود. راهنما: `docs/features/targeted-visit/TAXONOMY.md`.
-از پنل هم قابل ویرایش است: `/secure-panel-inotex/settings/taxonomy`.
+از پنل هم قابل ویرایش است: `/secure-panel-admin/settings/taxonomy`.
 
 ### ۱.۳ سه تعارض محتوایی باز ❌
 

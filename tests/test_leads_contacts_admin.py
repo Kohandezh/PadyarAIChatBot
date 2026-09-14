@@ -2,7 +2,7 @@
 
 The scenario: the contact was never stood next to a field visitor — the
 operator met them on the phone or in a corridor. The operator opens
-/secure-panel-inotex/leads, picks the company from the same search the booth
+/secure-panel-admin/leads, picks the company from the same search the booth
 sees, types the responsible person's details, and gets a one-time edit link to
 hand over personally. The row lands in the SAME table as booth leads, owns its
 company by the SAME rule, and its text goes through the SAME review queue.

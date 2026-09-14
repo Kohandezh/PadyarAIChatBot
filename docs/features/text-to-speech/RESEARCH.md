@@ -25,7 +25,7 @@
 | پروکسی مدیر | `app/routers/tts.py` |
 | اعتبارسنجی پارامترها | `app/models.py :: TTSPreviewRequest` |
 | پیکربندی | `app/config.py :: TTS_URL / TTS_TIMEOUT / TTS_STATUS_TIMEOUT` |
-| صفحه | `templates/admin/tts.html` — `/secure-panel-inotex/ai/tts` |
+| صفحه | `templates/admin/tts.html` — `/secure-panel-admin/ai/tts` |
 | منطق صفحه | `static/admin/js/tts.js` |
 | سرویس موتور | `deploy/tts/server.py` (شاخهٔ `deploy/gpuserver-provisioning`) |
 | تست‌ها | `tests/test_tts_admin.py` (۲۶ تست) |

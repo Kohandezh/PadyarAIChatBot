@@ -125,7 +125,7 @@ function render(rows) {
     const link = document.createElement('a');
     link.className = 'btn btn-sm btn-outline-primary';
     link.textContent = 'گفتگوها';
-    link.href = '/secure-panel-inotex/conversations?visitor_id=' + encodeURIComponent(r.id);
+    link.href = '/secure-panel-admin/conversations?visitor_id=' + encodeURIComponent(r.id);
     link.addEventListener('click', (e) => e.stopPropagation());
     action.append(link);
     tr.append(action);
@@ -222,7 +222,7 @@ function renderVisitorView(row) {
   const go = document.createElement('a');
   go.className = 'btn btn-primary w-100 mt-2';
   go.textContent = 'گفتگوهای این نفر';
-  go.href = '/secure-panel-inotex/conversations?visitor_id=' + encodeURIComponent(row.id);
+  go.href = '/secure-panel-admin/conversations?visitor_id=' + encodeURIComponent(row.id);
   panel.append(go);
 }
 

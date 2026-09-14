@@ -217,7 +217,7 @@ python main.py
 ```
 
 - **Chat interface:** `http://127.0.0.1:8000/`
-- **Admin panel:** `http://127.0.0.1:8000/secure-panel-inotex`
+- **Admin panel:** `http://127.0.0.1:8000/secure-panel-admin`
 - **Health check:** `http://127.0.0.1:8000/api/health`
 
 ## 📂 Project Structure
@@ -313,7 +313,7 @@ python backup_db.py   # take one backup now + prune old ones
 | `GET`  | `/api/voice-status` | Voice module availability                  |
 | `POST` | `/api/transcribe`   | Audio → text (voice module)                |
 
-### Admin (cookie-session protected, under `/admin/api` and `/secure-panel-inotex`)
+### Admin (cookie-session protected, under `/admin/api` and `/secure-panel-admin`)
 
 Login/logout, usage stats, low-confidence queries, CSV export, dataset & questions CRUD + JSON/CSV import-export, synonym CRUD, video upload/list/delete, theme listing/activation, white-label & AI settings, backup create/list/restore/schedule, and password / security-question changes.
 

@@ -229,7 +229,7 @@ journalctl -u padyar-watchdog@elecomp.service -n 20
 ```
 
 Change the alert phone or the credit threshold — per install, in the admin
-panel: `/secure-panel-inotex/settings/sms` (تنظیمات → ثبت‌نام و پیامک), card
+panel: `/secure-panel-admin/settings/sms` (تنظیمات → ثبت‌نام و پیامک), card
 «هشدارهای بحرانی», saved with the page's «ذخیره تنظیمات» button. The
 watchdog re-reads both from the database **every cycle** — no restart, no
 reload. An empty phone means alerts off. The threshold is typed in toman

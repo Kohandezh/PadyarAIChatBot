@@ -21,12 +21,12 @@ with sync_playwright() as p:
     context = browser.new_context()
     page = context.new_page()
 
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-inotex**")
+    page.wait_for_url("**/secure-panel-admin**")
 
     context.storage_state(path="tests/e2e/.auth/admin.json")
     context.close()
@@ -38,7 +38,7 @@ with sync_playwright() as p:
 ```python
 context = browser.new_context(storage_state="tests/e2e/.auth/admin.json")
 page = context.new_page()
-page.goto("http://127.0.0.1:8000/secure-panel-inotex")   # already logged in
+page.goto("http://127.0.0.1:8000/secure-panel-admin")   # already logged in
 ```
 
 ### In pytest-playwright (the common case)
@@ -52,12 +52,12 @@ import pytest
 def admin_storage_state(browser):
     ctx = browser.new_context()
     page = ctx.new_page()
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-inotex**")
+    page.wait_for_url("**/secure-panel-admin**")
     path = "tests/e2e/.auth/admin.json"
     ctx.storage_state(path=path)
     ctx.close()

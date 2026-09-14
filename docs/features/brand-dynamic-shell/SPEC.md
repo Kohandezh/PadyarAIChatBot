@@ -37,7 +37,7 @@ not two. `img.inx-loader-mark` is styled in the theme CSS (84px, contain).
 - **`app/default_content.py`, dataset, questions** — per-install knowledge
   content, not chrome. Each install seeds its own.
 - **Code identifiers** — `themes/inotex/`, `.inx-*` classes, localStorage
-  keys (`inotex_lang`…), asset paths, `/secure-panel-inotex` admin prefix:
+  keys (`inotex_lang`…), asset paths, `/secure-panel-admin` admin prefix:
   routing/technical identity, not display text.
 - **`WL_DEFAULTS` values** — they ARE the settings defaults; the INOTEX
   install keeps its pixels, other installs edit the settings.

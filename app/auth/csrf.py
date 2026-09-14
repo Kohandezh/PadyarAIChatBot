@@ -52,7 +52,7 @@ PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # Path prefixes whose mutations are admin surface. The conformance test in
 # tests/test_csrf.py fails if a verify_admin-protected mutation is added
 # outside these prefixes.
-PROTECTED_PREFIXES = ("/admin/", "/secure-panel-inotex", "/api/synonyms")
+PROTECTED_PREFIXES = ("/admin/", "/secure-panel-admin", "/api/synonyms")
 
 
 def _secret() -> bytes:

@@ -45,26 +45,26 @@ def client(tmp_path, monkeypatch):
 
 
 def _sidebar(client) -> str:
-    page = client.get("/secure-panel-inotex")
+    page = client.get("/secure-panel-admin")
     assert page.status_code == 200
     return page.text
 
 
 # Every operational page built for this product, and the link that must reach it.
 REQUIRED_LINKS = [
-    "/secure-panel-inotex/ops",
-    "/secure-panel-inotex/ops/services",
-    "/secure-panel-inotex/security/sessions",
-    "/secure-panel-inotex/logs",
-    "/secure-panel-inotex/logs/overview",
-    "/secure-panel-inotex/logs/settings",
-    "/secure-panel-inotex/infrastructure/database",
-    "/secure-panel-inotex/infrastructure/storage",
-    "/secure-panel-inotex/infrastructure/backups",
+    "/secure-panel-admin/ops",
+    "/secure-panel-admin/ops/services",
+    "/secure-panel-admin/security/sessions",
+    "/secure-panel-admin/logs",
+    "/secure-panel-admin/logs/overview",
+    "/secure-panel-admin/logs/settings",
+    "/secure-panel-admin/infrastructure/database",
+    "/secure-panel-admin/infrastructure/storage",
+    "/secure-panel-admin/infrastructure/backups",
     # Branding is core (never module-gated), so its page must be reachable
     # in every install — exactly the orphaned-page failure this file exists
     # to prevent.
-    "/secure-panel-inotex/settings/branding",
+    "/secure-panel-admin/settings/branding",
 ]
 
 
@@ -92,7 +92,7 @@ def test_category_shortcuts_are_present(client):
     the only discoverable route to them."""
     sidebar = _sidebar(client)
     for category in ("llm", "sms", "otp", "auth", "security", "audit", "api", "chat"):
-        assert f"/secure-panel-inotex/logs?category={category}" in sidebar, category
+        assert f"/secure-panel-admin/logs?category={category}" in sidebar, category
 
 
 def test_menus_hide_when_their_module_is_disabled(tmp_path, monkeypatch):
@@ -117,7 +117,7 @@ def test_menus_hide_when_their_module_is_disabled(tmp_path, monkeypatch):
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)
-        sidebar = c.get("/secure-panel-inotex").text
+        sidebar = c.get("/secure-panel-admin").text
     assert 'nav-link-title">لاگ‌ها<' not in sidebar
     assert 'nav-link-title">زیرساخت<' not in sidebar
 
@@ -131,14 +131,14 @@ def test_menus_hide_when_their_module_is_disabled(tmp_path, monkeypatch):
 # bookmark. Each (url, module) pair mirrors the sidebar guard in layout.html
 # verbatim, which is what keeps the invariant "no visible link ever 404s".
 GATED_PAGES = [
-    ("/secure-panel-inotex/infrastructure/database", "infra"),
-    ("/secure-panel-inotex/infrastructure/storage", "infra"),
-    ("/secure-panel-inotex/ops", "ops"),
-    ("/secure-panel-inotex/ops/services", "ops"),
-    ("/secure-panel-inotex/security/sessions", "ops"),
-    ("/secure-panel-inotex/logs", "logs"),
-    ("/secure-panel-inotex/logs/overview", "logs"),
-    ("/secure-panel-inotex/logs/settings", "logs"),
+    ("/secure-panel-admin/infrastructure/database", "infra"),
+    ("/secure-panel-admin/infrastructure/storage", "infra"),
+    ("/secure-panel-admin/ops", "ops"),
+    ("/secure-panel-admin/ops/services", "ops"),
+    ("/secure-panel-admin/security/sessions", "ops"),
+    ("/secure-panel-admin/logs", "logs"),
+    ("/secure-panel-admin/logs/overview", "logs"),
+    ("/secure-panel-admin/logs/settings", "logs"),
 ]
 
 
@@ -201,11 +201,11 @@ def test_video_picker_hidden_when_video_module_disabled(tmp_path, monkeypatch, c
     block and Media Browser modal — must vanish. An admin must never see a
     button that errors when clicked (the grandmother test)."""
     with _core_only_client(tmp_path, monkeypatch) as c:
-        html = c.get("/secure-panel-inotex/manage-datasets").text
+        html = c.get("/secure-panel-admin/manage-datasets").text
     assert "mediaBrowserModal" not in html
     assert "ds-video-empty" not in html
     # …and with the module on, the default client still shows both.
-    enabled = client.get("/secure-panel-inotex/manage-datasets").text
+    enabled = client.get("/secure-panel-admin/manage-datasets").text
     assert 'id="mediaBrowserModal"' in enabled
     assert 'id="ds-video-empty"' in enabled
 
@@ -219,7 +219,7 @@ def test_maintenance_banner_survives_ops_gating(tmp_path, monkeypatch):
     with _core_only_client(tmp_path, monkeypatch) as c:
         from app.services import maintenance
         maintenance.enable("ops-gating test", "nav")
-        res = c.get("/secure-panel-inotex")
+        res = c.get("/secure-panel-admin")
     assert res.status_code == 200
     assert 'id="maintenance-banner"' in res.text
     assert "حالت تعمیرات روشن است" in res.text
@@ -238,20 +238,20 @@ def test_maintenance_banner_survives_ops_gating(tmp_path, monkeypatch):
 #
 # Each tuple is (url, the sidebar entry that must be highlighted for it).
 LAYOUT_PAGES = [
-    ("/secure-panel-inotex/ops", "/secure-panel-inotex/ops",
+    ("/secure-panel-admin/ops", "/secure-panel-admin/ops",
      "/static/admin/js/ops_dashboard.js"),
-    ("/secure-panel-inotex/ops/services", "/secure-panel-inotex/ops/services",
+    ("/secure-panel-admin/ops/services", "/secure-panel-admin/ops/services",
      "/static/admin/js/ops_services.js"),
-    ("/secure-panel-inotex/security/sessions", "/secure-panel-inotex/security/sessions",
+    ("/secure-panel-admin/security/sessions", "/secure-panel-admin/security/sessions",
      "/static/admin/js/security_sessions.js"),
-    ("/secure-panel-inotex/logs", "/secure-panel-inotex/logs",
+    ("/secure-panel-admin/logs", "/secure-panel-admin/logs",
      "/static/admin/js/logs.js"),
-    ("/secure-panel-inotex/logs/overview", "/secure-panel-inotex/logs/overview",
+    ("/secure-panel-admin/logs/overview", "/secure-panel-admin/logs/overview",
      "/static/admin/js/logs_overview.js"),
-    ("/secure-panel-inotex/logs/settings", "/secure-panel-inotex/logs/settings",
+    ("/secure-panel-admin/logs/settings", "/secure-panel-admin/logs/settings",
      "/static/admin/js/logs_settings.js"),
-    ("/secure-panel-inotex/infrastructure/database",
-     "/secure-panel-inotex/infrastructure/database",
+    ("/secure-panel-admin/infrastructure/database",
+     "/secure-panel-admin/infrastructure/database",
      "/static/admin/js/infra_database.js"),
 ]
 

@@ -40,7 +40,7 @@ def client(tmp_path, monkeypatch):
 
 def _panel_title(client):
     """Any admin page carries the layout; the login page needs no session."""
-    html = client.get("/secure-panel-inotex/login").text
+    html = client.get("/secure-panel-admin/login").text
     import re
     m = re.search(r'navbar-brand[^>]*>\s*<i[^>]*></i>\s*<span>([^<]+)</span>', html)
     assert m, "the brand <span> was not found in the layout"

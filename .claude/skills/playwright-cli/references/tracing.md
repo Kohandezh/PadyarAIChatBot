@@ -33,7 +33,7 @@ with sync_playwright() as p:
     context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
     page = context.new_page()
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.get_by_role("button", name="ورود به سیستم").click()
 

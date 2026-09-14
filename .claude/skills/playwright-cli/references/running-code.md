@@ -17,7 +17,7 @@ with sync_playwright() as p:
     context = browser.new_context()
     page = context.new_page()
 
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     # ... your code ...
 
     context.close()
@@ -59,7 +59,7 @@ page.wait_for_load_state("networkidle")
 page.locator(".loading").wait_for(state="hidden")
 page.wait_for_function("() => window.appReady === true")
 page.locator(".result").wait_for(timeout=10000)
-page.wait_for_url("**/secure-panel-inotex**")
+page.wait_for_url("**/secure-panel-admin**")
 ```
 
 ## Frames / iframes
@@ -134,12 +134,12 @@ with sync_playwright() as p:
     context = browser.new_context()
     page = context.new_page()
 
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-inotex**")
+    page.wait_for_url("**/secure-panel-admin**")
 
     context.storage_state(path="tests/e2e/.auth/admin.json")
     context.close()

@@ -16,7 +16,7 @@ with sync_playwright() as p:
     # Context 1: authenticated admin
     admin = browser.new_context()
     admin_page = admin.new_page()
-    admin_page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    admin_page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     # ... log in ...
 
     # Context 2: anonymous public chat user (separate cookies/storage)

@@ -5,7 +5,7 @@
 | سطح | کنترل | پیاده‌سازی |
 |---|---|---|
 | endpoint عمومی /chat | توکن HMAC امضاشده در HTML + اعتبارسنجی Origin/Referer + rate limit per-IP | app/auth/security.py |
-| پنل ادمین | هش SHA-256+salt، قفل ۵ تلاش/۵ دقیقه، نشست لغزان ۱ ساعته، مسیر مبهم /secure-panel-inotex | app/auth/security.py |
+| پنل ادمین | هش SHA-256+salt، قفل ۵ تلاش/۵ دقیقه، نشست لغزان ۱ ساعته، مسیر مبهم /secure-panel-admin | app/auth/security.py |
 | prompt injection | بخش SECURITY ثابت در پرامپت (غیرقابل‌ویرایش مشتری) + محدودهٔ SCOPE + آزمون‌های خصمانه در مجموعهٔ طلایی (false-confident injection = 0) | app/services/openai.py، scripts/run_eval.py |
 | نشت اسرار | کلیدها فقط در env/settings؛ گیت `secret_leaks=0` در ارزیابی؛ کلید هرگز به کلاینت نمی‌رود | run_eval.py گیت سخت |
 | مسمومیت بازیابی | فقط منابع allowlist شدهٔ content/sources.json وارد دانش می‌شوند؛ انتشار با تأیید انسانی | ADR-006 |

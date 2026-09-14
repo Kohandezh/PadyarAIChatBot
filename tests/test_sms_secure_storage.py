@@ -488,7 +488,7 @@ def test_test_send_shows_the_mapped_gateway_reason(client, monkeypatch):
 
 def test_the_form_has_an_input_for_every_gateway_field(client):
     _login(client)
-    html = client.get("/secure-panel-inotex/settings/sms").text
+    html = client.get("/secure-panel-admin/settings/sms").text
     for field in ("sms-username", "sms-password", "sms-api-key",
                   "sms-source", "sms-url", "sms-status-url", "sms-credit-url",
                   "sms-trim", "sms-send-to-blacklist", "sms-host"):
@@ -505,7 +505,7 @@ def test_every_provider_has_a_tab_and_a_pane(client):
     template-only change.
     """
     _login(client)
-    html = client.get("/secure-panel-inotex/settings/sms").text
+    html = client.get("/secure-panel-admin/settings/sms").text
 
     assert '<select id="sms-provider"' not in html, "the select came back"
     for provider in ("asanak", "dev"):

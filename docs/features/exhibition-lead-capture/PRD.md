@@ -405,7 +405,7 @@ seed اثر می‌گذارد.
 | POST | `/admin/api/leads/visitors/{id}/active` | admin | فعال یا غیرفعال کردن ویزیتور |
 | GET | `/admin/api/leads/edits` | admin | صف ویرایش‌های در انتظار |
 | POST | `/admin/api/leads/edits/{id}` | admin | تأیید یا رد |
-| GET | `/secure-panel-inotex/leads` | admin | صفحهٔ ادمین |
+| GET | `/secure-panel-admin/leads` | admin | صفحهٔ ادمین |
 
 ### ۷.۲ جدید (لایهٔ هویت)
 
@@ -471,7 +471,7 @@ seed اثر می‌گذارد.
 
 نه رمزی ساخته می‌شود، نه فراموش می‌شود، نه بازیابی لازم دارد.
 
-### ۸.۴ صف بررسی ادمین (`/secure-panel-inotex/leads`)
+### ۸.۴ صف بررسی ادمین (`/secure-panel-admin/leads`)
 
 **می‌بیند:** اعداد قیف در بالا، بعد فهرست ویرایش‌های در انتظار. هر ردیف: نام
 شرکت، نام و سمت فرستنده، شمارهٔ ماسک‌شده، متن قدیم کنار متن جدید، و دو دکمهٔ
@@ -791,7 +791,7 @@ CRITICAL. راستی‌آزمایی شده.**
 صفحهٔ بررسی ادمین تمیز است: `static/admin/js/leads.js` هر دو متن را درست escape
 می‌کند. دقیقاً همین است که حمله را ممکن می‌کند. بازبین یک متن فارسیِ بی‌آزار
 می‌بیند و تأیید می‌کند، و آن متن بعد در نشست چت هر بازدیدکننده اجرا می‌شود، روی
-همان origin که `/verify`، `/v`، `/edit` و `/secure-panel-inotex` روی آن هستند.
+همان origin که `/verify`، `/v`، `/edit` و `/secure-panel-admin` روی آن هستند.
 
 فیکس: هر دو با هم، نه یکی. DOMPurify به `static/vendor/` اضافه شود و هر دو نقطه
 به `DOMPurify.sanitize(marked.parse(text))` تبدیل شوند. و در `submit_edit`

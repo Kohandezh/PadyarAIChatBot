@@ -503,7 +503,7 @@ Colors are stored as **hex strings** (`#RRGGBB`); the two background URLs follow
 
 Brand values are baked into the rendered-page cache, so `wl_cache_key()` (a tuple of all values) extends the cache key in `app/services/themes.py` — an admin save flips the key on the next request.
 
-The admin surface is `Settings > Branding` (`/secure-panel-inotex/settings/branding`): native `<input type="color">` pickers (always `#rrggbb`, zero dependencies) and URL fields with an upload button for logo and both backgrounds (uploads land in `/media/uploads` via `/admin/api/upload_logo`, magic-byte validated, then the operator presses «ذخیره برندینگ»).
+The admin surface is `Settings > Branding` (`/secure-panel-admin/settings/branding`): native `<input type="color">` pickers (always `#rrggbb`, zero dependencies) and URL fields with an upload button for logo and both backgrounds (uploads land in `/media/uploads` via `/admin/api/upload_logo`, magic-byte validated, then the operator presses «ذخیره برندینگ»).
 
 ### Database (PostgreSQL 16)
 

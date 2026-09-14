@@ -161,13 +161,13 @@ def test_every_endpoint_refuses_an_anonymous_caller(anon, engine):
 
 
 def test_the_page_sends_anonymous_visitors_to_the_login_screen(anon):
-    res = anon.get("/secure-panel-inotex/ai/tts", follow_redirects=False)
+    res = anon.get("/secure-panel-admin/ai/tts", follow_redirects=False)
     assert res.status_code in (302, 303, 307)
     assert "login" in res.headers["location"]
 
 
 def test_the_page_renders_for_an_admin(client):
-    res = client.get("/secure-panel-inotex/ai/tts")
+    res = client.get("/secure-panel-admin/ai/tts")
     assert res.status_code == 200
     assert "تبدیل متن به صدا" in res.text
     # With a NON-EMPTY cache-buster: `?v=` on its own is one cacheable URL for

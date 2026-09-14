@@ -254,7 +254,7 @@ def test_apply_requires_admin(anon_client):
 # ── Wiring: the page actually carries the button ──────────────────────────
 
 def test_synonyms_page_carries_the_button(admin_client):
-    res = admin_client.get("/secure-panel-inotex/synonyms")
+    res = admin_client.get("/secure-panel-admin/synonyms")
     assert res.status_code == 200
     assert 'id="suggest-synonyms-btn"' in res.text
     assert "پیشنهاد هوشمند مترادف" in res.text

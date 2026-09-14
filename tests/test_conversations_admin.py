@@ -34,8 +34,8 @@ API_ROUTES = [
 ]
 
 PAGE_ROUTES = [
-    "/secure-panel-inotex/visitors",
-    "/secure-panel-inotex/conversations",
+    "/secure-panel-admin/visitors",
+    "/secure-panel-admin/conversations",
 ]
 
 
@@ -169,10 +169,10 @@ def test_the_sidebar_links_to_both_screens_and_to_the_wrong_answers(client):
     """A page nobody can reach from the menu is a page nobody uses — the
     failure tests/test_admin_navigation.py exists to prevent. The wrong-answer
     queue gets its own link because it is the one that improves the bot."""
-    sidebar = client.get("/secure-panel-inotex").text
-    assert 'href="/secure-panel-inotex/visitors"' in sidebar
-    assert 'href="/secure-panel-inotex/conversations"' in sidebar
-    assert 'href="/secure-panel-inotex/conversations?view=weak"' in sidebar
+    sidebar = client.get("/secure-panel-admin").text
+    assert 'href="/secure-panel-admin/visitors"' in sidebar
+    assert 'href="/secure-panel-admin/conversations"' in sidebar
+    assert 'href="/secure-panel-admin/conversations?view=weak"' in sidebar
 
 
 # ── The conversation list ────────────────────────────────────────────────

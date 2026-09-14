@@ -187,7 +187,7 @@ sweep.
 ### 4. Admin
 
 `templates/admin/companies.html` and its route
-(`app/routers/leads.py:545`, `/secure-panel-inotex/companies`) already exist,
+(`app/routers/leads.py:545`, `/secure-panel-admin/companies`) already exist,
 so there is a screen. It reads `company_profiles.list_companies()`; point it at
 the new table. The dataset screen should stop showing companies, which it will
 do for free.

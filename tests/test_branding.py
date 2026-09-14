@@ -321,7 +321,7 @@ def test_admin_branding_page_shows_name_and_prefilled_form(client):
     assert _post_branding(client, app_name="دستیار سازمانی",
                           welcome_text="پیام جدید",
                           subtitle="سمینار سالانه").status_code == 200
-    page = client.get("/secure-panel-inotex/settings/branding")
+    page = client.get("/secure-panel-admin/settings/branding")
     assert page.status_code == 200
     # Sidebar carries the install's own name via {{ wl_app_name }}.
     assert "<span>دستیار سازمانی</span>" in page.text
@@ -329,7 +329,7 @@ def test_admin_branding_page_shows_name_and_prefilled_form(client):
     assert 'value="دستیار سازمانی"' in page.text
     assert 'value="سمینار سالانه"' in page.text
     assert "پیام جدید</textarea>" in page.text
-    assert 'href="/secure-panel-inotex/settings/branding"' in page.text
+    assert 'href="/secure-panel-admin/settings/branding"' in page.text
     # The two background fields ship pre-filled with the current values.
     assert 'id="brand-chat-bg"' in page.text
     assert 'id="brand-video-bg"' in page.text

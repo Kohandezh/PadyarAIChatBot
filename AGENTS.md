@@ -614,7 +614,7 @@ The product instance is now **INOTEX** (پانزدهمین نمایشگاه بی
 
 - **Identity:** all previous-event identity was removed from the working tree.
   Canonical names: display "INOTEX Chatbot", package `inotex-chatbot`,
-  admin route prefix `/secure-panel-inotex`.
+  admin route prefix `/secure-panel-admin`.
 - **Content:** the knowledge seed (`app/default_content.py`) carries facts
   verified against https://inotex.com/ on 2026-08-14. The machine-readable
   source manifest is `content/sources.json`; conflicts pending human review

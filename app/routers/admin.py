@@ -566,7 +566,7 @@ async def get_ai_connection():
         "model_classify": get_setting("ai_model_classify", ""),
         "model_chat_deprecated": True,
         "model_classify_deprecated": True,
-        "routing_url": "/secure-panel-inotex/ai/routing",
+        "routing_url": "/secure-panel-admin/ai/routing",
         "model_stt": get_setting("ai_model_stt", ""),
         # Where transcription actually gets its credential. Never the secret.
         "stt": _stt_status(),

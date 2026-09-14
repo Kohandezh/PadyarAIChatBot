@@ -853,7 +853,7 @@ async def save_taxonomy(body: TaxonomySaveBody):
     }
 
 
-@router.get("/secure-panel-inotex/settings/taxonomy", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/taxonomy", response_class=HTMLResponse)
 async def admin_taxonomy_page(request: Request):
     """The admin screen. Same session check and login redirect as the other
     admin pages (see app/routers/public.py)."""

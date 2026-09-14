@@ -321,7 +321,7 @@ def test_cursor_resumes_after_the_last_examined_company(admin_client, monkeypatc
 
 
 def test_companies_page_carries_the_button(admin_client):
-    r = admin_client.get("/secure-panel-inotex/companies")
+    r = admin_client.get("/secure-panel-admin/companies")
     assert r.status_code == 200
     assert 'id="autofill-btn"' in r.text
     assert 'id="autofill-count"' in r.text

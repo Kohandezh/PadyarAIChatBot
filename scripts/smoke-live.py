@@ -129,8 +129,8 @@ def _plan(base):
 
 @check("admin: pages require a login")
 def _admin_guard(base):
-    for path in ("/secure-panel-inotex/settings/sms",
-                 "/secure-panel-inotex/settings/taxonomy"):
+    for path in ("/secure-panel-admin/settings/sms",
+                 "/secure-panel-admin/settings/taxonomy"):
         req = urllib.request.Request(f"{base}{path}")
         opener = urllib.request.build_opener(NoRedirect())
         try:

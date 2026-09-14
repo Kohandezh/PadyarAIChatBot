@@ -188,7 +188,7 @@ def _api_docs_enabled() -> bool:
 
     WHAT WAS WRONG. FastAPI serves all three to anybody, with no session and
     no token. On a production install that handed a stranger the full route
-    table: the obscured admin path (/secure-panel-inotex), every
+    table: the obscured admin path (/secure-panel-admin), every
     /admin/api/... endpoint, and the exact request body each one takes. The
     Referrer-Policy header in security_headers() below exists to keep that
     panel path out of other people's logs, which is wasted work while one
@@ -492,7 +492,7 @@ async def security_headers(request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
 
-    if path.startswith(("/secure-panel-inotex", "/admin/api")):
+    if path.startswith(("/secure-panel-admin", "/admin/api")):
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Cache-Control", "no-store")
 

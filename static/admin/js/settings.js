@@ -235,7 +235,7 @@ async function doRestore(fetchPromise) {
         try { detail = (await res.json()).detail || ''; } catch { /* no body */ }
         if (res.ok) {
             alert('اطلاعات با موفقیت بازگردانی شد. لطفاً دوباره وارد شوید.');
-            window.location.href = '/secure-panel-inotex/login';
+            window.location.href = '/secure-panel-admin/login';
         } else {
             showMsg('restore-msg', detail || 'خطا در بازگردانی', 'danger');
         }

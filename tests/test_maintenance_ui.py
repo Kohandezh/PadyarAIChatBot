@@ -59,7 +59,7 @@ def test_ops_page_renders_the_toggle(client):
     """The switch must exist on the page, labelled in plain Persian — the
     feature is useless if the operator cannot find it (AGENTS.md: findable
     in under 3 seconds, zero jargon)."""
-    res = client.get("/secure-panel-inotex/ops")
+    res = client.get("/secure-panel-admin/ops")
     assert res.status_code == 200
     assert 'id="maintenance-toggle"' in res.text
     assert "حالت تعمیرات" in res.text
@@ -93,7 +93,7 @@ def test_toggle_hidden_when_ops_module_is_disabled(tmp_path, monkeypatch):
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)
-        res = c.get("/secure-panel-inotex/ops")
+        res = c.get("/secure-panel-admin/ops")
     assert res.status_code == 404
     assert 'id="maintenance-toggle"' not in res.text
 
@@ -103,13 +103,13 @@ def test_banner_appears_on_admin_pages_when_maintenance_on(client):
     admin page while maintenance is on — including pages far from the ops
     center — and disappears the moment the mode goes off."""
     _enable(client)
-    for url in ("/secure-panel-inotex", "/secure-panel-inotex/ops"):
+    for url in ("/secure-panel-admin", "/secure-panel-admin/ops"):
         html = client.get(url).text
         assert "حالت تعمیرات روشن است" in html, url
         # ops module enabled in this environment → the 1-click fix is linked
         assert "خاموش کردن" in html, url
     _disable(client)
-    for url in ("/secure-panel-inotex", "/secure-panel-inotex/ops"):
+    for url in ("/secure-panel-admin", "/secure-panel-admin/ops"):
         assert "حالت تعمیرات روشن است" not in client.get(url).text, url
 
 
@@ -137,6 +137,6 @@ def test_banner_does_not_render_on_login_page(client):
     """
     _enable(client)
     client.cookies.clear()
-    res = client.get("/secure-panel-inotex/login", follow_redirects=False)
+    res = client.get("/secure-panel-admin/login", follow_redirects=False)
     assert res.status_code == 200
     assert "حالت تعمیرات روشن است" not in res.text

@@ -46,29 +46,29 @@ async function load() {
   const ring = el('health-ring');
   ring.className = 'h1 m-0 ' + (h.score >= 90 ? 'text-green' : h.score >= 60 ? 'text-orange' : 'text-red');
 
-  tile('t-svc-healthy', fa(d.services.healthy), '/secure-panel-inotex/ops/services');
-  tile('t-svc-degraded', fa(d.services.degraded), '/secure-panel-inotex/ops/services');
-  tile('t-svc-down', fa(d.services.down), '/secure-panel-inotex/ops/services');
+  tile('t-svc-healthy', fa(d.services.healthy), '/secure-panel-admin/ops/services');
+  tile('t-svc-degraded', fa(d.services.degraded), '/secure-panel-admin/ops/services');
+  tile('t-svc-down', fa(d.services.down), '/secure-panel-admin/ops/services');
 
-  tile('t-messages', fa(d.traffic.messages_24h), '/secure-panel-inotex/logs?category=chat');
-  tile('t-api', fa(d.traffic.api_requests_24h), '/secure-panel-inotex/logs?category=api');
-  tile('t-api-err', fa(d.traffic.api_errors_24h), '/secure-panel-inotex/logs?category=api&level=error');
+  tile('t-messages', fa(d.traffic.messages_24h), '/secure-panel-admin/logs?category=chat');
+  tile('t-api', fa(d.traffic.api_requests_24h), '/secure-panel-admin/logs?category=api');
+  tile('t-api-err', fa(d.traffic.api_errors_24h), '/secure-panel-admin/logs?category=api&level=error');
 
-  tile('t-llm', fa(d.ai.requests_24h), '/secure-panel-inotex/logs?category=llm');
-  tile('t-llm-err', fa(d.ai.errors_24h), '/secure-panel-inotex/logs?category=llm&level=error');
+  tile('t-llm', fa(d.ai.requests_24h), '/secure-panel-admin/logs?category=llm');
+  tile('t-llm-err', fa(d.ai.errors_24h), '/secure-panel-admin/logs?category=llm&level=error');
   el('t-llm-rate').textContent = d.ai.error_rate.toLocaleString('fa-IR') + '٪';
   el('t-llm-latency').textContent = d.ai.avg_latency_ms ? fa(d.ai.avg_latency_ms) + ' ms' : '—';
-  tile('t-tokens', fa(d.ai.tokens_24h), '/secure-panel-inotex/logs?category=llm');
+  tile('t-tokens', fa(d.ai.tokens_24h), '/secure-panel-admin/logs?category=llm');
 
-  tile('t-sms', fa(d.sms.events_24h), '/secure-panel-inotex/logs?category=sms');
-  tile('t-sms-err', fa(d.sms.failures_24h), '/secure-panel-inotex/logs?category=sms&level=error');
+  tile('t-sms', fa(d.sms.events_24h), '/secure-panel-admin/logs?category=sms');
+  tile('t-sms-err', fa(d.sms.failures_24h), '/secure-panel-admin/logs?category=sms&level=error');
 
-  tile('t-failed-logins', fa(d.security.failed_logins_24h), '/secure-panel-inotex/logs?category=security');
-  tile('t-security', fa(d.security.events_24h), '/secure-panel-inotex/logs?category=security');
-  tile('t-sessions', fa(d.security.active_sessions), '/secure-panel-inotex/security/sessions');
-  tile('t-audit', fa(d.security.audit_24h), '/secure-panel-inotex/logs?category=audit');
+  tile('t-failed-logins', fa(d.security.failed_logins_24h), '/secure-panel-admin/logs?category=security');
+  tile('t-security', fa(d.security.events_24h), '/secure-panel-admin/logs?category=security');
+  tile('t-sessions', fa(d.security.active_sessions), '/secure-panel-admin/security/sessions');
+  tile('t-audit', fa(d.security.audit_24h), '/secure-panel-admin/logs?category=audit');
 
-  tile('t-log-total', fa(d.logs.total_events), '/secure-panel-inotex/logs');
+  tile('t-log-total', fa(d.logs.total_events), '/secure-panel-admin/logs');
   el('t-log-storage').textContent = bytes(d.logs.storage_bytes);
   el('t-uptime').textContent = d.process.uptime_fa;
   const engine = d.process.db_engine === 'postgres' ? 'PostgreSQL' : 'SQLite';

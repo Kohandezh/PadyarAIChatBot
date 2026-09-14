@@ -24,7 +24,7 @@ def client(tmp_path, monkeypatch):
 
 
 PUBLIC = "/"
-ADMIN_PAGE = "/secure-panel-inotex/settings/sms"
+ADMIN_PAGE = "/secure-panel-admin/settings/sms"
 ADMIN_API = "/admin/api/sms"
 
 
