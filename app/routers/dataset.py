@@ -234,6 +234,16 @@ async def bulk_delete_dataset_items(payload: dict):
 
 # --- Questions CRUD ---
 
+def _insert_question(conn, question: str, dataset_id: str, video_url: str = "") -> int:
+    """The one INSERT behind every question creation. The single-create
+    endpoint and the AI-assist bulk apply share it, so validation and write
+    shape stay single-source (ADR-017)."""
+    cursor = conn.execute(
+        'INSERT INTO questions (question, dataset_id, video_url) VALUES (?, ?, ?)',
+        (question, dataset_id, video_url))
+    return cursor.lastrowid
+
+
 @router.get("/admin/api/questions", dependencies=[Depends(verify_admin)])
 async def list_questions(dataset_id: Optional[str] = None):
     with closing(get_db_connection()) as conn:
@@ -254,11 +264,9 @@ async def create_question(q: dict):
     if not q.get("question") or not q.get("dataset_id"):
         raise HTTPException(status_code=400, detail="question and dataset_id are required")
     with closing(get_db_connection()) as conn:
-        cursor = conn.execute(
-            'INSERT INTO questions (question, dataset_id, video_url) VALUES (?, ?, ?)',
-            (q.get('question', ''), q.get('dataset_id', ''), q.get('video_url', ''))
-        )
-        new_id = cursor.lastrowid
+        new_id = _insert_question(
+            conn, q.get('question', ''), q.get('dataset_id', ''),
+            q.get('video_url', ''))
         conn.commit()
     _trigger_reindex()
     return {"status": "created", "id": new_id}
@@ -305,6 +313,51 @@ async def bulk_delete_questions(payload: dict):
         rowcount = cur.rowcount
     _trigger_reindex()
     return {"status": "deleted", "deleted": rowcount}
+
+
+# --- AI question assist (suggest → human approval → apply) ---
+#
+# One button in the entry edit modal. Suggest calls the model through the
+# Padyar AI wrapper and returns validated paraphrases WITHOUT saving; apply
+# inserts the admin's selection through _insert_question (the same path as
+# the single question-create endpoint) with ONE reindex for the batch.
+
+@router.post("/admin/api/dataset/{item_id}/suggest-questions",
+             dependencies=[Depends(verify_admin)])
+async def suggest_dataset_questions(item_id: str):
+    from app.services import question_assist
+    try:
+        suggestions = await question_assist.suggest_questions(item_id)
+    except question_assist.QuestionAssistUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="مورد یافت نشد.")
+    return {"status": "ok", "suggestions": suggestions}
+
+
+@router.post("/admin/api/dataset/{item_id}/apply-questions",
+             dependencies=[Depends(verify_admin)])
+async def apply_dataset_questions(item_id: str, payload: dict):
+    from app.services.question_assist import MAX_APPLY
+    questions = payload.get("questions")
+    if not isinstance(questions, list) or not questions:
+        raise HTTPException(status_code=400,
+                            detail="هیچ سوالی برای افزودن انتخاب نشده است.")
+    if not all(isinstance(q, str) and q.strip() for q in questions):
+        raise HTTPException(status_code=400, detail="لیست سوال‌ها نامعتبر است.")
+    if len(questions) > MAX_APPLY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"حداکثر {MAX_APPLY} سوال در هر بار قابل افزودن است.")
+    with closing(get_db_connection()) as conn:
+        if conn.execute('SELECT 1 FROM dataset WHERE id = ?',
+                        (item_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        new_ids = [_insert_question(conn, q.strip(), item_id)
+                   for q in questions]
+        conn.commit()
+    _trigger_reindex()
+    return {"status": "created", "created": len(new_ids), "ids": new_ids}
 
 
 # --- Import / Export ---
