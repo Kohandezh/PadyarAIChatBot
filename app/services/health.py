@@ -335,6 +335,8 @@ def health_score(services=None):
         # everything else is fine.
         score = min(score, 40)
     label = "سالم" if score >= 90 else ("کاهش کیفیت" if score >= 60 else "بحرانی")
+    from app.services import metrics
+    metrics.health_score.set(score)
     return {"score": score, "label_fa": label,
             "counts": {k: sum(1 for s in services if s["status"] == k)
                        for k in (OK, DEGRADED, DOWN, DISABLED, UNKNOWN)}}

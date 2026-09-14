@@ -362,6 +362,10 @@ def _safe_error_fields(e: ai_errors.AIError) -> dict:
 def _record_usage(req: AIRequest, status: str, t: dict, attempts: int,
                   failovers: int, totals: dict, latency_ms: int,
                   error_code: str) -> None:
+    from app.services import metrics
+    metrics.ai_calls_total.labels(
+        provider=str(t.get("provider_type") or "unknown"),
+        outcome=status).inc()
     store.record_usage({
         "task": req.task, "status": status,
         "provider_type": t.get("provider_type", ""),

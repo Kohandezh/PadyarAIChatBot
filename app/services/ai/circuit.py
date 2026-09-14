@@ -81,6 +81,17 @@ def _ensure_row(conn, instance_id: str) -> None:
         (instance_id,))
 
 
+def _metrics_state(instance_id: str, value: int) -> None:
+    """Publish a proven circuit transition to the Prometheus gauge.
+
+    In-memory only (app/services/metrics.py) and called after the commit,
+    on the same code paths that emit the applog transition event — so the
+    gauge, the log row and the database always tell the same story.
+    """
+    from app.services import metrics
+    metrics.ai_circuit_state.labels(instance=instance_id).set(value)
+
+
 def allows(instance_id: str) -> tuple:
     """(allowed?, reason). Closed → yes. Open → only after cooldown, and
     then by WINNING the single half-open probe lease. Half-open with an
@@ -114,6 +125,7 @@ def allows(instance_id: str) -> tuple:
                 _emit_transition(instance_id, "open", "half_open",
                                  "cooldown elapsed; probe lease acquired",
                                  probe_lease_s=PROBE_LEASE_S)
+                _metrics_state(instance_id, 1)
                 return True, "half-open probe"
             return False, "another worker holds the probe"
         if state == "half_open":
@@ -224,6 +236,7 @@ def record_success(instance_id: str) -> None:
     if recovered:
         _emit_transition(instance_id, previous, "closed",
                          "probe succeeded; provider recovered")
+        _metrics_state(instance_id, 0)
 
 
 def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
@@ -277,6 +290,7 @@ def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
                       "مدار سرویس‌دهنده به دلیل خطای اعتبارنامه باز شد",
                       level="warning", target=instance_id,
                       metadata={"error": error.code})
+            _metrics_state(instance_id, 2)
             return "open"
 
         threshold = _setting_int("ai_circuit_threshold", DEFAULT_THRESHOLD)
@@ -327,6 +341,7 @@ def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
             _emit_transition(instance_id, "half_open", "open",
                              "probe failed; cooldown restarted",
                              error_code=error.code)
+            _metrics_state(instance_id, 2)
             return "open"
 
         if state != "open" and count >= threshold:
@@ -343,6 +358,7 @@ def record_failure(instance_id: str, error: "ai_errors.AIError") -> str:
                       "مدار سرویس‌دهنده پس از خطاهای پیاپی باز شد",
                       target=instance_id, error_code=error.code,
                       metadata={"failures": count, "window_s": window_s})
+            _metrics_state(instance_id, 2)
             return "open"
         conn.commit()
         return state
@@ -364,6 +380,7 @@ def reset(instance_id: str, actor: str = "") -> None:
         conn.commit()
     finally:
         conn.close()
+    _metrics_state(instance_id, 0)
 
 
 def snapshot(instance_id: str = "") -> list:
