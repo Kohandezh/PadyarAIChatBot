@@ -9,16 +9,19 @@ The reference deployment is **INOTEX** (the international innovation & technolog
 ## 🚀 Features
 
 - **Two-tier intelligence**
-  - **Tier 1 — Local knowledge base:** matches the user's question against the customer's curated dataset using Persian text normalization, synonym expansion, TF-IDF vectorization and cosine similarity. Returns the best-matching video answer.
-  - **Tier 2 — AI fallback:** when local confidence is low, GPT-5 Nano classifies intent; if it maps to a dataset entry that entry is returned, otherwise GPT-4.1 generates a free-text answer. All AI calls go through the GapGPT proxy.
+  - **Tier 1 — Local knowledge base:** matches the user's question against the customer's curated dataset using Persian text normalization, synonym expansion, BM25 lexical retrieval and local model2vec embeddings fused by a feature reranker (plus a per-install trained intent classifier). Returns the best-matching video answer. TF-IDF was removed from retrieval on 2026-08-28.
+  - **Tier 2 — AI fallback:** when local confidence is low, the grounded selection tier has the model pick record ids (our renderer writes the facts back out of the database), else a written answer. All AI calls exit through the Padyar AI Wrapper.
+- **AI-assisted content tools** — «پیشنهاد هوشمند مترادف» (synonym suggestions) and «پیشنهاد سوال» (question-variant suggestions): the model proposes, built-in validation filters, and the operator approves — nothing is saved without an explicit admin action. Applies through the existing add-synonym / add-question paths so reindex stays single-source.
+- **Prometheus metrics** — `GET /metrics` (HTTP, chat-tier, AI-call, circuit-breaker, backup and health metrics), guarded by a `METRICS_TOKEN` bearer token or an admin session. Never public — see `docs/engineering/MONITORING.md`.
 - **Video answers** — every dataset entry can carry a video URL, played inline in the chat.
 - **Voice input** *(optional module)* — transcribes voice messages to text via Whisper.
 - **Visitor registration** *(optional module `registration`)* — phone verification by SMS one-time code (only a keyed HMAC of the code is stored, never the code itself), a profile form whose job / title / interest options are driven by a data file rather than code, and a targeted-visit planner that matches the visitor's profile to the event's own sections. Managed from two admin pages: SMS gateway + on/off switch, and a form-options editor with a raw-JSON mode.
 - **White-label / branding** — app name, logo, primary/accent colors and welcome text (5 `whitelabel_*` settings), editable on the admin Settings → «برندینگ» page and injected into the chat page, admin sidebar and lead pages.
-- **Pluggable chat themes** — WordPress-style partial templates; switch the active theme from the admin panel. Ships with `inotex` (active in this installation), `liquid-glass` and `minimal`.
+- **Pluggable chat themes** — WordPress-style partial templates; switch the active theme from the admin panel. Ships with the `inotex` theme (official INOTEX palette; the only selectable theme in this installation) — `themes/base/` supplies the default partials every theme inherits.
 - **Admin panel** (Tabler / Bootstrap 5 RTL) — dashboard with usage stats and low-confidence queries, dataset & questions CRUD, synonym management, video upload & library (in the dataset page), theme switching, white-label settings, AI-assistant settings, and scheduled database backups.
 - **Import / export** — dataset and questions as JSON or CSV.
-- **Database-backed backups** — PostgreSQL `pg_dump --format=custom` backups with SHA-256 verification, a safety backup before restore, maintenance mode during restore, and post-restore validation.
+- **Database-backed backups with off-site copy** — PostgreSQL `pg_dump --format=custom` backups with SHA-256 verification, a safety backup before restore, maintenance mode during restore, post-restore validation, and (2026-09-14) an off-site copy of every verified dump to an `OFFSITE_BACKUP_TARGET` (`rsync:` or `dir:`) — failures are non-fatal and logged.
+- **Release & versioning** — a `VERSION` file drives `app.__version__` and the `version` field in `/api/health`; `CHANGELOG.md` records changes; pushing a `v*` tag runs the full suite and cuts a GitHub Release (`docs/engineering/RELEASING.md`).
 - **Modular architecture** — every feature is a module; optional modules are toggled per install via `ENABLED_MODULES`.
 - **Security** — HMAC-signed chat tokens, origin validation, per-IP rate limiting, bcrypt admin password hashing (with legacy SHA-256 upgrade-on-login), brute-force lockout and sliding admin sessions.
 
@@ -41,7 +44,7 @@ flowchart TB
     subgraph Tier1["Tier 1 · Local Match"]
       Search["Search Engine"]
       Norm["Persian Normalizer"]
-      TFIDF["TF-IDF Matcher<br/>(scikit-learn)"]
+      Retrieval["Hybrid Retriever<br/>(BM25 + model2vec embeddings<br/>+ feature reranker)"]
     end
 
     subgraph Tier2["Tier 2 · AI Fallback"]
@@ -69,7 +72,7 @@ flowchart TB
 
   Orchestrator --> Search
   Search --> Norm
-  Search --> TFIDF
+  Search --> Retrieval
   Search --> SQLite
 
   Orchestrator --> Nano
@@ -94,7 +97,7 @@ flowchart TB
 
   class ChatUI,AdminUI,Embed ui;
   class Orchestrator core;
-  class Search,Norm,TFIDF green;
+  class Search,Norm,Retrieval green;
   class Nano,GPT41,Whisper amber;
   class DBLayer,SQLite teal;
   class OpenAI,GapGPT,VideoCDN red;
@@ -104,7 +107,7 @@ flowchart TB
 | ---- | ----- | ------------ |
 | 🔵 Blue | User interfaces | Themed public chat, Jinja2/Tabler admin panel, embeddable widget |
 | 🟣 Purple | Core orchestrator | FastAPI app running the two-tier pipeline and routing every request |
-| 🟢 Green | Tier 1 (local) | Persian normalization + synonym expansion + TF-IDF/cosine match (wins at confidence ≥ 0.20) |
+| 🟢 Green | Tier 1 (local) | Persian normalization + synonym expansion + BM25/embeddings/reranker fusion (trusted at confidence ≥ 0.70), plus the trained intent tier |
 | 🟠 Amber | Tier 2 (AI fallback) | GPT-5 Nano classifies intent, GPT-4.1 generates free text, Whisper-1 transcribes voice |
 | 🟦 Teal | Storage | PostgreSQL 16 — single source of truth for dataset, questions, settings, logs |
 | 🔴 Red | External services | AI calls exit via the GapGPT proxy to the OpenAI API; videos served from the CDN |
@@ -119,8 +122,9 @@ flowchart TB
 | Frontend (chat)  | Vanilla HTML/CSS/JS — no framework                             |
 | Frontend (admin) | Tabler / Bootstrap 5 RTL + Chart.js                           |
 | Database         | PostgreSQL 16 (schemas `app`, `observability`); SQLite for tests/rollback |
-| ML / search      | scikit-learn (TF-IDF + cosine similarity)                     |
-| AI provider      | OpenAI via GapGPT proxy (`https://api.gapgpt.app/v1`)         |
+| ML / search      | Pure-Python BM25 + local model2vec embeddings + feature reranker; scikit-learn only for the logistic-regression intent head (no TF-IDF) |
+| Monitoring       | prometheus-client — `GET /metrics` (token/admin auth)         |
+| AI provider      | Padyar AI Control Plane — 11 provider types behind the Padyar AI Wrapper |
 | AI models        | GPT-5 Nano (classification), GPT-4.1 (chat), Whisper-1 (voice) |
 | Font             | Vazirmatn (Persian web font)                                  |
 
@@ -189,7 +193,7 @@ Every feature is a module. **Core modules** always load. **Optional modules** ar
 
 | Module    | Type        | Description                                  |
 | --------- | ----------- | -------------------------------------------- |
-| `chat`    | 🔒 Core      | Chatbot engine (TF-IDF + GPT fallback)       |
+| `chat`    | 🔒 Core      | Chatbot engine (local BM25+embeddings retrieval, AI fallback) |
 | `admin`   | 🔒 Core      | Admin dashboard and API                      |
 | `search`  | 🔒 Core      | Synonym management API                       |
 | `dataset` | 🔒 Core      | Dataset and questions CRUD                   |
@@ -248,9 +252,8 @@ PadyarAIChatbot/
 ├── static/                     # chat/ (core.js, base.css), admin/ css+js, vendor/
 │
 ├── themes/                     # Pluggable chat UI themes (WordPress-style partials)
-│   ├── base/                   # Default partials all themes inherit
-│   ├── liquid-glass/           # Default theme (frosted glass)
-│   └── minimal/                # Minimal clean theme
+│   ├── base/                   # Default partials all themes inherit (not selectable)
+│   └── inotex/                 # The selectable theme (official INOTEX palette)
 │
 ├── data/Videos/                # Source video files
 ├── media/                      # Runtime media storage (videos/, uploads/) — gitignored
@@ -284,7 +287,7 @@ PostgreSQL 16 (schemas `app` + `observability`). The schema is owned by the vers
 
 ## 💾 Backups
 
-`backup_db.py` provides WAL-safe online backups via SQLite's backup API. The admin panel can take a backup on demand, schedule automatic backups (interval + time of day, stored in `settings`), and restore from a backup (which first snapshots the current DB so a bad restore can be undone). Multi-worker safe: under gunicorn, workers atomically claim each due slot so only one backup runs.
+`backup_db.py` provides WAL-safe online backups via SQLite's backup API. The admin panel can take a backup on demand, schedule automatic backups (interval + time of day, stored in `settings`), and restore from a backup (which first snapshots the current DB so a bad restore can be undone). Multi-worker safe: under gunicorn, workers atomically claim each due slot so only one backup runs. In production, PostgreSQL backups (`pg_dump --format=custom`) are SHA-256 verified and then — when `OFFSITE_BACKUP_TARGET` is configured — copied off-site (`rsync:user@host:/path` or `dir:/mounted/path`); a failed copy never invalidates the local backup.
 
 ```bash
 python backup_db.py   # take one backup now + prune old ones
@@ -335,7 +338,7 @@ python -m py_compile app/main.py app/routers/chat.py
 
 ### CI/CD
 
-`.github/workflows/ci.yml` runs on every PR and push: `test`, `evaluation`, `dependency-audit` and `secret-scan` execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval.
+`.github/workflows/ci.yml` runs on every PR and push: `test` (full suite + advisory `pytest-cov` coverage report), `postgres-tests` (blocking — a `postgres:16` service container runs the `tests/postgres` integration suite), `evaluation` (blocking retrieval/safety eval gates), `dependency-audit` (advisory pip-audit) and `secret-scan` (blocking) execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval. Separate workflows: `release.yml` (on `v*` tags — runs the suite, then cuts the GitHub Release from the CHANGELOG; see `docs/engineering/RELEASING.md`) and `freshness.yml` (weekly advisory content-freshness check).
 
 ## 🤝 Contributing
 
