@@ -303,7 +303,7 @@ async def resolve_visitor(request, call_next):
     fresh token with the stale one the request came in with.
 
     WHERE IT SITS: registered here, straight after CORS, which makes it the
-    INNERMOST of the six (Starlette wraps in reverse registration order). So it
+    INNERMOST of the seven (Starlette wraps in reverse registration order). So it
     runs inside request_correlation and its log rows carry a request id; inside
     csrf_protection and reject_oversized_bodies, so a 403 or 413 short-circuits
     before paying for a lookup; and its response half runs first, so neither
@@ -580,6 +580,49 @@ async def slide_admin_cookie(request, call_next):
             )
     return response
 
+
+@app.middleware("http")
+async def prometheus_metrics(request, call_next):
+    """Count and time every request on the in-process Prometheus registry.
+
+    Registered last, so it is the OUTERMOST middleware: a 403 from CSRF or
+    a 413 from the body cap is still a request somebody made, and those
+    are exactly the rows a monitoring dashboard wants.
+
+    COUNTER/HISTOGRAM ONLY, no I/O — in-memory increments (see
+    app/services/metrics.py), so the chat path gains no latency from this.
+
+    The route label is the ROUTE TEMPLATE, resolved after the response via
+    request.scope: FastAPI fills scope["route"] during routing and the
+    scope dict is the same object the middleware holds. Anything unmatched
+    or mounted collapses to a fixed string (route_template) — a raw path
+    as a label would give every visitor the power to balloon Prometheus
+    memory, which is the one failure mode this must never have.
+    """
+    import time as _time
+    from app.services import metrics as _metrics
+
+    _metrics.http_inflight.inc()
+    started = _time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        route = _metrics.route_template(request)
+        _metrics.http_requests_total.labels(
+            method=request.method, route=route, status="500").inc()
+        raise
+    finally:
+        _metrics.http_inflight.dec()
+
+    route = _metrics.route_template(request)
+    _metrics.http_requests_total.labels(
+        method=request.method, route=route,
+        status=str(response.status_code)).inc()
+    _metrics.http_request_duration_seconds.labels(
+        method=request.method, route=route).observe(
+        _time.perf_counter() - started)
+    return response
+
 # --- Static Files ---
 app.mount("/LOGO", StaticFiles(directory="LOGO"), name="logo")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -597,6 +640,11 @@ app.mount("/media", StaticFiles(directory="media"), name="media")
 # --- Include Routers ---
 # Public router always loaded (serves HTML pages + health check)
 app.include_router(public.router)
+
+# Prometheus scrape endpoint — always loaded, auth-gated inside the router
+# itself (see app/routers/metrics.py). NOT public: token or admin session.
+from app.routers import metrics as metrics_router  # noqa: E402
+app.include_router(metrics_router.router)
 
 # AI provider control plane — core admin surface, always loaded.
 from app.routers import admin_ai  # noqa: E402
