@@ -14,7 +14,19 @@ not bugs.
 
 `tests/postgres/` closes the gap by talking to a real server.
 
-## Running it
+## It runs in CI
+
+The `postgres-tests` job in `.github/workflows/ci.yml` runs this whole
+directory on **every push and pull request** — blocking, and part of the
+deploy gate. It starts a `postgres:16-alpine` service container (same image,
+credentials and `pg_isready` healthcheck as `docker-compose.yml`), sets
+`RUN_POSTGRES_TESTS=1` and `DATABASE_URL`, and runs `pytest tests/postgres -q`.
+
+That is the pass/fail signal. Running it locally (below) is for writing a
+test or chasing a failure; the local run is no longer the only place these
+tests ever execute.
+
+## Running it locally
 
 ```bash
 RUN_POSTGRES_TESTS=1 .venv/bin/python -m pytest tests/postgres -q

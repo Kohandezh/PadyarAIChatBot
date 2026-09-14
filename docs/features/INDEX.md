@@ -28,6 +28,7 @@ Central tracking for all features.
 | signup-integrity | Implemented | Ready | registration | 2026-08-31 | 2026-08-31 |
 | company-self-edit-campaign | Implemented | Ready | leads | 2026-09-01 | 2026-09-01 |
 | elecomp-chat-training | Implemented | Ready | chat | 2026-09-01 | 2026-09-01 |
+| offsite-backups | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 
 ## Quick Features
 

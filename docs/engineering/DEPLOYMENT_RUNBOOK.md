@@ -23,7 +23,9 @@ gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 127.0.0.1:8000 app.main:app
 خودمیزبان روی سرور `padyar-deploy` را صدا می‌زند. مراحل آن اسکریپت، به
 ترتیب: پشتیبان pg_dump → checkout کد جدید (پروسهٔ قدیم هنوز سرو می‌کند) →
 `pip install` → `apply_migrations.py` (هر فایل یک تراکنش) → ری‌استارت →
-`/health` × 3.
+بررسی `/api/health` تا ۱۲ تلاش × ۵ ثانیه (یک دقیقه کامل؛ بوت با بارگذاری
+dataset و ایندکسِ بازیابی کند است و پنجرهٔ کوتاه قبلاً کد سالم را
+برمی‌گرداند — رخداد ۲۰۲۶-۰۸-۲۷).
 
 **بازگشت کد خودکار است:** سلامت نرسید → reset به commit قبلی + ری‌استارت.
 **بازگشت دیتابیس خودکار نیست و نباید باشد:** مهاجرت‌های این پروژه تا امروز
@@ -69,6 +71,14 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
 
 ## پشتیبان و بازیابی
 - خودکار: زمان‌بندی پنل ادمین (app/services/backup.py) → پوشهٔ backups/
+- کپی خارج از سرور (2026-09-14): اگر `OFFSITE_BACKUP_TARGET` در env تنظیم
+  شده باشد، هر dump که verify موفق داشته باشد خودکار به مقصد دوم کپی
+  می‌شود — `rsync:user@host:/path` (با `rsync -a --chmod=F600` روی ssh؛
+  کلید بدون رمز لازم است چون ساعت ۳ صبح بدون تعامل انسانی اجرا می‌شود)
+  یا `dir:/mnt/...` (مسینت از قبل mount شده). نتیجهٔ هر کپی در بلوک
+  `offsite` همان manifest.json ثبت می‌شود. شکست کپی هرگز پشتیبان محلی را
+  باطل نمی‌کند؛ فقط رخداد `backup.offsite.failed` در لاگ سرویس ثبت می‌شود
+  — هر شب مقصد را از روی همین رخداد ببینید، نه با فرض.
 - دستی: `python backup_db.py`
 - بازیابی: توقف سرویس → جایگزینی chat_history.db از پشتیبان → شروع سرویس
   → بررسی `/api/ready` و شمارش dataset در `/api/health`.
@@ -122,7 +132,8 @@ overwritten. Backend-neutral detection lives in `app/db/dberrors.py`.
 ## Running the PostgreSQL integration tests
 
 The default suite runs on SQLite for speed. Production-critical PostgreSQL
-tests are opt-in:
+tests run in CI on every push (the `postgres-tests` job) and are also
+available locally, opt-in:
 
 ```bash
 RUN_POSTGRES_TESTS=1 .venv/bin/python -m pytest tests/postgres -q
