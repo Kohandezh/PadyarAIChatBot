@@ -75,6 +75,11 @@ def test_the_profile_endpoint_answers_200(pg_clean, outbox):
     identity is the session cookie verify mints — so the client has to actually
     register and keep what verify handed it. The write lands on `app.visitors`,
     which is a second real table this exercises on a real server.
+
+    Since the signup-integrity gate (2026-08-31), /api/auth/profile answers
+    403 signup_incomplete until the visitor has completed the signup
+    questions, exactly as tests/test_signup_flow.py pins for SQLite. This
+    test walks the same flow against a real server.
     """
     from fastapi.testclient import TestClient
 
@@ -94,12 +99,28 @@ def test_the_profile_endpoint_answers_200(pg_clean, outbox):
             "challenge_id": issued.json()["challenge_id"], "code": outbox[-1][1]})
         assert v.status_code == 200, v.text
 
+        gated = c.post("/api/auth/profile", json={
+            "job": "خبرنگار / رسانه", "position": "کارشناس",
+            "interests": "هوش مصنوعی"})
+        assert gated.status_code == 403, gated.text
+        assert gated.json()["detail"]["code"] == "signup_incomplete"
+
+        # The signup flow is a strict step sequence. `name` is already
+        # satisfied by the first/last names given at the OTP request, so the
+        # first PENDING step is `job`; answers must arrive in order or the
+        # endpoint answers 409 wrong_step (mirrors tests/test_signup_flow.py).
+        for key, value in (("job", "خبرنگار / رسانه"),
+                           ("position", "کارشناس"),
+                           ("interests", "هوش مصنوعی")):
+            a = c.post("/api/signup/answer", json={"key": key, "value": value})
+            assert a.status_code == 200, a.text
+
         r = c.post("/api/auth/profile", json={
-            "job": "مهندس", "position": "مدیر فنی", "interests": "رباتیک",
-        })
+            "job": "سرمایه‌گذار", "position": "مدیر بخش",
+            "interests": "سرمایه‌گذاری و جذب سرمایه"})
     assert r.status_code == 200, f"{r.status_code}: {r.text}"
     assert r.json()["updated"] is True
-    assert r.json()["profile"]["job"] == "مهندس"
+    assert r.json()["profile"]["job"] == "سرمایه‌گذار"
 
 
 def test_an_unverified_challenge_is_still_refused(pg_clean, outbox):

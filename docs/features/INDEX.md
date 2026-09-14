@@ -28,6 +28,13 @@ Central tracking for all features.
 | signup-integrity | Implemented | Ready | registration | 2026-08-31 | 2026-08-31 |
 | company-self-edit-campaign | Implemented | Ready | leads | 2026-09-01 | 2026-09-01 |
 | elecomp-chat-training | Implemented | Ready | chat | 2026-09-01 | 2026-09-01 |
+| release-process | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| metrics-endpoint | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| offsite-backups | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| dashboard-fix-action | Implemented | Ready | admin | 2026-09-14 | 2026-09-14 |
+| freshness-schedule | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| synonym-suggestions | Implemented | Ready | search | 2026-09-14 | 2026-09-14 |
+| question-assist | Implemented | Ready | content | 2026-09-14 | 2026-09-14 |
 
 ## Quick Features
 

@@ -34,9 +34,10 @@ UPLOAD_DIR = os.path.join(BASE_DIR, "media", "uploads")
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 # --- Similarity thresholds ---
-# A local match (TF-IDF over titles, or the questions index) is only *trusted*
-# outright at or above this score. Below it we do NOT serve the match blindly —
-# the AI classifier decides intent instead (see app/routers/chat.py).
+# A local match (hybrid BM25 + embedding retrieval, or the questions index) is
+# only *trusted* outright at or above this score. Below it we do NOT serve the
+# match blindly — the AI classifier decides intent instead (see
+# app/routers/chat.py).
 TRUSTED_MATCH_THRESHOLD = 0.70
 # Used ONLY when the AI fallback is unavailable (disabled or errored): the lowest
 # local score we will still answer from. Below this we tell the user to rephrase
@@ -415,3 +416,28 @@ NEGATE_WORDS = (
     "نه", "نه بابا", "نمیخوام", "نمی‌خوام", "نمیخواهم", "ولش کن",
     "بیخیال", "بی‌خیال", "لازم نیست",
 )
+
+# --- Prometheus metrics endpoint (metrics-endpoint feature) ---
+# Bearer token for GET /metrics. When set, a scrape must present
+# `Authorization: Bearer <METRICS_TOKEN>`; when empty, /metrics instead
+# requires an authenticated admin session. Either way the endpoint is
+# never public. See docs/engineering/MONITORING.md.
+METRICS_TOKEN = (os.getenv("METRICS_TOKEN") or "").strip()
+
+# --- Off-site backup copy (2026-09-14) -----------------------------------
+# Where a VERIFIED dump is additionally copied after every successful
+# backup+verify, so a host-level failure cannot take the database and every
+# copy of it together. Empty (the default) = the feature is off: nothing is
+# copied and no event is written. Two target forms:
+#   OFFSITE_BACKUP_TARGET=rsync:user@host:/srv/padyar-backups
+#   OFFSITE_BACKUP_TARGET=dir:/mnt/offsite-backup
+# Failure to copy is NON-fatal by design — the local backup stays valid and
+# the failure is recorded (manifest `offsite` block + service event).
+OFFSITE_BACKUP_TARGET = (os.getenv("OFFSITE_BACKUP_TARGET") or "").strip()
+# Ceiling for the rsync subprocess, in seconds. Generous on purpose: the
+# first copy of a large dump over a slow uplink is slow, and a killed copy
+# means tonight's backup stays on one host.
+try:
+    OFFSITE_BACKUP_TIMEOUT = max(1, int(os.getenv("OFFSITE_BACKUP_TIMEOUT", "600")))
+except ValueError:
+    OFFSITE_BACKUP_TIMEOUT = 600

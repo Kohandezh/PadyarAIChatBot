@@ -39,7 +39,7 @@ def _expansions():
 
     The replacement carries ONLY words the source does not already contain.
     Repeating the source inside its own replacement is not neutral: it raises
-    the source's term frequency for TF-IDF/BM25 without adding meaning, and on
+    the source's term frequency for BM25 without adding meaning, and on
     the embedding side a word multiplied several times pushed the whole query
     outside the model's region — measured as dense=0.000 for
     «هزینه غرفه چقدر است؟» on the 2026-08-26 diagnostic run. A later target

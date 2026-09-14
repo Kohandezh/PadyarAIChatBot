@@ -65,6 +65,8 @@ function openDatasetModal(item_id = null) {
     document.getElementById('ds-edit-video').value = '';
     document.getElementById('ds-edit-key').disabled = false;
     _updateVideoPreview();
+    _resetSuggestArea();
+    document.getElementById('ds-suggest-block').style.display = item_id ? '' : 'none';
 
     if (item_id) {
         const items = getDatasetItems();
@@ -297,6 +299,97 @@ async function bulkDeleteDatasetItems() {
     }
 }
 
+// --- AI question assist (entry edit modal) ---
+//
+// «پیشنهاد سوال» asks the model for paraphrase questions grounded in the
+// entry; the server validates them and returns only new ones. The admin
+// unchecks what they do not want and «افزودن انتخاب‌شده‌ها» inserts the rest.
+// Two clicks, nothing saved before the second one.
+
+let suggestState = { entryId: null, items: [] };
+
+function _resetSuggestArea() {
+    suggestState = { entryId: null, items: [] };
+    document.getElementById('ds-suggest-list').innerHTML = '';
+    document.getElementById('ds-apply-btn').style.display = 'none';
+    const status = document.getElementById('ds-suggest-status');
+    status.className = 'small';
+    status.innerText = '';
+}
+
+function _setSuggestStatus(text, type) {
+    const status = document.getElementById('ds-suggest-status');
+    status.className = type ? `small text-${type}` : 'small';
+    status.innerText = text;
+}
+
+async function suggestQuestions() {
+    const entryId = document.getElementById('ds-edit-id').value;
+    if (!entryId) return;
+    const btn = document.querySelector('#ds-suggest-block .btn-outline-primary');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> در حال دریافت...';
+    _setSuggestStatus('در حال دریافت پیشنهادها...', 'muted');
+    try {
+        const res = await fetchAuth(API_BASE + '/dataset/' + encodeURIComponent(entryId) + '/suggest-questions', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'عملیات ناموفق بود');
+        suggestState = { entryId, items: data.suggestions || [] };
+        _renderSuggestions();
+    } catch (err) {
+        _setSuggestStatus('❌ ' + err.message, 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    }
+}
+
+function _renderSuggestions() {
+    const list = document.getElementById('ds-suggest-list');
+    list.innerHTML = '';
+    if (!suggestState.items.length) {
+        _setSuggestStatus('پیشنهاد تازه‌ای پیدا نشد؛ سوال‌های موجود کامل به نظر می‌رسند.', 'muted');
+        return;
+    }
+    _setSuggestStatus('پیشنهادها آماده‌اند؛ تیک موارد ناخواسته را بردارید.', 'muted');
+    suggestState.items.forEach((s, i) => {
+        const div = document.createElement('div');
+        div.className = 'form-check';
+        div.innerHTML = `
+            <input class="form-check-input ds-suggest-check" type="checkbox" value="${i}" id="ds-sug-${i}" checked>
+            <label class="form-check-label" for="ds-sug-${i}">${escapeHtml(s.question)}</label>`;
+        list.appendChild(div);
+    });
+    document.getElementById('ds-apply-btn').style.display = '';
+}
+
+async function applySuggestedQuestions() {
+    const selected = [...document.querySelectorAll('.ds-suggest-check:checked')]
+        .map(cb => suggestState.items[Number(cb.value)].question);
+    if (!selected.length) {
+        _setSuggestStatus('حداقل یک سوال را انتخاب کنید.', 'danger');
+        return;
+    }
+    const btn = document.getElementById('ds-apply-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetchAuth(API_BASE + '/dataset/' + encodeURIComponent(suggestState.entryId) + '/apply-questions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ questions: selected })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'عملیات ناموفق بود');
+        _resetSuggestArea();
+        _setSuggestStatus(`✅ ${selected.length} سوال به این مورد افزوده شد.`, 'success');
+    } catch (err) {
+        _setSuggestStatus('❌ ' + err.message, 'danger');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 export function initDataset() {
     bulkSelection = initBulkSelection({
         selectAllEl: document.getElementById('dataset-select-all'),
@@ -340,6 +433,8 @@ export function initDataset() {
     window.selectVideo = selectVideo;
     window.deleteMediaVideo = deleteMediaVideo;
     window.uploadFromMediaBrowser = uploadFromMediaBrowser;
+    window.suggestQuestions = suggestQuestions;
+    window.applySuggestedQuestions = applySuggestedQuestions;
 
     // Import / Export
     window.exportDataset = (format) => exportResource('dataset', format);

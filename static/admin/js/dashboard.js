@@ -169,7 +169,7 @@ async function loadLowConf() {
     tbody.innerHTML = '';
 
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-3 text-muted">موردی یافت نشد</td></tr>';
         return;
     }
 
@@ -182,8 +182,96 @@ async function loadLowConf() {
             <td><span class="badge bg-danger bg-opacity-10 text-danger">${(row.confidence * 100).toFixed(1)}%</span></td>
             <td><span class="badge bg-light text-dark border">${escapeHtml(row.response_type)}</span></td>
         `;
+        // Same fix flow as the conversations weak view: openFix() → POST
+        // /admin/api/questions, which reindexes on the way out. The button is
+        // built with createElement (never innerHTML) — row data is visitor
+        // text rendered inside an authenticated admin session.
+        const action = document.createElement('td');
+        const fix = document.createElement('button');
+        fix.type = 'button';
+        fix.className = 'btn btn-sm btn-outline-primary';
+        fix.textContent = 'اصلاح';
+        fix.addEventListener('click', () => openFix(row.query, row.entry_id));
+        action.appendChild(fix);
+        tr.appendChild(action);
         tbody.appendChild(tr);
     });
+}
+
+// ── Fix a wrong answer (same flow as conversations.js openFix) ────────
+
+let datasetEntries = null;
+let fixTarget = { question: '', entryId: '' };
+
+async function loadDatasetEntries() {
+    if (datasetEntries) return datasetEntries;
+    const res = await fetchAuth('/admin/api/dataset');
+    datasetEntries = res.ok ? await res.json() : [];
+    return datasetEntries;
+}
+
+function fillEntries(term) {
+    const select = document.getElementById('fix-entry');
+    select.replaceChildren();
+    const needle = (term || '').trim().toLowerCase();
+    (datasetEntries || [])
+        .filter((d) => !needle || ((d.title || '') + ' ' + (d.id || '')).toLowerCase().includes(needle))
+        .slice(0, 300)
+        .forEach((d) => {
+            const option = document.createElement('option');
+            option.value = d.id;
+            option.textContent = d.title || d.id;
+            if (d.id === fixTarget.entryId) option.selected = true;
+            select.append(option);
+        });
+    if (!select.options.length) {
+        const option = document.createElement('option');
+        option.disabled = true;
+        option.textContent = 'پاسخی پیدا نشد';
+        select.append(option);
+    }
+}
+
+async function openFix(question, entryId) {
+    fixTarget = { question: question || '', entryId: entryId || '' };
+    document.getElementById('fix-question').value = fixTarget.question;
+    document.getElementById('fix-search').value = '';
+    const msg = document.getElementById('fix-msg');
+    msg.textContent = '';
+    msg.className = 'small';
+    new bootstrap.Modal(document.getElementById('fix-modal')).show();
+    await loadDatasetEntries();
+    fillEntries('');
+}
+
+async function saveFix() {
+    const question = document.getElementById('fix-question').value.trim();
+    const datasetId = document.getElementById('fix-entry').value;
+    const msg = document.getElementById('fix-msg');
+    if (!question || !datasetId) {
+        msg.className = 'small text-danger';
+        msg.textContent = 'هم سوال و هم پاسخ باید انتخاب شوند.';
+        return;
+    }
+    msg.className = 'small text-muted';
+    msg.textContent = 'در حال ذخیره…';
+    try {
+        const res = await fetchAuth('/admin/api/questions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, dataset_id: datasetId }),
+        });
+        if (!res.ok) throw new Error('http ' + res.status);
+        msg.className = 'small text-success';
+        msg.textContent = 'ذخیره شد. از این به بعد ربات این سوال را درست جواب می‌دهد.';
+        setTimeout(() => {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('fix-modal'));
+            if (modal) modal.hide();
+        }, 1200);
+    } catch (e) {
+        msg.className = 'small text-danger';
+        msg.textContent = 'ذخیره نشد. دوباره تلاش کنید.';
+    }
 }
 
 // AI control-plane summary cards — concise counts that drill down into the
@@ -213,6 +301,9 @@ export function initDashboard() {
     loadSettings();
     loadLowConf();
     loadAISummary();
+
+    document.getElementById('fix-search').addEventListener('input', (e) => fillEntries(e.target.value));
+    document.getElementById('fix-save').addEventListener('click', saveFix);
 
     // Expose for inline onclick in template
     window.loadLowConf = loadLowConf;

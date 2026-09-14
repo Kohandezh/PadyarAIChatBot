@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  # A tag is the artifact people bookmark, so it re-earns the full suite
+  # instead of trusting that CI was green on the commit it points at.
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # creating the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # Same reason as the CI test job: without chromium the browser tests
+      # silently skip, and a release must not publish on a pass it did not
+      # earn.
+      - name: Install chromium for the browser tests
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run test suite
+        run: pytest -q
+
+      # Tag v0.1.0 names CHANGELOG section [0.1.0]; that section's body
+      # becomes the release notes. A tag without its section is a mistake
+      # and fails here — before any release exists to fix.
+      - name: Extract release notes from CHANGELOG
+        run: |
+          python - <<'EOF' > release-notes.md
+          import os, re, sys
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag.removeprefix("v")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              text, re.M | re.S)
+          if not m:
+              sys.exit(f"CHANGELOG.md has no [{version}] section for tag {tag}")
+          notes = m.group(1).strip()
+          print(notes if notes else f"Release {version}.")
+          EOF
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md

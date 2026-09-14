@@ -73,4 +73,6 @@ def test_health_is_free_of_the_database(monkeypatch, tmp_path):
                                 "/api/health must not open a database connection")))
         res = client.get("/api/health")
         assert res.status_code == 200
-        assert res.json() == {"status": "ok"}
+        # Body shape is owned by test_health_surface.py; here only the
+        # contract under test matters: 200 without touching the store.
+        assert res.json()["status"] == "ok"

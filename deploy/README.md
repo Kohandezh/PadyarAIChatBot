@@ -290,3 +290,33 @@ Deploys under ~3 minutes intentionally never SMS: a ~60 s deploy restart
 shows the maintenance page but cannot reach the 3-failure threshold. The
 page covers the visitor for that window; the phone is reserved for outages
 that need a human.
+
+## Content freshness check (weekly)
+
+`scripts/refresh-inotex-context.py` fetches every official INOTEX page from
+`content/sources.json`, hashes the body, and compares it with the snapshot
+under `content/snapshots/`. It never writes to the database — publication of
+new facts always passes through human review
+(`content/review-queue.md`). Exit codes are findings, not failures:
+`0` fresh · `2` at least one page changed · `3` at least one page
+unreachable (last good snapshot kept).
+
+The same check also runs weekly from GitHub Actions
+(`.github/workflows/freshness.yml`), advisory and network-dependent — the
+on-host timer below is the reliable one.
+
+Install per site (the units template on the install slug, like the
+watchdog):
+
+```bash
+sudo install -m 0644 deploy/systemd/padyar-freshness@.service /etc/systemd/system/padyar-freshness@.service
+sudo install -m 0644 deploy/systemd/padyar-freshness@.timer /etc/systemd/system/padyar-freshness@.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now padyar-freshness@inotex.timer
+systemctl list-timers 'padyar-freshness@*'
+journalctl -u padyar-freshness@inotex.service -n 20
+```
+
+A `changed` line in the journal (unit stays green — `SuccessExitStatus=2 3`)
+means a page moved: follow the `next_step` in
+`content/freshness-report.json`.

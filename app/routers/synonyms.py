@@ -10,6 +10,37 @@ from app.utils.normalizer import load_synonyms_from_db
 
 router = APIRouter()
 
+# One apply may carry at most this many pairs — a checkbox list is bounded by
+# the suggest limit anyway, and an unbounded loop of INSERTs in one request is
+# a payload concern, not a synonym concern.
+MAX_APPLY_PAIRS = 50
+
+
+def _insert_synonym_pairs(pairs) -> int:
+    """Insert (source, target) rows, then reload + bump the index ONCE.
+
+    The single write path for the synonyms table: the manual add form, the
+    suggestion apply, any future bulk writer. `load_synonyms_from_db()` and
+    `bump_index_version()` live HERE so no new writer can forget them
+    (ADR-017 — one place reindexes, every path reindexes).
+    """
+    conn = get_db_connection()
+    try:
+        inserted = 0
+        # Both columns are the primary key, so there is nothing to update:
+        # saving the same pair twice is a no-op instead of a duplicate row.
+        for source, target in pairs:
+            cur = conn.execute('INSERT OR IGNORE INTO synonyms (source, target)'
+                               ' VALUES (?, ?)', (source, target))
+            inserted += cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    load_synonyms_from_db()
+    from app.services.search import bump_index_version
+    bump_index_version()
+    return inserted
+
 
 @router.get("/api/synonyms")
 async def get_synonyms(request: Request, admin: bool = Depends(verify_admin)):
@@ -35,16 +66,7 @@ async def add_synonym(req: SynonymRequest, request: Request, admin: bool = Depen
     if not source or not target:
         raise HTTPException(status_code=400, detail="کلمه اصلی و جایگزین هر دو لازم است.")
     try:
-        conn = get_db_connection()
-        # Both columns are the primary key, so there is nothing to update:
-        # saving the same pair twice is a no-op instead of a duplicate row.
-        conn.execute('INSERT OR IGNORE INTO synonyms (source, target) VALUES (?, ?)',
-                     (source, target))
-        conn.commit()
-        conn.close()
-        load_synonyms_from_db()
-        from app.services.search import bump_index_version
-        bump_index_version()
+        _insert_synonym_pairs([(source, target)])
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -114,3 +136,66 @@ async def bulk_delete_synonyms(payload: dict, request: Request,
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── AI suggestions (the model proposes, the operator approves) ────────────
+# See app/services/synonym_suggest.py for the contract. Suggest spends one
+# paid-model call and stores NOTHING; apply writes the operator's picks
+# through _insert_synonym_pairs(), the same path as the manual add form.
+
+@router.post("/admin/api/synonyms/suggest")
+async def admin_suggest_synonyms(request: Request,
+                                 admin: str = Depends(verify_admin)):
+    """Ask the model once for synonym candidates. Returns them WITHOUT
+    saving — nothing reaches the synonyms table until the operator picks
+    rows and apply says so."""
+    from app.services import synonym_suggest
+    try:
+        suggestions = await synonym_suggest.suggest_synonyms(actor=admin)
+    except synonym_suggest.SuggestCooldownActive as e:
+        raise HTTPException(
+            status_code=429,
+            detail=f"درخواست زیاد است؛ چند لحظه صبر کنید و دوباره امتحان کنید"
+                   f" (حدود {e.seconds_left} ثانیه).")
+    except synonym_suggest.SynonymSuggestUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {"suggestions": suggestions}
+
+
+@router.post("/admin/api/synonyms/suggest/apply")
+async def admin_apply_suggested_synonyms(payload: dict, request: Request,
+                                         admin: str = Depends(verify_admin)):
+    """Insert the operator's selected pairs through the existing add-synonym
+    write path (normalization reload + index bump stay single-source)."""
+    from app.services import synonym_suggest
+
+    pairs = payload.get("pairs") if isinstance(payload, dict) else None
+    if not isinstance(pairs, list) or not pairs:
+        raise HTTPException(status_code=400,
+                            detail="فهرست پیشنهادها خالی است.")
+    if len(pairs) > MAX_APPLY_PAIRS:
+        raise HTTPException(status_code=400,
+                            detail="فهرست پیشنهادها بیش از حد مجاز است.")
+
+    cleaned, seen = [], set()
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            raise HTTPException(status_code=400,
+                                detail="کلمه اصلی و جایگزین هر دو لازم است.")
+        cleaned_pair = synonym_suggest.clean_pair(pair.get("word"),
+                                                  pair.get("suggestion"))
+        if cleaned_pair is None:
+            raise HTTPException(status_code=400,
+                                detail="کلمه اصلی و جایگزین هر دو لازم است.")
+        key = (cleaned_pair[0], cleaned_pair[1])
+        if key not in seen:
+            seen.add(key)
+            cleaned.append(cleaned_pair)
+
+    try:
+        added = _insert_synonym_pairs(cleaned)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "added": added}

@@ -8,9 +8,9 @@ no GPU, no heavyweight runtime, millisecond latency. The model is cached under
 network only once, when the backend is first enabled.
 
 Scores are calibrated before they reach the pipeline: raw cosine values from
-embedding models occupy a narrower band than TF-IDF scores, so ``_calibrate``
-maps the useful band onto 0..1 and the existing SIMILARITY_THRESHOLD
-semantics keep working unchanged.
+embedding models occupy a narrow band, so ``_calibrate`` maps the useful band
+onto 0..1 and the existing SIMILARITY_THRESHOLD semantics keep working
+unchanged.
 """
 import threading
 from pathlib import Path
@@ -79,7 +79,7 @@ class EmbeddingIndex:
     """Immutable embedding index over a list of texts.
 
     Built whole and swapped atomically by the caller, mirroring how
-    ``search.load_dataset_internal`` publishes its TF-IDF state — a concurrent
+    ``search.load_dataset_internal`` publishes its indexes — a concurrent
     request never sees a half-built index.
     """
 
@@ -121,11 +121,11 @@ class EmbeddingIndex:
 
 def build_index(texts: List[str], model_name: str = DEFAULT_MODEL) -> Optional[EmbeddingIndex]:
     """Build an index, returning None (with a log line) on any failure so the
-    caller falls back to TF-IDF instead of taking the chatbot down."""
+    caller falls back to BM25-only retrieval instead of taking the chatbot down."""
     if not texts:
         return None
     try:
         return EmbeddingIndex(texts, model_name)
     except Exception as e:
-        logger.error(f"[embeddings] index build failed, falling back to TF-IDF: {e}")
+        logger.error(f"[embeddings] index build failed, falling back to BM25-only retrieval: {e}")
         return None

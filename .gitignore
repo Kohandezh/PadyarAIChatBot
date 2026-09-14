@@ -69,6 +69,12 @@ Thumbs.db
 # Claude Code worktrees (transient)
 .claude/worktrees/
 
+# Git worktrees for parallel task agents (transient)
+.worktrees/
+
+# Superpowers SDD scratch (ledgers, briefs, reports)
+.superpowers/
+
 # Large model archives (downloaded, not source)
 *.tar.bz2
 

@@ -284,6 +284,7 @@
                         <th>سوال کاربر</th>
                         <th>اطمینان</th>
                         <th>نوع پاسخ</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="low-conf-table">
@@ -292,6 +293,45 @@
             </table>
         </div>
     </div>
+</div>
+
+<!-- ── Fix an answer ─────────────────────────────────────────────────── -->
+{#
+  Same loop the conversations weak view ships: "the bot got this wrong" →
+  "here is the right answer", without leaving the dashboard. Saving writes a
+  question -> dataset mapping through the existing /admin/api/questions
+  endpoint, which reindexes on the way out, so the very next visitor asking
+  this gets the right answer.
+#}
+<div class="modal modal-blur fade" id="fix-modal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">پاسخ درست را وصل کنید</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">سوال بازدیدکننده</label>
+          <input type="text" id="fix-question" class="form-control">
+          <small class="text-muted">اگر جمله ناقص است، می‌توانید اصلاحش کنید.</small>
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="fix-search">پاسخ درست کدام است؟</label>
+          <input type="text" id="fix-search" class="form-control mb-2" placeholder="جستجو در پاسخ‌ها…">
+          <select id="fix-entry" class="form-select" size="8"></select>
+        </div>
+        <div id="fix-msg" class="small"></div>
+      </div>
+      <div class="modal-footer">
+        <a href="/secure-panel-inotex/manage-datasets" class="btn btn-link ms-auto">
+          پاسخ تازه بسازم
+        </a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+        <button type="button" class="btn btn-primary" id="fix-save">ذخیره</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="action-msg" class="text-center fw-bold mt-2"></div>

@@ -175,6 +175,11 @@ def _log_turn(user_query: str, answer_text: str, r_type: str, source: str,
                   "offer_state": offer_state}
     log_chat(user_query, answer_text, r_type, source, confidence, tokens, cost,
              **memory)
+    # The tier gauge rides the same chokepoint: every branch that answers —
+    # or refuses to — passes through here with its tier name in `source`,
+    # so this one line is the whole "which tier served the traffic" metric.
+    from app.services import metrics
+    metrics.chat_tier_served_total.labels(tier=str(source or "unknown")).inc()
     try:
         conversations.append_visitor_message(conversation_id, user_query)
         if answered:
@@ -1076,7 +1081,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # confident-but-wrong answers (e.g. a cost question returning an unrelated entry).
     is_openai_enabled = get_setting('openai_enabled', 'true') == 'true'
     if is_openai_enabled:
-        logger.info(f"Low confidence local match (tfidf={score:.2f}, questions={q_score:.2f}), asking GPT to classify intent...")
+        logger.info(f"Low confidence local match (score={score:.2f}, questions={q_score:.2f}), asking GPT to classify intent...")
         try:
             # Selection tier — the missing last box of the RAG diagram. Instead
             # of an LLM GUESS from a title list (which is what classify_intent

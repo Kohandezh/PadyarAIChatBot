@@ -170,6 +170,8 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         shutil.rmtree(target, ignore_errors=True)
         applog.error("backup", "backup.failed", "پشتیبان‌گیری ناموفق بود",
                      actor=actor, target=backup_id, outcome="failed")
+        from app.services import metrics
+        metrics.backup_outcome_total.labels(result="failed").inc()
         raise
 
     duration = int((time.perf_counter() - started) * 1000)
@@ -197,18 +199,26 @@ def create(actor: str = "", reason: str = "manual") -> dict:
     applog.audit("admin.backup.created", "پشتیبان پستگرس ساخته شد",
                  actor=actor, target=backup_id, outcome="ok",
                  metadata={"bytes": size, "reason": reason})
+    from app.services import metrics
+    metrics.backup_outcome_total.labels(result="success").inc()
     return manifest
 
 
 # ── Verify ──────────────────────────────────────────────────────────────
 
-def verify(backup_id: str, actor: str = "") -> dict:
+def verify(backup_id: str, actor: str = "", offsite: bool = True) -> dict:
     """Prove the archive is restorable, not merely present.
 
     Three independent checks: the file exists, its bytes still hash to what the
     manifest recorded, and `pg_restore --list` can actually parse the archive
     and finds a non-trivial table of contents. A corrupt dump that happens to
     match a stale checksum is still caught by the third.
+
+    On SUCCESS (and only then) the dump is offered to backup_offsite — this is
+    the single point where a dump has proved restorable, so it is the single
+    point a second copy is worth taking. `offsite=False` is passed by
+    restore()'s pre-check: a restore is an emergency and must never sit
+    behind a network copy (or its timeout).
     """
     directory = _safe_dir(backup_id)
     manifest_file = _manifest_path(backup_id)
@@ -254,6 +264,9 @@ def verify(backup_id: str, actor: str = "") -> dict:
         applog.info("backup", "backup.verify.completed", "پشتیبان سالم است",
                     actor=actor, target=backup_id, outcome="ok",
                     metadata={"toc_entries": manifest.get("toc_entries")})
+        if offsite:
+            from app.services import backup_offsite
+            backup_offsite.copy_verified_dump(backup_id, manifest, actor=actor)
     return manifest
 
 
@@ -360,7 +373,9 @@ def restore(backup_id: str, actor: str = "", confirmation: str = "") -> dict:
         raise BackupError("عبارت تأیید درست نیست؛ هیچ تغییری انجام نشد.")
 
     # Re-verify NOW. A flag written last week says nothing about the file today.
-    manifest = verify(backup_id, actor=actor)
+    # offsite=False: the off-site copy hangs off verify success, but a restore
+    # is an emergency and must never wait on a network copy or its timeout.
+    manifest = verify(backup_id, actor=actor, offsite=False)
     if manifest["verification"]["status"] != "verified":
         raise BackupError("این پشتیبان سالم نیست و بازیابی نمی‌شود.")
 

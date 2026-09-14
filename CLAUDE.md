@@ -73,6 +73,7 @@ See "Tiered Intelligence Pipeline" below for every tier and its threshold. That 
 | ML/Search        | Pure-Python BM25, model2vec local embeddings, feature reranker. scikit-learn is used only for the logistic-regression intent head. No TF-IDF, no `search_backend` setting. |
 | AI Provider      | **Padyar AI Control Plane** — 11 provider types behind the Padyar AI Wrapper (OpenAI, Anthropic, Gemini native; Z.AI, Kimi, DeepSeek, Qwen, xAI, Mistral, OpenAI-compatible; SAKOO/Rayen — live verification at deployment) |
 | AI Models        | Per-route, configured in Admin -> AI -> Routing. Whisper-1 for voice (STT is outside the wrapper). |
+| Monitoring       | prometheus-client — `GET /metrics` (Bearer `METRICS_TOKEN` or admin session; never public). See `docs/engineering/MONITORING.md` |
 | Font             | Vazirmatn (Persian web font)                                   |
 
 ---
@@ -117,6 +118,9 @@ See `.env.example` for the full list:
 | `VISIT_TAXONOMY_PATH`    | No       | Path to the visit taxonomy JSON (default: `data/visit-taxonomy.json`)           |
 | `OTP_*`                  | No       | Registration module: code length, TTL, cooldown, attempt/resend limits          |
 | `ASANAK_*`               | No       | Asanak SMS gateway. Settings table wins over env — see `.env.example`           |
+| `METRICS_TOKEN`          | No       | Bearer token for `GET /metrics`. Empty → admin-session-gated instead            |
+| `OFFSITE_BACKUP_TARGET`  | No       | Copy verified dumps off-site: `rsync:user@host:/path` or `dir:/mounted/path`    |
+| `OFFSITE_BACKUP_TIMEOUT` | No       | Off-site copy timeout in seconds (default 600)                                  |
 
 ---
 
@@ -143,7 +147,9 @@ See `.env.example` for the full list:
 PadyarAIChatbot/
   main.py                        # Entry point — uvicorn runner (HOST/PORT env-overridable)
   setup.sh                       # Interactive installer script
-  requirements.txt               # Python dependencies (11 packages)
+  requirements.txt               # Python dependencies (17 packages)
+  VERSION                        # Single source of the product version (0.1.0)
+  CHANGELOG.md                   # Keep a Changelog — release notes per version
   .env / .env.example            # Environment config
 
   app/                           # Application package
@@ -158,8 +164,9 @@ PadyarAIChatbot/
       admin.py                   # Admin login, stats, settings, export
       admin_ai.py                # Admin API for the AI provider control plane
       voice.py                   # /api/transcribe (Whisper)
-      synonyms.py                # Synonym CRUD
-      dataset.py                 # Dataset + questions + video CRUD
+      metrics.py                 # GET /metrics — Prometheus (Bearer METRICS_TOKEN or admin session)
+      synonyms.py                # Synonym CRUD + AI suggest/apply (human-approved)
+      dataset.py                 # Dataset + questions + video CRUD + AI question suggest/apply
       conversations_admin.py     # Admin: visitors, transcripts, wrong-answer queue
       dbadmin.py                 # Admin API for Infrastructure -> Database + Storage
       backups.py                 # Admin API for Infrastructure -> Backups
@@ -178,6 +185,10 @@ PadyarAIChatbot/
       embeddings.py              # Local sentence embeddings (model2vec), no external API
       intent.py                  # Trained intent classifier over local embeddings
       rerank.py                  # Feature reranker fusing dense + lexical candidates
+      metrics.py                 # Prometheus registry: http / chat-tier / ai-call / circuit / backup / health
+      synonym_suggest.py         # AI synonym suggestions — validate, cooldown, human approve, apply via existing path
+      question_assist.py         # AI question-variant suggestions — validate, human approve, apply via existing path
+      backup_offsite.py          # Off-site copy of verified dumps (rsync:/dir: targets, non-fatal failures)
       providers.py               # Model-provider seam (local → OpenAI-compatible)
       ai/                        # AI provider control plane (per-provider clients)
       openai.py                  # GPT classification, chat, Whisper
@@ -717,9 +728,14 @@ agent reads it and repeats your bug.
 ## Mandatory Checks Before Every Commit
 
 **Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
-the full pytest suite (`test` job) and the retrieval/safety eval
-(`evaluation` job) on every push and every PR — that run is the pass/fail
-signal, not a local one. This machine has 15 tests that always fail here and
+the full pytest suite (`test` job, with an advisory `pytest-cov` coverage
+report — no threshold), the PostgreSQL integration suite (`postgres-tests`
+job — blocking, a `postgres:16` service container runs `tests/postgres`), and
+the retrieval/safety eval (`evaluation` job) on every push and every PR — that
+run is the pass/fail signal, not a local one. A separate `release.yml` runs
+the suite again on `v*` tags and cuts the GitHub Release (see
+`docs/engineering/RELEASING.md`); `freshness.yml` is a weekly advisory
+content-freshness check. This machine has 15 tests that always fail here and
 always pass on CI (env/network-only, see below) — a local `pytest` run is not
 a trustworthy gate on this box, so don't run the full suite locally before
 committing.
@@ -775,7 +791,7 @@ gate. The project uses **pytest**. Test-only dependencies (`pytest`, `pytest-asy
 .venv/bin/python -m playwright install chromium   # only needed for browser e2e tests
 ```
 
-Tests live under `tests/` (config in `pytest.ini`, asyncio auto-mode) — **1860 collected, 1702 passing, 143 skipped as of 2026-08-28**. The 15 remaining failures all need a live PostgreSQL or network and fail the same way on a clean checkout: `test_company_profiles` (4), `test_leads_company_tools` (3), `test_leads_contacts_admin` (4), `test_leads_sms_channel` (1), `test_sms_production_guard` (3). The suite is growing, so treat those numbers as a snapshot and let the command be the source of truth:
+Tests live under `tests/` (config in `pytest.ini`, asyncio auto-mode) — **2669 tests collected as of 2026-09-14** (`.venv/bin/python -m pytest --collect-only -q | tail -2`; that is 2222 test functions, the rest is parametrization), of which 114 are the `tests/postgres/` suite that CI runs blocking. The 15 remaining local failures all need a live PostgreSQL or network and fail the same way on a clean checkout: `test_company_profiles` (4), `test_leads_company_tools` (3), `test_leads_contacts_admin` (4), `test_leads_sms_channel` (1), `test_sms_production_guard` (3). The suite is growing, so treat those numbers as a snapshot and let the command be the source of truth:
 
 ```bash
 .venv/bin/python -m pytest --collect-only -q | tail -2
@@ -841,6 +857,7 @@ The `docs/` folder is the project's knowledge base. Keep it current.
 | Feature status changes         | `docs/features/INDEX.md`                |
 | An architectural decision      | `docs/engineering/DECISIONS.md`         |
 | A measured claim changes       | `docs/knowledge-based-evidence/`        |
+| Cutting a release              | `docs/engineering/RELEASING.md` + `CHANGELOG.md` |
 | AI-assisted work in a session  | `docs/engineering/AI_ASSISTANCE_LOG.md` |
 
 One feature, one folder in `docs/features/{slug}/`.
