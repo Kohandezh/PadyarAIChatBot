@@ -441,4 +441,3 @@ try:
     OFFSITE_BACKUP_TIMEOUT = max(1, int(os.getenv("OFFSITE_BACKUP_TIMEOUT", "600")))
 except ValueError:
     OFFSITE_BACKUP_TIMEOUT = 600
->>>>>>> task/offsite-backup-ci
