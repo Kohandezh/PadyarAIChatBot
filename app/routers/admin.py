@@ -1016,7 +1016,7 @@ async def save_idle_videos_api(req: IdleVideosRequest, username: str = Depends(v
 async def get_low_confidence():
     conn = get_db_connection()
     logs = conn.execute('''
-        SELECT created_at, query, confidence, response_type
+        SELECT created_at, query, confidence, response_type, entry_id
         FROM chat_logs
         WHERE confidence < 0.19
         ORDER BY created_at DESC

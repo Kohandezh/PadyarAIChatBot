@@ -31,6 +31,8 @@ Central tracking for all features.
 | release-process | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 | metrics-endpoint | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 | offsite-backups | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| dashboard-fix-action | Implemented | Ready | admin | 2026-09-14 | 2026-09-14 |
+| freshness-schedule | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 
 ## Quick Features
 
