@@ -12,6 +12,7 @@ asserts `< 500` — so nothing legitimate needs the old fields, which is what
 made this a pure win.
 """
 import datetime
+import pathlib
 import secrets
 
 import pytest
@@ -43,21 +44,41 @@ def _login(client):
     client.cookies.set(config.ADMIN_COOKIE_NAME, token)
 
 
-# ── The public endpoint says one word ───────────────────────────────────
+# ── The public endpoint says two things, no more ────────────────────────
 
-def test_public_health_is_exactly_one_word(client):
+def test_public_health_is_status_and_version_only(client):
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "ok"}
+    assert set(res.json()) == {"status", "version"}
+    assert res.json()["status"] == "ok"
+
+
+def test_public_health_reports_the_running_version(client):
+    """The one deliberate addition to the minimal body: which build is
+    running. It must be the SAME string the repo-root VERSION file carries
+    (the file a release tag is cut from), so an operator comparing
+    `curl /api/health` against the GitHub release sees one version, not
+    two."""
+    from app import __version__
+    version_file = pathlib.Path(__file__).resolve().parent.parent / "VERSION"
+    assert version_file.exists(), "repo-root VERSION file is missing"
+    expected = version_file.read_text(encoding="utf-8").strip()
+    assert expected, "VERSION file is empty"
+    assert __version__ == expected
+    assert client.get("/api/health").json()["version"] == expected
 
 
 def test_public_health_leaks_no_diagnostics(client):
     """The old body was a reconnaissance map. Pin that it stays gone by KEY,
     not just by full-body equality — someone adding a field "just for
-    monitoring" should hit this name, not a diff in an unrelated test."""
+    monitoring" should hit this name, not a diff in an unrelated test.
+
+    `version` is the one deliberate exception since that pullback: the
+    release identifier from the VERSION file, public by design (GitHub
+    releases, CHANGELOG) and useless as reconnaissance."""
     body = client.get("/api/health").json()
     for gone in ("modules", "openai_enabled", "knowledge_version",
-                 "dataset_size", "version", "db", "config"):
+                 "dataset_size", "db", "config"):
         assert gone not in body, f"/api/health still exposes {gone!r}"
 
 

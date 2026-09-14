@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 
+from app import __version__
 from app.config import BASE_DIR, is_module_enabled, ENABLED_MODULES
 from app.db.queries import get_setting
 from app.auth import security
@@ -569,14 +570,17 @@ async def admin_settings_branding(request: Request):
 
 @router.get("/api/health")
 async def health_check():
-    """Liveness: the process answers. One word, deliberately.
+    """Liveness: the process answers. Two fields, deliberately.
 
     This endpoint is UNAUTHENTICATED and reachable from the internet, so its
-    body is a deliberate minimum. It used to also return the enabled module
-    list, the AI toggle, the knowledge version and the dataset size — a free
-    reconnaissance map of the attack surface ("registration is on, voice is
-    on, AI fallback is off") for anyone who typed the URL. Those diagnostics
-    now live behind admin auth at /admin/api/ops/health.
+    body is a deliberate minimum: `status`, plus `version` — the release
+    identifier from the repo-root VERSION file, the same string the tag and
+    CHANGELOG carry. It is public by design and useless as reconnaissance.
+    It used to also return the enabled module list, the AI toggle, the
+    knowledge version and the dataset size — a free reconnaissance map of
+    the attack surface ("registration is on, voice is on, AI fallback is
+    off") for anyone who typed the URL. Those diagnostics now live behind
+    admin auth at /admin/api/ops/health.
 
     It also used to run a dataset COUNT(*): a load balancer, a Docker
     HEALTHCHECK and every deploy script poll this endpoint, so a flood of
@@ -585,7 +589,7 @@ async def health_check():
     inspect the database or the AI providers belongs on /api/ready, which
     exists for exactly that.
     """
-    return {"status": "ok"}
+    return {"status": "ok", "version": __version__}
 
 
 @router.get("/api/ready")
