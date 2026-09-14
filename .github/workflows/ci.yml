@@ -107,9 +107,16 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      # The service container starts empty and the throwaway schemas are
-      # created per session, so no migration step is needed here — the suite
-      # applies migrations/*.sql itself, retargeted at its own schemas.
+      # The service container starts empty, but the suite assumes a
+      # dev-machine-shaped database: test_isolation.py probes the LIVE
+      # app.dataset to prove the harness never writes there, and the session
+      # guard snapshots live table counts. So provision the real schemas the
+      # same way deploy/05-create-databases.sh does on a server — create the
+      # app/observability schemas, then apply the real migrations into them.
+      - name: Provision live schemas for the isolation probes
+        run: |
+          psql "$DATABASE_URL" -c 'CREATE SCHEMA IF NOT EXISTS app; CREATE SCHEMA IF NOT EXISTS observability;'
+          python scripts/apply_migrations.py
       - name: Run PostgreSQL integration suite
         run: pytest tests/postgres -q
 
