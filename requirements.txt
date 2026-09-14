@@ -29,3 +29,6 @@ model2vec
 # nothing else. It exists because the SMS channel cannot be relied on to carry
 # a link (see app/services/sms.py, Asanak error 1014).
 qrcode
+# Prometheus client for the /metrics endpoint (app/services/metrics.py).
+# Own dedicated CollectorRegistry — nothing registers onto the global one.
+prometheus-client
