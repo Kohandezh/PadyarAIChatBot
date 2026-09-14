@@ -397,7 +397,6 @@ def _create_conversation_tables(cursor):
         position TEXT NOT NULL DEFAULT '',
         interests TEXT NOT NULL DEFAULT '',
         answers TEXT NOT NULL DEFAULT '{}',
-        visitor_settings TEXT NOT NULL DEFAULT '{}',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -451,20 +450,9 @@ def _create_conversation_tables(cursor):
         tokens INTEGER NOT NULL DEFAULT 0,
         cost REAL NOT NULL DEFAULT 0,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        feedback TEXT NOT NULL DEFAULT '',
         FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     )
     ''')
-    # For a database created before `feedback` existed. The SQLite mirror of
-    # migrations/0025_message_feedback.sql — CREATE TABLE IF NOT EXISTS does
-    # nothing to an existing table, same story as the summary columns above.
-    # '' is "never rated", exactly the state every pre-existing row was
-    # already in, so no backfill value needs choosing.
-    try:
-        cursor.execute(
-            "ALTER TABLE messages ADD COLUMN feedback TEXT NOT NULL DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass  # column already present
     cursor.execute('CREATE INDEX IF NOT EXISTS ix_messages_conversation'
                    ' ON messages(conversation_id, id)')
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_messages_weak"

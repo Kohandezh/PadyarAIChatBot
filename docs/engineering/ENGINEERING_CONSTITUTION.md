@@ -69,7 +69,7 @@ Consistency across the codebase is a feature.
 ## 3. API-First
 
 The API is independent of browser-specific behavior and usable by web,
-PWA, native mobile, and future clients. Authentication is explicit
+native mobile, and future clients. Authentication is explicit
 (Bearer). Resource identity is explicit. Authorization is server-side,
 per operation. Possession of a resource ID is never proof of
 authorization. Detail: `API_STANDARDS.md`.
