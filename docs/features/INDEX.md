@@ -30,6 +30,7 @@ Central tracking for all features.
 | elecomp-chat-training | Implemented | Ready | chat | 2026-09-01 | 2026-09-01 |
 | release-process | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 | metrics-endpoint | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| offsite-backups | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 
 ## Quick Features
 

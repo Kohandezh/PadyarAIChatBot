@@ -136,10 +136,25 @@ def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
 
     Returns the new backup's directory path, keeping the old string contract
     so the legacy admin endpoint (`os.path.basename(path)`) still reports a
-    sensible name — it reports the backup id."""
+    sensible name — it reports the backup id.
+
+    On PostgreSQL the fresh dump is also VERIFIED before pruning: the
+    off-site copy hangs off verify success, so without this the nightly
+    backup would never leave the host."""
     if _backup_engine() == "postgres":
         from app.services import pg_backup
         summary = pg_backup.create(actor=actor, reason=kind)
+        # Verify the fresh dump, and thereby offer it to the off-site copy
+        # (which hangs off verify success). create() alone never proves the
+        # archive restorable, and the nightly backup is the one that must
+        # survive the host. A verify failure is NOT fatal here: the backup
+        # exists, verify() has already logged it, and the run must go on to
+        # prune.
+        try:
+            pg_backup.verify(summary["backup_id"], actor=actor)
+        except Exception as e:  # noqa: BLE001
+            logger.error("PostgreSQL backup verify failed for %s: %s",
+                         summary["backup_id"], type(e).__name__)
         removed = pg_backup.prune(keep=configured_keep())
         set_setting("backup_last_run", datetime.now().isoformat())
         logger.info("PostgreSQL backup created: %s%s", summary["backup_id"],
