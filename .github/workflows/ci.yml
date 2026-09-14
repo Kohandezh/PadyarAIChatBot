@@ -50,8 +50,68 @@ jobs:
       # fixture kept an event loop alive and broke 126 unrelated tests; the
       # browser tests use the async api now, and tests/test_suite_isolation.py
       # fails if either half of that rule is undone.
+      #
+      # Coverage is ADVISORY: no --cov-fail-under, ever. A number that gates
+      # gets gamed (tests written to touch lines, not to pin behavior); a
+      # number that only reports can afford to be honest.
       - name: Run test suite
-        run: pytest -q
+        run: pytest -q --cov=app --cov-report=term --cov-report=xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: warn
+
+  # Blocking. Real PostgreSQL 16, same image and same credentials as
+  # docker-compose.yml, so the five bug classes that are invisible on SQLite
+  # (see tests/postgres/conftest.py) run on every push and PR instead of only
+  # on a developer machine that happens to have a local server.
+  postgres-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: padyar_app
+          POSTGRES_PASSWORD: padyar_local_dev
+          POSTGRES_DB: padyar
+        ports:
+          - 5432:5432
+        # Same probe as docker-compose.yml. The suite's throwaway-schema
+        # fixtures connect through DATABASE_URL below; without the health
+        # check the first connection races the container's initdb and the
+        # whole job fails on a bootstrap race, not on a defect.
+        options: >-
+          --health-cmd "pg_isready -U padyar_app -d padyar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      RUN_POSTGRES_TESTS: "1"
+      DATABASE_URL: postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # psycopg[binary] and psycopg-pool come from requirements.txt — the
+      # production driver, not a dev extra; the suite skips itself without it.
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # The service container starts empty and the throwaway schemas are
+      # created per session, so no migration step is needed here — the suite
+      # applies migrations/*.sql itself, retargeted at its own schemas.
+      - name: Run PostgreSQL integration suite
+        run: pytest tests/postgres -q
 
   # Blocking. These assert properties that must never regress: the assistant
   # must not answer confidently from the previous event's identity, must not
@@ -177,7 +237,7 @@ jobs:
   # script with the ephemeral job token in its environment. No credential is
   # stored on the server; the token dies when the job ends.
   deploy:
-    needs: [test, evaluation, dependency-audit, secret-scan]
+    needs: [test, postgres-tests, evaluation, dependency-audit, secret-scan]
     # Push to main deploys; so does a manual dispatch ON main (the button is
     # the operator saying "deploy the current main again" — same gates).
     if: >-
