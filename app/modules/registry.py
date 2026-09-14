@@ -26,7 +26,7 @@ MODULES: dict[str, ModuleDef] = {
     # Core modules — always enabled
     "chat": ModuleDef(
         name="chat",
-        description="Chatbot engine (TF-IDF + GPT fallback)",
+        description="Chatbot engine — local retrieval (BM25 + embeddings + rerank) + AI fallback",
         is_core=True,
         router_module="app.routers.chat",
     ),

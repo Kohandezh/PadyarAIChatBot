@@ -3,16 +3,16 @@
 
 Runs the golden INOTEX dataset (data/eval/golden-inotex.json) against the
 LOCAL retrieval pipeline exactly as /chat uses it (title-overlap tier,
-semantic/TF-IDF ranking, questions index, trained intent classifier) and
-measures:
+hybrid BM25 + embedding retrieval, questions index, trained intent
+classifier) and measures:
 
   answerable queries : recall@1, recall@3, MRR (rank of the expected entry)
                        All three are read off ONE ranking — the one the live
                        pipeline produces: the entry it serves at rank 1, then
                        the reranked union of the dense and BM25 candidates.
                        recall@1 and recall@3 are therefore strictly nested.
-                       With --backend tfidf (the baseline) the tail is the
-                       plain TF-IDF ranking and no reranking is applied.
+                       When RETRIEVAL_RERANK is off the tail is the plain
+                       dense ranking and no reranking is applied.
   unsupported        : false-confident-answer rate (local score >= trust bar)
   legacy queries     : contamination rate (legacy tokens in any served answer)
   prompt injection   : confident-answer rate + secret-leak check
@@ -26,7 +26,6 @@ pins DB_BACKEND itself so no caller has to remember (see below).
 
 USAGE (from the project root):
     .venv/bin/python scripts/run_eval.py
-    .venv/bin/python scripts/run_eval.py --backend tfidf     # baseline compare
     .venv/bin/python scripts/run_eval.py --out results.json
     .venv/bin/python scripts/run_eval.py --conversations data/eval/conversations.json
 
@@ -48,15 +47,13 @@ import statistics
 import sys
 import tempfile
 import time
-import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-# This harness is SQLite-only. main() reads and restores the `search_backend`
-# setting through the stdlib sqlite3 module, so PostgreSQL cannot work here at
-# all. app/config.py resolves DB_BACKEND once, at import time, and defaults it
+# This harness is SQLite-only, whatever backend the install uses at runtime.
+# app/config.py resolves DB_BACKEND once, at import time, and defaults it
 # to "postgres" — so the pin has to happen before the first import that pulls
 # app.config in, directly or transitively. Every `app` import in this file is
 # inside a function, which is what makes this the right place. Without it, a
@@ -104,13 +101,13 @@ def full_ranking(query, search, hybrid):
     reported a recall@3 measured on the dense index alone.
 
     ``find_best_match`` supplies the head of the list. That is deliberate: the
-    title-overlap shortcut and the TF-IDF safety net are inlined inside that
-    function, so asking the service which entry it would return is the only
-    way to represent those two branches without copying them.
+    title-overlap shortcut is inlined inside that function, so asking the
+    service which entry it would return is the only way to represent that
+    branch without copying it.
 
-    ``hybrid=False`` is the honest baseline — the plain ranking of a single
-    retriever, used for ``--backend tfidf`` and when ``RETRIEVAL_RERANK`` is
-    off. That run must not quietly turn into a hybrid run.
+    ``hybrid=False`` is the honest baseline — the plain dense ranking of the
+    single retriever, used when ``RETRIEVAL_RERANK`` is off. That run must
+    not quietly turn into a hybrid run.
     """
     from app.utils.normalizer import normalize_persian
     nq = normalize_persian(query)
@@ -146,13 +143,6 @@ def full_ranking(query, search, hybrid):
         if n == 0:
             return []
         sims = idx.matrix @ (v / n)
-        return to_ids(list(np.argsort(-sims)))
-
-    if search.vectorizer is not None and search.tfidf_matrix is not None:
-        from sklearn.metrics.pairwise import cosine_similarity
-        import numpy as np
-        qv = search.vectorizer.transform([nq])
-        sims = cosine_similarity(qv, search.tfidf_matrix).flatten()
         return to_ids(list(np.argsort(-sims)))
     return []
 
@@ -385,7 +375,6 @@ def run_conversations(spec_path: str) -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the INOTEX retrieval benchmark.")
-    p.add_argument("--backend", choices=["embedding", "tfidf"], default="embedding")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     p.add_argument("--conversations", default="",
                    help="run the multi-turn conversation scenarios from this "
@@ -447,32 +436,21 @@ def main() -> int:
     # nobody saw it. init_db() is the same initialiser the application uses at
     # startup, so the benchmark measures the schema the product ships.
     from app.db.connection import init_db
-    from app.config import DB_PATH
     init_db()
-
-    # Pin the requested backend for this run (restored afterwards).
-    # DB_PATH, not a hardcoded filename: the two must not drift apart, or the
-    # eval pins a setting in one database and reads the dataset from another.
-    conn = sqlite3.connect(DB_PATH)
-    prev = conn.execute("SELECT value FROM settings WHERE key='search_backend'").fetchone()
-    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('search_backend', ?)", (args.backend,))
-    conn.commit()
-    conn.close()
 
     from app.config import RERANK_ENABLED
     from app.services import search
     search.load_dataset_internal()
 
-    # The hybrid path is what the product runs by default. The tfidf run is
-    # the baseline and stays a single-retriever measurement on purpose.
-    hybrid = RERANK_ENABLED and args.backend == "embedding"
+    # The hybrid path is what the product runs by default. With RETRIEVAL_RERANK
+    # off the measurement stays single-retriever on purpose.
+    hybrid = RERANK_ENABLED
     ranking_method = (
         "pipeline: served answer first, then the reranked union of the dense "
         "and BM25 candidates (mirrors app/services/search.find_best_match)"
         if hybrid else
-        "baseline: served answer first, then the plain single-retriever ranking "
-        "(TF-IDF cosine with --backend tfidf, dense argmax when the embedding "
-        "backend is on but RETRIEVAL_RERANK is off); no reranking"
+        "baseline: served answer first, then the plain dense ranking "
+        "(what the pipeline does when RETRIEVAL_RERANK is off); no reranking"
     )
 
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
@@ -594,7 +572,6 @@ def main() -> int:
     report = {
         "dataset_version": golden["dataset_version"],
         "knowledge_version": golden["knowledge_version"],
-        "backend": args.backend,
         "rerank_enabled": RERANK_ENABLED,
         "ranking_method": ranking_method,
         "ran_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -645,15 +622,8 @@ def main() -> int:
             ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"diagnostics → {dump_path}")
 
-    # Restore the previous backend setting.
-    conn = sqlite3.connect(DB_PATH)
-    if prev:
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('search_backend', ?)", (prev[0],))
-        conn.commit()
-    conn.close()
-
     t = report["totals"]
-    print(f"backend={args.backend}  queries={t['queries']}  "
+    print(f"queries={t['queries']}  "
           f"recall@1={t['recall_at_1']}  recall@3={t['recall_at_3']}  mrr={t['mrr']}")
     print(f"false-confident: unsupported={t['false_confident_unsupported']} "
           f"legacy={t['false_confident_legacy']} injection={t['false_confident_injection']}")
