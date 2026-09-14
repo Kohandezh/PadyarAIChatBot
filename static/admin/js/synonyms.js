@@ -4,6 +4,7 @@ import { createPager } from './pager.js';
 
 let bulkSelection = null;
 let synonymsPager = null;
+let suggestModal = null;
 
 async function loadSynonyms() {
     const res = await fetchAuth('/api/synonyms');
@@ -78,6 +79,91 @@ async function bulkDeleteSynonyms() {
     }
 }
 
+// ── Smart suggestions ────────────────────────────────────────────────────
+// The model proposes (one paid call, cooldown on the server), the operator
+// picks rows, and apply writes them through the same path as the manual add
+// form. Suggest itself never stores anything.
+
+function suggestMsg(text, type) {
+    const el = document.getElementById('suggest-list-msg');
+    el.className = `text-center fw-bold mb-2${type ? ' text-' + type : ''}`;
+    el.innerText = text;
+}
+
+async function suggestSynonyms() {
+    const btn = document.getElementById('suggest-synonyms-btn');
+    const list = document.getElementById('suggest-list');
+    btn.disabled = true;
+    list.innerHTML = '';
+    suggestMsg('⏳ در حال گرفتن پیشنهاد…');
+    suggestModal.show();
+    try {
+        const res = await fetchAuth('/admin/api/synonyms/suggest', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            suggestMsg('❌ ' + (data.detail || 'خطا در گرفتن پیشنهاد'), 'danger');
+            return;
+        }
+        const items = data.suggestions || [];
+        if (!items.length) {
+            suggestMsg('پیشنهاد تازه‌ای پیدا نشد.', 'muted');
+            return;
+        }
+        suggestMsg('موارد موردنظر را انتخاب کنید.', 'muted');
+        // The checkbox value carries the pair JSON-encoded, same round-trip
+        // as the bulk-delete table rows — Persian text survives the escape.
+        list.innerHTML = items.map(s => `
+            <label class="list-group-item d-flex gap-2 align-items-start">
+                <input type="checkbox" class="form-check-input mt-1 suggest-check" checked
+                       value="${pairValue({ source: s.word, target: s.suggestion })}">
+                <span>
+                    <span class="fw-bold">${escapeHtml(s.word)}</span>
+                    <i class="fas fa-arrow-left mx-1 text-muted"></i>${escapeHtml(s.suggestion)}
+                    <small class="d-block text-muted">${escapeHtml(s.reason)}</small>
+                </span>
+            </label>
+        `).join('');
+    } catch {
+        suggestMsg('❌ خطای ارتباط با سرور', 'danger');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function applySuggestedSynonyms() {
+    const pairs = Array.from(document.querySelectorAll('.suggest-check:checked'))
+        .map(cb => JSON.parse(cb.value))
+        .map(p => ({ word: p.source, suggestion: p.target }));
+    if (!pairs.length) {
+        suggestMsg('حداقل یک مورد را انتخاب کنید.', 'danger');
+        return;
+    }
+    const btn = document.getElementById('suggest-apply-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetchAuth('/admin/api/synonyms/suggest/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pairs })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            suggestModal.hide();
+            const msg = data.added
+                ? `✅ ${data.added} مترادف اضافه شد`
+                : 'انتخاب‌شده‌ها از قبل موجود بودند';
+            showMsg('synonym-msg', msg, 'success');
+            loadSynonyms();
+        } else {
+            suggestMsg('❌ ' + (data.detail || 'خطا در افزودن'), 'danger');
+        }
+    } catch {
+        suggestMsg('❌ خطای ارتباط با سرور', 'danger');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 export function initSynonyms() {
     bulkSelection = initBulkSelection({
         selectAllEl: document.getElementById('synonyms-select-all'),
@@ -95,6 +181,12 @@ export function initSynonyms() {
         onPage: () => renderSynonymsTable(getSynonyms()),
     });
     loadSynonyms();
+
+    suggestModal = new bootstrap.Modal(document.getElementById('suggestModal'));
+    document.getElementById('suggest-synonyms-btn')
+        .addEventListener('click', suggestSynonyms);
+    document.getElementById('suggest-apply-btn')
+        .addEventListener('click', applySuggestedSynonyms);
 
     // Delegated so the buttons carry both words as data attributes. An inline
     // onclick would have to embed two pieces of Persian text in a JS string.

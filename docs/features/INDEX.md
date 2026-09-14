@@ -33,6 +33,7 @@ Central tracking for all features.
 | offsite-backups | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 | dashboard-fix-action | Implemented | Ready | admin | 2026-09-14 | 2026-09-14 |
 | freshness-schedule | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
+| synonym-suggestions | Implemented | Ready | search | 2026-09-14 | 2026-09-14 |
 
 ## Quick Features
 
