@@ -23,7 +23,7 @@ Phase 1 of `docs/features/hamburger-menu/` built the drawer's history section as
 
 - Not changing anonymous (not-signed-in) behavior at all — the history section stays hidden for them, exactly as Phase 1 left it.
 - ~~Not adding pagination~~ — **superseded 2026-08-30**: the drawer now pages 10 at a time, loading more as the visitor scrolls `#menu-history` itself; see `docs/features/hamburger-menu/SPEC.md`'s Phase 3 note. `list_conversations_for_visitor`'s 100-row cap and offset cap stand regardless.
-- Not touching `/chat` itself — reopening reuses its existing `continuable_conversation_id()` ownership check via a cookie rebind, rather than adding new continuation logic. **Partially superseded 2026-09-01**: `/chat`'s conversation-id resolution now also reads an `X-Conversation-Id` request/response header, checked before the `padyar_conv` cookie — added for InotexPWA, a Bearer-token cross-origin client that cannot send or read that httpOnly cookie at all. The ownership rule (`continuable_conversation_id`) itself is unchanged and applies identically to both channels; only the id's transport grew a second option. See `docs/features/pwa-api/SPEC.md` §"گروه F" for the full contract.
+- Not touching `/chat` itself — reopening reuses its existing `continuable_conversation_id()` ownership check via a cookie rebind, rather than adding new continuation logic.
 - Not handling "delete the conversation you're currently mid-typing-in" as a special case in the UI — see RESEARCH.md's Risks table for why the existing backend behavior already degrades safely there.
 
 ## Rationale
@@ -88,7 +88,7 @@ Frontend: `static/chat/core.js` gained `refreshMenuHistory()`, `renderMenuHistor
 
 ### Database Changes
 
-None at the time this feature shipped — reused the existing `conversations`/`messages` tables from migration 0010. **2026-09-01**: migration 0025 added a `feedback` column to `messages` for the thumbs up/down feature (see `docs/features/pwa-api/SPEC.md` §"گروه F"); it rides through this feature's read path with no code change here.
+None at the time this feature shipped — reused the existing `conversations`/`messages` tables from migration 0010.
 
 ## Dependencies
 

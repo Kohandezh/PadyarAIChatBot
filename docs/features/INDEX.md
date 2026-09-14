@@ -18,7 +18,6 @@ Central tracking for all features.
 | hamburger-menu | Implemented (all 3 phases) | Ready | chat | 2026-08-29 | 2026-08-30 |
 | visitor-chat-history | Implemented | Ready | chat | 2026-08-29 | 2026-08-30 |
 | idle-time-avatar-video | Implemented | Ready | chat | 2026-08-30 | 2026-08-30 |
-| pwa_api | Implemented | Ready | pwa_api | 2026-08-30 | 2026-08-30 |
 | critical-watchdog | Implemented | Ready | infrastructure | 2026-08-30 | 2026-08-30 |
 | branding-backgrounds | Implemented | Ready | branding | 2026-08-30 | 2026-08-30 |
 | brand-dynamic-shell | Implemented | Ready | branding | 2026-08-30 | 2026-08-30 |

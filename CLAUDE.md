@@ -986,7 +986,7 @@ The requirement is the intended behavior/outcome. The implementation is
 an engineering decision.
 
 For example, the user asks: "Add a header to preserve the conversation."
-Do not automatically implement "Add X-Conversation-Id." First determine:
+Do not automatically implement "Add a conversation-id header." First determine:
 Why is conversation state currently lost? Why does the current
 architecture depend on cookies? Is conversation a first-class resource?
 Is the API client-independent? Does the existing architecture already
@@ -1028,7 +1028,7 @@ Do not produce code like:
 "Just add another endpoint."
 "Just catch the exception."
 "Just disable the check."
-"Just add a special case for PWA."
+"Just add a special case for that client."
 "Just duplicate the validation here."
 "Just query the database again."
 "Just use a global variable."

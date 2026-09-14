@@ -9,7 +9,7 @@ bottom of the constitution.
 ## API-First Architecture
 
 The API must remain independent of browser-specific behavior and be
-usable by web, PWA, React Native, iOS, Android, and future clients.
+usable by web, native mobile, and future clients.
 
 Do not introduce browser-specific assumptions into domain logic or API
 contracts.
