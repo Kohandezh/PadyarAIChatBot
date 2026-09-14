@@ -72,6 +72,8 @@ def test_a_postgres_install_runs_pg_backup_not_sqlite_sets(monkeypatch, db):
     monkeypatch.setattr("app.services.pg_backup.create",
                         lambda actor="", reason="": calls.__setitem__(
                             "pg", calls["pg"] + 1) or {"backup_id": "pg_1"})
+    monkeypatch.setattr("app.services.pg_backup.verify",
+                        lambda backup_id, actor="", offsite=True: None)
     monkeypatch.setattr("app.services.pg_backup.prune", lambda **kw: [])
     monkeypatch.setattr("app.services.pg_backup.backup_dir",
                         lambda backup_id: "/somewhere/" + backup_id)
@@ -82,6 +84,55 @@ def test_a_postgres_install_runs_pg_backup_not_sqlite_sets(monkeypatch, db):
     path = backup._run_backup_now(actor="scheduler", kind="scheduled")
     assert calls == {"pg": 1, "sqlite": 0}
     assert path == "/somewhere/pg_1"
+
+
+def test_a_scheduled_pg_backup_is_verified_so_it_reaches_the_offsite_target(
+        monkeypatch, db):
+    """The off-site copy hangs off a SUCCESSFUL VERIFY, and create() alone
+    never verifies. Without the verify call here, the nightly 03:00 backup —
+    the one that matters — stays on one host forever."""
+    from app.services import backup
+    monkeypatch.setattr(backup, "_backup_engine", lambda: "postgres")
+    seen = []
+    monkeypatch.setattr("app.services.pg_backup.create",
+                        lambda actor="", reason="":
+                            {"backup_id": "pg_20260914_030000_ab12cd"})
+    monkeypatch.setattr("app.services.pg_backup.verify",
+                        lambda backup_id, actor="", offsite=True:
+                            seen.append((backup_id, actor, offsite)))
+    monkeypatch.setattr("app.services.pg_backup.prune", lambda **kw: [])
+    monkeypatch.setattr("app.services.pg_backup.backup_dir",
+                        lambda backup_id: "/somewhere/" + backup_id)
+
+    backup._run_backup_now(actor="scheduler", kind="scheduled")
+
+    assert seen == [("pg_20260914_030000_ab12cd", "scheduler", True)]
+
+
+def test_a_verify_failure_never_fails_the_scheduled_run(monkeypatch, db):
+    """Verify runs AFTER create(): the backup exists and is kept even when it
+    cannot be proven restorable — the failure is already logged by verify()
+    itself, and the scheduler must go on to prune."""
+    from app.services import backup
+    monkeypatch.setattr(backup, "_backup_engine", lambda: "postgres")
+    monkeypatch.setattr("app.services.pg_backup.create",
+                        lambda actor="", reason="":
+                            {"backup_id": "pg_20260914_030000_ab12cd"})
+
+    def boom(backup_id, actor="", offsite=True):
+        raise RuntimeError("pg_restore missing")
+
+    monkeypatch.setattr("app.services.pg_backup.verify", boom)
+    pruned = []
+    monkeypatch.setattr("app.services.pg_backup.prune",
+                        lambda **kw: pruned.append(True) or [])
+    monkeypatch.setattr("app.services.pg_backup.backup_dir",
+                        lambda backup_id: "/somewhere/" + backup_id)
+
+    path = backup._run_backup_now(actor="scheduler", kind="scheduled")
+
+    assert pruned == [True]
+    assert path == "/somewhere/pg_20260914_030000_ab12cd"
 
 
 def test_a_sqlite_install_still_runs_backup_center(monkeypatch, db):

@@ -415,3 +415,21 @@ NEGATE_WORDS = (
     "نه", "نه بابا", "نمیخوام", "نمی‌خوام", "نمیخواهم", "ولش کن",
     "بیخیال", "بی‌خیال", "لازم نیست",
 )
+
+# --- Off-site backup copy (2026-09-14) -----------------------------------
+# Where a VERIFIED dump is additionally copied after every successful
+# backup+verify, so a host-level failure cannot take the database and every
+# copy of it together. Empty (the default) = the feature is off: nothing is
+# copied and no event is written. Two target forms:
+#   OFFSITE_BACKUP_TARGET=rsync:user@host:/srv/padyar-backups
+#   OFFSITE_BACKUP_TARGET=dir:/mnt/offsite-backup
+# Failure to copy is NON-fatal by design — the local backup stays valid and
+# the failure is recorded (manifest `offsite` block + service event).
+OFFSITE_BACKUP_TARGET = (os.getenv("OFFSITE_BACKUP_TARGET") or "").strip()
+# Ceiling for the rsync subprocess, in seconds. Generous on purpose: the
+# first copy of a large dump over a slow uplink is slow, and a killed copy
+# means tonight's backup stays on one host.
+try:
+    OFFSITE_BACKUP_TIMEOUT = max(1, int(os.getenv("OFFSITE_BACKUP_TIMEOUT", "600")))
+except ValueError:
+    OFFSITE_BACKUP_TIMEOUT = 600
