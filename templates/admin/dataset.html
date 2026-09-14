@@ -99,6 +99,21 @@
                     <label class="form-label">متن پاسخ انگلیسی</label>
                     <textarea id="ds-edit-text-en" class="form-control" rows="5" dir="ltr"></textarea>
                 </div>
+                {# AI question assist — suggestions need a SAVED entry id to
+                   ground the prompt, so the block shows in edit mode only. #}
+                <div class="mb-3" id="ds-suggest-block" style="display:none">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label mb-0">سوال‌های بیشتر با هوش مصنوعی</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="window.suggestQuestions()">
+                            <i class="fas fa-wand-magic-sparkles me-1"></i> پیشنهاد سوال
+                        </button>
+                    </div>
+                    <div id="ds-suggest-status" class="small"></div>
+                    <div id="ds-suggest-list" class="border rounded p-2 mt-1" style="max-height:180px;overflow-y:auto"></div>
+                    <button type="button" class="btn btn-sm btn-success mt-2" id="ds-apply-btn" style="display:none" onclick="window.applySuggestedQuestions()">
+                        <i class="fas fa-plus me-1"></i> افزودن انتخاب‌شده‌ها
+                    </button>
+                </div>
                 {# The `video` module governs upload/management, not playback:
                    the ویدیو table column and existing previews are core and
                    stay, but an install without the module has no upload or
