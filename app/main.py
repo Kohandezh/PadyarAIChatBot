@@ -236,21 +236,12 @@ app = FastAPI(
 # session. The admin panel is same-origin (CORS does not apply to it), and the
 # public /chat endpoint is guarded separately by validate_request_origin against
 # ALLOWED_ORIGINS. "*" is kept so customers can embed the chat on their own site.
-#
-# expose_headers: allow_headers=["*"] only covers what the BROWSER may SEND;
-# a custom response header is invisible to page JS on a cross-origin response
-# unless it is explicitly exposed here, "*" or not. `X-Conversation-Id` and
-# `X-Message-Id` are how a Bearer/cross-origin client (InotexPWA — no cookie
-# jar it can read, see app/routers/chat.py) learns which conversation and
-# which message it just got back, since it cannot read the httpOnly
-# `padyar_conv` cookie the native chat page relies on.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Conversation-Id", "X-Message-Id"],
 )
 
 
@@ -264,18 +255,12 @@ _NO_VISITOR_PREFIXES = ("/static", "/themes", "/media", "/favicon", "/LOGO")
 
 @app.middleware("http")
 async def resolve_visitor(request, call_next):
-    """Decide WHO is asking, from the session cookie, with a Bearer fallback.
+    """Decide WHO is asking, from the session cookie — and nothing else.
 
-    For a request that HAS a valid session cookie, the cookie is still the
-    ONLY thing that establishes identity — nothing else is even read. When the
-    cookie is missing or invalid, this falls back to an `Authorization: Bearer
-    <token>` header, resolved through the exact same `visitor_auth.resolve()`
-    lookup as the cookie (see `_bearer_token` below). That fallback exists for
-    the `pwa_api` module's cross-origin/native clients, which cannot hold a
-    cookie at all — see docs/features/pwa-api/SPEC.md REQ-001, SEC-002. The
-    cookie always wins when present and valid; a body field, a query
-    parameter, and a path segment are still never read for identity. Every
-    other way in was the hole this closes.
+    A valid session cookie is the ONLY thing that establishes identity.
+    Nothing else is even read: not a body field, not a query parameter, not a
+    path segment, not a request header. Every other way in was the hole this
+    closes.
 
     A middleware and not a dependency, because a dependency is opt-in per
     route and the next endpoint somebody adds would be silently anonymous.
@@ -319,50 +304,22 @@ async def resolve_visitor(request, call_next):
 
     token = request.cookies.get(visitor_auth.VISITOR_COOKIE_NAME, "")
     session = visitor_auth.resolve(token) if token else None
-    from_cookie = bool(session)
-    if not session:
-        # Cookie missing or invalid: fall back to a Bearer token, for a
-        # cross-origin/native client that cannot hold a cookie at all (see
-        # docs/features/pwa-api/SPEC.md REQ-001). The cookie is ALWAYS tried
-        # first and wins if valid — this branch only runs when it did not.
-        bearer = _bearer_token(request)
-        if bearer:
-            bearer_session = visitor_auth.resolve(bearer)
-            if bearer_session:
-                session = bearer_session
-                token = bearer
     if session:
         request.state.visitor_id = session["visitor_id"]
         request.state.visitor = session["profile"]
 
     response = await call_next(request)
 
-    # ONLY re-issue the COOKIE for a session that arrived as a cookie. A
-    # bearer-authenticated request must never cause this middleware to plant
-    # a fresh 30-day httpOnly session cookie in whatever HTTP client sent the
-    # Authorization header — pwa_api's whole reason to exist is clients that
-    # cannot or should not hold that cookie, and this app's own threat model
-    # is a SHARED kiosk browser: a cookie silently minted here would sit
-    # there for the next person at that browser to inherit, exactly the bug
-    # the OTP verify flow revokes the previous session to avoid (see
-    # app/routers/otp.py's otp_verify docstring). Found in security review of
-    # docs/features/pwa-api/SPEC.md REQ-001/SEC-002.
-    if from_cookie and session and response.status_code < 400 \
+    # ONLY re-issue a cookie for a session that arrived as one. The guard on
+    # "the response already wrote this cookie" matters because
+    # `request.cookies` still holds the OLD value on the OTP verify response
+    # (which just minted a NEW token) and on the logout response (which just
+    # deleted one) — re-issuing there would overwrite what the endpoint just
+    # did (see app/routers/otp.py's otp_verify docstring).
+    if session and response.status_code < 400 \
             and not _sets_visitor_cookie(response):
         visitor_auth.set_cookie(response, token)
     return response
-
-
-def _bearer_token(request) -> str:
-    """The raw token from `Authorization: Bearer <token>`, or ''.
-
-    Only a fallback path for resolve_visitor when the cookie is absent or
-    invalid — see docs/features/pwa-api/SPEC.md REQ-001, SEC-002.
-    """
-    header = request.headers.get("authorization", "")
-    if not header.lower().startswith("bearer "):
-        return ""
-    return header[len("bearer "):].strip()
 
 
 def _sets_visitor_cookie(response) -> bool:
