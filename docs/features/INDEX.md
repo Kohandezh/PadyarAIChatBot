@@ -34,6 +34,7 @@ Central tracking for all features.
 | dashboard-fix-action | Implemented | Ready | admin | 2026-09-14 | 2026-09-14 |
 | freshness-schedule | Implemented | Ready | infrastructure | 2026-09-14 | 2026-09-14 |
 | synonym-suggestions | Implemented | Ready | search | 2026-09-14 | 2026-09-14 |
+| question-assist | Implemented | Ready | content | 2026-09-14 | 2026-09-14 |
 
 ## Quick Features
 
