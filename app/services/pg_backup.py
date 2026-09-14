@@ -170,6 +170,8 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         shutil.rmtree(target, ignore_errors=True)
         applog.error("backup", "backup.failed", "پشتیبان‌گیری ناموفق بود",
                      actor=actor, target=backup_id, outcome="failed")
+        from app.services import metrics
+        metrics.backup_outcome_total.labels(result="failed").inc()
         raise
 
     duration = int((time.perf_counter() - started) * 1000)
@@ -197,6 +199,8 @@ def create(actor: str = "", reason: str = "manual") -> dict:
     applog.audit("admin.backup.created", "پشتیبان پستگرس ساخته شد",
                  actor=actor, target=backup_id, outcome="ok",
                  metadata={"bytes": size, "reason": reason})
+    from app.services import metrics
+    metrics.backup_outcome_total.labels(result="success").inc()
     return manifest
 
 

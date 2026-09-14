@@ -416,3 +416,10 @@ NEGATE_WORDS = (
     "نه", "نه بابا", "نمیخوام", "نمی‌خوام", "نمیخواهم", "ولش کن",
     "بیخیال", "بی‌خیال", "لازم نیست",
 )
+
+# --- Prometheus metrics endpoint (metrics-endpoint feature) ---
+# Bearer token for GET /metrics. When set, a scrape must present
+# `Authorization: Bearer <METRICS_TOKEN>`; when empty, /metrics instead
+# requires an authenticated admin session. Either way the endpoint is
+# never public. See docs/engineering/MONITORING.md.
+METRICS_TOKEN = (os.getenv("METRICS_TOKEN") or "").strip()
