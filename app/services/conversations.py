@@ -126,6 +126,31 @@ def _visitor_row(row) -> dict:
     return out
 
 
+def visitor_public_summaries(visitor_ids: list) -> dict:
+    """Batched {id: {first_name, last_name, job}} lookup.
+
+    General-purpose — not contacts-specific. Any caller that only has a
+    visitor id (a contact, later an event attendee, anything pointing at
+    `visitors`) uses this to backfill the few fields that are safe to show
+    someone else. Ids with no matching row are simply absent from the
+    result — callers fall back to blanks, never raise.
+    """
+    clean = list(dict.fromkeys(str(i) for i in visitor_ids if i))
+    if not clean:
+        return {}
+    placeholders = ",".join("?" * len(clean))
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT id, first_name, last_name, job FROM visitors"
+            f" WHERE id IN ({placeholders})", clean).fetchall()
+    finally:
+        conn.close()
+    return {r["id"]: {"first_name": r["first_name"] or "",
+                      "last_name": r["last_name"] or "",
+                      "job": r["job"] or ""} for r in rows}
+
+
 # ── Conversations ────────────────────────────────────────────────────────
 
 def continuable_conversation_id(conversation_id: str,
@@ -961,14 +986,26 @@ def _stored_settings(conn, visitor_id: str):
 
 
 def get_visitor_settings(visitor_id: str) -> dict:
-    """REQ-014."""
+    """REQ-014. `contacts` entries are enriched with `first_name`,
+    `last_name`, `job` via one batched lookup (visitor_public_summaries) —
+    never stored redundantly in visitor_settings itself, so a contact's
+    profile edits show up immediately instead of going stale.
+    """
     if not visitor_id:
         return _settings(None)
     conn = get_db_connection()
     try:
-        return _settings(_stored_settings(conn, visitor_id))
+        settings = _settings(_stored_settings(conn, visitor_id))
     finally:
         conn.close()
+    summaries = visitor_public_summaries(
+        [c["visitor_id"] for c in settings["contacts"]])
+    for c in settings["contacts"]:
+        info = summaries.get(c["visitor_id"], {})
+        c["first_name"] = info.get("first_name", "")
+        c["last_name"] = info.get("last_name", "")
+        c["job"] = info.get("job", "")
+    return settings
 
 
 def _write_settings(conn, visitor_id: str, settings: dict) -> None:

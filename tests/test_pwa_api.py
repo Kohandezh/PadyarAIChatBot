@@ -407,6 +407,57 @@ def test_contacts_connect_links_both_sides_and_refuses_a_repeat(app_instance, ou
     assert repeat.status_code == 409
 
 
+def test_contacts_connect_shows_the_other_visitors_name_and_job(app_instance, outbox):
+    a = _new_client(app_instance)
+    _register(a, outbox, DEST_A, first_name="سارا", last_name="محمدی",
+              job="مهندس / متخصص فنی")
+    b = _new_client(app_instance)
+    _register(b, outbox, DEST_B, first_name="رضا", last_name="کریمی",
+              job="خبرنگار / رسانه")
+
+    qr = a.get("/api/me/qr")
+    payload = qr.json()["payload"]
+    connect = b.post("/api/me/contacts/connect", json={"qr_payload": payload})
+    assert connect.status_code == 200, connect.text
+
+    a_contact = a.get("/api/me/settings").json()["contacts"][0]
+    b_contact = b.get("/api/me/settings").json()["contacts"][0]
+    assert a_contact["first_name"] == "رضا" and a_contact["last_name"] == "کریمی"
+    assert a_contact["job"] == "خبرنگار / رسانه"
+    assert b_contact["first_name"] == "سارا" and b_contact["last_name"] == "محمدی"
+    assert b_contact["job"] == "مهندس / متخصص فنی"
+
+
+def test_a_contact_whose_visitor_row_is_gone_shows_blank_name_and_job(app_instance, outbox):
+    from app.services import conversations
+    from app.db.connection import get_db_connection
+
+    a = _new_client(app_instance)
+    _register(a, outbox, DEST_A)
+    id_a = conversations.find_visitor_by_phone(DEST_A)["id"]
+
+    # Simulate a contact pointing at a visitor row that no longer exists —
+    # write the settings bag directly rather than going through
+    # connect_visitors, which requires both rows to exist.
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE visitors SET visitor_settings = ? WHERE id = ?",
+            ('{"calendar": [], "contacts": [{"visitor_id": "deleted-visitor-id", '
+             '"connected_at": "2026-01-01T00:00:00+00:00"}], "language": ""}',
+             id_a))
+        conn.commit()
+    finally:
+        conn.close()
+
+    r = a.get("/api/me/settings")
+    assert r.status_code == 200
+    contact = r.json()["contacts"][0]
+    assert contact["visitor_id"] == "deleted-visitor-id"
+    assert contact["first_name"] == "" and contact["last_name"] == "" \
+        and contact["job"] == ""
+
+
 def test_contacts_connect_with_a_garbage_payload_is_400(app_instance, outbox):
     a = _new_client(app_instance)
     _register(a, outbox, DEST_A)

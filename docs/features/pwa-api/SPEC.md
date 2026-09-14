@@ -266,7 +266,12 @@ directory_is_not_published`) نشان می‌دهد تا امروز عدم ان�
 - REQ-014: `GET /api/me/settings` (نیازمند نشست، کوکی یا Bearer) دقیقاً
   `{"calendar": [...], "contacts": [...], "language": "..."}` برمی‌گرداند —
   اگر ستون خالی (`{}`) باشد، هر سه کلید با مقدار پیش‌فرض (لیست خالی، رشتهٔ
-  خالی) پر می‌شوند.
+  خالی) پر می‌شوند. **(۲۰۲۶-۰۹-۰۲)** هر آیتم `contacts` علاوه بر
+  `visitor_id`/`connected_at`، سه فیلد `first_name`/`last_name`/`job` را هم
+  دارد — با یک کوئری دسته‌ای (`visitor_public_summaries`) از جدول `visitors`
+  خوانده می‌شود، نه ذخیرهٔ تکراری در خودِ `visitor_settings`؛ اگر ردیف آن
+  بازدیدکننده دیگر وجود نداشته باشد (مثلاً حذف‌شده)، این سه فیلد رشتهٔ خالی
+  برمی‌گردند، نه خطا.
 - REQ-015: `POST /api/me/calendar` بدنه `{"event_id": "..."}`؛ درج idempotent
   (یک `event_id` تکراری چیزی اضافه نمی‌کند)؛ خروجی `calendar` به‌روزشده.
 - REQ-016: `DELETE /api/me/calendar/{event_id}` آن آیتم را حذف می‌کند؛ خروجی
