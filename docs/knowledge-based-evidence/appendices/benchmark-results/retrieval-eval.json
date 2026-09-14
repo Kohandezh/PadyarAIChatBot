@@ -1,26 +1,29 @@
 {
   "dataset_version": "inotex-golden-1.0",
   "knowledge_version": "inotex-kb-2026-08-14.1",
-  "backend": "embedding",
   "rerank_enabled": true,
   "ranking_method": "pipeline: served answer first, then the reranked union of the dense and BM25 candidates (mirrors app/services/search.find_best_match)",
-  "ran_at": "2026-08-30T00:06:14",
+  "ran_at": "2026-09-14T22:55:29",
   "totals": {
     "queries": 60,
     "answerable": 42,
     "recall_at_1": 0.786,
-    "recall_at_3": 0.857,
-    "mrr": 0.841,
-    "false_confident_unsupported": 1,
+    "recall_at_3": 0.881,
+    "mrr": 0.844,
+    "false_confident_unsupported": 2,
     "false_confident_legacy": 0,
     "false_confident_injection": 0,
     "legacy_contamination_answers": 0,
     "secret_leaks": 0,
-    "latency_ms_p50": 1.2,
-    "latency_ms_p95": 2.4
+    "latency_ms_p50": 1.0,
+    "latency_ms_p95": 2.1
   },
   "recall_at_k": {
-    "8": 0.952
+    "1": 0.786,
+    "3": 0.881,
+    "5": 0.929,
+    "8": 0.952,
+    "13": 0.952
   },
   "per_category": {
     "current_event_facts": {
@@ -33,7 +36,7 @@
     },
     "programs": {
       "n": 8,
-      "correct": 7
+      "correct": 8
     },
     "persian_paraphrases": {
       "n": 10,
@@ -41,11 +44,11 @@
     },
     "english_queries": {
       "n": 6,
-      "correct": 4
+      "correct": 3
     },
     "unsupported": {
       "n": 6,
-      "correct": 5
+      "correct": 4
     },
     "legacy_contamination": {
       "n": 6,
@@ -67,20 +70,12 @@
       "score": 0.468
     },
     {
-      "q": "چه برنامه‌هایی در اینوتکس هست؟",
-      "expected": [
-        "inotex-programs"
-      ],
-      "got": "inotex-inonight-meetups-2026",
-      "score": 0.855
-    },
-    {
       "q": "کی میتونم بیام نمایشگاه؟",
       "expected": [
         "inotex-date"
       ],
       "got": "inotex-pardis-summit-2026",
-      "score": 0.242
+      "score": 0.226
     },
     {
       "q": "تا ساعت چند بازه؟",
@@ -120,7 +115,7 @@
         "inotex-date"
       ],
       "got": "inotex-venue",
-      "score": 0.815
+      "score": 0.814
     },
     {
       "q": "Where is the venue?",
@@ -131,10 +126,24 @@
       "score": 0.0
     },
     {
+      "q": "How many investors attend?",
+      "expected": [
+        "inotex-stats"
+      ],
+      "got": "inotex-investors-pavilion-2026",
+      "score": 0.0
+    },
+    {
       "q": "قیمت بلیط هواپیما به تهران چند است؟",
       "expected": null,
       "got": "inotex-visitors",
       "score": 0.811
+    },
+    {
+      "q": "بهترین رستوران تهران کجاست؟",
+      "expected": null,
+      "got": "inotex-venue",
+      "score": 0.853
     }
   ]
 }
