@@ -34,9 +34,10 @@ UPLOAD_DIR = os.path.join(BASE_DIR, "media", "uploads")
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 # --- Similarity thresholds ---
-# A local match (TF-IDF over titles, or the questions index) is only *trusted*
-# outright at or above this score. Below it we do NOT serve the match blindly —
-# the AI classifier decides intent instead (see app/routers/chat.py).
+# A local match (hybrid BM25 + embedding retrieval, or the questions index) is
+# only *trusted* outright at or above this score. Below it we do NOT serve the
+# match blindly — the AI classifier decides intent instead (see
+# app/routers/chat.py).
 TRUSTED_MATCH_THRESHOLD = 0.70
 # Used ONLY when the AI fallback is unavailable (disabled or errored): the lowest
 # local score we will still answer from. Below this we tell the user to rephrase
