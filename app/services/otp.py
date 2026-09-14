@@ -34,7 +34,7 @@ from app.db.timeutil import to_naive_utc
 # --- Configuration (env-overridable) ---
 OTP_LENGTH = int(os.getenv("OTP_LENGTH", "6"))
 OTP_TTL_SECONDS = int(os.getenv("OTP_TTL_SECONDS", "120"))
-OTP_RESEND_COOLDOWN = int(os.getenv("OTP_RESEND_COOLDOWN", "45"))
+OTP_RESEND_COOLDOWN = int(os.getenv("OTP_RESEND_COOLDOWN", "120"))
 OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
 OTP_MAX_RESENDS = int(os.getenv("OTP_MAX_RESENDS", "3"))
 # Max new challenges per destination per hour (anti SMS-pumping).
