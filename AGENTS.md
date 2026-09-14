@@ -82,8 +82,13 @@ App starts at `http://127.0.0.1:8000`.
 ## Testing
 
 **Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
-the full pytest suite plus the retrieval/safety eval on every push and PR —
-that run is the pass/fail signal. Don't run the whole `pytest` suite locally
+the full pytest suite (with an advisory `pytest-cov` coverage report), the
+**blocking `postgres-tests` job** (a `postgres:16` service container runs
+`tests/postgres` on every push and PR), plus the retrieval/safety eval —
+that run is the pass/fail signal. Separate workflows: `release.yml` (tests +
+GitHub Release on `v*` tags — see `docs/engineering/RELEASING.md`) and
+`freshness.yml` (weekly advisory content-freshness check; on the server the
+systemd timer `padyar-freshness@.timer` does the same — see `deploy/README.md`). Don't run the whole `pytest` suite locally
 as a commit or merge gate: this machine has 15 tests that always fail here
 and always pass on CI (env/network-only, e.g. tests needing a live
 PostgreSQL), so a local full run is not a trustworthy signal.
@@ -125,7 +130,7 @@ graphify affected "<file-or-symbol>"
 PadyarAIChatbot/
   main.py                        # Entry point — uvicorn runner
   setup.sh                       # Interactive installer
-  requirements.txt               # 9 Python dependencies
+  requirements.txt               # 17 Python dependencies
   .env / .env.example            # Config
 
   app/                           # Application package
@@ -134,12 +139,13 @@ PadyarAIChatbot/
     models.py                    # Pydantic schemas
 
     routers/                     # Route handlers
-      public.py                  # Public pages + health check
+      public.py                  # Public pages + health check (+ version field)
       chat.py                    # /chat — core chatbot pipeline
       admin.py                   # Admin stats, settings, export
       voice.py                   # /api/transcribe (Whisper)
-      synonyms.py                # Synonym CRUD
-      dataset.py                 # Dataset + questions + video CRUD
+      metrics.py                 # GET /metrics — Prometheus (METRICS_TOKEN or admin session)
+      synonyms.py                # Synonym CRUD + AI suggest/apply
+      dataset.py                 # Dataset + questions + video CRUD + AI question suggest/apply
       themes.py                  # Theme listing/activation
 
     services/                    # Business logic
@@ -147,6 +153,10 @@ PadyarAIChatbot/
       bm25.py                    # Okapi BM25 lexical retriever (pure Python)
       embeddings.py              # Local model2vec embeddings, no external API
       rerank.py                  # Feature reranker fusing dense + lexical candidates
+      metrics.py                 # Prometheus registry: http/chat-tier/ai-call/circuit/backup/health
+      synonym_suggest.py         # AI synonym suggestions (validate + human approve)
+      question_assist.py         # AI question-variant suggestions (validate + human approve)
+      backup_offsite.py          # Off-site copy of verified backups (rsync:/dir:, non-fatal)
       answer.py                  # Selection tier + grounding firewalls + list renderer
       openai.py                  # GPT classification, chat, Whisper
       themes.py                  # Theme discovery
@@ -173,10 +183,8 @@ PadyarAIChatbot/
     inotex/                      # The only selectable theme (official INOTEX palette)
     base/                        # Default partials only — not selectable
 
-  data/                          # Knowledge base
-    dataset.json                 # ~70 Q&A entries with video URLs
-    questions.json               # ~800+ question-to-dataset mappings
-    Videos/                      # Source video files
+  data/                          # Runtime data (knowledge base lives in the DB;
+                                 #   bundled defaults in app/default_content.py)
 
   media/                         # Runtime media
     videos/                      # Admin-uploaded videos
@@ -200,7 +208,17 @@ PadyarAIChatbot/
 | `python-multipart` | File upload handling                     |
 | `numpy`            | Numerical operations                     |
 | `httpx`            | HTTP client                              |
+| `anyio`            | Async compatibility layer                |
+| `psycopg[binary]`  | PostgreSQL driver (production DB)        |
+| `psycopg-pool`     | PostgreSQL connection pooling            |
 | `python-dotenv`    | .env file loading                        |
+| `bcrypt`           | Admin password hashing                   |
+| `cryptography`     | Encrypted-at-rest secrets (Fernet)       |
+| `qrcode`           | QR code generation                       |
+| `prometheus-client`| `/metrics` Prometheus endpoint           |
+
+Dev-only deps (`requirements-dev.txt`): `pytest`, `pytest-asyncio`,
+`pytest-playwright`, `pytest-cov` (advisory coverage report in CI), `openpyxl`.
 
 ## Architecture
 
