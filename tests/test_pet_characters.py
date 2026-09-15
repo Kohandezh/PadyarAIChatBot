@@ -62,7 +62,11 @@ def test_registry_discovers_both_bundled_characters():
     assert characters["elecomp"]["state_poses"]["success"] == "flight-soar"
 
 
-def test_unknown_stored_character_falls_back_to_the_default():
+def test_unknown_stored_character_falls_back_to_the_default(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "pet-fallback.db"))
+    from app.db.connection import init_db
+    init_db()
     from app.db.queries import set_setting
     from app.services.pet_characters import get_pet_character
     set_setting("pet_character", "does-not-exist")
