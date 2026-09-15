@@ -2,11 +2,11 @@
 
 WHAT THIS REPLACES
 ------------------
-The transcript lived in `localStorage['inotex_chat_history']` and the
-registered person lived in `localStorage['inotex-visitor']`. Clearing a kiosk
-browser threw both away. The profile the visitor typed at registration was
-written to `otp_challenges`, a table keyed by a challenge and built to expire.
-This is the durable home for all of it. See
+Before this module the transcript and the registered visitor lived only in
+the kiosk browser's localStorage. Clearing the browser threw both away. The
+profile the visitor typed at registration was written to `otp_challenges`,
+a table keyed by a challenge and built to expire. This is the durable home
+for all of it. See
 migrations/0010_conversations.sql for why the tables look the way they do,
 including why `chat_logs` stays and is still written.
 

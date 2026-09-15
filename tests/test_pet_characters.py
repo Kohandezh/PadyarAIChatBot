@@ -66,16 +66,18 @@ def test_unknown_stored_character_falls_back_to_the_default():
     from app.db.queries import set_setting
     from app.services.pet_characters import get_pet_character
     set_setting("pet_character", "does-not-exist")
-    assert get_pet_character()["name"] == "inotex"
+    assert get_pet_character()["name"] == "elecomp"
 
 
-def test_default_is_inotex(client):
+def test_default_is_elecomp(client):
     html = client.get("/").text
-    assert 'data-atlas="/static/otp/pet/inotex-pose-atlas-hd.webp"' in html
-    assert 'data-cell="512"' in html
-    assert 'data-columns="4"' in html
-    assert 'data-hide-strip="/static/otp/pet/inotex-hide-strip.webp"' in html
-    assert "welcome-wave" in html  # the inotex greet pose ships as data
+    assert 'data-atlas="/static/otp/pet/characters/elecomp/elecomp-pose-atlas.webp"' in html
+    assert 'data-cell="384"' in html
+    assert 'data-columns="3"' in html
+    # The bird has no hide strip of its own — empty attribute, and
+    # companion.js treats empty as "instant hide".
+    assert 'data-hide-strip=""' in html
+    assert "welcome-open" in html  # the elecomp greet pose ships as data
 
 
 # ── Render + cache ──────────────────────────────────────────────────────
@@ -106,7 +108,7 @@ def test_pet_character_api_lists_and_saves(client):
     r = client.get("/admin/api/pet-character")
     assert r.status_code == 200
     body = r.json()
-    assert body["current"] == "inotex"
+    assert body["current"] == "elecomp"
     names = {c["name"] for c in body["characters"]}
     assert {"inotex", "elecomp"} <= names
     elecomp = next(c for c in body["characters"] if c["name"] == "elecomp")

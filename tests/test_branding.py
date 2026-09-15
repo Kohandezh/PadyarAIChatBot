@@ -26,7 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 DEFAULT_NAME = "دستیار پادیار"
-DEFAULT_GREETING = "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید."
+DEFAULT_GREETING = "سلام! من دستیار پادیار هستم. درباره پردیار هر سوالی دارید بپرسید."
 DEFAULT_BG = "/themes/inotex/static/bg-bricks.jpg"
 DEFAULT_FOOTER = "قدرت گرفته از سکوی ملی متن باز هوش مصنوعی"
 
@@ -65,7 +65,7 @@ def _login(client):
 def _post_branding(client, **overrides):
     body = {
         "app_name": "دستیار سازمانی",
-        "subtitle": "INOTEX",
+        "subtitle": "پردیار",
         "logo_url": "",
         "primary_color": "#123456",
         "accent_color": "#ABCDEF",
@@ -95,7 +95,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
     current = r.json()
     assert current == {
         "whitelabel_app_name": DEFAULT_NAME,
-        "whitelabel_subtitle": "INOTEX",
+        "whitelabel_subtitle": "پردیار",
         "whitelabel_logo_url": "",
         "whitelabel_primary_color": "#2D5CA7",
         "whitelabel_accent_color": "#FCB715",
@@ -218,7 +218,7 @@ def test_brand_line_and_marks_follow_the_settings(client):
     With no logo the built-in marks stay (pixel-identical default)."""
     _login(client)
     html = client.get("/").text
-    assert '<p class="inx-loader-label">INOTEX</p>' in html  # wl_subtitle default
+    assert '<p class="inx-loader-label">پردیار</p>' in html  # wl_subtitle default
     assert "inx-hex-outline" in html
     assert '<img class="brand-mark"' not in html
 
@@ -285,7 +285,7 @@ def test_defaults_render_inotex_identical(client):
     assert "--wl-accent:#FCB715;" in html
     # The default subtitle keeps the pre-key pixels: the header line every
     # theme used to hardcode.
-    assert 'class="header-subtitle">INOTEX</div>' in html
+    assert 'class="header-subtitle">پردیار</div>' in html
     assert "--wl-teal:#04A584;" in html
     # No logo set → no <img>; the built-in SVG mark is what renders.
     assert '<img class="brand-mark"' not in html

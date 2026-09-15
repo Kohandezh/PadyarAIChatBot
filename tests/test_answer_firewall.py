@@ -673,8 +673,9 @@ def test_the_refusal_text_is_read_from_settings_so_a_new_customer_can_change_it(
 # purpose: the hole only opens on a real install's data.
 
 def _shipped_defaults():
-    """Put the DEFAULT INOTEX facts in the settings, replacing the fixture's
-    deliberately number-poor ones. This is the data a live install has."""
+    """Put the shipped DEFAULT facts in the settings, replacing the fixture's
+    deliberately number-poor ones. A live install records its own facts in
+    these same keys."""
     from app.db.queries import set_setting
     from app.services.openai import (DEFAULT_ASSISTANT_KNOWLEDGE,
                                      DEFAULT_ASSISTANT_PHONE,
@@ -714,22 +715,26 @@ def test_prose_inventing_a_small_number_is_rejected(client, prose):
 
 
 def test_prose_inventing_a_link_that_is_a_substring_of_the_recorded_site_is_rejected(client):
-    """"otex.com" is not a site anybody recorded. It passed because it is a
-    substring of the recorded inotex.com, and a visitor will follow a link."""
+    """"dyar.com" is not a site anybody recorded. It passed the old substring
+    check because it is a substring of the recorded padyar.com, and a visitor
+    will follow a link."""
     _seed()
     _shipped_defaults()
     from app.services import answer
     ok, reason = answer.generated_prose_is_grounded(
-        "جزئیات در otex.com آمده است.", "fa")
+        "جزئیات در dyar.com آمده است.", "fa")
     assert ok is False
     assert reason == "shape", reason
 
 
 def test_prose_repeating_the_recorded_dates_is_still_accepted(client):
     """The guard against over-tightening. The recorded dates are exactly what
-    a written answer should be able to say."""
+    a written answer should be able to say. The platform ships no default
+    facts any more (openai.py), so this install records its own dates first."""
     _seed()
     _shipped_defaults()
+    from app.db.queries import set_setting
+    set_setting("assistant_knowledge", "نمایشگاه از ۱۱ تا ۱۴ شهریور ۱۴۰۵ برگزار می شود.")
     from app.services import answer
     ok, reason = answer.generated_prose_is_grounded(
         "نمایشگاه از ۱۱ تا ۱۴ شهریور ۱۴۰۵ برگزار می شود.", "fa")

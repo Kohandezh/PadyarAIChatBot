@@ -1,10 +1,10 @@
-"""Targeted-visit planner: match a visitor's profile to INOTEX sections.
+"""Targeted-visit planner: match a visitor's profile to the event's sections.
 
 WHAT THIS RECOMMENDS — and what it deliberately does not
 --------------------------------------------------------
-It ranks the OFFICIAL sections and side events of INOTEX 2026 (the ones
-verified from inotex.com and listed in content/sources.json) against the
-visitor's field of work, job title and interests.
+It ranks the OFFICIAL sections and side events of the event (the ones
+listed in the taxonomy the admin maintains) against the visitor's field
+of work, job title and interests.
 
 It does NOT name individual exhibitors or booth numbers: the official site
 has not published an exhibitor directory, so inventing "booth 42, company X"
@@ -193,11 +193,11 @@ def recommend(profile: dict, lang: str = "fa") -> dict:
         # Stated on every plan, in the visitor's language: this is a map of
         # official sections, not an exhibitor directory.
         "note": (
-            "این پیشنهادها بر اساس بخش‌های رسمی اینوتکس ۲۰۲۶ است. فهرست غرفه‌داران "
-            "هنوز روی سایت رسمی منتشر نشده؛ برای فهرست شرکت‌ها https://inotex.com/ را دنبال کنید."
+            "این پیشنهادها بر اساس بخش‌های رسمی رویداد است. هنوز فهرست شرکت‌ها منتشر نشده؛ "
+            "از پذیرش رویداد بپرسید."
             if lang == "fa" else
-            "These suggestions map to the official INOTEX 2026 sections. The exhibitor "
-            "directory is not published on the official site yet — follow https://inotex.com/ for it."
+            "These suggestions map to the event's official sections. The exhibitor "
+            "directory is not published yet — ask at the reception."
         ),
         "empty_hint": (
             "برای پیشنهاد دقیق‌تر، شغل و زمینه‌های مورد علاقه‌تان را در همین گفتگو بنویسید."

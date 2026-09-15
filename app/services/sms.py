@@ -163,8 +163,8 @@ _DEFAULT_REJECT_TEXT = ("متن ثبت‌شدهٔ شرکت شما تأیید ن�
 # The bulk "please confirm your details" campaign (migrations/0023). Same
 # {magic_link} rule as the two above; a separate sentence because it asks a
 # whole exhibition's worth of companies the same question at once.
-_DEFAULT_CAMPAIGN_TEXT = ("نمایشگاه INOTEX برای نمایش درست اطلاعات شرکت شما به "
-                          "تأیید خود شما نیاز دارد.\nلطفاً از طریق لینک زیر "
+_DEFAULT_CAMPAIGN_TEXT = ("برای نمایش درست اطلاعات شرکت شما به بازدیدکنندگان، "
+                          "شمارهٔ خود را تأیید کنید.\nلطفاً از طریق لینک زیر "
                           "وارد شوید، اطلاعات را بررسی و تأیید کنید:\n{magic_link}")
 
 

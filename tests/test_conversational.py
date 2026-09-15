@@ -58,8 +58,8 @@ INCIDENT_MESSAGE = "اسم من سینا هست اسم تو چی هست؟"
 
 GIBBERISH_REPLY = "متوجه منظورت نشدم. می‌تونی سؤالت رو یه جور دیگه بپرسی؟"
 # scope.domain("fa") fills the subject — the default install's domain is
-# «نمایشگاه اینوتکس», and a customer in another category reads their own.
-DECLINE_REPLY = "باشه! اگه سؤال دیگه‌ای درباره نمایشگاه اینوتکس داری در خدمتم."
+# «پردیار», and a customer in another category reads their own.
+DECLINE_REPLY = "باشه! اگه سؤال دیگه‌ای درباره پردیار داری در خدمتم."
 
 
 def _seed(companies=(), extra=FAQ_ROWS):

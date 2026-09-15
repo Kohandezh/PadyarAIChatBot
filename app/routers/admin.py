@@ -491,7 +491,7 @@ async def test_sms(req: SmsTestRequest):
     probe_code = f"{secrets.randbelow(100000):05d}"
     try:
         msgid = sms_service.send(provider, destination,
-                                 "پیام آزمایشی سامانهٔ اینوتکس", code=probe_code)
+                                 "پیام آزمایشی سامانهٔ پردیار", code=probe_code)
     except sms_service.SmsError as e:
         # The operator sees the gateway's own reason (expired web-service
         # password, no credit, sender barred from links...). A visitor never

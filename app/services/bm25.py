@@ -36,7 +36,7 @@ class BM25Index:
         # Document frequency per term, then the standard BM25+ IDF form, which
         # stays positive for terms appearing in more than half the corpus
         # (the classic formula goes negative there — on a 15-document corpus
-        # that would actively penalize common domain words like «اینوتکس»).
+        # that would actively penalize common domain words like «نمایشگاه»).
         df: Dict[str, int] = {}
         for doc in self.docs:
             for term in doc:

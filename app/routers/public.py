@@ -43,8 +43,8 @@ def _render(template_name: str, **context) -> HTMLResponse:
     from app.config import ENABLED_MODULES
     context.setdefault("enabled_modules", ENABLED_MODULES)
     # The panel's own name. This repository deploys to more than one install
-    # (inotex, elecomp) from one branch, so a literal name in layout.html
-    # would brand every install with one event's identity — the white-label
+    # from one branch, so a literal name in layout.html would brand every
+    # install with one event's identity — the white-label
     # key is the install's display name. RAW value, deliberately not
     # pre-escaped: this Jinja env has autoescape=True, so Jinja escapes it —
     # pre-escaping here would double-escape in the sidebar. (The theme env is
@@ -196,8 +196,9 @@ async def read_root(request: Request):
 # printed on the suggested-question chips. Nothing else.
 #
 # It replaces /api/dataset and /api/questions, which were unauthenticated and
-# returned every row of the knowledge base — on the INOTEX install, 222 dataset
-# rows of which 168 are exhibitor company records with their full write-ups.
+# returned every row of the knowledge base — on the first production
+# install, 222 dataset rows of which 168 are exhibitor company records
+# with their full write-ups.
 # That is the customer's commercial content, and anyone who typed the URL could
 # download the lot. The chips only ever printed a title, so the answer bodies,
 # the row ids, the video paths and the whole long tail of rows the chips never

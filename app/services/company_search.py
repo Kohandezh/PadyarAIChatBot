@@ -1,10 +1,10 @@
 """Company-list tier: deterministic answers for "which companies ..." questions.
 
 Why this exists (measured in production, 2026-08-27): «شرکت‌های هوش مصنوعی
-اینوتکس را معرفی کن» is a LIST question, but single-document retrieval can
+نمایشگاه را معرفی کن» is a LIST question, but single-document retrieval can
 only ever pick ONE entry — list questions were structurally unanswerable and
 the outcome depended on phrasing. Worse, the faq-20 entry is literally the
-out-of-scope REFUSAL text and contains «هوش مصنوعی اینوتکس», which made it a
+out-of-scope REFUSAL text and contains «هوش مصنوعی نمایشگاه», which made it a
 token magnet: Tier 1 served the refusal at 0.81 as the "answer". The knowledge
 base actually holds ~169 companies (one `companies` row each, carrying
 activity_field), so the right answer was a list of the AI companies.

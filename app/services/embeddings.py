@@ -23,7 +23,7 @@ from app.config import BASE_DIR, logger
 DEFAULT_MODEL = "minishlab/potion-multilingual-128M"
 CACHE_DIR = str(Path(BASE_DIR) / "data" / "models")
 
-# Calibration band, measured on the live INOTEX corpus (2026-08-14, golden
+# Calibration band, measured on the live event corpus (2026-08-14, golden
 # set): a genuine colloquial paraphrase scores cos ≈ 0.72, ambiguous
 # wrong-entry matches cluster at 0.65–0.67, and out-of-domain queries top out
 # near 0.49. The floor/span are set so the genuine match calibrates above

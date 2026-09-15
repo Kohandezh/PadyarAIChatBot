@@ -621,7 +621,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # something the WHOLE corpus knows nothing about must not be answered by
     # any local tier. Lexical retrievers silently drop unknown tokens, so
     # «تاریخ برگزاری نمایشگاه الکامپ» degraded to its common words and the
-    # questions blend served the INOTEX date at 0.844 — confidently wrong.
+    # questions blend served the event date at 0.844 — confidently wrong.
     # Nulling every local candidate walks the ladder to the AI tier, which can
     # actually judge an out-of-domain entity, and keeps 503 (not a wrong
     # answer) when the AI tier is unavailable.
@@ -766,7 +766,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # whenever a trusted local candidate already WAS the named company — no
     # override fired and the generic blurb won. A company whose own curated
     # question happened to contain the field word shadowed the tier completely
-    # (measured 2026-08-27 on inotex.padyar.com: «سایت شرکت دکیو» matched the
+    # (measured 2026-08-27 in production: «سایت شرکت دکیو» matched the
     # دکیو question row itself at 0.99 and never reached this code, while
     # «شماره تماس شرکت دکیو» matched a different entry, took the override, and
     # answered correctly). Now every branch that is about to serve THAT
@@ -916,10 +916,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
                                 source="local_facet_overview",
                                 suggestions=chips)
 
-    # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را
+    # Company-list tier (measured 2026-08-27): «شرکت‌های هوش مصنوعی نمایشگاه را
     # معرفی کن» is a LIST question, but single-document retrieval can only pick
     # one entry — Tier 1 served faq-20, the out-of-scope REFUSAL text, at 0.81
-    # because it contains «هوش مصنوعی اینوتکس» and is a token magnet. The real
+    # because it contains «هوش مصنوعی نمایشگاه» and is a token magnet. The real
     # answer was a list built from the ~169 company rows. This tier answers
     # such questions straight from the `companies` table (see
     # migrations/0013_companies.sql), so it must run BEFORE the trusted
@@ -967,9 +967,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # Tier 1 — trust only a near-exact local match. When BOTH local signals
     # clear the trust bar, the higher score wins: sibling FAQ entries can
     # overlap the query's common tokens, so serving the dataset match first
-    # unconditionally picked the wrong entry (measured 2026-08-27, «اینوتکس
+    # unconditionally picked the wrong entry (measured 2026-08-27, «نمایشگاه
     # امسال چه زمانی» — dataset "programs" at 0.95 beat the correct
-    # questions-blend inotex-date at 0.965). On an exact tie the questions
+    # questions-blend date row at 0.965). On an exact tie the questions
     # match wins: those rows are hand-mapped query→answer pairs, more precise
     # than description-level similarity.
     t1_trusted = best_match and score >= TRUSTED_MATCH_THRESHOLD

@@ -224,7 +224,7 @@ def is_followup(message: str, offer) -> bool:
 
     WHY NOT A LENGTH TEST. This replaces
     `len(content_tokens(query)) <= 6 or (tokens & BACKREF_WORDS)`, which is
-    true for 58 of the 60 queries in data/eval/golden-inotex.json (measured
+    true for 58 of the 60 queries in the retired golden eval set (measured
     2026-08-28; content-token counts run 1→3, 2→14, 3→24, 4→10, 5→6, 7→1,
     8→1, 9→1 queries). Booth questions are short, so that gate stood open on
     almost every turn: for fifteen minutes after any list, «ساعت کاری
@@ -259,7 +259,7 @@ def is_followup(message: str, offer) -> bool:
             return True
 
     # 4. A number that indexes into what was printed («درباره ۳ بیشتر بگو»).
-    #    Bounded by `shown` on purpose: «تاریخ برگزاری اینوتکس ۲۰۲۶» carries a
+    #    Bounded by `shown` on purpose: «تاریخ برگزاری نمایشگاه ۲۰۲۶» carries a
     #    digit run too and a YEAR is not a pick. isdecimal(), not isdigit():
     #    '²'.isdigit() is True while int('²') raises ValueError.
     for t in tokens:
@@ -390,14 +390,14 @@ def resolve_more(message: str, offer) -> bool:
 
 _SHAPES = ("@", "http", "www.")
 # Sentence punctuation clinging to a word, both scripts, plus the trailing
-# slash of a URL: «inotex.com.» and "https://inotex.com/" are the same site.
+# slash of a URL: «padyar.dev.» and "https://padyar.dev/" are the same site.
 _EDGE_PUNCT = ".,;:!?)(»«\"'،؛؟/"
 
 # The unmistakable shapes: an address, or a scheme, or the www prefix.
 _URLISH = re.compile(r"(?:@|https?://|www\.)", re.I)
-# A BARE hostname — the shape a model actually invents, «inotex.co» with no
+# A BARE hostname — the shape a model actually invents, «padyar.co» with no
 # scheme and no www. This used to be an allowlist of four TLDs (.com .ir .org
-# .net), so «padyar.dev» and «inotex.info» were not links at all and shipped
+# .net), so «padyar.dev» and «event.info» were not links at all and shipped
 # to the visitor with nothing checking them (measured 2026-08-28). Structure,
 # not a TLD list: ASCII label(s), a dot, and a final label of 2+ letters, and
 # the WHOLE token must be that shape. «e.g» and «i.e» miss it because a
@@ -542,7 +542,7 @@ def generated_prose_is_grounded(text: str, lang: str = "fa"):
     ۰۲۱۸۸۵۰۳۰۳۰, so every single digit except 7 and 9 was already a substring
     of it and «سالن ۳ در ضلع شمالی است» — an invented hall number, read by a
     visitor standing at a booth — passed. The same hole let the fake link
-    «otex.com» through, because it is a substring of the recorded inotex.com.
+    «dyar.com» through, because it is a substring of the recorded padyar.com.
     Now each record contributes its whole numbers and its whole links to a
     SET, and a number in the answer has to BE one of them.
 

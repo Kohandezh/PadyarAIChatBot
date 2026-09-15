@@ -173,7 +173,7 @@ def test_every_recommended_section_exists_in_the_taxonomy():
 
 
 def test_note_always_states_the_exhibitor_directory_is_not_published():
-    for lang, marker in (("fa", "غرفه‌داران"), ("en", "exhibitor")):
+    for lang, marker in (("fa", "فهرست شرکت‌ها"), ("en", "exhibitor")):
         plan = visit_plan.recommend({"interests": "هوش مصنوعی"}, lang=lang)
         assert marker in plan["note"]
 
@@ -187,7 +187,7 @@ def test_plan_text_is_empty_without_a_real_match():
 def test_plan_text_lists_sections_and_the_note():
     text = visit_plan.plan_text({"interests": "هوش مصنوعی"})
     assert "همایش ملی هوش مصنوعی" in text
-    assert "غرفه‌داران" in text
+    assert "فهرست شرکت‌ها" in text
 
 
 def test_plan_text_separates_general_sections_from_matches():
