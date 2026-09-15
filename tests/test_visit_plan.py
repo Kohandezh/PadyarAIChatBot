@@ -196,8 +196,8 @@ def test_plan_text_separates_general_sections_from_matches():
     assert "مدیا هاب — چون در حوزهٔ رسانه و محتوا فعالید." in text
     assert "و اگر وقت داشتید" in text
     # The topped-up entry appears as a bare title, with no invented reason.
-    assert "• استیج اینوتکس\n" in text or text.endswith("• استیج اینوتکس")
-    assert "استیج اینوتکس —" not in text
+    assert "• استیج اصلی\n" in text or text.endswith("• استیج اصلی")
+    assert "استیج اصلی —" not in text
 
 
 # ── HTTP surface ─────────────────────────────────────────────────────────

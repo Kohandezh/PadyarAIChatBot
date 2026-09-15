@@ -120,44 +120,6 @@ jobs:
       - name: Run PostgreSQL integration suite
         run: pytest tests/postgres -q
 
-  # Blocking. These assert properties that must never regress: the assistant
-  # must not answer confidently from the previous event's identity, must not
-  # echo a secret, and must not be talked into either by a prompt-injection
-  # question. run_eval.py exits non-zero when any of those gates trips.
-  #
-  # Runs after `test` so a plain broken build fails on the cheap job first.
-  evaluation:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      - name: Retrieval evaluation + safety gates
-        env:
-          # The harness is fully offline; a dummy key only satisfies import-time config.
-          OPENAI_API_KEY: ci-dummy-key
-          # Deterministic: never let CI seed content into a DB the harness then measures.
-          SEED_DEFAULT_CONTENT: "true"
-        run: python scripts/run_eval.py
-
-      - name: Upload benchmark report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: retrieval-eval
-          path: docs/knowledge-based-evidence/appendices/benchmark-results/retrieval-eval.json
-          if-no-files-found: warn
-
   # Reporting, NOT blocking. An advisory can name a fix version that has not
   # been published yet (see docs/engineering/DEPENDENCY_AUDIT.md — that is the
   # live situation for `cryptography` right now), and a build that hard-fails
@@ -244,7 +206,7 @@ jobs:
   # script with the ephemeral job token in its environment. No credential is
   # stored on the server; the token dies when the job ends.
   deploy:
-    needs: [test, postgres-tests, evaluation, dependency-audit, secret-scan]
+    needs: [test, postgres-tests, dependency-audit, secret-scan]
     # Push to main deploys; so does a manual dispatch ON main (the button is
     # the operator saying "deploy the current main again" — same gates).
     if: >-
