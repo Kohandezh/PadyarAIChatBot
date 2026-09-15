@@ -8,7 +8,7 @@
 | پنل ادمین | هش SHA-256+salt، قفل ۵ تلاش/۵ دقیقه، نشست لغزان ۱ ساعته، مسیر مبهم /secure-panel-admin | app/auth/security.py |
 | prompt injection | بخش SECURITY ثابت در پرامپت (غیرقابل‌ویرایش مشتری) + محدودهٔ SCOPE + آزمون‌های خصمانه در مجموعهٔ طلایی (false-confident injection = 0) | app/services/openai.py، scripts/run_eval.py |
 | نشت اسرار | کلیدها فقط در env/settings؛ گیت `secret_leaks=0` در ارزیابی؛ کلید هرگز به کلاینت نمی‌رود | run_eval.py گیت سخت |
-| مسمومیت بازیابی | فقط منابع allowlist شدهٔ content/sources.json وارد دانش می‌شوند؛ انتشار با تأیید انسانی | ADR-006 |
+| مسمومیت بازیابی | محتوای رویداد بازنشسته از طریق allowlist منابع (`content/sources.json`) و گیت انتشار با تأیید انسانی کنترل می‌شد؛ آن allowlist با حذف خط لولهٔ محتوا حذف شد. امروز محتوا فقط از پنل ادمین (بهره‌بردار احراز هویت‌شده) وارد دانش می‌شود — بازبینی بهره‌بردار همان کنترل باقی‌مانده است | ADR-006 |
 | داده‌های شخصی | لاگ چت شامل متن پرسش/پاسخ است — سیاست نگه‌داری باید توسط بهره‌بردار تعیین شود (گپ شناخته‌شده) | backlog |
 | CORS | allow_credentials=false با «*»؛ ادمین same-origin | app/main.py |
 | کوکی | COOKIE_SECURE=true در تولید (env) | app/config.py |

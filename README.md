@@ -338,7 +338,7 @@ python -m py_compile app/main.py app/routers/chat.py
 
 ### CI/CD
 
-`.github/workflows/ci.yml` runs on every PR and push: `test` (full suite + advisory `pytest-cov` coverage report), `postgres-tests` (blocking — a `postgres:16` service container runs the `tests/postgres` integration suite), `evaluation` (blocking retrieval/safety eval gates), `dependency-audit` (advisory pip-audit) and `secret-scan` (blocking) execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval. Separate workflows: `release.yml` (on `v*` tags — runs the suite, then cuts the GitHub Release from the CHANGELOG; see `docs/engineering/RELEASING.md`) and `freshness.yml` (weekly advisory content-freshness check).
+`.github/workflows/ci.yml` runs on every PR and push: `test` (full suite + advisory `pytest-cov` coverage report), `postgres-tests` (blocking — a `postgres:16` service container runs the `tests/postgres` integration suite), `dependency-audit` (advisory pip-audit) and `secret-scan` (blocking) execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval. A separate `release.yml` workflow (on `v*` tags) runs the suite again, then cuts the GitHub Release from the CHANGELOG; see `docs/engineering/RELEASING.md`.
 
 ## 🤝 Contributing
 
