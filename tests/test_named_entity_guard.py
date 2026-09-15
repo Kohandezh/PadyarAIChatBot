@@ -276,22 +276,23 @@ EMSAL_DATASET = [
 
 def test_a_token_unique_in_one_title_but_common_in_texts_does_not_anchor(client, monkeypatch):
     """The امسال shape (live 2026-08-27): «امسال» has title-df 1 (the stage
-    entry's question-style title) but lives in a second entry's text. It must
-    not be a name — the date question flows through the normal pipeline
-    instead of being anchored to the stage programme."""
+    entry's question-style title) but lives in a second entry's text. The
+    mocked AI answers with the date entry's own words, so grounding must land
+    on the date row on every embedding-model revision — never on the stage
+    programme."""
     _reseed(EMSAL_DATASET)
     from app.services import search
     assert "امسال" not in search._distinctive_title_tokens
     entry, tokens = search.resolve_named_entity("پردیار امسال چه زمانی برگزار می شود")
     assert entry is None and tokens == set()
 
-    _mock_ai(monkeypatch)
+    _mock_ai(monkeypatch, generated=EMSAL_DATASET[1][2])
     r = _ask(client, "پردیار امسال چه زمانی برگزار می شود")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] != "local_entity", body
-    stage_text = next(x for i, _t, x in EMSAL_DATASET if i == "stage")
-    assert body["text"] != stage_text, body
+    date_text = EMSAL_DATASET[1][2]
+    assert body["text"] == date_text, body
 
 
 # The شماره shape: a synonym (تماس→شماره) injects «شماره» into the contact
