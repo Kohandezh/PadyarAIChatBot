@@ -17,6 +17,18 @@ and watching them not arrive:
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _tmp_db(tmp_path, monkeypatch):
+    """The suite's DB redirect idiom (see test_otp.py). These tests stub the
+    HTTP layer but call the REAL send path, whose sms_outbox.record() would
+    otherwise land queued rows in the repo-root chat_history.db — 5 of them
+    per full-suite run, baiting every later boot's delivery poller into
+    asking the real gateway about them. record() ensures its own table, so
+    the redirect is all a service-level suite needs."""
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "asanak_delivery.db"))
+
+
 # ── The destination format the gateway will accept ───────────────────────
 
 @pytest.mark.parametrize("stored,expected", [
