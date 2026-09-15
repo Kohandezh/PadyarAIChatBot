@@ -110,6 +110,11 @@ graphify-out/
 # Local embedding model cache (regenerable, ~100MB)
 data/models/
 
+# HuggingFace Hub download cache (HF_HOME). The embedding model lands here
+# on first run: ~1GB of blobs plus symlink snapshots git cannot traverse
+# ("Too many levels of symbolic links"). Regenerable, never source.
+.hfcache/
+
 # Knowledge snapshots are runtime state (hashes tracked via freshness-report)
 content/snapshots/
 

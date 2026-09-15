@@ -1,68 +1,30 @@
 # Security Standard
 
-Binding standard for security review of every non-trivial change.
-The *current* security model of the app (what exists today, including
-known gaps) is documented in `SECURITY_MODEL.md` — keep the two in sync.
+## Authentication Target
 
----
+New API authentication should use bearer-style authentication rather than introducing new browser-cookie authentication.
 
-## Authentication vs Authorization
+This is a target standard, not a statement that the current codebase is bearer-only.
 
-Authentication answers:
+## Current-State Exceptions
 
-> Who is making this request?
+The current PadyarAIChatbot codebase contains established mechanisms including:
+- admin cookie sessions;
+- HMAC-signed chat tokens;
+- visitor/session cookies.
 
-Authorization answers:
+These are current-state mechanisms. They should not be removed or rewritten solely because the target standard is different.
 
-> Is this user allowed to perform this operation on this resource?
+## Rules for New Work
 
-Every protected resource operation performs authorization. Never assume
-that because a client supplied `conversation_id`, `message_id`, or
-`workspace_id`, the client owns that resource.
+- Do not introduce a new authentication mechanism without an architecture decision.
+- Do not bypass an existing security boundary to make a feature easier to implement.
+- Understand the full session/token lifecycle before modifying authentication.
+- Security-sensitive changes require tests for both allowed and denied paths.
+- Prefer server-side ownership of identity and authorization decisions.
+- Never authorize one resource and write another resource.
+- Treat identifiers used for authorization and identifiers used for persistence as an explicit binding that must be verified.
 
-## Review Checklist
+## Migration
 
-For every non-trivial change, explicitly consider:
-
-- authentication
-- authorization
-- IDOR (insecure direct object reference)
-- privilege escalation
-- injection
-- XSS
-- CSRF where applicable
-- SSRF where applicable
-- rate limiting
-- sensitive data exposure
-- mass assignment
-- insecure defaults
-- information leakage
-
-Security is never an afterthought.
-
-## Resource Enumeration
-
-Consider IDOR/resource enumeration attacks for every resource endpoint.
-When appropriate, avoid revealing whether another user's resource exists
-— prefer generic not-found responses.
-
-## Secrets and Logging
-
-Never log or expose:
-
-- access tokens
-- passwords
-- secrets / internal credentials
-- unnecessary personal data
-- another user's private data
-
-## Verification
-
-If a security boundary is involved, the negative case is tested
-explicitly (see `TESTING.md`):
-
-```text
-User A can access Conversation A.
-User A cannot access Conversation B.
-User B cannot modify Message A.
-```
+A migration from current mechanisms to bearer-only authentication is separate work unless explicitly included in scope. Migration must define compatibility, rollout, revocation, client behavior and rollback.

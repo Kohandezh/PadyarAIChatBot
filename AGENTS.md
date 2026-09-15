@@ -1,633 +1,234 @@
 # AGENTS.md — PadyarAIChatbot
 
-**This application must be usable by anyone — from a kid to an elderly person. No special knowledge required.**
+## Product Principle
 
-This is the #1 product principle. It overrides everything else.
+This application must be usable by anyone — from a kid to an elderly person. No special knowledge required.
 
-- If a feature needs an explanation, it's too complex.
+- If a feature needs an explanation, simplify it.
 - If a user has to think about what to do next, the UI is wrong.
-- If a user has to read a manual to use the chatbot, the chatbot is wrong.
-- Every screen must be understandable in under 3 seconds.
-- Every action must be completable in under 3 clicks.
-- No jargon. No technical terms in user-facing UI. No confusing settings.
-- Default everything to "just work." Advanced options are optional and hidden.
-- A user with zero AI knowledge should be able to use every feature immediately.
-- The admin panel must be intuitive enough for non-technical staff.
-
-**When in doubt: simplify. Remove. Hide. Auto-detect. Default.**
+- Every screen should be understandable in under 3 seconds.
+- Every action should be completable in under 3 clicks where practical.
+- No jargon or technical terms in user-facing UI.
+- Defaults should just work; advanced options stay hidden unless needed.
+- When in doubt: simplify, remove, hide, auto-detect, default.
 
 ## Communication
 
-Malik-e product (Sina) Finglish minevisi — farsi ba horuf-e latin. Jawab-ha
-HAMESH Finglish ast. Hich vaght parsi script, hich vaght makhs. Faghat baraye
-chat — code, commit, doc tu zaban-e khod.
+Malik-e product (Sina) Finglish minevise. Javab-ha HAMESH Finglish ast. Faghat baraye chat — code, commit, docs va tests zaban-e khod ra estefade kon.
 
----
+## Source of Truth
 
-## Project Overview
+This file contains repository-wide engineering and product rules. `CLAUDE.md` contains Claude-specific execution guidance and project orientation. Detailed standards live under `docs/engineering/`.
 
-**PadyarAIChatbot** is a **CMS for AI chatbots** — installed per-customer. Each customer deploys the app, gets the features they ordered (core + selected optional modules), enters their own content (Q&A dataset, videos), customizes branding (name, logo, colors), and manages everything through the admin panel.
+When documents conflict:
+1. Current code and tests establish the current state.
+2. `AGENTS.md` establishes binding engineering rules.
+3. `docs/engineering/` explains the standards and rationale.
+4. `CLAUDE.md` explains execution workflow and tool routing.
 
-**This file is the short orientation. `CLAUDE.md` is the full, authoritative document.** When the two disagree, `CLAUDE.md` wins and this file is the bug.
-
-The chatbot answers through a **tiered pipeline**, not two tiers. Cheap local tiers run first. The paid model tiers run only when the local ones are not confident. See "Tiered Intelligence" below and the full diagram in `CLAUDE.md` under "Tiered Intelligence Pipeline".
-
-- **Language:** Python 3.10+
-- **Framework:** FastAPI + Uvicorn
-- **Database:** PostgreSQL 16 (production). SQLite is the test backend and a rollback artifact only.
-- **Frontend:** Vanilla HTML/CSS/JS (chat) + Tabler UI (Bootstrap 5, RTL) for admin
-- **AI:** the Padyar AI Control Plane, 11 provider types behind the Padyar AI Wrapper. Models are set per route in Admin -> AI -> Routing. Whisper-1 for voice (STT sits outside the wrapper).
-- **Search:** pure-Python BM25 (`app/services/bm25.py`) + local model2vec embeddings (`app/services/embeddings.py`), fused by a feature reranker (`app/services/rerank.py`). **No TF-IDF and no `search_backend` setting** — both were removed on 2026-08-28. scikit-learn is still a dependency, but only for the logistic-regression intent head in `app/services/intent.py`.
-- **Font:** Vazirmatn (Persian)
-
-## Prerequisites
-
-- Python 3.10+
-- pip
-- OpenAI API key (used via GapGPT proxy)
-
-## Setup
-
-```bash
-# Interactive installer (recommended)
-chmod +x setup.sh && ./setup.sh
-
-# Manual
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env — add OPENAI_API_KEY
-python main.py
-```
-
-App starts at `http://127.0.0.1:8000`.
-
-### Environment Variables
-
-| Variable          | Required | Description                                                             |
-| ----------------- | -------- | ----------------------------------------------------------------------- |
-| `OPENAI_API_KEY`  | Yes      | API key for all AI operations via GapGPT proxy                          |
-| `VIDEO_BASE_URL`  | No       | Base URL for videos (default: `/media/videos`) |
-| `ENABLED_MODULES` | No       | Comma-separated optional modules to enable (empty = all)                |
-
-## Commands
-
-| Command                      | Description                               |
-| ---------------------------- | ----------------------------------------- |
-| `python main.py`             | Start dev server (port 8000, auto-reload) |
-| `python scripts/change-admin.py`     | Change admin password             |
-| `python scripts/debug_similarity.py` | Debug similarity matching         |
-| `python scripts/net-diag.py`        | Network diagnostics               |
-| `python scripts/gapgpt_test.py`      | Test GapGPT API connectivity      |
-
-## Testing
-
-**Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
-the full pytest suite (with an advisory `pytest-cov` coverage report), the
-**blocking `postgres-tests` job** (a `postgres:16` service container runs
-`tests/postgres` on every push and PR), plus the retrieval/safety eval —
-that run is the pass/fail signal. Separate workflows: `release.yml` (tests +
-GitHub Release on `v*` tags — see `docs/engineering/RELEASING.md`) and
-`freshness.yml` (weekly advisory content-freshness check; on the server the
-systemd timer `padyar-freshness@.timer` does the same — see `deploy/README.md`). Don't run the whole `pytest` suite locally
-as a commit or merge gate: this machine has 15 tests that always fail here
-and always pass on CI (env/network-only, e.g. tests needing a live
-PostgreSQL), so a local full run is not a trustworthy signal.
-
-```bash
-gh run list --branch <branch> --limit 1
-gh run watch
-```
-
-`python -m py_compile <file>` on files you touched is still fine as a quick
-local syntax check before pushing. Running a single test file locally while
-writing it (TDD red/green) is fine too — just don't treat a local full-suite
-run as the merge gate.
-
-## Keep the Code Graph Current
-
-This repo uses [Graphify](https://github.com/safishamsi/graphify) for a
-local, queryable knowledge graph of the codebase. Output lives in
-`graphify-out/` (gitignored, regenerated, never committed).
-
-After finishing a feature, before opening a PR, refresh it:
-
-```bash
-graphify update .
-```
-
-No LLM or API key needed. It doesn't affect CI or the diff — it keeps the
-graph current for whichever agent queries it next:
-
-```bash
-graphify query "<question>"
-graphify explain "<file-or-symbol>"
-graphify affected "<file-or-symbol>"
-```
-
-## Project Structure
-
-```
-PadyarAIChatbot/
-  main.py                        # Entry point — uvicorn runner
-  setup.sh                       # Interactive installer
-  requirements.txt               # 17 Python dependencies
-  .env / .env.example            # Config
-
-  app/                           # Application package
-    main.py                      # FastAPI app factory, lifespan, middleware
-    config.py                    # All config — env vars, paths, thresholds
-    models.py                    # Pydantic schemas
-
-    routers/                     # Route handlers
-      public.py                  # Public pages + health check (+ version field)
-      chat.py                    # /chat — core chatbot pipeline
-      admin.py                   # Admin stats, settings, export
-      voice.py                   # /api/transcribe (Whisper)
-      metrics.py                 # GET /metrics — Prometheus (METRICS_TOKEN or admin session)
-      synonyms.py                # Synonym CRUD + AI suggest/apply
-      dataset.py                 # Dataset + questions + video CRUD + AI question suggest/apply
-      themes.py                  # Theme listing/activation
-
-    services/                    # Business logic
-      search.py                  # Retrieval orchestration, dataset loading, reindex
-      bm25.py                    # Okapi BM25 lexical retriever (pure Python)
-      embeddings.py              # Local model2vec embeddings, no external API
-      rerank.py                  # Feature reranker fusing dense + lexical candidates
-      metrics.py                 # Prometheus registry: http/chat-tier/ai-call/circuit/backup/health
-      synonym_suggest.py         # AI synonym suggestions (validate + human approve)
-      question_assist.py         # AI question-variant suggestions (validate + human approve)
-      backup_offsite.py          # Off-site copy of verified backups (rsync:/dir:, non-fatal)
-      answer.py                  # Selection tier + grounding firewalls + list renderer
-      openai.py                  # GPT classification, chat, Whisper
-      themes.py                  # Theme discovery
-      signup.py                  # Server-owned signup flow: validation + steps
-
-    db/                          # Database layer
-      connection.py              # SQLite init, schema, seeding
-      queries.py                 # All database operations
-
-    auth/                        # Security
-      security.py                # Rate limiting, HMAC tokens, admin auth
-
-    utils/                       # Utilities
-      normalizer.py              # Persian text normalization + synonyms
-
-    modules/                     # Module system
-      registry.py                # Module definitions, conditional loading
-
-  templates/admin/               # Jinja2 admin templates (extends base.html > layout.html)
-  static/admin/js/               # Admin JS modules (one per page)
-  static/vendor/                 # Bootstrap, Chart.js, FontAwesome, Vazirmatn, marked.js
-
-  themes/                        # Pluggable chat UI themes
-    inotex/                      # The only selectable theme (official INOTEX palette)
-    base/                        # Default partials only — not selectable
-
-  data/                          # Runtime data (knowledge base lives in the DB;
-                                 #   bundled defaults in app/default_content.py)
-
-  media/                         # Runtime media
-    videos/                      # Admin-uploaded videos
-    uploads/                     # General uploads (YYYY/MM/)
-
-  docs/                          # Documentation hub
-  index.html                     # Root chat UI
-  scripts/                       # Standalone dev/ops utilities (run from root)
-```
-
-## Dependencies (requirements.txt)
-
-| Package            | Purpose                                  |
-| ------------------ | ---------------------------------------- |
-| `fastapi`          | Web framework                            |
-| `jinja2`           | Template engine (admin panel)            |
-| `uvicorn`          | ASGI server                              |
-| `scikit-learn`     | Logistic-regression intent head only     |
-| `model2vec`        | Local sentence embeddings for retrieval  |
-| `openai`           | OpenAI API client (via GapGPT proxy)     |
-| `python-multipart` | File upload handling                     |
-| `numpy`            | Numerical operations                     |
-| `httpx`            | HTTP client                              |
-| `anyio`            | Async compatibility layer                |
-| `psycopg[binary]`  | PostgreSQL driver (production DB)        |
-| `psycopg-pool`     | PostgreSQL connection pooling            |
-| `python-dotenv`    | .env file loading                        |
-| `bcrypt`           | Admin password hashing                   |
-| `cryptography`     | Encrypted-at-rest secrets (Fernet)       |
-| `qrcode`           | QR code generation                       |
-| `prometheus-client`| `/metrics` Prometheus endpoint           |
-
-Dev-only deps (`requirements-dev.txt`): `pytest`, `pytest-asyncio`,
-`pytest-playwright`, `pytest-cov` (advisory coverage report in CI), `openpyxl`.
-
-## Architecture
-
-### Tiered Intelligence
-
-The tier gates live in `app/routers/chat.py`. **`CLAUDE.md` under "Tiered Intelligence Pipeline" holds the full diagram — read that before changing any tier.** Short version:
-
-1. **Pick tier (no AI call):** a bare number, an ordinal word, or an offered title, resolved against the record ids stored on the last turn. "more" pages the same list.
-2. **Tier 0 — Curated questions (exact):** Jaccard-only match against the hand-mapped question index. Serves at ≥ 0.9.
-3. **Tier 1 — Local retrieval:** Persian normalization → synonym expansion → BM25 + local model2vec embeddings → feature reranker. Trusted at `TRUSTED_MATCH_THRESHOLD` = **0.70**. There is no TF-IDF backend.
-4. **Tier 1.5 — Per-install intent classifier:** logistic regression over local embeddings, retrained on every reindex. Serves at `INTENT_TRUST_THRESHOLD` = **0.6**.
-5. **Tier 2 — Selection (`app/services/answer.py`):** the model sees the top `ANSWER_TOPK` records plus the last turns and returns JSON naming record **ids** — `answer`, `options`, or `none`. The model chooses; our renderer writes every fact string back out of the database.
-6. **Tier 2 legacy:** classify intent → entry, else a written answer, verified before it is served.
-7. **AI unavailable:** only a strong local match answers (`LOCAL_FALLBACK_THRESHOLD` = 0.45, `QUESTIONS_FALLBACK_THRESHOLD` = 0.60). Otherwise ask the visitor to rephrase rather than show an unrelated video.
-
-`app/config.py` is authoritative for every threshold above.
-
-### Module System
-
-All features are modules. Each module has its own router and optional service layer.
-
-**Two categories:**
-
-| Category                               | Behavior                                                                                         | Examples                                      |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------- |
-| **Core modules** (`is_core=True`)      | Always enabled. Ship with every installation. Cannot be disabled.                                | `chat`, `admin`, `search`, `dataset`, `theme`, `conversations` |
-| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `infra`, `backups`, `ops`, `logs`, `tts`, `registration`, `leads` |
-
-`app/modules/registry.py` is authoritative. Note `whitelabel` is **not** a module — branding is a set of `whitelabel_*` rows in the `settings` table (see below).
-
-**How it works:**
-
-- At install time, set `ENABLED_MODULES=voice,video` to enable specific optional modules
-- If `ENABLED_MODULES` is empty → all optional modules load (full-featured install)
-- Core modules always load regardless of the env var
-- Every **new feature** must be implemented as an optional module (`is_core=False`) — only promote to core if every customer needs it
-
-Module definition pattern in `app/modules/registry.py`:
-
-```python
-@dataclass
-class ModuleDef:
-    name: str
-    description: str
-    is_core: bool = False        # True = always on, False = per-install toggle
-    router_module: str = ""      # e.g. "app.routers.voice"
-    router_var: str = "router"
-```
-
-Core modules always load. Optional modules load only when listed in `ENABLED_MODULES` env var.
-
-### White-Label / Branding
-
-This is a CMS installed per-customer — branding customization is a first-class feature.
-
-**Storage:** Key-value `settings` table with `whitelabel_` prefix. **`app/services/branding.py` (`WL_DEFAULTS`) is the single source of truth** — the full, current key table (name, subtitle, logo URL, the 8 palette colors, welcome text, chat + video background URLs) is in `CLAUDE.md` under "White-Label / Branding System".
-
-**Template injection:** `branding.chat_branding_context()` pre-escapes every value for the theme env's `autoescape=False` and emits `wl_style` (one `--wl-*` custom property per token, including the two `url("…")` background tokens), `wl_brand_script`, and the text positions. Brand values are baked into the rendered-page cache; `wl_cache_key()` flips the key on save.
-
-**Color picker:** Native `<input type="color">` — zero dependencies, outputs `#rrggbb` hex.
-
-**Backgrounds:** `whitelabel_chat_background_url` / `whitelabel_video_background_url` — the images behind the two tabs, painted on `.view-container` (dark mode; light mode keeps its frosted wash). Set in Settings > Branding, same upload pattern as the logo.
-
-### Database (PostgreSQL 16 — schemas `app` + `observability`)
-
-| Table            | Purpose                                                       |
-| ---------------- | ------------------------------------------------------------- |
-| `chat_logs`      | Chat interactions (query, response, confidence, tokens, cost) |
-| `settings`       | Key-value runtime settings (includes `whitelabel_*` keys)     |
-| `dataset`        | Knowledge base entries (title, text, video_url)               |
-| `questions`      | Question-to-dataset mappings                                  |
-| `synonyms`       | Persian synonym mappings                                      |
-| `admins`         | Admin credentials (SHA-256 + salt)                            |
-| `admin_sessions` | Active sessions with sliding expiry                           |
-| `media`          | Uploaded file metadata                                        |
-
-### Security
-
-- HMAC-signed chat tokens (validated on every `/chat` **and** `/api/transcribe` request)
-- Origin/Referer validation against allowlist
-- Rate limiting: `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (defaults: 20 / 60, env-overridable) — sliding-window counters live in the `rate_limit_hits` table so they are shared across workers and survive restarts
-- Request body ceiling: `MAX_BODY_BYTES` (default 512 MB) via the Content-Length header, plus per-endpoint read caps where uploads are buffered in memory
-- Admin: bcrypt passwords (legacy SHA-256 rows upgrade on next login), bcrypt security answers (legacy rows upgrade too), session cookies, brute-force lockout (5 attempts → 5 min, stored in the `login_attempts` table so it survives a restart and is shared across workers)
-- Sliding admin sessions (1 hour); a password change revokes every other session for that admin
-- Secrets stored encrypted at rest (`enc:` Fernet tokens via `app/services/secure_store.py`, including the legacy `ai_api_key`) — `get_setting()` decrypts transparently
-- CSV exports neutralize spreadsheet formula injection; admin-editable branding injected into public HTML is escaped
-- `data/` is NOT served over HTTP; static mounts cover `/static`, `/media`, `/LOGO`, `/themes/*` only
-
-### Theme System
-
-WordPress-style partials in `/themes/{name}/`: each has `theme.json`, a `partials/` folder overriding only what differs from `themes/base/partials/`, and `static/style.css`. Auto-discovered at startup, no registration needed. Active theme stored in DB settings (`active_theme`). Selectable: `inotex` only (the other themes — `liquid-glass`, `minimal`, `haj` — were removed on 2026-08-30). `base` supplies the default partials only, not selectable itself. A `"parent"` field in `theme.json` chains inheritance before falling back to base.
-
-`menu.html` (the hamburger drawer) becomes a persistent, collapsible sidebar at 992px+. `base` keeps a separate `.menu-sidebar-logo` next to the title and a compact stand-in logo on `.menu-sidebar-toggle-btn` for the collapsed rail only; `inotex` instead puts the full brand mark inside `.menu-sidebar-toggle-btn` at all times, expanded or collapsed (its own `style.css` overrides `base.css` for this). Follow whichever pattern the theme you are editing already uses — the two are not interchangeable, and a fix belongs in that theme's own `style.css`, not in `base.css`.
-
-#### قاعدهٔ الزامی برای تم‌های جدید (رنگ‌ها)
-
-> **همهٔ رنگ‌های هر تم باید از داخل «تنظیمات > برندینگ» قابل ویرایش باشند.**
->
-> وقتی تم جدیدی اضافه می‌کنید، هیچ رنگی نباید فقط داخل فایل CSS تم قفل شود.
-> تم باید همهٔ توکن‌های رنگی خود را از متغیرهای `--wl-*` بخواند (با فالبکِ
-> پالت پیش‌فرض در `var()`)، همان الگویی که `themes/inotex/static/style.css`
-> استفاده می‌کند. این متغیرها از `app/services/branding.py`
-> (`WL_DEFAULTS` → `wl_style`) به صفحه تزریق می‌شوند و ادمین آن‌ها را در
-> «تنظیمات > برندینگ» با کالرپیکر تغییر می‌دهد. اگر تم جدید توکن رنگی جدیدی
-> دارد: کلید `whitelabel_*` جدید را در `branding.py`
-> (`WL_DEFAULTS` + `WL_FIELD_TO_KEY`)، در `WhitelabelBrandingRequest`
-> (`app/models.py`)، در اعتبارسنجی `app/routers/admin.py` و در فرم
-> `templates/admin/settings_branding.html` + `static/admin/js/settings.js`
-> اضافه کنید. تست `tests/test_public_ui.py::test_inotex_theme_uses_official_palette_tokens`
-> همین قاعده را برای تم اینوتکس نگه می‌دارد؛ برای تم جدید هم تست مشابه بنویسید.
-
-## Key Files
-
-| File                      | Purpose                                   |
-| ------------------------- | ----------------------------------------- |
-| `app/config.py`           | All configuration — read this first       |
-| `app/routers/chat.py`     | Core chatbot pipeline — the main endpoint |
-| `app/services/search.py`  | Retrieval orchestration, dataset loading  |
-| `app/services/answer.py`  | Selection tier + grounding firewalls      |
-| `app/services/openai.py`  | All AI integration                        |
-| `app/db/connection.py`    | Database schema and seeding               |
-| `app/auth/security.py`    | All security logic                        |
-| `app/utils/normalizer.py` | Persian text processing                   |
-| `app/modules/registry.py` | Module definitions                        |
-
-## How a Feature Ships (the anti-scaffold rule)
-
-A 2026-08 audit of this repo found the same defect class seven times over: a
-capability **built but never wired to its production call-site** — a rate
-limiter with a per-identity `key` param no route ever passed, a conversation
-cookie read on every request but never set, a maintenance mode fully enforced
-with no UI to toggle it, a documented white-label system that did not exist in
-code (PR #17 fixed all seven). The rule below exists so that class of defect
-cannot merge again.
-
-**A feature is a scenario, not a capability.** Before building, name the
-scenario: who triggers it, from where, under what real conditions (a NAT'd
-booth sharing one IP, a visitor an hour into a conversation, a non-technical
-operator at 3 clicks, two installs deploying from one branch). If the scenario
-cannot be named, the feature is not specified. The scenario — not the
-mechanism — is what gets tested and reviewed.
-
-### Flow: spike → prototype → spec → wire → verify
-
-1. **Spike** (optional, timeboxed) — de-risk the unknown. Throwaway code, no
-   commit to main.
-2. **Prototype** — the thinnest vertical slice that exercises the scenario
-   end-to-end. If the slice cannot reach the scenario, the design is wrong.
-3. **Spec** (`docs/features/{slug}/`) — written AFTER the prototype, from what
-   it proved. A spec documents what IS shipping. A spec describing machinery
-   that does not exist in code is a defect (doc-fiction), not a roadmap —
-   planned items live in the feature folder, clearly marked.
-4. **Wire** — every param, function, endpoint, setting, cookie or table this
-   feature introduces has its production caller **in the same change**. A
-   `key=` param with zero callers, an endpoint with zero consumers, a reader
-   with no writer: all are review-blocking defects, not forward compatibility.
-5. **Verify** — the scenario has a test that **fails when the wiring is
-   removed**. Write it first and watch it fail (red), then make it pass. A
-   test that asserts the unwired behavior (e.g. per-IP limiting when the
-   design says per-identity) is an approval of the bug, not a guard.
-
-### Reader–writer pairs must close
-
-The audit's failures were one-sided mechanisms. These pairs must BOTH ship or
-neither does: cookie read ↔ cookie set; token validated ↔ token refreshable;
-secret saved ↔ secret reachable by its consumer; admin page ↔ its data API
-(module-gated together); sidebar link ↔ route exists; docs ↔ code. Health and
-panel status must reflect whether the feature can actually serve (routes
-exist, wiring live), never merely whether config is present — green with zero
-routes is a defect.
-
-### Scale
-
-Bugfix / small change: no phases — just the checklist above at review time.
-New feature or optional module: the full flow, and the spec folder is the
-record of the scenario.
-
-## Patterns to Follow
-
-### New Module (required for all features)
-
-1. Define in `app/modules/registry.py` as a `ModuleDef` — always `is_core=False` (optional) unless every customer needs it
-2. Create `app/routers/{name}.py` with `APIRouter`
-3. Create `app/services/{name}.py` for business logic
-4. Router auto-loads at startup via `load_module_routers()` when listed in `ENABLED_MODULES`
-5. For the customer's installation, add the module name to their `ENABLED_MODULES` env var
-
-### New Admin Page
-
-1. Create `templates/admin/{name}.html` extending `layout.html`
-2. Create `static/admin/js/{name}.js` for page logic
-3. Add route in appropriate router
-4. Add sidebar link in `templates/admin/layout.html`
-
-### New White-Label Setting
-
-1. Add key to `settings` table (prefix with `whitelabel_`) + default in `WL_DEFAULTS` (`app/services/branding.py`)
-2. Escape it in `chat_branding_context()` (theme env is `autoescape=False`)
-3. Add field to Settings → برندینگ (`templates/admin/settings_branding.html` + `initBranding()`)
-4. Extend the theme page-cache key (`themes.py`) if the value is baked into the chat shell
-
-### New Theme
-
-1. Create `/themes/{name}/` with `theme.json`, `partials/` (override only what differs from `themes/base/partials/`), `static/style.css`, `screenshot.png`
-2. Auto-discovered at startup — no registration needed
-3. **Read the «قاعدهٔ الزامی برای تم‌های جدید» rule under Theme System first:** every theme color must read from the `--wl-*` branding tokens so Settings > Branding controls the full palette
-
-### Database Changes
-
-1. Add a new versioned file `migrations/NNNN_name.sql` (PostgreSQL owns the schema)
-2. Apply with `python scripts/apply_migrations.py` (idempotent, checksum-guarded)
-3. Mirror test-suite needs in the SQLite DDL (`app/db/connection.py` and the `ensure_*` helpers)
-4. Add queries in `app/db/queries.py` — `?` placeholders and `INSERT OR IGNORE` are translated by `app/db/pg.py`
-
-## Configuration Reference
-
-All config in `app/config.py`:
-
-| Setting                 | Default | Purpose                        |
-| ----------------------- | ------- | ------------------------------ |
-| `SIMILARITY_THRESHOLD`  | 0.20    | Min confidence for local match |
-| `MAX_LOGIN_ATTEMPTS`    | 5       | Admin brute-force limit        |
-| `BLOCK_TIME_MINUTES`    | 5       | Admin lockout duration         |
-| `SESSION_TIMEOUT_HOURS` | 1       | Admin session lifetime         |
-| `CHAT_RATE_LIMIT`       | 2       | Max requests per window        |
-| `CHAT_RATE_WINDOW`      | 30      | Rate limit window (seconds)    |
-| `CHAT_TOKEN_TTL`        | 3600    | HMAC token lifetime (seconds)  |
-| `VISITOR_SESSION_DAYS`  | 30      | Visitor sign-in, slides on use |
-| `VISITOR_SESSION_MAX_HOURS` | 12  | Hard cap from mint; the kiosk bound |
-
-## Use the Tooling That Ships With This Repo
-
-Load the skill BEFORE you write the code. A skill read afterwards changes
-nothing, and a stale skill writes stale code. On 2026-08-29 three skills still
-claimed the main branch was `main-noor`, that retrieval used TF-IDF, and that
-the database was SQLite. All three were false.
-
-Three sources, and which one wins when they overlap:
-
-- `.claude/skills/` and `.claude/agents/` know THIS codebase. They win on the
-  tiered pipeline, the module registry, Persian normalization, themes, admin.
-- `engineering:*` wins on how to think: decisions, test depth, incidents,
-  deploys.
-- `product-management:*` wins before code exists: the problem, the spec, the
-  order of work.
-
-Fast routing:
-
-| You are about to | Load first |
-| ---------------- | ---------- |
-| Touch auth, sessions, cookies, tokens, rate limits, access control | `authorization`, then `/security-review` |
-| Add an endpoint | `api-test` |
-| Add a service, util or auth function | `write-tests` |
-| Change what a visitor sees | `e2e-test-gen`, `playwright-cli` |
-| Chase a bug or a failing test | `systematic-debugging`, `engineering:debug`. Root cause before fix |
-| Pick between two approaches | `engineering:architecture`, then record it in `docs/engineering/DECISIONS.md` |
-| Design a subsystem | `engineering:system-design` |
-| Decide test depth | `engineering:testing-strategy` |
-| Ship a release | `engineering:deploy-checklist` |
-| Handle a production break | `engineering:incident-response` |
-| Refactor with no new behaviour | `engineering:tech-debt` |
-| Branch, commit, PR | `scoped-pr`, `commit` |
-| Review a change | `code-review` + the `code-review-specialist` agent |
-| Build a non-trivial feature | `implement` |
-| Turn a request into a spec | `product-management:write-spec` |
-| Shape a vague idea | `product-management:product-brainstorming` |
-| Decide what ships next | `product-management:roadmap-update` |
-
-A skill that contradicts the code is a bug in the skill. Fix the skill in the
-same change, or the next agent repeats your bug.
-
-The full version, with the reasoning, is in `CLAUDE.md` under the same heading.
-
-## Documentation
-
-`docs/` is the knowledge base. Keep it current.
-
-| When                  | Update                                  |
-| --------------------- | --------------------------------------- |
-| New feature           | `docs/features/{slug}/RESEARCH.md`      |
-| New/changed service   | the Tech Stack + module tables in `CLAUDE.md` |
-| Setup changes         | the Setup section in `CLAUDE.md`, and `README.md` |
-| Feature status change | `docs/features/INDEX.md`                |
-| Architectural decision| `docs/engineering/DECISIONS.md`         |
-
-> `docs/_other-product-padyar-ai/` documents a DIFFERENT product and must never
-> be updated for work done in this repository.
-
-One feature, one folder in `docs/features/{slug}/`.
-
-**Engineering standards:** `docs/engineering/ENGINEERING_CONSTITUTION.md` is
-the binding constitution — non-negotiable principles plus the topic standards
-in `docs/engineering/` (`API_STANDARDS.md`, `SECURITY.md`, `DATABASE.md`,
-`TESTING.md`). Read it before implementing any feature or endpoint. `CLAUDE.md`
--> "Documentation Rules" points to it too.
-
----
-
-## Architecture-First Workflow
-
-For every task, do NOT immediately implement — first perform an architecture
-review. The goal is the smallest CORRECT architectural change that fits the
-entire system, not the smallest patch that passes the current tests. If the
-requested approach is architecturally inferior, do not blindly implement it —
-explain why and propose the better design. Reuse existing project-wide
-patterns; never create a local exception to compensate for a broken
-abstraction.
-
-Think ahead: 10x more data, multiple clients, concurrent requests, retries,
-partial failures, malicious clients, future developers, evolving API
-contracts.
-
-Before coding, inspect the repo and identify the relevant existing
-abstractions. After coding, self-review as a senior engineer — unnecessary
-complexity, duplicated logic, security holes, race conditions, inconsistent
-API design, weak validation, missing authorization, hidden browser
-assumptions, poor error handling, scalability problems, insufficient tests —
-and improve before declaring the task complete.
-
-The full version is in `CLAUDE.md` under "Required Workflow".
-
-Non-negotiable rules:
-
-- Every resource endpoint must perform authentication and authorization
-  independently. Never infer authorization from possession of a resource ID.
-- Any endpoint returning an unbounded collection must define pagination. Do
-  not load an entire collection into memory.
-- Business rules must not be duplicated across route handlers. Shared domain
-  rules must have a single authoritative implementation.
-
-The full six-phase workflow — Understand, Architecture, Implement, Test,
-Self Review, Verify — is in `CLAUDE.md` under "Required Workflow". Follow it
-for every task.
+Never document a target architecture as if it were already implemented.
 
 ## Engineering Judgment
 
-The user's requested implementation approach is not necessarily the
-correct architectural approach.
+The user's requested implementation is an input, not an architectural command.
 
-You are allowed to reject the requested implementation approach when it
-conflicts with the architecture, security, maintainability,
-scalability, or established patterns of the repository.
+Agents MUST preserve the intended outcome, but may reject or change the proposed mechanism when it conflicts with:
+- security;
+- correctness;
+- maintainability;
+- scalability;
+- accessibility;
+- existing repository patterns;
+- product UX;
+- operational reliability.
 
-Preserve the user's intended outcome, not necessarily their proposed
-implementation.
+Before implementing a requested change, inspect the surrounding code and identify the actual problem. Do not blindly comply with the first proposed solution.
 
-If the requested approach is inferior, explain why and implement the
-better approach when the intended outcome is clear.
+### Compliance Is Not Engineering
+
+A request such as "add a header so the conversation survives" must trigger investigation before implementation:
+- Why is conversation state currently lost?
+- Is a cookie coupled to the wrong lifecycle?
+- Should conversation be a first-class server resource?
+- Is the API client expected to be independent of browser state?
+- Is there already an established session/conversation pattern?
+
+Fix the root problem when the evidence supports it. Do not add a compensating mechanism merely because it satisfies the wording of the request.
 
 ## Avoid Over-Engineering
 
-Do not over-engineer.
+Senior engineering does not mean maximum abstraction. Prefer the simplest design that satisfies the requirement while remaining secure, maintainable, testable, observable and consistent with the system.
 
-Senior engineering does not mean maximum abstraction, maximum
-architecture, or maximum code.
+Do NOT:
+- add abstractions without a concrete reuse or isolation need;
+- introduce configuration for behavior that can be safely auto-detected;
+- add feature flags for trivial or permanent behavior;
+- create one-off frameworks around a single use case;
+- duplicate existing patterns when a stable repository pattern already exists;
+- build speculative extensibility with no current requirement;
+- split code into extra files/classes merely to make a change look architectural.
 
-Prefer the simplest design that correctly satisfies:
+The goal is minimum necessary complexity, not minimum lines of code.
 
-- current requirements
-- known architectural constraints
-- security requirements
-- expected scale
-- maintainability
-- consistency with the existing codebase
+## STOP CONDITIONS
 
-Do not introduce abstractions for hypothetical future requirements
-unless there is a strong architectural reason.
+Pause and reassess before proceeding when any of these appears:
+- a new special-case conditional is being added;
+- client-specific or browser-specific branches appear without a documented reason;
+- logic is being duplicated instead of reusing an established pattern;
+- a new abstraction exists only for one call site;
+- a security rule is being bypassed to make a feature work;
+- destructive or irreversible database changes are proposed;
+- a new cookie/session mechanism is introduced without understanding the existing lifecycle;
+- a feature is being built without a real end-to-end scenario;
+- a UI is being implemented before the user flow is understood;
+- documentation describes machinery that does not exist in code;
+- a capability is added without its production caller/consumer.
 
-Do not add:
+At a stop condition, investigate the root cause and either reuse an existing pattern, simplify the design, or explicitly document why a new pattern is necessary.
 
-- unnecessary interfaces
-- unnecessary abstraction layers
-- speculative extension points
-- premature design patterns
-- infrastructure for hypothetical use cases
+## Feature Shipping Standard
 
-A simple solution is preferred when it is genuinely sufficient.
+A feature is a scenario, not a capability.
 
-However, do not choose a superficially simple local workaround when
-a small additional amount of design would produce a substantially
-cleaner system-wide solution.
+Before implementation, name the real scenario: who triggers it, from where, under what conditions, and what successful completion looks like. The scenario — not the mechanism — is what gets tested and reviewed.
 
-The goal is:
+### Default workflow: spike → prototype → spec → wire → verify
 
-**minimum necessary complexity, not minimum lines of code.**
+1. **Spike** (optional, timeboxed) — de-risk an unknown. Throwaway code only.
+2. **Prototype** — build the thinnest vertical slice that exercises the real scenario end-to-end.
+3. **Spec** — document what is actually shipping. Planned items must be clearly marked as planned.
+4. **Wire** — every new parameter, function, endpoint, setting, cookie or table must have its production caller/consumer in the same change.
+5. **Verify** — add a test that fails if the production wiring is removed or broken.
 
----
+For small bugfixes, use the same judgment and wiring checks without forcing unnecessary ceremony.
 
-## Session Handoff — 2026-08-14 (INOTEX instance, Padyar platform)
+### Reader–writer pairs must close
 
-The product instance is now **INOTEX** (پانزدهمین نمایشگاه بین‌المللی نوآوری و
-فناوری — INOTEX 2026). The reusable platform layer is named **Padyar**.
+Examples:
+- cookie read ↔ cookie set;
+- token validated ↔ token lifecycle defined;
+- secret saved ↔ secret reachable by its consumer;
+- admin page ↔ data API;
+- sidebar link ↔ route;
+- docs ↔ actual code;
+- health/status ↔ real serving capability.
 
-- **Identity:** all previous-event identity was removed from the working tree.
-  Canonical names: display "INOTEX Chatbot", package `inotex-chatbot`,
-  admin route prefix `/secure-panel-inotex`.
-- **Content:** the knowledge seed (`app/default_content.py`) carries facts
-  verified against https://inotex.com/ on 2026-08-14. The machine-readable
-  source manifest is `content/sources.json`; conflicts pending human review
-  live in `content/review-queue.md`. Freshness checking:
-  `python3 scripts/refresh-inotex-context.py`.
-- **Mascot policy:** the Pet-INOTEX companion is **back on** (owner request,
-  2026-08-24) via `themes/inotex/partials/footer.html` +
-  `static/companion/companion{,-ui}.js` — desktop/tablet only, hidden below a
-  640px viewport by the theme CSS. The old pet iframe, its `/assets` mount and
-  `static/pet/` remain removed.
-- **Design:** the INOTEX theme uses the official palette
-  (#FCB715, #FEBE27, #2D5CA7, #1E2D52, #04A584, #00644F, #000000, #FFFFFF)
-  as design tokens. The frontend skeleton (routes, partial hierarchy,
-  chat/video tabs, input region) is preserved — do not restructure it.
-- **Reset path:** `scripts/reset-content-to-defaults.py` (backs up the DB,
-  then seeds INOTEX defaults).
+A green configuration state with zero reachable routes is a defect.
+
+## Feature Documentation Workflow
+
+For new features, the agent must choose the minimum appropriate documentation workflow. The user does not need to specify which artifacts to create.
+
+Standard lifecycle:
+
+`Request → PRD → [Spike] → Spec → [UX/ADR] → Plan → Tasks → Implementation → Verification → Docs`
+
+Optional phases are used only when justified by ambiguity, uncertainty, user impact or architectural significance.
+
+- **PRD** — why, who, outcome, scope and acceptance.
+- **Spike** — timeboxed investigation of meaningful technical uncertainty.
+- **Spec** — exact behavior, contracts, states and edge cases that will ship.
+- **ADR** — durable record of a material architectural decision and trade-offs.
+- **Plan** — repository-specific implementation approach, sequencing and verification.
+- **Tasks** — atomic executable work derived from the plan.
+
+Templates live under `docs/engineering/templates/`. Full rules and decision guidance live in `docs/engineering/FEATURE_DEVELOPMENT_WORKFLOW.md`.
+
+Do not create documents for ceremony. Do not skip a document when its absence would make a material product or architecture decision impossible to review or reproduce. Update existing authoritative documents instead of creating duplicates.
+
+## UI/UX Engineering Standards
+
+UI/UX is product engineering, not decoration. A feature is not complete when its API works; it is complete when users can understand and successfully use it.
+
+### Mandatory UI/UX workflow
+
+For every user-facing feature or browser UI change:
+
+1. Inspect existing screens, components, themes, typography, spacing and interaction patterns.
+2. Load and use the repository's UI/UX skill — including **UI-UX Pro Max when installed** — BEFORE implementation.
+3. Define the user flow and interaction model before writing UI code.
+4. Reuse established patterns unless there is a strong reason to introduce a new one.
+5. Implement all meaningful states: default, loading, success, error, empty, disabled, validation, permission, long content and narrow/mobile layouts where applicable.
+6. Verify behavior with the repository's browser/e2e tooling.
+7. Perform the UI/UX review again after implementation and fix findings before calling the work complete.
+
+Do not wait for the user to say "use UI-UX Pro Max". This is mandatory for user-facing work.
+
+### Do not blindly implement UI requests
+
+If the request says "add a notification", do not assume that means "create a notification page". Determine the correct interaction from the intended outcome and existing product patterns. Consider whether the right solution is a toast, inline status, badge, notification center, modal, email/push message, or another pattern.
+
+The agent may choose a better interaction than the literal request when it better satisfies the intended outcome.
+
+### UI/UX skill is not absolute authority
+
+UI-UX Pro Max and other design skills are decision support, not a replacement for product requirements or repository conventions.
+
+The priority is:
+1. product intent and real user scenario;
+2. accessibility and correctness;
+3. established repository design system;
+4. UI/UX skill recommendations;
+5. visual novelty.
+
+Do not introduce a visually attractive pattern that conflicts with the product or existing system merely because a design skill suggested it.
+
+### UX review questions
+
+Before implementation, resolve:
+- Who is the user?
+- What are they trying to accomplish?
+- Where do they naturally enter the flow?
+- What should happen before, during and after the action?
+- What happens on success, failure, empty data, loading and permission denial?
+- What happens with many items or long content?
+- How does the flow behave on mobile/narrow screens?
+- Can it be used with keyboard and assistive technology?
+- Is the copy understandable without technical knowledge?
+
+Do not ask the user for every small design decision. Use existing patterns and sound product judgment. Ask only when ambiguity materially changes scope, behavior or product intent.
+
+## Security and Authentication: Target State vs Current State
+
+For **new API authentication designs**, the target standard is explicit bearer-style authentication rather than introducing new browser-cookie authentication.
+
+This is a target standard, not a claim about the current codebase.
+
+### Current-state exceptions
+
+The current repository contains established mechanisms that predate this standard, including:
+- admin cookie sessions;
+- HMAC-signed chat tokens;
+- visitor/session cookies where already required by the current product flow.
+
+These are documented as current-state mechanisms and must not be silently rewritten merely to make documentation appear compliant.
+
+Rules:
+- New API work must not introduce another authentication mechanism without an architectural decision.
+- Existing authentication mechanisms remain supported until an explicit migration is planned and tested.
+- Security-sensitive changes must inspect the current authentication/session lifecycle before modifying it.
+- A migration from legacy/current mechanisms to the target standard is separate work unless explicitly included in scope.
+
+## Testing and Verification
+
+Tests should prove the real scenario and the production wiring, not merely exercise an isolated helper.
+
+For browser-visible changes, use the repository's browser/e2e tooling. For backend changes, choose test depth based on risk and failure impact.
+
+CI is the merge signal. Local checks are useful for fast feedback but must not be represented as stronger evidence than they are.
+
+## Repository-Specific Baseline
+
+The application is PadyarAIChatbot: a per-customer CMS for AI chatbots.
+
+- Python 3.10+
+- FastAPI + Uvicorn
+- PostgreSQL 16 in production; SQLite for tests/rollback artifact
+- Vanilla HTML/CSS/JS chat UI; Tabler/Bootstrap 5 RTL admin
+- BM25 + local model2vec embeddings + feature reranker
+- Persian normalization and Vazirmatn
+- Modular feature registry with core and optional modules
+- White-label branding via `whitelabel_*` settings and theme tokens
+
+Read the existing project-specific sections in `CLAUDE.md` and the relevant engineering document before changing architecture, security, database, retrieval, modules or themes.

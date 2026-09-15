@@ -1,56 +1,31 @@
 # Testing Standard
 
-Binding standard for test depth. Tests validate behavior and system
-invariants, not implementation details.
+## Principle
 
-For what exists in this repo today (pytest layout, the
-CI-is-the-gate rule, async Playwright rules), see `CLAUDE.md` ->
-"Testing" and `POSTGRES_TESTING.md`.
+Test the scenario and the contract, not just implementation details.
 
----
+## Test Selection
 
-## Coverage Per Feature
+### Small bugfix
+Use focused regression coverage when the defect has a meaningful failure mode. Avoid unnecessary ceremony.
 
-Every feature considers, at minimum:
+### New feature
+Cover the end-to-end scenario, important failure states and the production wiring.
 
-1. happy path
-2. invalid input
-3. authentication failure
-4. authorization failure
-5. missing resource
-6. duplicate request
-7. concurrent request
-8. regression
-9. backward compatibility
+### Security-sensitive feature
+Test both allowed and denied paths, resource binding and any relevant boundary conditions.
 
-Do not only test the happy path.
+### Browser-visible feature
+Use browser/e2e tooling to verify interaction and visible states. A passing backend test is not sufficient evidence for UI completion.
 
-## Security Boundaries
+## CI
 
-If a security boundary is involved, test the negative case explicitly:
+CI is the merge signal. Local checks are fast feedback only unless the repository explicitly defines them as a merge gate.
 
-```text
-User A can access Conversation A.
+## Regression Quality
 
-User A cannot access Conversation B.
+A regression test should fail if the actual fix is removed. Avoid tests that merely reproduce the implementation's current structure.
 
-User B cannot modify Message A.
-```
+## Test Debt
 
-## Behavior Over Implementation
-
-Prefer tests that express business behavior over tests that merely
-verify implementation details. A test that must change for every
-refactor is testing the wrong thing.
-
-## Honest Verification
-
-Never claim that a check passed unless it was actually run. Clearly
-distinguish:
-
-```text
-PASSED
-FAILED
-NOT RUN
-NOT APPLICABLE
-```
+If a full test is temporarily impractical, record the limitation and the reason. Do not silently downgrade confidence.

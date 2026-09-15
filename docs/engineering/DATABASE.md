@@ -1,57 +1,23 @@
 # Database Standard
 
-Binding standard for schema and data-access work. In this repo the
-database is PostgreSQL 16 in production (SQLite only as the test
-backend); schema changes go through `migrations/*.sql` applied by
-`scripts/apply_migrations.py`.
+## Ownership
 
----
+PostgreSQL is the production schema authority. SQLite exists for testing/rollback compatibility where already established.
+
+## Migrations
+
+- Every schema change must be versioned.
+- Migrations must be safe to apply in the supported deployment model.
+- Avoid destructive migrations without explicit migration/rollback planning.
+- Keep application queries and schema changes in the same feature change when the feature requires both.
+- Do not document a table or column that is not actually present.
 
 ## Data Integrity
 
-Do not rely exclusively on application code for data integrity. Where
-appropriate, enforce invariants using:
+Database constraints are a final safety boundary, not a replacement for application authorization.
 
-- foreign keys
-- unique constraints
-- check constraints
-- indexes
-- transactions
+When an operation identifies a row by an operation/resource id, the authorization decision and write must refer to the same row.
 
-Use transactions where multiple writes must remain atomic.
+## Tests
 
-## Migration Safety
-
-Before modifying the schema, understand:
-
-- existing data
-- migration safety
-- existing consumers
-- rollback requirements
-- backfill requirements
-
-Never casually perform destructive migrations.
-
-**In this repo:** never edit a migration that has already been applied —
-`apply_migrations.py` stores a sha256 of every file and refuses to
-continue on checksum mismatch (deploy step 4 aborts). Add a new numbered
-file, use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and leave the old
-one alone. There is no downgrade path: rolling back means restoring a
-backup (`app/services/pg_backup.py`). Mirror test-suite needs in the
-SQLite DDL (`app/db/connection.py`).
-
-## Query Performance
-
-Avoid obviously inefficient implementations:
-
-- N+1 queries
-- unbounded database reads
-- loading entire collections into memory
-- repeated expensive computation
-- unnecessary serialization
-- blocking work inside async request paths
-- missing indexes
-- excessive external API calls
-
-Any collection endpoint must consider pagination. Do not introduce an
-endpoint that assumes the dataset will remain small.
+Schema changes require tests at the level where the real failure would occur. Prefer real database integration tests for authorization, constraints and transactional behavior where mocks could hide the defect.
