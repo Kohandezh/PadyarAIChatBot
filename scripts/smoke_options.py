@@ -35,7 +35,8 @@ OFFERS = {"ai_options", "local_company_search"}
 PICKS = {"local_pick"}
 REFUSALS = {"refuse", "system"}
 ANSWERS = {"local", "local_questions", "local_entity", "local_intent",
-           "local_company_field", "ai_selected", "openai_classified", "openai"}
+           "local_company_field", "ai_selected", "ai_converse",
+           "openai_classified", "openai"}
 
 
 def ask(base: str, token: str, message: str, jar) -> dict:

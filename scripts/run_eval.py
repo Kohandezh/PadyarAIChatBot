@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Padyar retrieval evaluation harness — offline, reproducible, no external AI.
 
-Runs the golden INOTEX dataset (data/eval/golden-inotex.json) against the
+Runs a golden dataset (passed with --golden) against the
 LOCAL retrieval pipeline exactly as /chat uses it (title-overlap tier,
 hybrid BM25 + embedding retrieval, questions index, trained intent
 classifier) and measures:
@@ -25,8 +25,8 @@ It always runs on SQLite, whatever backend the install uses at runtime, and
 pins DB_BACKEND itself so no caller has to remember (see below).
 
 USAGE (from the project root):
-    .venv/bin/python scripts/run_eval.py
-    .venv/bin/python scripts/run_eval.py --out results.json
+    .venv/bin/python scripts/run_eval.py --golden data/eval/golden.json
+    .venv/bin/python scripts/run_eval.py --golden data/eval/golden.json --out results.json
     .venv/bin/python scripts/run_eval.py --conversations data/eval/conversations.json
 
 Exit code 1 when a hard gate fails (contamination > 0 or secret leak), or
@@ -73,8 +73,7 @@ if _requested_backend and _requested_backend != "sqlite":
              f"or set it to 'sqlite'.")
 os.environ["DB_BACKEND"] = "sqlite"
 
-GOLDEN = ROOT / "data" / "eval" / "golden-inotex.json"
-DEFAULT_OUT = ROOT / "docs" / "knowledge-based-evidence" / "appendices" / "benchmark-results" / "retrieval-eval.json"
+DEFAULT_OUT = ROOT / "data" / "eval" / "retrieval-eval.json"
 CONVERSATIONS_FIXTURE = ROOT / "data" / "eval" / "conversations.json"
 
 LEGACY_TOKENS = ["الکامپ", "elecomp", "نورا", "noorvision"]
@@ -374,7 +373,9 @@ def run_conversations(spec_path: str) -> int:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Run the INOTEX retrieval benchmark.")
+    p = argparse.ArgumentParser(description="Run the retrieval benchmark.")
+    p.add_argument("--golden", required=True,
+                   help="Path to a golden JSON file")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     p.add_argument("--conversations", default="",
                    help="run the multi-turn conversation scenarios from this "
@@ -453,7 +454,8 @@ def main() -> int:
         "(what the pipeline does when RETRIEVAL_RERANK is off); no reranking"
     )
 
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    golden_path = Path(args.golden)
+    golden = json.loads(golden_path.read_text(encoding="utf-8"))
     queries = golden["queries"]
 
     ranks, latencies = [], []
@@ -553,7 +555,7 @@ def main() -> int:
 
             if cat == "legacy_contamination":
                 # Policy (§13.6): a legacy-event query may be answered with
-                # CURRENT INOTEX information (a redirect) — the hard gate is
+                # current event information (a redirect) — the hard gate is
                 # that no legacy identity appears in the served answer.
                 if not has_contamination:
                     cstat["correct"] += 1
