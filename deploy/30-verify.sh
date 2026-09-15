@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
-# End-to-end smoke test. Run as any user, after everything else.
+# End-to-end smoke test for one install. Run as any user, after everything
+# else.
+#
+#   bash deploy/30-verify.sh <slug> <port> <domain>
+#
+# <port> is the install's APP_PORT (the same number 10-install-app.sh
+# validated in /opt/padyar-<slug>/.env).
 set -uo pipefail
 fail=0
 ok()   { printf '  \033[1;32mOK\033[0m   %s\n' "$*"; }
 bad()  { printf '  \033[1;31mFAIL\033[0m %s\n' "$*"; fail=1; }
 warn() { printf '  \033[1;33mWARN\033[0m %s\n' "$*"; }
 
+SLUG="${1:-}"
+PORT="${2:-}"
+DOMAIN="${3:-}"
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+  echo "Usage: bash $0 <slug> <port> <domain>" >&2; exit 1
+fi
+SERVICE="padyar-${SLUG}"
+
 echo "== services =="
-for s in postgresql nginx padyar-elecomp padyar-tts; do
+for s in postgresql nginx "$SERVICE" padyar-tts; do
   if systemctl is-active --quiet "$s"; then ok "$s active"; else bad "$s not active"; fi
   if systemctl is-enabled --quiet "$s" 2>/dev/null; then :; else warn "$s not enabled at boot"; fi
 done
 
 echo
 echo "== app health (loopback) =="
-for pair in "elecomp 8002"; do
+for pair in "${SLUG} ${PORT}"; do
   slug=${pair%% *}; port=${pair##* }
   body=$(curl -fsS --max-time 5 "http://127.0.0.1:${port}/api/health" 2>/dev/null)
   if [[ -n "$body" ]]; then ok "${slug} /api/health: ${body:0:120}"; else bad "${slug} /api/health unreachable"; fi
@@ -30,13 +44,13 @@ echo
 echo "== the app must see the REAL client IP, not 127.0.0.1 =="
 # A wrong answer here is silent in normal use and catastrophic under load:
 # every visitor shares one rate-limit bucket and one admin lockout counter.
-for pair in "elecomp 8002"; do
+for pair in "${SLUG} ${PORT}"; do
   slug=${pair%% *}; port=${pair##* }
   seen=$(curl -s --max-time 5 -H 'X-Forwarded-For: 203.0.113.9' \
          "http://127.0.0.1:${port}/api/health" -o /dev/null -w '%{http_code}')
   [[ "$seen" == "200" ]] && ok "${slug} accepts proxied requests" || bad "${slug} proxy request returned ${seen}"
 done
-grep -q 'forwarded-allow-ips' /etc/systemd/system/padyar-elecomp.service \
+grep -q 'forwarded-allow-ips' "/etc/systemd/system/padyar-${SLUG}.service" \
   && ok "uvicorn runs with --proxy-headers --forwarded-allow-ips" \
   || bad "systemd unit is missing --proxy-headers/--forwarded-allow-ips"
 [[ -f /etc/nginx/conf.d/cloudflare-realip.conf ]] \
@@ -59,7 +73,7 @@ fi
 
 echo
 echo "== TLS =="
-for d in elecomp.padyar.com; do
+for d in "$DOMAIN"; do
   if [[ -f "/etc/letsencrypt/live/${d}/fullchain.pem" ]]; then
     exp=$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${d}/fullchain.pem" | cut -d= -f2)
     ok "${d} certificate expires ${exp}"
@@ -81,7 +95,7 @@ fi
 
 echo
 echo "== database =="
-for slug in elecomp; do
+for slug in "$SLUG"; do
   cnt=$(sudo -u postgres psql -tAc "SELECT count(*) FROM pg_stat_activity WHERE datname='padyar_${slug}'" 2>/dev/null)
   [[ -n "$cnt" ]] && ok "padyar_${slug}: ${cnt} open connections" || bad "cannot query padyar_${slug}"
 done
@@ -121,7 +135,7 @@ fi
 echo
 echo "== firewall =="
 ufw status 2>/dev/null | grep -qi 'Status: active' && ok "ufw active" || warn "ufw not active"
-for p in 5432 8002 8003; do
+for p in 5432 "$PORT" 8003; do
   if ufw status 2>/dev/null | grep -q "^${p}.*ALLOW"; then bad "port ${p} is open to the world"; fi
 done
 ok "no internal port opened in ufw"

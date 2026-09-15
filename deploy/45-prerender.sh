@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-render one install's dataset answers into the TTS cache.
 #
-#   sudo bash deploy/45-prerender.sh elecomp --dry-run
+#   sudo bash deploy/45-prerender.sh <slug> --dry-run
 #
 # Runs the model in a STANDALONE process, not through the service: the same
 # text renders at RTF ~5 here and ~16 through uvicorn on this host. The cache
@@ -10,10 +10,9 @@ set -euo pipefail
 
 SLUG="${1:-}"
 shift || true
-case "$SLUG" in
-  elecomp) ;;
-  *) echo "Usage: sudo bash $0 {elecomp} [--dry-run]" >&2; exit 1 ;;
-esac
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  echo "Usage: sudo bash $0 <slug> [--dry-run]   (slug: lowercase letters, digits, hyphens)" >&2; exit 1
+fi
 [[ $EUID -eq 0 ]] || { echo "Run with sudo" >&2; exit 1; }
 
 DB="padyar_${SLUG}"

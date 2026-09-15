@@ -1,0 +1,55 @@
+# Per-install app unit, RENDERED by deploy/10-install-app.sh:
+#
+#   sed "s/{{SLUG}}/<slug>/g" deploy/systemd/padyar-app.service.template \
+#     > /etc/systemd/system/padyar-<slug>.service
+#
+# The service keeps the padyar-<slug> name the rest of the deploy kit already
+# uses (deploy scripts, journalctl). {{SLUG}} appears in every identity and
+# path; the PORT is not rendered — ExecStart expands APP_PORT from the
+# EnvironmentFile below, the same mechanism as WEB_CONCURRENCY, so the .env
+# stays the single source of truth for the port.
+
+[Unit]
+Description=PadyarAIChatbot — {{SLUG}}
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=padyar-{{SLUG}}
+Group=padyar-{{SLUG}}
+
+# MANDATORY. app/main.py mounts StaticFiles(directory="media"|"static"|"LOGO"|"data")
+# by RELATIVE path, so a wrong CWD makes the app raise at import time.
+WorkingDirectory=/opt/padyar-{{SLUG}}
+EnvironmentFile=/opt/padyar-{{SLUG}}/.env
+
+# --proxy-headers + --forwarded-allow-ips is not cosmetic: without it
+# request.client.host is 127.0.0.1 for every visitor, so the admin
+# brute-force lockout (app/routers/admin.py:37) blocks the real admin the
+# first time any bot guesses a password, and every access log row is useless.
+# APP_PORT comes from the EnvironmentFile; 10-install-app.sh refuses to
+# install an .env where it is missing or not a number.
+ExecStart=/opt/padyar-{{SLUG}}/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port ${APP_PORT} \
+    --workers ${WEB_CONCURRENCY} \
+    --proxy-headers --forwarded-allow-ips=127.0.0.1
+
+Restart=always
+RestartSec=3
+TimeoutStartSec=120
+
+# Hardening. The app writes only to its own state directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/padyar/{{SLUG}} /var/log/padyar/{{SLUG}} /opt/padyar-{{SLUG}}
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=padyar-{{SLUG}}
+
+[Install]
+WantedBy=multi-user.target

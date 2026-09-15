@@ -1,6 +1,6 @@
 """The conversational gate: small talk, self-introductions, gibberish.
 
-WHY THIS MODULE EXISTS (Elecomp, 2026-08-31, two live failures):
+WHY THIS MODULE EXISTS (a production install, 2026-08-31, two live failures):
 
 1. A visitor said «سلام چطوری؟ اسم من سینا هست اسم تو چی هست؟». The
    named-entity anchor saw «سینا», matched the COMPANY «گسترش فناوری‌های
@@ -42,7 +42,7 @@ _SMALLTALK_NORM = frozenset(
     normalize_persian(p, expand_synonyms=False) for p in SMALLTALK_PHRASES)
 
 # «اسمت چی هست» / «اسم تو چی هست» are the listed «اسمت چیه» / «اسم تو چیه»
-# with the verb spelled out. The distinction matters: the Elecomp incident
+# with the verb spelled out. The distinction matters: the production incident
 # message ENDS «اسم تو چی هست؟», and if that tail counted as content the
 # self-introduction rule would classify the whole message "none", the anchor
 # would fire on the name, and the exact bug this module exists to close

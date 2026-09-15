@@ -291,8 +291,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # courtesy, not a control: a direct POST carrying a valid chat token
     # walked straight past it.
     #
-    # BOTH conditions matter, and the first one protects a live install. The
-    # elecomp deployment does not load the registration module at all — it has
+    # BOTH conditions matter, and the first one protects a live install. A
+    # production install may not load the registration module at all — it has
     # no /verify page, no OTP endpoints, no way for anyone to obtain a
     # session — so demanding one there would lock every visitor out of the
     # chatbot. "Is the module loaded" is asked of the registry
@@ -532,7 +532,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             logger.info("Nothing left of the offered list to page to; falling through")
 
     # Conversational openers that answer the LAST turn, not a new question
-    # (Elecomp, 2026-08-31): «بگو» after an offer got the welcome
+    # (a production install, 2026-08-31): «بگو» after an offer got the welcome
     # introduction again. A refusal closes the topic politely; an
     # affirmative replays what was offered. This sits after the pick tier on
     # purpose — «۳» and «بیشتر» are about the offered LIST, and they resolve
@@ -620,10 +620,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         conversational_kind, _visitor_name = conversational.classify_conversational(
             match_query)
 
-    # Unknown-entity gate (the الکامپ incident, 2026-08-26): a query naming
+    # Unknown-entity gate (a production incident, 2026-08-26): a query naming
     # something the WHOLE corpus knows nothing about must not be answered by
     # any local tier. Lexical retrievers silently drop unknown tokens, so
-    # «تاریخ برگزاری نمایشگاه الکامپ» degraded to its common words and the
+    # «تاریخ برگزاری نمایشگاه هانوفر» degraded to its common words and the
     # questions blend served the event date at 0.844 — confidently wrong.
     # Nulling every local candidate walks the ladder to the AI tier, which can
     # actually judge an out-of-domain entity, and keeps 503 (not a wrong
@@ -641,7 +641,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
     # reason: «سلام» is four letters and often outside the vocabulary, but
     # it is a greeting — it flows on to the intro handling, exactly as
     # before this gate existed.
-    # Follow-up field tier (live failures, Elecomp 2026-09-01): «کجاس؟» and
+    # Follow-up field tier (live failures on a production install,
+    # 2026-09-01): «کجاس؟» and
     # «کدوم غرفه س کدوم سالن» right after a company answer got «متوجه
     # منظورت نشدم» — and worse, «بابا کدوم غرفه س کدوم سالن» paid for a
     # markdown essay asking WHICH company. The company being discussed is
@@ -706,7 +707,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
         exact_match = question_match = best_match = None
         score = q_score = 0.0
 
-    # Conversational gate (Elecomp, 2026-08-31): small talk and
+    # Conversational gate (a production install, 2026-08-31): small talk and
     # self-introductions are sentences ABOUT THE CONVERSATION, not knowledge
     # questions, and no local tier can read them as such — the anchor read
     # «اسم من سینا هست…» as a company lookup and served the namesake
@@ -1035,7 +1036,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request,
             # every visitor-visible string out of the database.
             decision, candidates = None, []
             if unknown_tokens and conversational_kind == "none":
-                # «تاریخ برگزاری نمایشگاه الکامپ»: a query naming something the
+                # «تاریخ برگزاری نمایشگاه هانوفر»: a query naming something the
                 # whole corpus has never heard of must not be shown candidates
                 # at all, or the 2026-08-26 incident reopens through the model
                 # instead of through retrieval. NOT applied to a message that

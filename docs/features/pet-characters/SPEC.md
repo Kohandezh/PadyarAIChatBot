@@ -5,10 +5,10 @@ Owner: Sina (Malik-e product)
 
 ## Scenario
 
-Elecomp runs the same Padyar install as the event install but is a different brand
-with its own mascot. The operator opens **Settings > Branding → «شخصیت
-همراه»**, picks «الکامپ» from the dropdown, presses «ذخیره شخصیت» — and the
-next visitor's companion is the elecomp bird, with its own poses (it soars
+Two installs can run the same Padyar platform yet be different brands with
+different mascots. The operator opens **Settings > Branding → «شخصیت
+همراه»**, picks one of the bundled characters from the dropdown, presses «ذخیره شخصیت» — and the
+next visitor's companion is that character, with its own poses (it soars
 when an answer lands). No deploy, no theme edit. A new mascot is a folder
 drop, not a code change.
 
@@ -20,8 +20,11 @@ drop, not a code change.
   companion state → pose). `app/services/pet_characters.py` scans,
   validates (slug names, sane ints, an `idle` mapping is mandatory) and
   skips anything defective — a half-loaded character is worse than none.
-- **Setting:** `pet_character` (default `inotex`). Unknown stored value →
-  the default. Baked into the cached chat shell, so its identity rides the
+- **Setting:** `pet_character` (default: the registry's first character in
+  sorted folder order — no name is hardcoded in the source). An install with
+  no valid characters degrades to none (one warning, `{}`), it never 500s.
+  Unknown stored value → the default. Baked into the cached chat shell, so
+  its identity rides the
   page-cache key (`pet_character_cache_key`, wired in themes.py).
 - **Markup:** footer.html's `#pet-canvas` data attributes come from the
   context (`pet_atlas_url`, `pet_cell`, `pet_columns`, fallback, hide
@@ -34,16 +37,16 @@ drop, not a code change.
 - **Admin:** GET/POST `/admin/api/pet-character` + a card on the branding
   page (dropdown + portrait preview + save). The list is the registry —
   the operator never types a name.
-- **Characters bundled:** `inotex` (points at the existing flat HD assets —
-  default pixels unchanged) and `elecomp` (atlas 3×4 @384 from
-  Elecomp-Pet/Avatar; success → `flight-soar`, error → `front-wings`,
-  flap → `flight-dive`; no hide strip → instant hide, which companion.js
-  already treats as legal).
+- **Characters bundled:** the shipped event characters — `inotex` (points at
+  the existing flat HD assets — default pixels unchanged) and a second
+  bundled character folder (atlas 3×4 @384; success → `flight-soar`,
+  error → `front-wings`, flap → `flight-dive`; no hide strip → instant
+  hide, which companion.js already treats as legal).
 
 ## Known bounds (deliberate)
 
 - The **OTP page** keeps its own `otp_companion_atlas` / `otp_companion_cell`
-  settings (app/routers/otp.py) — per-install already. Pointing an elecomp
+  settings (app/routers/otp.py) — per-install already. Pointing an
   install's OTP page at the new atlas is a settings row, and threading the
   pose maps through that page is a follow-up if wanted.
 - The inotex character.json intentionally points at the **flat** asset

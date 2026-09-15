@@ -42,7 +42,7 @@ from fastapi.testclient import TestClient
 # supply the vocabulary of the neutral test query («درباره غرفه ها توضیح
 # بده») so unknown_salient_tokens() stays quiet and the ladder really does
 # walk down to the selection tier instead of being short-circuited by the
-# الکامپ guard.
+# unknown-entity guard.
 
 # Deliberately NO word that is unique to one entry's title+text: a token that
 # is unique base-wide AND unique among titles becomes a distinctive "name" and
@@ -498,10 +498,10 @@ def test_a_provider_outage_still_lets_the_chat_answer_from_the_untouched_tail(cl
     assert tail.classify_calls == 1
 
 
-# ── 7. The الکامپ guard still wins ───────────────────────────────────────
+# ── 7. The unknown-entity guard still wins ───────────────────────────────
 
 def test_a_query_naming_an_unknown_entity_never_reaches_the_candidate_list(client, monkeypatch):
-    """The 2026-08-26 incident, closed again at the new tier. «الکامپ» exists
+    """The 2026-08-26 incident, closed again at the new tier. «هانوفر» exists
     nowhere in the corpus, so unknown_salient_tokens() fires and every local
     candidate is nulled. Showing the model eight of our records anyway would
     reopen the hole through the model instead of through retrieval: it would
@@ -513,7 +513,7 @@ def test_a_query_naming_an_unknown_entity_never_reaches_the_candidate_list(clien
         {"mode": "answer", "ids": ["co-alfa"], "lead": "", "reason": ""}))
     tail = _stub_ai_tail(monkeypatch)
 
-    r = _ask(client, "تاریخ برگزاری نمایشگاه الکامپ کی است")
+    r = _ask(client, "تاریخ برگزاری نمایشگاه هانوفر کی است")
     assert r.status_code == 200, r.text
     body = r.json()
 

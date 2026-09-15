@@ -376,11 +376,11 @@ def test_a_polluted_anchor_does_not_gate_off_the_company_list_tier(client, monke
 
 
 def test_unknown_entity_guard_still_wins_over_the_entity_rescue(client, monkeypatch):
-    """A query with an unknown salient token (the الکامپ shape) defers to AI
+    """A query with an unknown salient token (the unknown-entity shape) defers to AI
     even when it ALSO contains a known entity token — the guard nulls
     everything first and the rescue must not fire."""
     _mock_ai(monkeypatch)
-    r = _ask(client, "تاریخ برگزاری نمایشگاه الکامپ با حضور دوندگان لبه علم")
+    r = _ask(client, "تاریخ برگزاری نمایشگاه هانوفر با حضور دوندگان لبه علم")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] == "openai", body

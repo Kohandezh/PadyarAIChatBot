@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Publish the site through a Cloudflare Tunnel.
+# Publish one install's site through a Cloudflare Tunnel.
 #
-#   sudo CF_TUNNEL_TOKEN=eyJ... bash deploy/40-cloudflare-tunnel.sh
+#   sudo CF_TUNNEL_TOKEN=eyJ... bash deploy/40-cloudflare-tunnel.sh <domain>
+#
+# <domain> is the install's public hostname (the same one
+# 15-nginx-and-ssl.sh issued the certificate for); the Cloudflare zone is
+# derived from it (everything after the first label).
 #
 # WHY A TUNNEL AND NOT A PORT-FORWARD
 # Measured on this host: a probe from outside Iran to 46.100.15.28:443 is
@@ -15,10 +19,14 @@
 # instead of living only as clicks in a web UI.
 set -euo pipefail
 
-if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0" >&2; exit 1; fi
+if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 <domain>" >&2; exit 1; fi
 if [[ -z "${CF_TUNNEL_TOKEN:-}" ]]; then
   echo "CF_TUNNEL_TOKEN is not set. Zero Trust -> Networks -> Tunnels -> Create." >&2
   exit 1
+fi
+DOMAIN="${1:-}"
+if [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+  echo "Usage: sudo CF_TUNNEL_TOKEN=eyJ... bash $0 <domain>" >&2; exit 1
 fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,11 +86,11 @@ originRequest:
   noHappyEyeballs: true
 
 ingress:
-  - hostname: elecomp.padyar.com
+  - hostname: ${DOMAIN}
     service: https://127.0.0.1:443
     originRequest:
-      originServerName: elecomp.padyar.com
-      httpHostHeader: elecomp.padyar.com
+      originServerName: ${DOMAIN}
+      httpHostHeader: ${DOMAIN}
 
   # Anything else that somehow reaches this tunnel is not ours.
   - service: http_status:404
@@ -129,10 +137,11 @@ log "Pointing DNS at the tunnel"
 # CNAME to <tunnel>.cfargotunnel.com, proxied. This is what replaces the A
 # records that pointed at an unreachable public IP.
 TOKEN=$(awk -F' = ' '{print $2}' /root/.secrets/cloudflare.ini)
-ZONE=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=padyar.com" \
+ZONE_NAME="${DOMAIN#*.}"
+ZONE=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" \
   -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;print(json.load(sys.stdin)['result'][0]['id'])")
 
-for host in elecomp.padyar.com; do
+for host in "$DOMAIN"; do
   rec=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?name=$host" \
     -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;r=json.load(sys.stdin)['result'];print(r[0]['id'] if r else '')")
   body=$(printf '{"type":"CNAME","name":"%s","content":"%s.cfargotunnel.com","proxied":true,"ttl":1}' "$host" "$TUNNEL_ID")
@@ -151,4 +160,4 @@ print('  $host ->', d['result']['content'], 'proxied=' + str(d['result']['proxie
 "
 done
 
-log "Done. Verify from outside with:  curl -I https://elecomp.padyar.com/"
+log "Done. Verify from outside with:  curl -I https://${DOMAIN}/"

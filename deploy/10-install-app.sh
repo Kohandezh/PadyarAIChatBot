@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Install (or upgrade) one PadyarAIChatbot instance.
 #
-#   sudo bash deploy/10-install-app.sh elecomp
+#   sudo bash deploy/10-install-app.sh <slug>
 #
 # Expects deploy/05-create-databases.sh to have run, and the matching
-# /opt/padyar-<slug>/.env to exist (copy it from deploy/env/<slug>.env.template
+# /opt/padyar-<slug>/.env to exist (copy it from deploy/env/instance.env.template
 # and fill in the real values first — the app REFUSES to boot in production
-# with a placeholder, by design: app/prodcheck.py).
+# with a placeholder, by design: app/prodcheck.py). The install's port is
+# APP_PORT in that .env; it must be filled in before this script runs.
 set -euo pipefail
 
 SLUG="${1:-}"
-case "$SLUG" in
-  elecomp) PORT=8002 ;;
-  *) echo "Usage: sudo bash $0 elecomp" >&2; exit 1 ;;
-esac
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  echo "Usage: sudo bash $0 <slug>   (slug: lowercase letters, digits, hyphens)" >&2; exit 1
+fi
 
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 $SLUG" >&2; exit 1; fi
 
@@ -71,7 +71,7 @@ sudo -u "$USER" "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.t
 
 log "Checking the .env"
 if [[ ! -f "${APP_DIR}/.env" ]]; then
-  install -o "$USER" -g "$USER" -m 0600 "${HERE}/env/${SLUG}.env.template" "${APP_DIR}/.env"
+  install -o "$USER" -g "$USER" -m 0600 "${HERE}/env/instance.env.template" "${APP_DIR}/.env"
   echo "  Created ${APP_DIR}/.env from the template."
   echo "  FILL IT IN, then re-run this script. Startup will fail until you do."
   exit 2
@@ -93,6 +93,13 @@ if ! grep -qE '^WEB_CONCURRENCY=[0-9]+' "${APP_DIR}/.env"; then
   echo "WEB_CONCURRENCY must be set to a number in ${APP_DIR}/.env" >&2
   exit 2
 fi
+# Same story for --port ${APP_PORT}: systemd expands an unset variable to an
+# empty string, and uvicorn's error for `--port ''` names nothing real.
+PORT=$(sed -n 's/^APP_PORT=//p' "${APP_DIR}/.env" | tail -1)
+if [[ ! "$PORT" =~ ^[0-9]+$ ]]; then
+  echo "APP_PORT must be set to a number in ${APP_DIR}/.env" >&2
+  exit 2
+fi
 
 log "Pre-warming the local embedding model cache"
 # model2vec downloads on first use. Doing it here means the first visitor does
@@ -108,7 +115,20 @@ log "Applying database migrations"
 sudo -u "$USER" bash -c "set -a; . '${APP_DIR}/.env'; set +a; cd '${APP_DIR}' && .venv/bin/python scripts/apply_migrations.py"
 
 log "Installing the systemd unit"
-install -m 0644 "${HERE}/systemd/padyar-${SLUG}.service" "/etc/systemd/system/padyar-${SLUG}.service"
+# Rendered per install from the template. The service keeps the
+# padyar-<slug> name the rest of the kit (deploy script, journalctl
+# examples, verify) already uses; user, paths and identity all derive from
+# the slug, and the port comes from the .env (APP_PORT) via the unit's own
+# ${APP_PORT} expansion — nothing per-install is hardcoded in the template.
+sed "s/{{SLUG}}/${SLUG}/g" "${HERE}/systemd/padyar-app.service.template" \
+  > "/etc/systemd/system/padyar-${SLUG}.service"
+# Fail closed on drift: a placeholder the sed does not cover would install a
+# unit systemd cannot start.
+if grep -q -F '{{' "/etc/systemd/system/padyar-${SLUG}.service"; then
+  echo "10-install: unfilled placeholder left in padyar-${SLUG}.service — template/renderer drift" >&2
+  exit 2
+fi
+chmod 0644 "/etc/systemd/system/padyar-${SLUG}.service"
 systemctl daemon-reload
 systemctl enable "padyar-${SLUG}"
 systemctl restart "padyar-${SLUG}"

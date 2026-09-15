@@ -1,6 +1,6 @@
 """An import must import, never seed.
 
-Measured on the live elecomp install (2026-08-31): running
+Measured on a live install (2026-08-31): running
 scripts/import-content.py against a customer database with the default env
 squeezed the bundled starter dataset (31 `dataset` rows, 193 `questions`,
 74 synonyms) AND a default-credential admin row into a database whose owner

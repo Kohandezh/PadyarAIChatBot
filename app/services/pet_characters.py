@@ -5,7 +5,7 @@ Same key-value pattern as whitelabel_* (branding.py) / menu_show_*
 static/otp/pet/characters/, each holding a character.json (atlas, cell size,
 column count, fallback, optional hide strip, and the two pose maps the
 shared companion.js consumes). An install that never opens the form gets
-the default character named below; every bundled character stays
+the registry's first character; every bundled character stays
 selectable in the admin panel.
 
 The character is baked into the cached chat shell (footer.html's canvas
@@ -27,7 +27,6 @@ from app.db.queries import get_setting, set_setting
 logger = logging.getLogger("PadyarAssistant")
 
 CHARACTERS_DIR = os.path.join(BASE_DIR, "static", "otp", "pet", "characters")
-DEFAULT_CHARACTER = "elecomp"
 
 # Registry values are page attributes, not free text: names are slugs and
 # the pose maps are {slug: slug} / {slug: int}. Anything else would ride
@@ -96,17 +95,18 @@ def discover_characters() -> dict:
         loaded = _load_character(entry, folder)
         if loaded:
             characters[entry] = loaded
-    if DEFAULT_CHARACTER not in characters:
-        logger.warning("[pet] default character missing from the registry")
+    if not characters:
+        logger.warning("[pet] character registry is empty; no companion will ship")
     return characters
 
 
 def get_pet_character() -> dict:
-    """The active character's metadata. An unknown/missing stored name
-    collapses to the default — the companion degrades, it never 500s."""
+    """The active character's metadata: the stored choice, else the
+    registry's first character. An unknown/missing stored name collapses
+    to that default — the companion degrades, it never 500s."""
     characters = discover_characters()
-    name = get_setting("pet_character", DEFAULT_CHARACTER) or DEFAULT_CHARACTER
-    return characters.get(name) or characters.get(DEFAULT_CHARACTER) or {}
+    name = get_setting("pet_character", "")
+    return characters.get(name) or next(iter(characters.values()), {})
 
 
 def set_pet_character(name: str) -> bool:

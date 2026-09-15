@@ -22,7 +22,7 @@
     {"q": "دومی", "expect": "pick", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
     {"q": "بیشتر", "expect": "options", "cat": "pick", "after": "شرکت‌های هوش مصنوعی را معرفی کن"},
 
-    {"q": "تاریخ برگزاری نمایشگاه الکامپ کی است؟", "expect": "refuse", "cat": "out_of_scope"},
+    {"q": "تاریخ برگزاری نمایشگاه هانوفر کی است؟", "expect": "refuse", "cat": "out_of_scope"},
     {"q": "قیمت دلار امروز چند است؟", "expect": "refuse", "cat": "out_of_scope"},
     {"q": "بهترین رستوران تهران کجاست؟", "expect": "refuse", "cat": "out_of_scope"},
     {"q": "نتیجه بازی دیشب چه شد؟", "expect": "refuse", "cat": "out_of_scope"},

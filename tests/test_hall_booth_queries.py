@@ -1,6 +1,6 @@
 """Hall lists, booth lookup, and the بانک-style facet stem.
 
-THREE live failures (Elecomp, 2026-09-01) fixed together because they share
+THREE live failures (a production install, 2026-09-01) fixed together because they share
 one root: facts the organizer already records per company — `hall`
 («سالن ۶», «سالن ۳۸B», «میلاد (31B)») and `booth_number` («377», «6-10») —
 had no tier that read them.
@@ -364,7 +364,7 @@ def test_bank_word_unions_across_facet_spellings(db, monkeypatch):
     """«بانک» when the organizer wrote «بانکداری» for one exhibitor and
     «بانکداری دیجیتال» for another: the derived token is shared by two
     facet VALUES, the distinctive-single rule alone rejects both, and the
-    live Elecomp answer was NOTHING. The stem union must return both
+    live answer was NOTHING. The stem union must return both
     facets' companies."""
     from app.services.company_search import answer_company_list
     _seed(monkeypatch, companies=COMPANIES + [

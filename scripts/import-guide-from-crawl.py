@@ -8,7 +8,7 @@ app's own tables.
 SOURCE
 ------
 The crawler (a separate service) fills five tables in the `crawl` schema of
-the production PostgreSQL database (padyar_elecomp), crawled 2026-08-31:
+the production PostgreSQL database (padyar_<slug>), e.g. crawled 2026-08-31:
 
     crawl.guide_facts(key, value)            hours, dates, weather, ...
     crawl.gates(name, gate_type, route_text) venue entrances + parking

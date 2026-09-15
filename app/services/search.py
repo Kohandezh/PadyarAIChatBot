@@ -146,8 +146,8 @@ _vocab_by_len: dict = {}
 # only among dataset titles could still collide with a company's, so both are
 # scanned here even though the retrieval indices above stay dataset-only).
 # This is how a query that NAMES a known entity gets anchored to that entity's
-# own entry, no matter what the similarity scores say. The 2026-08-26 الکامپ
-# guard above covers entities the corpus does NOT know; this covers confusion
+# own entry, no matter what the similarity scores say. The 2026-08-26
+# unknown-entity guard above covers entities the corpus does NOT know; this covers confusion
 # BETWEEN known entries (measured 2026-08-27: «شماره مدیرعامل دوندگان لبه
 # علم» was served the دبیرخانه phone FAQ at 0.87, and «درباره دکیو بهم بگو»
 # fell through to the paid AI tier at 0.691 — both entities exist).
@@ -181,8 +181,9 @@ def unknown_salient_tokens(query: str) -> list:
     """Content tokens of the ORIGINAL query that the WHOLE corpus does not
     know — the strongest "asked about something we have nothing on" signal.
 
-    Why this must exist (measured 2026-08-26, live): «تاریخ برگزاری نمایشگاه
-    الکامپ» was served the event's date with 0.844 confidence. الکامپ appears
+    Why this must exist (measured 2026-08-26, live): a query naming a rival
+    exhibition («تاریخ برگزاری نمایشگاه هانوفر» is the shape) was served
+    the event's date with 0.844 confidence. The rival's name appears
     in no document, no curated question and no synonym, and the lexical
     retrievers simply DROP unknown terms — so the query degraded to its
     common words («تاریخ برگزاری نمایشگاه») and matched strongly. Coverage
@@ -222,7 +223,7 @@ def resolve_named_entity(query: str):
     plus the tokens that named it. Zero or more than one -> (None, set()):
     ambiguity must never guess.
 
-    Why this exists (measured 2026-08-27): the الکامپ guard only protects
+    Why this exists (measured 2026-08-27): the unknown-entity guard only protects
     against entities the corpus does NOT know. When a query names a KNOWN
     entity but retrieval anchors on the query's other tokens, nothing stopped
     a confident wrong answer — «شماره مدیرعامل دوندگان لبه علم» matched the

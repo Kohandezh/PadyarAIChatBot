@@ -1,6 +1,6 @@
 """The /admin/api/stats weekly query must run on PostgreSQL, not just SQLite.
 
-The 2026-08-30 elecomp incident: the dashboard's daily-stats query used
+The 2026-08-30 production incident: the dashboard's daily-stats query used
 SQLite's two-argument `date('now', '-7 days')`. PostgreSQL has no such
 function (`function date(unknown, unknown) does not exist`) and the endpoint
 returned 500 on every load in production. The test suite runs on SQLite,

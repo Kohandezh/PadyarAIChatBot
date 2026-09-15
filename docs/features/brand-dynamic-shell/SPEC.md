@@ -5,7 +5,7 @@ Owner: Sina (Malik-e product)
 
 ## Scenario
 
-A second install (elecomp) runs the same inotex theme. The operator sets
+A second install runs the same inotex theme. The operator sets
 their own name, subtitle and logo in **Settings > Branding** and the whole
 visitor-facing shell rebrands — including the first thing anyone sees: the
 startup preloader. No event name is baked into the theme's rendered markup.

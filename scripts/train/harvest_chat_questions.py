@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Harvest served visitor queries from chat_logs into the questions table.
 
-    cd /opt/padyar-elecomp && set -a && . .env && set +a && \
+    # INSTALL_DIR names the install, e.g. /opt/padyar-myevent:
+    cd /opt/padyar-myevent && set -a && . .env && set +a && \
     SEED_DEFAULT_CONTENT=false .venv/bin/python \
         /home/gpu/train-work/scripts/harvest_chat_questions.py [--apply]
 
@@ -19,7 +20,9 @@ import argparse
 import os
 import sys
 
-INSTALL = os.environ.get("INSTALL_DIR", "/opt/padyar-elecomp")
+INSTALL = os.environ.get("INSTALL_DIR", "")
+if not INSTALL:
+    sys.exit("Set INSTALL_DIR to the install's root, e.g. INSTALL_DIR=/opt/padyar-myevent")
 sys.path.insert(0, INSTALL)
 os.environ.setdefault("SEED_DEFAULT_CONTENT", "false")
 

@@ -1,7 +1,8 @@
-"""The الکامپ incident: an unknown named entity must not get a confident local answer.
+"""The unknown-entity incident: an unknown named entity must not get a confident local answer.
 
-WHAT HAPPENED (live, 2026-08-26): «تاریخ برگزاری نمایشگاه الکامپ» was served
-the event's own date at 0.844 confidence. الکامپ appears in no document, no curated
+WHAT HAPPENED (live, 2026-08-26): a query naming a rival exhibition —
+«تاریخ برگزاری نمایشگاه هانوفر» carries the shape — was served
+the event's own date at 0.844 confidence. The rival's name appears in no document, no curated
 question and no synonym; the lexical retrievers silently drop unknown tokens,
 so the query degraded to its common words and matched strongly — while the
 single word that made the question about ANOTHER exhibition vanished. The AI
@@ -85,7 +86,7 @@ def _ask(client, message):
 
 def test_unknown_salient_tokens_on_the_incident_query(client):
     from app.services import search
-    assert search.unknown_salient_tokens("تاریخ برگزاری نمایشگاه الکامپ") == ["الکامپ"]
+    assert search.unknown_salient_tokens("تاریخ برگزاری نمایشگاه هانوفر") == ["هانوفر"]
 
 
 def test_known_queries_flag_nothing(client):
@@ -113,11 +114,11 @@ def test_unimported_company_name_is_unknown(client):
 
 def test_unknown_entity_gets_the_ai_answer_not_a_local_one(client, monkeypatch):
     _mock_ai(monkeypatch)   # classifier says out_of_domain → generation runs
-    r = _ask(client, "تاریخ برگزاری نمایشگاه الکامپ")
+    r = _ask(client, "تاریخ برگزاری نمایشگاه هانوفر")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] == "openai", \
-        "the الکامپ query must not be served by any local tier"
+        "the unknown-entity query must not be served by any local tier"
     assert body["text"] == "پاسخ تولیدشدهٔ AI"
 
 
@@ -132,5 +133,5 @@ def test_known_entity_still_answers_locally(client, monkeypatch):
 
 def test_unknown_entity_with_ai_down_is_503_not_a_wrong_local_answer(client, monkeypatch):
     _mock_ai(monkeypatch, fail=True)
-    r = _ask(client, "تاریخ برگزاری نمایشگاه الکامپ")
+    r = _ask(client, "تاریخ برگزاری نمایشگاه هانوفر")
     assert r.status_code == 503, r.text

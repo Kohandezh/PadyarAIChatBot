@@ -68,9 +68,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install -m 0755 -o root -g root "$HERE/padyar-deploy.sh" /usr/local/bin/padyar-deploy
 
 log "Granting the runner exactly one privilege"
-# The single sudoers surface. No wildcard, no NOPASSWD:ALL, no editor. If the
-# deploy script needs to change, it changes in the repository and is
-# re-installed by re-running this script — never by the runner itself.
+# The single sudoers surface. One command, NOPASSWD, no editor — but its
+# arguments are a wildcard, because the deploy script is per-install
+# (<slug> <port> <sha>) and pinning a slug here would put install identity
+# back into a server-only file. The boundary that matters is unchanged: the
+# script is root-owned and changes only through the repository, re-installed
+# by re-running this one — the runner may call it, never edit it.
 #
 # PADYAR_GIT_TOKEN is the GitHub job token (ephemeral: it dies when the job
 # ends). env_keep lets the workflow pass it through `sudo VAR=... cmd` so the
@@ -79,7 +82,7 @@ log "Granting the runner exactly one privilege"
 # travels in process environments (/proc/PID/environ, owner-only) and never
 # in argv, on disk, or in logs (GitHub masks it anyway).
 cat > /etc/sudoers.d/gh-runner-deploy <<'SUDOERS'
-gh-runner ALL=(root) NOPASSWD: /usr/local/bin/padyar-deploy elecomp *
+gh-runner ALL=(root) NOPASSWD: /usr/local/bin/padyar-deploy *
 Defaults:gh-runner env_keep += "PADYAR_GIT_TOKEN"
 SUDOERS
 chmod 0440 /etc/sudoers.d/gh-runner-deploy

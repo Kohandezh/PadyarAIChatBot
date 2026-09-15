@@ -31,8 +31,8 @@
     const CFG = window.OTP_CONFIG || {};
     const ATLAS_URL = (canvasEl && canvasEl.dataset.atlas) || CFG.companionAtlas || '';
     const CELL = Number((canvasEl && canvasEl.dataset.cell) || CFG.companionCell || 512);
-    // Grid width of the atlas. The default sheet is 4 columns; a character
-    // with a 3-wide sheet (elecomp) ships data-columns of its own.
+    // Grid width of the atlas. The default sheet is 4 columns; a bundled
+    // character with a narrower sheet ships data-columns of its own.
     const COLS = Number((canvasEl && canvasEl.dataset.columns) || 4) || 4;
 
     // Per-character pose maps ride the canvas as data-pose-index /

@@ -235,7 +235,7 @@ def _fuzzy_hit(facet_token: str, forms: set) -> bool:
     return False
 
 
-# SUFFIX DERIVATION (live failure, Elecomp 2026-09-01): «چه بانک هایی هستن
+# SUFFIX DERIVATION (live failure on a production install, 2026-09-01): «چه بانک هایی هستن
 # تو نمایشگاه» came back «اطلاعات دقیقی ندارم» because the visitor's word
 # «بانک» never matched the facet token «بانکداری» — the organizer names
 # fields with DERIVED nouns, the visitor types the base word. One closed
@@ -303,7 +303,7 @@ def _select_facets(tokens: list, companies: list):
         # «بانکداری» for one exhibitor and «بانکداری دیجیتال» for the next,
         # so the derived token legitimately sits in several facet VALUES and
         # the shared==1 rule below rejects it exactly when the data is
-        # richest (live failure, Elecomp 2026-09-01: «چه بانک هایی…» met
+        # richest (live failure on a production install, 2026-09-01: «چه بانک هایی…» met
         # both spellings and got NOTHING). Stem-only facets therefore take
         # the UNION path — and only when exact scoring found nothing, since
         # an exact distinctive word always beats a stem.
@@ -422,7 +422,7 @@ def answer_company_list(query: str, lang: str = "fa"):
             filter_label = next(iter(selected))
         else:
             # Several facets TIED at the same score. The union of their names
-            # is not a zemine anyone can read: on the elecomp install
+            # is not a zemine anyone can read: on a live install
             # (2026-08-31) «هوش مصنوعی» sits inside 45 of the organizer's
             # activity fields, so «سکوی هوش مصنوعی چی هست» headed its answer
             # with an 800-character comma string — half the response, and
@@ -511,7 +511,7 @@ def _render_list(matched: list, selected, filter_label: str, lang: str,
 
 # ── The hall-list and booth-lookup tiers ──────────────────────────────────
 #
-# Why these exist (live, Elecomp 2026-09-01): «شرکت های سالن 6» was REFUSED
+# Why these exist (live on a production install, 2026-09-01): «شرکت های سالن 6» was REFUSED
 # («من فقط می‌توانم درباره نمایشگاه...») because no tier had a hall
 # dimension, and «غرفه 377» went out of scope because nothing looked a booth
 # number up. Both facts are already recorded per company (migrations
@@ -743,12 +743,12 @@ _FIELD_WORDS = (
 
 # A follow-up field question names NO entity and NO topic — only a field
 # word plus conversation fillers («کجاس؟», «کدوم غرفه س کدوم سالن», «بابا
-# کدوم غرفه س کدوم سالن»). Live failures, Elecomp 2026-09-01: both of
+# کدوم غرفه س کدوم سالن»). Live failures on a production install, 2026-09-01: both of
 # those got «متوجه منظورت نشدم» and a markdown essay, while the company
 # being discussed was one turn up. Anything LEFT over after the field words
 # and these fillers is content — a facet («هوش مصنوعی کجاس» is a LIST
 # question), an entity, a guide word — and must run the ordinary pipeline.
-# GLUE WORDS INSIDE FACET NAMES (live failure, Elecomp 2026-09-01):
+# GLUE WORDS INSIDE FACET NAMES (live failure on a production install, 2026-09-01):
 # «نمایشگاه امسال شامل چه حوزه های هست؟» matched the facet «فناوری
 # اطلاعات شامل سخت‌افزار و نرم‌افزار» on the ordinary word «شامل» — it
 # sat in exactly one facet value, so the distinctive-single rule fired and
@@ -927,7 +927,7 @@ def answer_company_field(query: str, entry: dict, lang: str = "fa"):
     if not value:
         # A WHERE question must not fall through to the generic blurb with
         # its «می‌توانید به غرفه این شرکت مراجعه نمایید» that says nothing
-        # (live failure, Elecomp 2026-09-01: «شرکت مدبران کجاست؟» — the
+        # (live failure on a production install, 2026-09-01: «شرکت مدبران کجاست؟» — the
         # company HAS booth 70, the address column is empty, and the visitor
         # got a profile instead of a place). When the empty field is a
         # WHERE-shaped one and the booth or hall IS recorded, answer with

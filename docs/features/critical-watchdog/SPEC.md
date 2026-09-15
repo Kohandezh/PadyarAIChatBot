@@ -29,12 +29,11 @@ was the access log. Two failures stood in that window:
    known until a human happened to open the site. Three minutes or three
    hours — identical silence.
 
-This feature closes both, one watchdog per install on the host (the event
-install has since been retired; ELECOMP remains):
+This feature closes both, one watchdog per install on the host:
 
 | Install | Domain | Probed at | Watchdog unit |
 |---|---|---|---|
-| ELECOMP | `elecomp.padyar.com` | `127.0.0.1:8002` | `padyar-watchdog@elecomp` |
+| `myevent` | `myevent.example.com` | `127.0.0.1:8010` | `padyar-watchdog@myevent` |
 
 **Who triggers what, from where:**
 
@@ -76,8 +75,8 @@ location = /__maintenance.html {
 - The location is `internal`: it is not a URL anyone can browse to; it exists
   only as an `error_page` target.
 - The installer (`deploy/17-watchdog.sh`) renders one copy per install with
-  the site title substituted (e.g. ELECOMP → «چت‌بات
-  الکامپ»), so nginx never templates anything at request time.
+  the site title substituted, so nginx never templates anything at request
+  time.
 
 **Why the app's own 503 passes through untouched.** The app has its own
 in-app maintenance mode, and its 503 carries a JSON body that is the app's
@@ -93,7 +92,7 @@ page — the exact class of "built but not wired" surprise this repo forbids.
 
 A systemd timer runs one watchdog cycle per minute per install
 (`padyar-watchdog@.timer`: `OnUnitActiveSec=60s`, `AccuracySec=10s`,
-`Persistent=true`). Each cycle GETs `http://127.0.0.1:{8001|8002}/api/health`
+`Persistent=true`). Each cycle GETs `http://127.0.0.1:{port}/api/health`
 (5 s timeout); anything but HTTP 200 — refused, reset, timeout — counts as
 down.
 
@@ -117,7 +116,7 @@ The two SMS texts, verbatim from `deploy/watchdog/watchdog.py` (Tehran time,
 یادآوری — پادیار | هشدار بحرانی: چت‌بات {name} از ساعت {HH:MM} (به وقت تهران) پاسخ نمی‌دهد.
 ```
 
-`{name}` is the install's display name (e.g. `ELECOMP`); the reminder is the same text with the
+`{name}` is the install's display name; the reminder is the same text with the
 `یادآوری — ` prefix.
 
 ## 4. What NEVER alerts
@@ -199,7 +198,7 @@ One JSON file per install: `/var/lib/padyar-watchdog/{install}/state.json`
 `cached_phone`).
 
 - **Why per-install directories:** the per-install watchdog services run as
-  distinct service users (`padyar-elecomp` today; the pattern is
+  distinct service users (the pattern is
   `padyar-{slug}`) under one
   root-owned parent (`/var/lib/padyar-watchdog`). Each user owns exactly its
   own subdirectory. A flat file in the parent would be writable by neither
@@ -225,7 +224,7 @@ Verify the timers are scheduled and a cycle runs clean:
 
 ```bash
 systemctl list-timers 'padyar-watchdog@*'
-journalctl -u padyar-watchdog@elecomp.service -n 20
+journalctl -u padyar-watchdog@myevent.service -n 20
 ```
 
 Change the alert phone or the credit threshold — per install, in the admin
@@ -238,14 +237,14 @@ reload. An empty phone means alerts off. The threshold is typed in toman
 End-to-end test (this is the scenario test — do it once after install):
 
 ```bash
-sudo systemctl stop padyar-elecomp
-journalctl -u padyar-watchdog@elecomp.service -f
+sudo systemctl stop padyar-myevent
+journalctl -u padyar-watchdog@myevent.service -f
 # wait ≥ 3 minutes: three cycles log, the third sends the SMS
-sudo systemctl start padyar-elecomp
+sudo systemctl start padyar-myevent
 ```
 
 Expect: exactly one down-SMS (~3 min in), silence on recovery, and
-`https://elecomp.padyar.com` serving the branded maintenance page for the
+`https://myevent.example.com` serving the branded maintenance page for the
 whole window.
 
 ## 9. Wiring — reader/writer pairs that must never drift
@@ -254,9 +253,9 @@ whole window.
 |---|---|---|
 | Admin API stores `alert_critical_phone` (`set_setting`, `app/routers/admin.py`) | `_read_settings()` reads it every cycle (`deploy/watchdog/watchdog.py`) | SMS goes nowhere or to a stale number |
 | Admin API stores `alert_credit_threshold_toman` (same route) | Same reader; compared ×10 as rial | Wallet floor silently wrong |
-| `deploy/17-watchdog.sh` renders pages at `/var/www/padyar/maintenance/{slug}/__maintenance.html` | vhost `location = /__maintenance.html` `root` in `deploy/nginx/*.padyar.com.conf` | 502 falls through to nginx's default error page — the incident again |
+| `deploy/17-watchdog.sh` renders pages at `/var/www/padyar/maintenance/{slug}/__maintenance.html` | vhost `location = /__maintenance.html` `root` in the vhost rendered from `deploy/nginx/instance.conf.template` | 502 falls through to nginx's default error page — the incident again |
 | Installer creates `/var/lib/padyar-watchdog/{slug}` owned by `padyar-{slug}`; unit `ReadWritePaths=/var/lib/padyar-watchdog` | `STATE_DIR` + `run_cycle` state path in `watchdog.py` | Persist fails on permissions; fail streak resets every run; alerts muted |
-| systemd instance names (`elecomp` today; generally `{slug}` — `User=padyar-%i`, `WorkingDirectory=/opt/padyar-%i`) | `INSTALLS` keys and ports in `watchdog.py` | Cycle journals "unknown install" forever, or probes the wrong port |
+| systemd instance names (generally `{slug}` — `User=padyar-%i`, `WorkingDirectory=/opt/padyar-%i`) and `APP_PORT` in each install's `.env` (the unit's `EnvironmentFile`) | `install_port()` in `watchdog.py` reads `APP_PORT` from that EnvironmentFile | Cycle journals "unknown install" forever, or probes the wrong port |
 | Timer `OnUnitActiveSec=60s` | `FAILS_BEFORE_ALERT=3` (docs claim "~3 min") | The detection-lag promise silently changes |
 | `asanak_credit()` returns rial (`app/services/sms.py`) | `RIAL_PER_TOMAN = 10` conversion + toman rendering in the SMS | Alerts fire an order of magnitude early or late |
 | Admin stores phone canonical `+98…`; `asanak_destination()` strips the `+` at the gateway edge (`app/services/sms.py`) | `_send()` in `watchdog.py` applies it | Asanak rejects the destination (HTTP 406) and the alert dies in a journal note |
@@ -265,7 +264,7 @@ whole window.
 
 - `tests/test_watchdog_logic.py` — the pure core: 3-fail threshold, 30-min
   re-alert, recovery reset, blip immunity, once-per-UTC-day credit dedup,
-  verbatim Persian texts, Tehran half-hour clock, production ports.
+  verbatim Persian texts, Tehran half-hour clock, `APP_PORT` resolution.
 - `tests/test_watchdog_io.py` — `run_cycle` with every dependency injected:
   exactly one SMS per 3 fails, cached-phone fallback on DB-down, no-phone
   journal note, corrupt-state reset, per-install state directory.

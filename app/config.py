@@ -392,7 +392,7 @@ SUMMARIZE_AFTER_MESSAGES = 12
 # here for, too short to become a second transcript.
 SUMMARY_MAX_CHARS = 400
 
-# --- The conversational gate (2026-08-31, Elecomp) ---
+# --- The conversational gate (a production install, 2026-08-31) ---
 # Two live failures: a visitor's self-introduction («اسم من سینا هست…»)
 # triggered the named-entity anchor and served the namesake company's
 # profile, and «بگو» after an offer was answered as a brand-new question.

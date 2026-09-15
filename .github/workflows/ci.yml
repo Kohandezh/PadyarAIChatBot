@@ -222,30 +222,40 @@ jobs:
       group: deploy-production
       cancel-in-progress: false   # queue merges; never race two deploys
     steps:
-      # The only install on this host, deployed by the root-owned
-      # padyar-deploy script. If elecomp fails, the job fails red and the
-      # install is rolled back by its own health gate.
-      - name: Deploy elecomp to production
+      # The install this host serves is named by repository variables, so
+      # one workflow deploys any install. If the deploy fails, the job fails
+      # red and the install is rolled back by its own health gate.
+      - name: Deploy to production
         run: |
           set -euo pipefail
+          # Fail closed, like every other gate in this file: a deploy
+          # without a configured target is a misconfiguration, not a no-op.
+          # DEPLOY_SLUG/DEPLOY_PORT live in repo Settings → Secrets and
+          # variables → Actions → Variables (DEPLOY_PORT is the install's
+          # APP_PORT — the port its systemd unit listens on).
+          if [ -z "${{ vars.DEPLOY_SLUG }}" ] || [ -z "${{ vars.DEPLOY_PORT }}" ]; then
+            echo "::error::DEPLOY_SLUG and DEPLOY_PORT repository variables are not set. Configure them in Settings → Secrets and variables → Actions → Variables, then re-run."
+            exit 1
+          fi
           sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
-            /usr/local/bin/padyar-deploy elecomp "${{ github.sha }}"
+            /usr/local/bin/padyar-deploy "${{ vars.DEPLOY_SLUG }}" "${{ vars.DEPLOY_PORT }}" "${{ github.sha }}"
 
       - name: Report
         run: |
           echo "Deployed ${{ github.sha }}:"
-          echo "  - padyar-elecomp (elecomp.padyar.com, port 8002)"
+          echo "  - padyar-${{ vars.DEPLOY_SLUG }} (port ${{ vars.DEPLOY_PORT }})"
 
-  # Blocking. The retired event brand must not come back: every scrubbed
-  # surface (source, tests, scripts, docs) stays scrubbed. The allowlist is
-  # the kept-by-design set — the inotex THEME and its assets, the
-  # checksum-guarded migrations, the pet character's own folder, and the
-  # removal spec itself.
+  # Blocking. The retired event brands must not come back: every scrubbed
+  # surface (source, tests, scripts, docs) stays scrubbed. Each allowlist is
+  # the kept-by-design set for that brand — the inotex THEME and its assets,
+  # the checksum-guarded migrations, the pet characters' own folders, the
+  # removal specs, the AI assistance log, and run_eval.py's contamination
+  # guard.
   identity-guard:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: The retired event brand must not return
+      - name: The retired event brands must not return
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep >/dev/null
           # The character classes (INO[T]EX etc.) keep this job's own pattern
@@ -259,6 +269,24 @@ jobs:
             -g '!themes/**' -g '!migrations/**' \
             -g '!static/otp/pet/characters/inotex/**' \
             -g '!docs/superpowers/**'
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then echo "::error::Retired event brand found outside the allowlist"; exit 1
+          elif [ "$code" -ne 1 ]; then echo "::error::rg itself failed (exit $code) — guard cannot run"; exit 1
+          else echo "clean"; fi
+          # The second retired event brand, same pattern, same fail-closed
+          # semantics. Allowlist: the pet character's own folder, the
+          # checksum-guarded migrations, docs/superpowers, the AI assistance
+          # log, and run_eval.py's LEGACY_TOKENS (a kept-by-design
+          # contamination guard for retired-brand names in legacy data).
+          set +e
+          rg -n '[eE]lecomp|ELE[C]OMP|ال[ک]امپ' \
+            --hidden -g '!node_modules' -g '!.git' \
+            -g '!static/otp/pet/characters/**' \
+            -g '!migrations/**' \
+            -g '!docs/superpowers/**' \
+            -g '!docs/engineering/AI_ASSISTANCE_LOG.md' \
+            -g '!scripts/run_eval.py'
           code=$?
           set -e
           if [ "$code" -eq 0 ]; then echo "::error::Retired event brand found outside the allowlist"; exit 1
