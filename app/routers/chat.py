@@ -55,7 +55,10 @@ _NEGATE_NORM = frozenset(
 
 # The one entry whose answer is personalised. Everything else in the knowledge
 # base is the same for every visitor, which is what makes it verifiable.
-TARGETED_VISIT_ID = "inotex-targeted-visit"
+# Legacy installs carry rows with the old "inotex-targeted-visit" id; both ids
+# personalize so existing datasets keep working after the rename.
+TARGETED_VISIT_ID = "targeted-visit"
+_TARGETED_VISIT_IDS = frozenset({TARGETED_VISIT_ID, "inotex-targeted-visit"})
 
 
 def _targeted_visit_suffix(entry: dict, visitor, lang: str) -> str:
@@ -65,7 +68,7 @@ def _targeted_visit_suffix(entry: dict, visitor, lang: str) -> str:
     already explains how to get suggestions, and inventing a "personalised"
     list from an empty profile would be theatre.
     """
-    if entry.get("id") != TARGETED_VISIT_ID or visitor is None:
+    if entry.get("id") not in _TARGETED_VISIT_IDS or visitor is None:
         return ""
     try:
         from app.services import visit_plan

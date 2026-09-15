@@ -78,7 +78,7 @@ def test_a_long_natural_sentence_still_finds_the_field(client):
     """The sentence a visitor actually types. It CONTAINS «هوش مصنوعی», which
     works on its own, and everything else in it is conversation."""
     _seed(COMPANIES)
-    r = _ask("من شرکت های فعال در حوزه هوش مصنوعی که در اینوتکس"
+    r = _ask("من شرکت های فعال در حوزه هوش مصنوعی که در نمایشگاه"
              " شرکت کرده اند رو اطلاعات شون رو میخوام")
     assert r is not None, "the tier refused a question it can answer exactly"
     assert r["count"] == 3, r
@@ -110,7 +110,7 @@ def test_the_information_technology_sentence_selects_that_field(client):
     """The IT twin of the AI sentence. «اطلاعات» is a real facet word here
     («فناوری اطلاعات...») and the visitor means it."""
     _seed(COMPANIES)
-    r = _ask("شرکت های فعال در حوزه فناوری اطلاعات که در اینوتکس"
+    r = _ask("شرکت های فعال در حوزه فناوری اطلاعات که در نمایشگاه"
              " شرکت کرده اند رو اطلاعات شون رو میخوام!")
     assert r is not None, r
     assert _titles(r) == {"شرکت دکیو"}, r

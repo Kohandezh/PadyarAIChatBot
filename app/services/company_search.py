@@ -41,7 +41,7 @@ _LIST_TRIGGERS = {"چند", "کدام", "لیست", "معرفی"}
 # filter (content_tokens has already dropped the rerank stopwords). The verbs
 # are the ways visitors phrase the request itself («معرفی کن», «داریم؟»).
 _MACHINERY = _ATTACHED_PLURALS | _PLURAL_SUFFIXES | _LIST_TRIGGERS | {
-    "شرکت", "حوزه", "زمینه", "فعال", "فعالیت", "نمایشگاه", "اینوتکس",
+    "شرکت", "حوزه", "زمینه", "فعال", "فعالیت", "نمایشگاه",
     "کن", "کنید", "بگو", "بگویید", "بده", "بدهید", "نام",
     "داریم", "دارید", "دارند", "دارد", "هست", "هستند", "حضور",
     # «شرکت‌های استان اصفهان» names the province the same way «حوزه» names the

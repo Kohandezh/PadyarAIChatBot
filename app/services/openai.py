@@ -207,7 +207,11 @@ def build_system_prompt() -> str:
                   .replace("{domain_en}", domain_en).replace("{domain}", domain_fa)
                   .replace("{refusal_fa}", refusal_fa)
                   .replace("{refusal_en}", refusal_en))
-    return filled + "\n" + knowledge
+    # The knowledge default ships empty; only a set value earns the separator,
+    # so a fresh install's prompt does not end in a dangling blank section.
+    if knowledge:
+        return filled + "\n" + knowledge
+    return filled
 
 
 def _build_intent_list():

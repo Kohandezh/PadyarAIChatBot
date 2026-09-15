@@ -268,7 +268,7 @@ def answer(monkeypatch):
 
 @pytest.fixture
 def targeted_entry():
-    return {"id": "inotex-targeted-visit", "text": "پایه", "text_en": "base", "video_url": ""}
+    return {"id": "targeted-visit", "text": "پایه", "text_en": "base", "video_url": ""}
 
 
 def test_targeted_answer_is_personalised_for_a_described_visitor(answer, targeted_entry):
