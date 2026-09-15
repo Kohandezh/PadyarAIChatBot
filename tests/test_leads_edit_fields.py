@@ -33,12 +33,14 @@ def app_client(tmp_path, monkeypatch):
                      " VALUES ('fadmin','x','y','q','z')")
         conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
                      " VALUES (?,?,?)",
-                     (token, "fadmin",
-                      # 12h, not 1h: verify_admin compares a naive expiry
-                      # against LOCAL now, so a non-UTC dev machine (+03:30
-                      # here) reads utcnow()+1h as already expired. CI runs
-                      # UTC either way.
-                      (datetime.datetime.utcnow() + datetime.timedelta(hours=12)).isoformat()))
+                      (token, "fadmin",
+                       # Aware UTC: verify_admin's compare_now() answers an
+                       # aware expiry with aware-UTC now, so the seed holds
+                       # on any host. The old naive utcnow()+12h seed read
+                       # as already expired on every UTC+ machine (CI's UTC
+                       # hid it; a +03:30 dev box did not).
+                       (datetime.datetime.now(datetime.timezone.utc)
+                        + datetime.timedelta(hours=12)).isoformat()))
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)

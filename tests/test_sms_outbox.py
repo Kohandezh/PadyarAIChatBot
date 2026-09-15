@@ -103,6 +103,77 @@ def test_a_gateway_failure_is_survived_and_left_queued(temp_env, monkeypatch):
     assert temp_env.status_counts()["queued"] == 1
 
 
+def test_a_business_refusal_keeps_asking_row_by_row(temp_env, monkeypatch):
+    """A gateway-RETURNED refusal is an answer, not an outage: the round
+    must keep walking the rows exactly as before — only the gateway being
+    UNREACHABLE stops it."""
+    from app.services import sms as sms_service
+    from app.services.sms import SmsError
+    temp_env.record("asanak", "invite", "09120000000", "888")
+    temp_env.record("asanak", "invite", "09120000001", "889")
+
+    asked = []
+
+    def refuses(msgid):
+        asked.append(msgid)
+        raise SmsError(detail="the gateway said no", code=1014)
+
+    monkeypatch.setattr(sms_service, "asanak_status", refuses)
+    summary = temp_env.poll_deliveries()
+
+    assert len(asked) == 2, "a refusal answers its row; the next row is still asked"
+    assert summary["asked"] == 0
+    assert temp_env.status_counts()["queued"] == 2
+
+
+def test_a_transport_failure_stops_the_round_not_just_the_row(temp_env, monkeypatch):
+    """The hang (2026-09): a blackholed gateway costs TIMEOUT_SECONDS per
+    queued row, serially, on every boot. The first transport-level failure
+    must end the round; the unasked rows stay queued for a healthier one."""
+    import socket
+    import urllib.error
+    from app.services import sms as sms_service
+    for msgid in ("901", "902", "903"):
+        temp_env.record("asanak", "invite", "09120000000", msgid)
+
+    asked = []
+
+    def blackholed(msgid):
+        asked.append(msgid)
+        raise urllib.error.URLError(socket.timeout("timed out"))
+
+    monkeypatch.setattr(sms_service, "asanak_status", blackholed)
+    summary = temp_env.poll_deliveries()
+
+    assert len(asked) == 1, "the first transport failure must end the round"
+    assert summary["asked"] == 0 and summary["candidates"] == 3
+    assert temp_env.status_counts()["queued"] == 3
+
+
+def test_the_real_transport_signal_stops_the_round_too(temp_env, monkeypatch):
+    """sms._http_post converts a network failure into
+    SmsError(code=TRANSPORT_FAILED) — the shape the unmocked path actually
+    raises. The poller must read that sentinel, not only raw socket errors."""
+    from app.services import sms as sms_service
+    from app.services.sms import SmsError, TRANSPORT_FAILED
+    temp_env.record("asanak", "invite", "09120000000", "911")
+    temp_env.record("asanak", "invite", "09120000001", "912")
+
+    asked = []
+
+    def unreachable(msgid):
+        asked.append(msgid)
+        raise SmsError(detail="ارتباط با سامانه پیامک برقرار نشد.",
+                       code=TRANSPORT_FAILED)
+
+    monkeypatch.setattr(sms_service, "asanak_status", unreachable)
+    summary = temp_env.poll_deliveries()
+
+    assert len(asked) == 1
+    assert summary["asked"] == 0 and summary["candidates"] == 2
+    assert temp_env.status_counts()["queued"] == 2
+
+
 def test_the_dev_invite_send_lands_in_the_outbox(temp_env, tmp_path, monkeypatch):
     import app.services.sms as sms
     from app.db.queries import set_setting
@@ -135,11 +206,13 @@ def admin_client(tmp_path, monkeypatch):
                      " VALUES ('oadmin','x','y','q','z')")
         conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
                      " VALUES (?,?,?)",
-                     (token, "oadmin",
-                      # 12h: verify_admin compares naive expiry against LOCAL
-                      # now, so a +03:30 dev machine reads utcnow()+1h as
-                      # expired (CI runs UTC and is unaffected).
-                      (datetime.datetime.utcnow() + datetime.timedelta(hours=12)).isoformat()))
+                      (token, "oadmin",
+                       # Aware UTC: verify_admin's compare_now() answers an
+                       # aware expiry with aware-UTC now, so the seed holds
+                       # on any host — the old naive utcnow()+12h seed read
+                       # as already expired on a +03:30 dev machine.
+                       (datetime.datetime.now(datetime.timezone.utc)
+                        + datetime.timedelta(hours=12)).isoformat()))
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)

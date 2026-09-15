@@ -42,10 +42,13 @@ def admin_client(tmp_path, monkeypatch):
                      " VALUES ('campadmin','x','y','q','z')")
         conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
                      " VALUES (?,?,?)",
-                     (token, "campadmin",
-                      # 12h: verify_admin compares naive expiry against LOCAL
-                      # now (CI is UTC; a +03:30 dev machine is not).
-                      (datetime.datetime.utcnow() + datetime.timedelta(hours=12)).isoformat()))
+                      (token, "campadmin",
+                       # Aware UTC: verify_admin's compare_now() answers an
+                       # aware expiry with aware-UTC now, so the seed holds
+                       # on any host — a naive utcnow seed read as already
+                       # expired on every UTC+ machine.
+                       (datetime.datetime.now(datetime.timezone.utc)
+                        + datetime.timedelta(hours=12)).isoformat()))
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)
