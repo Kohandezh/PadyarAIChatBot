@@ -20,6 +20,23 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "hdr.db"))
     from app.main import app
     with TestClient(app) as c:
+        # Fresh installs ship an empty knowledge base; the closing test's
+        # point is that /chat still ANSWERS with the headers applied, so the
+        # fixture provides the one curated row that makes a local answer
+        # possible without an external provider.
+        from app.db.connection import get_db_connection
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT INTO dataset (id, title, text, video_url)"
+            " VALUES ('faq-what', 'پردیار چیست',"
+            " 'پردیار دستیار هوشمند این نصب است.', '')")
+        conn.execute(
+            "INSERT INTO questions (question, dataset_id, video_url)"
+            " VALUES ('پردیار چیست', 'faq-what', '')")
+        conn.commit()
+        conn.close()
+        from app.services.search import load_dataset_internal
+        load_dataset_internal()
         yield c
 
 
@@ -101,7 +118,7 @@ def test_the_chat_still_answers_with_headers_applied(client):
     # requires a plausible User-Agent — TestClient's default is too short.
     r = client.post(
         "/chat",
-        json={"message": "اینوتکس چیست", "lang": "fa"},
+        json={"message": "پردیار چیست", "lang": "fa"},
         headers={
             "X-Chat-Token": token.group(1),
             "Origin": "http://localhost",

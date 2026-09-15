@@ -1,7 +1,7 @@
 """The public data API must hand out chip labels, and nothing else.
 
 `/api/dataset` and `/api/questions` were served without authentication and
-returned every row of the knowledge base. On the INOTEX install that is 222
+returned every row of the knowledge base. On a production install that is 222
 dataset rows, 168 of them exhibitor company records with their full write-ups.
 Anyone who typed the URL downloaded the customer's commercial content.
 

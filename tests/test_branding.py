@@ -7,7 +7,7 @@ Covers the whole contract from plans/whitelabel-minimal.md:
     welcome, --wl-* palette, window.PADYAR_BRAND)
   * the page-cache key flipping on save (no stale shell) while the
     per-visitor chat token stays a fresh splice per request
-  * defaults rendering the INOTEX look pixel-identical (no logo <img>)
+  * defaults rendering the theme's look pixel-identical (no logo <img>)
   * escaping: html.escape for text positions, json+`</`-guard for the
     script payload — never html.escape inside <script>
   * the admin page (sidebar name + pre-filled form) and API auth
@@ -275,7 +275,7 @@ def test_branding_save_invalidates_page_cache_and_keeps_token_fresh(client):
     assert t1 != t2
 
 
-# ── 5. Defaults render INOTEX-identical ────────────────────────────────
+# ── 5. Defaults render the inotex theme identically ─────────────────────
 
 def test_defaults_render_inotex_identical(client):
     html = client.get("/").text

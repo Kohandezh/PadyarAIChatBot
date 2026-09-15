@@ -136,7 +136,7 @@ def test_pet_character_api_requires_admin(client):
 # ── The renderer's contract (static) ────────────────────────────────────
 
 def test_companion_js_reads_per_character_layout_and_maps():
-    """The shared renderer must not assume the INOTEX grid: columns, pose
+    """The shared renderer must not assume one character's grid: columns, pose
     indices and state→pose come from the character's data attributes, and
     an unmapped pose degrades to idle instead of drawing nothing."""
     from pathlib import Path

@@ -83,7 +83,7 @@ def test_a_duplicate_does_not_overwrite_the_existing_row(client):
 def test_a_persian_duplicate_id_behaves_the_same(client):
     """ids are TEXT and the product is Persian-first, so a non-ASCII id must
     take exactly the same path — not trip some encoding-specific branch."""
-    pid = "نمایشگاه-اینوتکس"
+    pid = "نمایشگاه-پردیار"
     assert _post(client, "/admin/api/dataset",
                  {"id": pid, "title": "T", "text": "X"}).status_code == 200
     assert _post(client, "/admin/api/dataset",

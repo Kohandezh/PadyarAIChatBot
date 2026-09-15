@@ -557,7 +557,7 @@ def test_a_rule_rewrites_the_word_and_not_the_word_it_sits_inside(client):
     client.post("/admin/api/tts/lexicon",
                 json={"entries": [{"written": "دور", "spoken": "دوور"}]})
 
-    # The INOTEX narration contains both, in one sentence.
+    # The event narration contains both, in one sentence.
     assert tts_lexicon.apply("اشیاء دور و نزدیک") == "اشیاء دوور و نزدیک"
     assert tts_lexicon.apply("دوربینِ شناخته‌شده") == "دوربینِ شناخته‌شده"
 

@@ -45,7 +45,7 @@ export async function downloadCSV() {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `inotex-export-${new Date().toLocaleDateString()}.csv`;
+        a.download = `padyar-export-${new Date().toLocaleDateString()}.csv`;
         document.body.appendChild(a);
         a.click();
         a.remove();

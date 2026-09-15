@@ -24,7 +24,7 @@ import pytest
 from app.services import rerank
 
 
-TICKET = "بلیط اینوتکس چقدر است هزینه قیمت نرخ مبلغ ورودیه"
+TICKET = "بلیط پردیار چقدر است هزینه قیمت نرخ مبلغ ورودیه"
 VENUE = "مکان نمایشگاه کجاست محل آدرس"
 
 # What normalize_persian actually produces for the out-of-domain query, and the
@@ -87,8 +87,8 @@ def test_the_cross_lingual_carve_out_still_applies():
     coverage, and the dense signal must still be able to win. Halving rather
     than zeroing is deliberate and unchanged."""
     dense, lexical, texts = [(0, 1.0)], [(0, 1.0)], [VENUE]
-    _i, score, signals = rerank.best("where is inotex held", texts, dense, lexical,
-                                     coverage_query="where is inotex held")
+    _i, score, signals = rerank.best("where is the event held", texts, dense, lexical,
+                                     coverage_query="where is the event held")
     assert signals["coverage"] == 0.0
     assert score > 0.4, "a zero-coverage candidate is halved, not discarded"
 

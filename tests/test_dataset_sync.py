@@ -25,8 +25,8 @@ def client(tmp_path, monkeypatch):
     # before the lifespan runs is enough.
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "test_chat.db"))
-    # These tests assert on an empty knowledge base, so the bundled INOTEX
-    # defaults must not be seeded into the throwaway DB. Read at call time in
+    # These tests assert on an empty knowledge base, so the bundled default
+    # content must not be seeded into the throwaway DB. Read at call time in
     # connection.py, same as DB_PATH.
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
 

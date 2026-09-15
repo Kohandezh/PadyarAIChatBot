@@ -2,7 +2,7 @@
 
 Measured on the live elecomp install (2026-08-31): running
 scripts/import-content.py against a customer database with the default env
-squeezed the INOTEX starter dataset (31 `dataset` rows, 193 `questions`,
+squeezed the bundled starter dataset (31 `dataset` rows, 193 `questions`,
 74 synonyms) AND a default-credential admin row into a database whose owner
 never asked for any of it. The content is cross-customer pollution; the
 admin row is an account with an auto-generated password nobody can audit.

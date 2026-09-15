@@ -1,12 +1,12 @@
 """How a visitor actually phrases a list question, versus how the tier read it.
 
-WHAT HAPPENED (live on inotex.padyar.com, 2026-08-28). «شرکت های فعال در حوزه
+WHAT HAPPENED (live on the event install, 2026-08-28). «شرکت های فعال در حوزه
 هوش مصنوعی» returned the right numbered list. Every one of these returned the
 generic exhibitor FAQ instead:
 
     شرکت های فعال در حوضه هوش مصنوعی
-    من شرکت های فعال در حوزه هوش مصنوعی که در اینوتکس شرکت کرده اند رو اطلاعات شون رو میخوام
-    شرکت های فعال در حوزه فناوری اطلاعات که در اینوتکس شرکت کرده اند رو اطلاعات شون رو میخوام!
+    من شرکت های فعال در حوزه هوش مصنوعی که در نمایشگاه شرکت کرده اند رو اطلاعات شون رو میخوام
+    شرکت های فعال در حوزه فناوری اطلاعات که در نمایشگاه شرکت کرده اند رو اطلاعات شون رو میخوام!
     دیگه چه شرکت هایی داریم؟
 
 The list-intent check fired on ALL of them. The break was one line later. Topic

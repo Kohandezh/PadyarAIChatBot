@@ -261,7 +261,7 @@
     }
   ],
   "fallback_ids": [
-    "inotex-stage",
+    "main-stage",
     "pioneers-festival"
   ],
   "sections": [
@@ -452,7 +452,7 @@
       "why_en": "Because technology policy and regulation touch your work."
     },
     {
-      "id": "inotex-stage",
+      "id": "main-stage",
       "fa": "استیج اصلی",
       "en": "Main Stage",
       "keywords": [

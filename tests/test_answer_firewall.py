@@ -56,7 +56,7 @@ LIST_QUESTION = "شرکت‌های هوش مصنوعی را معرفی کن"
 # accepts a number or a link from.
 KNOWLEDGE = "نمایشگاه امسال در روز 20 مرداد گشایش می یابد."
 PHONE = "021-12345678"
-WEBSITE = "https://inotex.example.ir"
+WEBSITE = "https://event.example.ir"
 
 
 def _seed(rows=DATASET, with_profiles=True):
@@ -758,9 +758,10 @@ def test_prose_repeating_the_recorded_phone_with_a_separator_is_accepted(client)
 # WHAT WAS BROKEN (measured 2026-08-28). The prose verifier decided what a link
 # IS from an allowlist of four TLDs: .com .ir .org .net, plus "@", a scheme and
 # "www.". Anything else was not a link at all, so it never entered the check:
-# «padyar.dev» and «inotex.co» were shipped to a visitor with nothing verifying
-# them. A visitor will follow a link, and the modern TLD list is thousands long,
-# so an allowlist of four was a guarantee of holes rather than a filter.
+# «padyar.dev» and a rival event's .co host were shipped to a visitor with
+# nothing verifying them. A visitor will follow a link, and the modern TLD
+# list is thousands long, so an allowlist of four was a guarantee of holes
+# rather than a filter.
 #
 # `_looks_like_link()` now decides by STRUCTURE (labels, a dot, a final label
 # of two or more letters, the whole token), and BOTH loops of the function use
@@ -771,11 +772,11 @@ def test_prose_repeating_the_recorded_phone_with_a_separator_is_accepted(client)
 
 @pytest.mark.parametrize("host", [
     "padyar.dev",
-    "inotex.co",
-    "inotex.info",
+    "event.co",
+    "event.info",
     "exhibition.app",
     "booth.xyz",
-    "inotex.tehran-expo.online",
+    "event.tehran-expo.online",
 ])
 def test_prose_inventing_a_link_on_an_unlisted_tld_is_rejected(client, host):
     """None of these is a recorded site and every one of them is a link a

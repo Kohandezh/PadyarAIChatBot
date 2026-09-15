@@ -24,7 +24,7 @@ from app.services import suggestions as sug
 from app.services.themes import render_theme_index
 
 ROOT = Path(__file__).resolve().parent.parent
-INOTEX = ROOT / "themes" / "inotex"
+THEME = ROOT / "themes" / "inotex"
 BASE = ROOT / "themes" / "base"
 CORE_JS = ROOT / "static" / "chat" / "core.js"
 
@@ -178,7 +178,7 @@ def test_rendered_chat_page_carries_the_suggestions_container_once(theme):
 def test_the_inotex_override_extends_the_base_container():
     # inotex ships its own partial; it must keep the contract core.js
     # targets (same id/class) while adding its own hook class.
-    inx = read(INOTEX / "partials" / "suggestions.html")
+    inx = read(THEME / "partials" / "suggestions.html")
     assert 'id="chat-suggestions"' in inx
     assert 'class="chat-suggestions' in inx
 
@@ -194,7 +194,7 @@ def test_inotex_chip_colors_come_from_branding_tokens():
     custom property (directly or through the theme's semantic tokens, which
     all feed from --wl-*), with palette fallbacks in var(). No hardcoded
     brand colors, tappable >= 40px, hidden when empty."""
-    css = read(INOTEX / "static" / "style.css")
+    css = read(THEME / "static" / "style.css")
     block = css.split(".chat-suggestions", 1)[1][:2400]
     assert "min-height: 40px" in block
     assert ":empty" in css.split(".chat-suggestions", 1)[1][:600]

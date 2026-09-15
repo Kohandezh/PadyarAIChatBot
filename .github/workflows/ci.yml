@@ -234,3 +234,25 @@ jobs:
         run: |
           echo "Deployed ${{ github.sha }}:"
           echo "  - padyar-elecomp (elecomp.padyar.com, port 8002)"
+
+  # Blocking. The retired event brand must not come back: every scrubbed
+  # surface (source, tests, scripts, docs) stays scrubbed. The allowlist is
+  # the kept-by-design set — the inotex THEME and its assets, the
+  # checksum-guarded migrations, the pet character's own folder, and the
+  # removal spec itself.
+  identity-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The retired event brand must not return
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep >/dev/null
+          # The character classes (INO[T]EX etc.) keep this job's own pattern
+          # line from matching itself — the search stays repo-wide otherwise.
+          rg -n 'INO[T]EX|این[و]تکس|inotex[.]com|inotex[.]padyar|padyar[-]inotex|secure[-]panel[-]inotex' \
+            --hidden -g '!node_modules' -g '!.git' \
+            -g '!themes/**' -g '!migrations/**' \
+            -g '!static/otp/pet/characters/inotex/**' \
+            -g '!docs/superpowers/**' \
+            && { echo "::error::Retired event brand found outside the allowlist"; exit 1; } \
+            || echo "clean"

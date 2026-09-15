@@ -36,15 +36,15 @@ DATASET = [
     ("phone-faq", "دبیرخانه نمایشگاه",
      "شماره تلفن دبیرخانه نمایشگاه ۰۲۱۱۲۳۴۵۶۷۸ است "
      "و راه ارتباط و تماس همین شماره است."),
-    ("inotex-date", "تاریخ برگزاری نمایشگاه",
-     "نمایشگاه اینوتکس در خرداد برگزار می شود."),
+    ("event-date", "تاریخ برگزاری نمایشگاه",
+     "نمایشگاه پردیار در خرداد برگزار می شود."),
 ]
 
 QUESTIONS = [
     # The lexical anchor the incident rode on: a curated phone question whose
     # tokens dominate a "phone number of company X" query.
     (1, "شماره تلفن و راه ارتباط", "phone-faq"),
-    (2, "تاریخ برگزاری نمایشگاه اینوتکس", "inotex-date"),
+    (2, "تاریخ برگزاری نمایشگاه پردیار", "event-date"),
     # Hand-curated mapping used by the Tier 0 test: an exact hit on this row
     # must stay authoritative even though the question names the company.
     (3, "شماره تماس دوندگان لبه علم", "phone-faq"),
@@ -196,7 +196,7 @@ def test_query_with_no_named_entity_conflict_keeps_its_trusted_local_answer(clie
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] in ("local", "local_questions"), body
-    assert body["text"] == _text_of("inotex-date")
+    assert body["text"] == _text_of("event-date")
 
 
 def test_tier0_exact_curated_hit_is_not_overridden(client, monkeypatch):
@@ -265,10 +265,10 @@ def _reseed(dataset_rows, questions=(), synonyms=(), profiles=None):
 # The امسال shape: «امسال» sits in exactly one (question-style) title but in
 # other entries' TEXTS — a generic word, not a name.
 EMSAL_DATASET = [
-    ("stage", "استیج اینوتکس امسال چه برنامه ای دارد",
+    ("stage", "استیج پردیار امسال چه برنامه ای دارد",
      "برنامه استیج شامل سخنرانی و رویداد است و امسال بخش تازه ای دارد."),
-    ("inotex-date", "تاریخ برگزاری نمایشگاه اینوتکس",
-     "زمان برگزاری نمایشگاه اینوتکس خرداد است و نمایشگاه در همان زمان برگزار می شود."),
+    ("event-date", "تاریخ برگزاری نمایشگاه پردیار",
+     "زمان برگزاری نمایشگاه پردیار خرداد است و نمایشگاه در همان زمان برگزار می شود."),
     ("workshop", "کارگاه های آموزشی",
      "کارگاه های آموزشی امسال در سالن دوم برگزار می شود."),
 ]
@@ -282,11 +282,11 @@ def test_a_token_unique_in_one_title_but_common_in_texts_does_not_anchor(client,
     _reseed(EMSAL_DATASET)
     from app.services import search
     assert "امسال" not in search._distinctive_title_tokens
-    entry, tokens = search.resolve_named_entity("اینوتکس امسال چه زمانی برگزار می شود")
+    entry, tokens = search.resolve_named_entity("پردیار امسال چه زمانی برگزار می شود")
     assert entry is None and tokens == set()
 
     _mock_ai(monkeypatch)
-    r = _ask(client, "اینوتکس امسال چه زمانی برگزار می شود")
+    r = _ask(client, "پردیار امسال چه زمانی برگزار می شود")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] != "local_entity", body
@@ -304,8 +304,8 @@ SYN_DATASET = [
     ("contact-faq", "تماس با دبیرخانه نمایشگاه",
      "شماره تلفن دبیرخانه نمایشگاه ۰۲۱۱۲۳۴۵۶۷۸ است "
      "و راه ارتباط و تماس همین شماره است."),
-    ("inotex-date", "تاریخ برگزاری نمایشگاه",
-     "نمایشگاه اینوتکس در خرداد برگزار می شود."),
+    ("event-date", "تاریخ برگزاری نمایشگاه",
+     "نمایشگاه پردیار در خرداد برگزار می شود."),
 ]
 
 

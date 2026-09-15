@@ -286,7 +286,7 @@ def test_targeted_answer_is_untouched_without_a_profile(answer, targeted_entry):
 
 def test_other_entries_are_never_personalised(answer):
     from app.models import VisitorProfile
-    entry = {"id": "inotex-overview", "text": "پایه", "video_url": ""}
+    entry = {"id": "event-overview", "text": "پایه", "video_url": ""}
     assert answer(entry, VisitorProfile(interests="هوش مصنوعی")) == "پایه"
 
 
