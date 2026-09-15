@@ -120,7 +120,7 @@ def run(phase, texts, concurrency, timeout, sink):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", default="/tmp/stress-corpus-fa.txt")
-    ap.add_argument("--cached", default="/tmp/inotex_texts.json")
+    ap.add_argument("--cached", default="/tmp/padyar_texts.json")
     ap.add_argument("--calibrate", type=int, default=0,
                     help="run N sentences serially to time chars->seconds, then stop")
     ap.add_argument("--mix", type=int, default=0, help="realistic-mix requests")
