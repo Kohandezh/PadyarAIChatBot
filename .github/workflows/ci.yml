@@ -249,10 +249,17 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep >/dev/null
           # The character classes (INO[T]EX etc.) keep this job's own pattern
           # line from matching itself — the search stays repo-wide otherwise.
+          # Fail closed: exit 1 (no matches) is the ONLY passing outcome. An
+          # rg error (bad regex, I/O failure → exit 2) must fail the job, not
+          # silently pass it.
+          set +e
           rg -n 'INO[T]EX|این[و]تکس|inotex[.]com|inotex[.]padyar|padyar[-]inotex|secure[-]panel[-]inotex' \
             --hidden -g '!node_modules' -g '!.git' \
             -g '!themes/**' -g '!migrations/**' \
             -g '!static/otp/pet/characters/inotex/**' \
-            -g '!docs/superpowers/**' \
-            && { echo "::error::Retired event brand found outside the allowlist"; exit 1; } \
-            || echo "clean"
+            -g '!docs/superpowers/**'
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then echo "::error::Retired event brand found outside the allowlist"; exit 1
+          elif [ "$code" -ne 1 ]; then echo "::error::rg itself failed (exit $code) — guard cannot run"; exit 1
+          else echo "clean"; fi
