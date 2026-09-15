@@ -60,8 +60,8 @@ def test_a_set_brand_titles_the_panel(client):
     """The whole point: one repository, two installs, two names. The key is
     the existing white-label app name, not a new one to remember."""
     from app.db.queries import set_setting
-    set_setting("whitelabel_app_name", "چت‌بات الکامپ")
-    assert _panel_title(client) == "چت‌بات الکامپ"
+    set_setting("whitelabel_app_name", "چت‌بات نمایشگاه فناوری")
+    assert _panel_title(client) == "چت‌بات نمایشگاه فناوری"
 
 
 def test_the_hardcoded_name_is_gone_from_the_template():

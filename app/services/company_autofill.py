@@ -8,7 +8,7 @@ admin approved (app/services/leads.py:propose_company writes the text but
 nothing else). A company with no facet value is INVISIBLE in every
 field-filtered chat list («شرکت‌های فعال در زمینهٔ …»), because
 app/services/company_search.py builds the facet vocabulary from these values
-— measured on the elecomp install on 2026-08-31, 28 of 670 rows were dark
+— measured on a live install on 2026-08-31, 28 of 670 rows were dark
 this way, including the one sponsor the organizer had boosted and could not
 understand why nothing happened.
 
@@ -174,7 +174,7 @@ def _clean_fields(raw, allowed) -> dict:
     `allowed` is the per-company set of STILL-EMPTY columns the model was
     asked about — a value for any other column is dropped unread, because
     the model cannot know a column is full and echoes what the intro text
-    mentions (measured on the elecomp install, 2026-08-31: every write came
+    mentions (measured on a live install, 2026-08-31: every write came
     back empty because the model echoed already-full title_en/text_en while
     the company's real holes were fields the text never mentions).
 
@@ -227,7 +227,7 @@ def _pending_rows(after=None):
     `after` is the (title, id) keyset cursor of the last company a previous
     run() examined. Without it every run restarts at the queue head, and a
     stretch of no-yield companies sits there forever being re-asked
-    (elecomp, 2026-08-31: 37 re-asked every batch, ~700 never reached).
+    (a live install, 2026-08-31: 37 re-asked every batch, ~700 never reached).
     """
     from app.db.connection import get_db_connection
     empty_any = " OR ".join(f"COALESCE({f}, '') = ''" for f in EXTRACT_FIELDS)
@@ -396,8 +396,8 @@ async def run(actor: str = "", limit: int = BATCH_LIMIT,
 
     The batch counts FILLS, not companies examined: a company whose intro
     text mentions none of its empty fields yields nothing, and stopping the
-    batch at the first of those would strand the whole queue behind it (the
-    elecomp run, 2026-08-31: 746 pending, zero filled, the first ten all
+    batch at the first of those would strand the whole queue behind it (a
+    live install's run, 2026-08-31: 746 pending, zero filled, the first ten all
     no-yield). The scan is bounded by SCAN_LIMIT so one POST still stays
     well under the proxy timeout.
 

@@ -1,7 +1,7 @@
 """The conversational gates: small talk, self-introductions, gibberish, and
 affirmative/negative replies to the bot's own offers.
 
-TWO LIVE FAILURES THIS FILE PINS (Elecomp, 2026-08-31):
+TWO LIVE FAILURES THIS FILE PINS (a production install, 2026-08-31):
 
 1. «سلام چطوری؟ اسم من سینا هست اسم تو چی هست؟» — a visitor introducing
    THEMSELF. The named-entity anchor read «سینا», matched the company
@@ -230,7 +230,7 @@ def test_ordinary_question_and_bare_greeting_are_none():
 
 # ── is_gibberish ──────────────────────────────────────────────────────────
 
-_GIBBERISH_VOCAB = {"الکامپ", "سینا", "شرکت", "های", "سالن", "پنج", "نمایشگاه"}
+_GIBBERISH_VOCAB = {"تهران", "سینا", "شرکت", "های", "سالن", "پنج", "نمایشگاه"}
 
 
 def test_gibberish_single_unknown_token():
@@ -245,7 +245,7 @@ def test_gibberish_two_unknown_short_tokens():
 
 def test_known_token_is_not_gibberish():
     from app.services.conversational import is_gibberish
-    assert is_gibberish("الکامپ", _GIBBERISH_VOCAB) is False
+    assert is_gibberish("تهران", _GIBBERISH_VOCAB) is False
     assert is_gibberish("سینا", _GIBBERISH_VOCAB) is False
 
 
@@ -286,7 +286,7 @@ def test_proposal_is_per_conversation(client):
 # ── Integration: the incident, gated and ungated ──────────────────────────
 
 def test_self_intro_does_not_serve_the_namesake_company(client, monkeypatch):
-    """THE Elecomp incident. The anchor alone would serve the company profile
+    """THE production incident. The anchor alone would serve the company profile
     (the kill-switch test below proves it); the conversational gate must
     deflect the whole message to the model instead."""
     _seed(SINA_COMPANY)

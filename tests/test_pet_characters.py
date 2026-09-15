@@ -1,5 +1,6 @@
 """Companion (pet) characters — the mascot is a setting, not a hardcoded
-asset list (owner request, 2026-08-31: elecomp ships its own character).
+asset list (owner request, 2026-08-31: an event install shipped its own
+character).
 
 Covers the whole reader–writer chain:
   * the registry discovers the bundled characters and rejects nothing valid
@@ -8,6 +9,10 @@ Covers the whole reader–writer chain:
   * the admin API lists/saves/rejects, admin-only
   * companion.js consumes per-character columns + pose maps and never
     blanks on an unmapped pose
+
+No character name is hardcoded here: the default is computed as the
+registry's first name, and integrity is asserted generically for every
+bundled character.
 """
 import datetime
 import secrets
@@ -44,22 +49,42 @@ def _login(client):
     return token
 
 
+def _registry():
+    from app.services.pet_characters import discover_characters
+    return discover_characters()
+
+
+def _default_name():
+    """The computed default: the registry's first name in sorted order —
+    discover_characters() sorts, and dict order preserves it."""
+    return next(iter(_registry()))
+
+
 # ── Registry ────────────────────────────────────────────────────────────
 
-def test_registry_discovers_both_bundled_characters():
-    from app.services.pet_characters import discover_characters
-    characters = discover_characters()
-    assert set(characters) >= {"inotex", "elecomp"}
-    # The inotex entry keeps pointing at the flat HD assets the markup
-    # hardcoded before this feature — default pixels unchanged.
-    assert characters["inotex"]["atlas"] == "/static/otp/pet/inotex-pose-atlas-hd.webp"
-    assert characters["inotex"]["cell"] == 512
-    assert characters["inotex"]["columns"] == 4
-    # The elecomp sheet is 3 columns wide at 384px — the layout data the
-    # hardcoded COLS=4 could never express.
-    assert characters["elecomp"]["columns"] == 3
-    assert characters["elecomp"]["cell"] == 384
-    assert characters["elecomp"]["state_poses"]["success"] == "flight-soar"
+def test_registry_holds_every_bundled_character_folder():
+    """The bundled white-label assets stay selectable: every character
+    folder shipped under static/otp/pet/characters/ loads into the
+    registry (none is rejected), and both bundled folders are there."""
+    import os
+    from app.services.pet_characters import CHARACTERS_DIR
+    on_disk = {e for e in os.listdir(CHARACTERS_DIR)
+               if os.path.isdir(os.path.join(CHARACTERS_DIR, e))}
+    assert len(on_disk) >= 2  # the two bundled character folders
+    assert on_disk == set(_registry())
+
+
+def test_every_bundled_character_is_intact():
+    """Generic integrity for each bundled character: whatever ships must
+    actually render — positive cell/columns, an idle pose the pose map
+    resolves, and an atlas under the pet assets root."""
+    characters = _registry()
+    assert characters
+    for name, c in characters.items():
+        assert c["cell"] > 0, name
+        assert c["columns"] > 0, name
+        assert c["state_poses"]["idle"] in c["pose_index"], name
+        assert c["atlas"].startswith("/static/otp/pet/"), name
 
 
 def test_unknown_stored_character_falls_back_to_the_default(tmp_path, monkeypatch):
@@ -70,57 +95,64 @@ def test_unknown_stored_character_falls_back_to_the_default(tmp_path, monkeypatc
     from app.db.queries import set_setting
     from app.services.pet_characters import get_pet_character
     set_setting("pet_character", "does-not-exist")
-    assert get_pet_character()["name"] == "elecomp"
+    assert get_pet_character()["name"] == _default_name()
 
 
-def test_default_is_elecomp(client):
+def test_the_unconfigured_install_serves_the_registrys_first_character(client):
+    default = _registry()[_default_name()]
     html = client.get("/").text
-    assert 'data-atlas="/static/otp/pet/characters/elecomp/elecomp-pose-atlas.webp"' in html
-    assert 'data-cell="384"' in html
-    assert 'data-columns="3"' in html
-    # The bird has no hide strip of its own — empty attribute, and
-    # companion.js treats empty as "instant hide".
-    assert 'data-hide-strip=""' in html
-    assert "welcome-open" in html  # the elecomp greet pose ships as data
+    assert f'data-atlas="{default["atlas"]}"' in html
+    assert f'data-cell="{default["cell"]}"' in html
+    assert f'data-columns="{default["columns"]}"' in html
+    # A character with no hide strip of its own ships an empty attribute,
+    # and companion.js treats empty as "instant hide".
+    assert f'data-hide-strip="{default["hide_strip"]}"' in html
+    # The character's greet pose ships as data, not as renderer literals.
+    assert default["state_poses"]["greet"] in html
 
 
 # ── Render + cache ──────────────────────────────────────────────────────
 
 def test_switching_the_character_flips_the_cached_shell(client):
     _login(client)
+    characters = _registry()
+    default_name = _default_name()
+    other_name = next(n for n in characters if n != default_name)
     assert client.post("/admin/api/pet-character",
-                       json={"character": "elecomp"}).status_code == 200
+                       json={"character": other_name}).status_code == 200
+    other = characters[other_name]
     html = client.get("/").text
-    assert 'data-atlas="/static/otp/pet/characters/elecomp/elecomp-pose-atlas.webp"' in html
-    assert 'data-cell="384"' in html
-    assert 'data-columns="3"' in html
-    # The bird has no hide strip of its own — the attribute is present but
-    # empty, and companion.js treats empty as "instant hide" (its own rule).
-    assert 'data-hide-strip=""' in html
-    # Its state map rides the page: success soars, errors wings-up.
-    assert "flight-soar" in html
-    assert "front-wings" in html
+    assert f'data-atlas="{other["atlas"]}"' in html
+    assert f'data-cell="{other["cell"]}"' in html
+    assert f'data-columns="{other["columns"]}"' in html
+    assert f'data-hide-strip="{other["hide_strip"]}"' in html
+    # Its own state map rides the page (success and error poses).
+    assert other["state_poses"]["success"] in html
+    assert other["state_poses"]["error"] in html
     # The cached shell flipped on the SAME process — cache key carries the
     # character identity (themes.py).
-    assert "inotex-pose-atlas-hd" not in html
+    assert f'data-atlas="{characters[default_name]["atlas"]}"' not in html
 
 
 # ── Admin API ───────────────────────────────────────────────────────────
 
 def test_pet_character_api_lists_and_saves(client):
     _login(client)
+    characters = _registry()
+    default_name = _default_name()
+    other_name = next(n for n in characters if n != default_name)
     r = client.get("/admin/api/pet-character")
     assert r.status_code == 200
     body = r.json()
-    assert body["current"] == "elecomp"
+    assert body["current"] == default_name
     names = {c["name"] for c in body["characters"]}
-    assert {"inotex", "elecomp"} <= names
-    elecomp = next(c for c in body["characters"] if c["name"] == "elecomp")
-    assert elecomp["preview"].endswith(".jpg")
+    assert set(characters) <= names
+    entry = next(c for c in body["characters"] if c["name"] == other_name)
+    assert entry["preview"].startswith("/static/")
 
     assert client.post("/admin/api/pet-character",
-                       json={"character": "elecomp"}).status_code == 200
-    assert client.get("/admin/api/pet-character").json()["current"] == "elecomp"
+                       json={"character": other_name}).status_code == 200
+    assert client.get("/admin/api/pet-character").json()["current"] == other_name
 
 
 def test_pet_character_api_rejects_unknown(client):
@@ -133,7 +165,8 @@ def test_pet_character_api_requires_admin(client):
     from app.main import app
     with TestClient(app) as anon:
         assert anon.get("/admin/api/pet-character").status_code in (401, 403)
-        r = anon.post("/admin/api/pet-character", json={"character": "elecomp"})
+        r = anon.post("/admin/api/pet-character",
+                      json={"character": _default_name()})
         assert r.status_code in (401, 403)
 
 

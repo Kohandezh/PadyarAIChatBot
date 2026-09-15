@@ -244,7 +244,7 @@ def test_write_yields_to_a_mid_run_organizer_edit(admin_client, monkeypatch):
 
 
 def test_full_field_echoes_are_dropped_not_written(admin_client, monkeypatch):
-    """The elecomp failure, 2026-08-31: for a company whose ONLY hole is
+    """A live-install failure, 2026-08-31: for a company whose ONLY hole is
     title_en, the model echoed already-full columns (email etc.) instead —
     nothing intersected the hole and every write came back empty while the
     pending count never moved. A value for a column that was not asked
@@ -292,7 +292,7 @@ def test_scan_skips_past_no_yield_companies(admin_client, monkeypatch):
 
 def test_cursor_resumes_after_the_last_examined_company(admin_client, monkeypatch):
     """The pass cursor is what keeps a no-yield stretch from being re-asked
-    every batch (elecomp, 2026-08-31: 37 companies re-asked per batch while
+    every batch (a live install, 2026-08-31: 37 companies re-asked per batch while
     ~700 behind them were never reached). The second POST must resume AFTER
     the first one's cursor, not at the queue head."""
     from app.services import company_autofill

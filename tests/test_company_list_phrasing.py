@@ -232,7 +232,7 @@ def test_the_headline_names_the_facet_that_was_matched(client):
 
 # ── A word many facets share must not become their whole union ────────────
 #
-# Live on elecomp.padyar.com, 2026-08-31: «سکوی هوش مصنوعی چی هست» (a booth
+# Live on a production install, 2026-08-31: «سکوی هوش مصنوعی چی هست» (a booth
 # phone). The organizer's sheet carries 45 activity fields that all contain
 # «هوش مصنوعی» — «آموزش رباتیک و هوش مصنوعی», «هوش مصنوعی و بلاکچین», plain
 # «هوش مصنوعی», ... — so every one of them scored the same two-word hit and

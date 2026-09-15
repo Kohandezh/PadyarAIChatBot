@@ -1,6 +1,6 @@
 """Follow-up field questions: «کجاس؟» after a company answer.
 
-TWO LIVE FAILURES THIS FILE PINS (Elecomp, 2026-09-01):
+TWO LIVE FAILURES THIS FILE PINS (a production install, 2026-09-01):
 1. «کجاس» right after a company's answer → «متوجه منظورت نشدم».
 2. «بابا کدوم غرفه س کدوم سالن» → a markdown essay asking WHICH company.
 

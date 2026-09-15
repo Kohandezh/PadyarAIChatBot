@@ -112,7 +112,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
         "whitelabel_footer_color": "#B8C4DE",
     }
 
-    r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه الکامپ",
+    r = _post_branding(client, logo_url="/LOGO/x.png", subtitle="نمایشگاه فناوری",
                        navy_color="#0A0F1E", background_color="#101010",
                        chat_background_url="/media/uploads/bg.jpg",
                        video_background_url="https://cdn.example.com/v.jpg",
@@ -121,7 +121,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
 
     current = client.get("/admin/api/branding").json()
     assert current["whitelabel_app_name"] == "دستیار سازمانی"
-    assert current["whitelabel_subtitle"] == "نمایشگاه الکامپ"
+    assert current["whitelabel_subtitle"] == "نمایشگاه فناوری"
     assert current["whitelabel_logo_url"] == "/LOGO/x.png"
     assert current["whitelabel_primary_color"] == "#123456"
     assert current["whitelabel_accent_color"] == "#ABCDEF"
@@ -140,7 +140,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
             conn.execute("SELECT key, value FROM settings WHERE key LIKE 'whitelabel_%'").fetchall()}
     conn.close()
     assert rows["whitelabel_app_name"] == "دستیار سازمانی"
-    assert rows["whitelabel_subtitle"] == "نمایشگاه الکامپ"
+    assert rows["whitelabel_subtitle"] == "نمایشگاه فناوری"
     assert len(rows) == 16
 
 
@@ -223,9 +223,9 @@ def test_brand_line_and_marks_follow_the_settings(client):
     assert '<img class="brand-mark"' not in html
 
     assert _post_branding(client, logo_url="/LOGO/brand.png",
-                          subtitle="ELECOMP").status_code == 200
+                          subtitle="EXPO 2026").status_code == 200
     html = client.get("/").text
-    assert '<p class="inx-loader-label">ELECOMP</p>' in html
+    assert '<p class="inx-loader-label">EXPO 2026</p>' in html
     assert '<img class="inx-loader-mark" src="/LOGO/brand.png"' in html
     assert '<img class="brand-mark" src="/LOGO/brand.png"' in html
     assert "inx-hex-outline" not in html  # hexagon swapped out, not doubled
@@ -236,7 +236,7 @@ def test_brand_line_and_marks_follow_the_settings(client):
 def test_chat_renders_branding(client):
     _login(client)
     name, welcome = "دستیار نمایشگاه", "به نمایشگاه ما خوش آمدید!"
-    subtitle = "نمایشگاه الکامپ ۲۰۲۶"
+    subtitle = "نمایشگاه فناوری ۲۰۲۶"
     assert _post_branding(client, app_name=name, primary_color="#0B7285",
                           welcome_text=welcome, subtitle=subtitle).status_code == 200
 

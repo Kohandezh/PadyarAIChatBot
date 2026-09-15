@@ -19,8 +19,8 @@ WHAT THIS FILE PINS DOWN
 2. The registration gate is enforced by the SERVER, with a machine-readable
    401 the frontend can branch on.
 3. An install that does not load the registration module is never gated. The
-   elecomp deployment is exactly that install and it must keep working with
-   zero change, so it gets its own test.
+   production install that ships without the module is exactly that install
+   and it must keep working with zero change, so it gets its own test.
 4. A conversation that belongs to one visitor cannot be continued by another,
    while an ANONYMOUS conversation is still claimed by the person who
    registers halfway through — that claim is what keeps the questions somebody
@@ -347,18 +347,19 @@ class TestTheRegistrationGate:
 
     def test_an_install_without_the_registration_module_is_never_gated(
             self, client, monkeypatch):
-        """THE ELECOMP CASE. Read this before changing the gate.
+        """THE PRODUCTION CASE: AN INSTALL WITHOUT THE MODULE. Read this
+        before changing the gate.
 
-        The second live install does not load the registration module: its
+        A production install does not load the registration module: its
         /api/auth/registration-status is a 404, there is no /verify page and
         no OTP endpoint, so no visitor there can ever hold a session. If the
         gate asked only about the setting, that whole install would answer
         401 to every message and the chatbot would be dead.
 
         The gate's first condition is `is_module_enabled("registration")`,
-        read from the module registry, so this test pins the registry to the
-        elecomp shape and leaves the operator setting switched ON — the
-        strictest possible version of the case.
+        read from the module registry, so this test pins the registry to
+        that shape (registration absent) and leaves the operator setting
+        switched ON — the strictest possible version of the case.
         """
         import app.config as config
         from app.db.queries import get_setting
