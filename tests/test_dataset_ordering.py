@@ -11,9 +11,9 @@ go unnoticed:
 
   1. the endpoint must not 500, and
   2. the ORDER must stay the curated one. `id` is TEXT, so the obvious
-     "just order by id" fix sorts alphabetically and would quietly float
-     `inotex-app` above `inotex-overview` — a silent content regression
-     that no error log would ever report.
+      "just order by id" fix sorts alphabetically and would quietly float
+      `app` above `overview` — a silent content regression that no error
+      log would ever report.
 
 The public endpoint is now `/api/suggestions`, and it serves only the first
 `SUGGESTION_LIMIT` rows, titles only — `/api/dataset`, which returned every
@@ -21,39 +21,30 @@ row of the customer's knowledge base to anyone who asked, is gone (see
 tests/test_public_data_api.py). So the order is checked in two places that
 must agree: the full sequence is read straight from the database, and the
 endpoint is checked to serve the HEAD of exactly that sequence. Point 1 and
-the alphabetical-fix trap are unchanged — the same `ORDER BY` moved into the
-new endpoint.
+the alphabetical-fix trap are unchanged — the same `ORDER BY` moved into
+the new endpoint.
+
+The platform ships with an empty knowledge base, so this suite installs its
+own rows through the same explicit-`position` insert path the admin uses —
+in a deliberately scrambled insertion order, so the display order can only
+come from `position`, never from insertion sequence or id.
 """
 import pytest
 from fastapi.testclient import TestClient
 
 from app.routers.public import SUGGESTION_LIMIT
 
-# The curated reading order, as served before the PostgreSQL migration.
-# Taken from the rowid sequence of the pre-migration SQLite database, which
-# was the only surviving record of it. Extended 2026-08-27 with the crawled
-# 2026 program block, and 2026-09-02 with the crawled history/topics/access/
-# new-programs block (app/default_content.py, same seed order both times).
+# The curated reading order this suite installs, first row = first served.
 CURATED = [
-    "inotex-overview", "inotex-date", "inotex-venue", "inotex-hours",
-    "inotex-booth", "inotex-programs", "inotex-pitch", "inotex-contact",
-    "inotex-exhibitors", "inotex-visitors", "inotex-stats", "inotex-app",
-    "inotex-volunteer", "inotex-organizers", "inotex-targeted-visit",
-    "inotex-news",
-    "inotex-schedule-2026", "inotex-express-2026", "inotex-pitch-2026-final",
-    "inotex-stage-2026", "inotex-capital-cafe-2026",
-    "inotex-investors-pavilion-2026", "inotex-reverse-pitch-2026",
-    "inotex-fanbazar-2026", "inotex-ai-iot-conf-2026", "inotex-work-station-2026",
-    "inotex-mentors-2026", "inotex-inonight-meetups-2026",
-    "inotex-governance-forum-2026", "inotex-pardis-summit-2026",
-    "inotex-selection-day-2026",
-    "inotex-history", "inotex-topics", "inotex-access", "inotex-new-programs-2026",
+    "overview", "dates", "venue", "hours", "booth", "programs",
+    "contact", "exhibitors", "visitors", "stats", "app", "news",
 ]
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    """A fresh install, seeded with the default INOTEX content."""
+def booted_client(tmp_path, monkeypatch):
+    """A fresh install with seeding left at its platform default (enabled):
+    the seed must be a no-op now that the platform ships empty."""
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "ordering.db"))
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", True)
@@ -62,12 +53,31 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
+@pytest.fixture
+def client(booted_client):
+    """The booted install plus rows the operator added, inserted in reverse
+    order so passing requires ordering by `position`, not by insertion."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        for row_id in sorted(CURATED, reverse=True):
+            conn.execute(
+                "INSERT INTO dataset (id, title, text, video_url, title_en,"
+                " text_en, position) VALUES (?,?,?,?,?,?,?)",
+                (row_id, f"عنوان {row_id}", "متن راهنما", "", "", "",
+                 (CURATED.index(row_id) + 1) * 10))
+        conn.commit()
+    finally:
+        conn.close()
+    yield booted_client
+
+
 def _ids(client):
     """The full display order, read from the database.
 
     Not from the endpoint any more: it serves ten titles, so it cannot show
     where row 31 landed. The `ORDER BY` here is a copy of the endpoint's, and
-    `test_the_endpoint_serves_the_head_of_the_curated_order` is what stops the
+    `test_the_endpoint_serves_the_head_of_the_display_order` is what stops the
     copy from drifting away from the original.
     """
     from app.db.connection import get_db_connection
@@ -91,18 +101,31 @@ def _titles_by_id(client):
     return {row["id"]: row["title"] for row in rows}
 
 
+def test_a_fresh_install_boots_with_an_empty_dataset(booted_client):
+    """Seeding enabled, nothing seeded — and the public endpoint must not
+    500 on the empty table either."""
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0]
+    finally:
+        conn.close()
+    assert rows == 0
+    assert booted_client.get("/api/suggestions").status_code == 200
+
+
 def test_the_suggestions_endpoint_does_not_error(client):
     """The regression itself: the endpoint this replaced returned 500 on
     PostgreSQL, and it kept the same `ORDER BY`."""
     assert client.get("/api/suggestions").status_code == 200
 
 
-def test_a_seeded_install_serves_the_curated_order(client):
+def test_the_display_order_follows_position_not_insertion(client):
     assert _ids(client) == CURATED
 
 
-def test_the_endpoint_serves_the_head_of_the_curated_order(client):
-    """Ties the served chips back to the curated ids. Without this, `_ids`
+def test_the_endpoint_serves_the_head_of_the_display_order(client):
+    """Ties the served chips back to the display order. Without this, `_ids`
     could go on passing against a database order the endpoint no longer
     follows, and the visitor's menu would silently reshuffle."""
     res = client.get("/api/suggestions")
@@ -117,12 +140,12 @@ def test_the_order_is_not_alphabetical(client):
     and silently reshuffles what every visitor reads."""
     ids = _ids(client)
     assert ids != sorted(ids)
-    assert ids[0] == "inotex-overview"
-    # Alphabetically `inotex-app` would come first of all; it must not.
-    assert ids.index("inotex-overview") < ids.index("inotex-app")
+    assert ids[0] == "overview"
+    # Alphabetically `app` would come first of all; it must not.
+    assert ids.index("overview") < ids.index("app")
 
 
-def test_every_seeded_row_has_an_explicit_position(client):
+def test_every_positioned_row_keeps_its_explicit_position(client):
     from app.db.connection import get_db_connection
     conn = get_db_connection()
     try:
@@ -173,6 +196,6 @@ def test_an_unpositioned_row_still_sorts_last_and_does_not_break_the_page(client
     ids = _ids(client)
     assert "zz-no-position" in ids
     assert ids[-1] == "zz-no-position"
-    assert ids[0] == "inotex-overview"
+    assert ids[0] == "overview"
     # The NULL is what could crash the sort, so the endpoint gets asked too.
     assert client.get("/api/suggestions").status_code == 200

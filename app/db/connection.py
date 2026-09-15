@@ -583,8 +583,8 @@ def _seed_defaults(cursor):
     cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('active_theme', 'inotex'))
     # The knowledge version travels with health/ready responses and logs so
     # any answer can be traced back to the content release that produced it.
-    # Bump it whenever content/sources.json publishes a new verified state.
-    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('knowledge_version', 'inotex-kb-2026-08-14.1'))
+    # Bump it whenever an install's curated content changes.
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('knowledge_version', 'kb-empty'))
 
     from app.config import SEED_DEFAULT_CONTENT
 
@@ -596,14 +596,15 @@ def _seed_defaults(cursor):
     # app/default_content.py uses the same chained idiom for the same reason.
     if cursor.execute('SELECT COUNT(*) as count FROM synonyms').fetchone()['count'] == 0 \
             and SEED_DEFAULT_CONTENT:
-        # Useful INOTEX synonym expansions for a fresh install. Existing
+        # Optional seed synonyms for a fresh install. Existing
         # customer content is never touched: this seed only runs on an empty
         # table. The canonical list lives in app.default_content.
         from app.default_content import seed_default_synonyms
         seed_default_synonyms(cursor)
 
-    # New installations open with useful INOTEX answers. Existing customer
-    # content is never changed: the seed only runs when the table is empty.
+    # New installations start empty; content arrives via the admin panel.
+    # Existing customer content is never changed: the seed only runs when
+    # the table is empty.
     if SEED_DEFAULT_CONTENT:
         from app.default_content import seed_default_content
         seed_default_content(cursor)

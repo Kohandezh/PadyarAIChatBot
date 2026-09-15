@@ -1,23 +1,24 @@
-"""The bundled INOTEX knowledge seed: shape, provenance and safety.
+"""The default knowledge seed: a fresh install starts empty.
 
-These tests protect three contracts:
-1. Every seeded fact-record is bilingual and carries its official source URL.
-2. The seed only ever runs on an empty database (customer content is sacred).
-3. No legacy-event identity can ride along inside the seed.
+These tests protect two contracts:
+1. The platform ships with no bundled facts — every piece of content a
+   customer's assistant knows arrives via the admin panel or its import
+   scripts, so one customer's event can never leak into another's install.
+2. The seeding hooks stay wired and idempotent: they are the mechanism a
+   customer's own seed module plugs into, and they must never touch rows
+   that are already in the database.
 """
 import sqlite3
 
 import pytest
 
 from app.default_content import (
-    INOTEX_DATASET,
-    INOTEX_QUESTIONS,
-    INOTEX_SYNONYMS,
+    DEFAULT_DATASET,
+    DEFAULT_QUESTIONS,
+    DEFAULT_SYNONYMS,
     seed_default_content,
     seed_default_synonyms,
 )
-
-LEGACY_TOKENS = ["الکامپ", "elecomp", "نورا", "noorvision", "چمران", "سئول"]
 
 
 @pytest.fixture()
@@ -43,39 +44,28 @@ def cursor():
     conn.close()
 
 
-def test_dataset_entries_are_bilingual_with_official_source():
-    assert len(INOTEX_DATASET) >= 12
-    for item in INOTEX_DATASET:
-        assert item["id"].startswith("inotex-")
-        assert item["title"].strip() and item["text"].strip()
-        assert item["title_en"].strip() and item["text_en"].strip(), item["id"]
-        combined = item["text"] + item["text_en"]
-        assert "inotex.com" in combined, f"{item['id']} cites no official source"
+def test_the_default_seed_is_empty():
+    assert DEFAULT_DATASET == []
+    assert DEFAULT_QUESTIONS == []
+    assert DEFAULT_SYNONYMS == []
 
 
-def test_every_question_maps_to_an_existing_entry():
-    ids = {item["id"] for item in INOTEX_DATASET}
-    for question, dataset_id in INOTEX_QUESTIONS:
-        assert dataset_id in ids, f"orphan mapping: {question!r} → {dataset_id}"
-
-
-def test_seed_carries_no_legacy_identity():
-    blob = " ".join(
-        item["title"] + item["text"] + item["title_en"] + item["text_en"]
-        for item in INOTEX_DATASET
-    )
-    blob += " ".join(q for q, _ in INOTEX_QUESTIONS)
-    blob += " ".join(s + " " + t for s, t in INOTEX_SYNONYMS)
-    for token in LEGACY_TOKENS:
-        assert token.lower() not in blob.lower(), f"legacy token {token!r} in seed"
-
-
-def test_seed_populates_an_empty_db(cursor):
+def test_fresh_install_seeds_nothing(cursor):
     seed_default_content(cursor)
     seed_default_synonyms(cursor)
-    assert cursor.execute("SELECT COUNT(*) FROM dataset").fetchone()[0] == len(INOTEX_DATASET)
-    assert cursor.execute("SELECT COUNT(*) FROM questions").fetchone()[0] == len(INOTEX_QUESTIONS)
-    assert cursor.execute("SELECT COUNT(*) FROM synonyms").fetchone()[0] == len(INOTEX_SYNONYMS)
+    assert cursor.execute("SELECT COUNT(*) FROM dataset").fetchone()[0] == 0
+    assert cursor.execute("SELECT COUNT(*) FROM questions").fetchone()[0] == 0
+    assert cursor.execute("SELECT COUNT(*) FROM synonyms").fetchone()[0] == 0
+
+
+def test_seeding_is_idempotent_on_empty_data(cursor):
+    seed_default_content(cursor)
+    seed_default_synonyms(cursor)
+    seed_default_content(cursor)
+    seed_default_synonyms(cursor)
+    assert cursor.execute("SELECT COUNT(*) FROM dataset").fetchone()[0] == 0
+    assert cursor.execute("SELECT COUNT(*) FROM questions").fetchone()[0] == 0
+    assert cursor.execute("SELECT COUNT(*) FROM synonyms").fetchone()[0] == 0
 
 
 def test_seed_never_touches_existing_content(cursor):
@@ -87,10 +77,3 @@ def test_seed_never_touches_existing_content(cursor):
     seed_default_synonyms(cursor)
     assert cursor.execute("SELECT COUNT(*) FROM dataset").fetchone()[0] == 1
     assert cursor.execute("SELECT COUNT(*) FROM synonyms").fetchone()[0] == 1
-
-
-def test_current_edition_facts_are_present():
-    by_id = {item["id"]: item for item in INOTEX_DATASET}
-    assert "۱۱ تا ۱۴ شهریور ۱۴۰۵" in by_id["inotex-date"]["text"]
-    assert "پارک فناوری پردیس" in by_id["inotex-venue"]["text"]
-    assert "پانزدهمین" in by_id["inotex-date"]["text"] or "پانزدهمین" in by_id["inotex-overview"]["text"]

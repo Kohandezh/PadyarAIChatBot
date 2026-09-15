@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Operator-only script: back up the database and reset content to the
-bundled INOTEX defaults.
+(empty) defaults — clears dataset/questions/synonyms with a backup.
 
 WHY THIS EXISTS
 ---------------
 The application NEVER deletes or overwrites existing customer content
 automatically — `init_db()` only seeds a brand-new, empty database. If an
 operator wants to wipe an old install (e.g. one that still holds content from
-a previous event) and start from the verifiable INOTEX defaults sourced from
-inotex.com, they must do it explicitly. This script is that explicit, safe path.
+a previous event) and start from an empty knowledge base, they must do it
+explicitly. This script is that explicit, safe path.
 
 SAFETY
 ------
@@ -45,9 +45,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import DB_BACKEND  # noqa: E402
 from app.default_content import (  # noqa: E402
-    INOTEX_DATASET,
-    INOTEX_QUESTIONS,
-    INOTEX_SYNONYMS,
+    DEFAULT_DATASET,
+    DEFAULT_QUESTIONS,
+    DEFAULT_SYNONYMS,
     seed_default_content,
     seed_default_synonyms,
 )
@@ -89,7 +89,7 @@ def row_counts(conn, table):
 
 
 def reset_content(conn):
-    """Replace dataset/questions/synonyms with the INOTEX defaults."""
+    """Replace dataset/questions/synonyms with the (empty) defaults."""
     conn.execute("DELETE FROM questions")
     conn.execute("DELETE FROM dataset")
     conn.execute("DELETE FROM synonyms")
@@ -105,7 +105,7 @@ def reset_content(conn):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Reset DB content to INOTEX defaults (with backup).")
+    p = argparse.ArgumentParser(description="Reset DB content to the (empty) defaults — clears dataset/questions/synonyms with a backup.")
     p.add_argument("--db", default="", help="Path to a SQLite database (default: ./chat_history.db)."
                                             " Ignored when the configured backend is PostgreSQL.")
     p.add_argument("--yes", action="store_true", help="Skip interactive confirmation.")
@@ -126,7 +126,7 @@ def main():
     print(f"Backup   : {backup}")
 
     scope = []
-    scope.append("dataset, questions, synonyms  →  INOTEX defaults")
+    scope.append("dataset, questions, synonyms  →  empty defaults")
     if args.full or args.all:
         scope.append("chat_logs  →  cleared")
     if args.all:
