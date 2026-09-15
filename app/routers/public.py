@@ -598,8 +598,9 @@ async def readiness_check(deep: bool = False, request: Request = None):
     """Readiness: is the retrieval layer actually able to answer?
 
     ``deep=true`` additionally probes the external AI endpoint (never done
-    in the request path). Returns 503 while the local layer is not ready so
-    an orchestrator holds traffic until the index is built.
+    in the request path). Returns 503 only when the local model stack itself
+    fails to load — an empty knowledge base is healthy, so this is an
+    exception state, not a warm-up window.
 
     The deep probe is admin-only: it makes the server call the external
     provider, and an anonymous caller able to trigger outbound traffic on

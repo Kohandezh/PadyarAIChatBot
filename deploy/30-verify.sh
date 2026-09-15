@@ -20,8 +20,8 @@ for pair in "elecomp 8002"; do
   if [[ -n "$body" ]]; then ok "${slug} /api/health: ${body:0:120}"; else bad "${slug} /api/health unreachable"; fi
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:${port}/api/ready")
   case "$code" in
-    200) ok "${slug} /api/ready 200 (retrieval index built)" ;;
-    503) warn "${slug} /api/ready 503 — index still building, re-check in a minute" ;;
+    200) ok "${slug} /api/ready 200 (local model stack loaded)" ;;
+    503) warn "${slug} /api/ready 503 — local model stack failed to load" ;;
     *)   bad "${slug} /api/ready returned ${code}" ;;
   esac
 done

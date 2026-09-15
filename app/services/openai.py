@@ -37,7 +37,11 @@ def model_for(task: str) -> str:
 # Defaults for a new installation. Administrators can override them.
 DEFAULT_ASSISTANT_NAME = "دستیار پادیار"
 DEFAULT_ASSISTANT_ORG = "پردیار"
-DEFAULT_ASSISTANT_PHONE = "۰۲۱۸۸۵۰۳۰۳۰"
+# Empty by design: no install facts ship in code, and the retired event's
+# secretariat number must not reach a fresh install's visitors. An install
+# records its own phone in Settings; an empty value drops the phone lines
+# from the prompt (see build_system_prompt).
+DEFAULT_ASSISTANT_PHONE = ""
 DEFAULT_ASSISTANT_WEBSITE = "padyar.com"
 # No event facts ship in code (same rule as app/default_content.py): the
 # install's own knowledge arrives through the admin panel.
@@ -141,6 +145,15 @@ _FACTUAL = (
     "- If unsure, direct to {phone} or {website}."
 )
 
+# An install with no phone recorded (the shipped default) gets these
+# variants: the phone clauses drop out entirely rather than render empty —
+# a "direct to" pointing at nothing invites the model to invent a number.
+_FACTUAL_WITHOUT_PHONE = (
+    "FACTUAL INTEGRITY:\n"
+    "- Never invent dates, prices, registrations, participant names or contact details.\n"
+    "- If unsure, direct to {website}."
+)
+
 _LANGUAGE = (
     "LANGUAGE:\n"
     "- Match the user's language (Persian or English).\n"
@@ -151,6 +164,12 @@ _LANGUAGE = (
 _CONTACT = (
     "CONTACT:\n"
     "- Phone: {phone} (always in this format)\n"
+    "- Website: {website}\n"
+    "- Encourage checking the official website at most once per response."
+)
+
+_CONTACT_WITHOUT_PHONE = (
+    "CONTACT:\n"
     "- Website: {website}\n"
     "- Encourage checking the official website at most once per response."
 )
@@ -176,7 +195,9 @@ def build_system_prompt() -> str:
 
     name = get_setting("assistant_name", DEFAULT_ASSISTANT_NAME)
     org = get_setting("assistant_org", DEFAULT_ASSISTANT_ORG)
-    phone = get_setting("assistant_phone", DEFAULT_ASSISTANT_PHONE)
+    # Whitespace-only counts as empty: a "Phone:" label followed by spaces is
+    # the same defect as one followed by nothing.
+    phone = (get_setting("assistant_phone", DEFAULT_ASSISTANT_PHONE) or "").strip()
     website = get_setting("assistant_website", DEFAULT_ASSISTANT_WEBSITE)
     knowledge = get_setting("assistant_knowledge", DEFAULT_ASSISTANT_KNOWLEDGE)
     # What this assistant is ABOUT, and what it says when a question is not.
@@ -192,14 +213,17 @@ def build_system_prompt() -> str:
     tone_key = get_setting("assistant_tone", DEFAULT_TONE)
     tone = TONE_PRESETS.get(tone_key, TONE_PRESETS[DEFAULT_TONE])["text"]
 
+    # No phone recorded → the phone-less section variants: no dangling
+    # "Phone:" line, no "direct to {phone}" clause. The {phone} replace
+    # below then simply finds no token to fill.
     body = _SECTION_SEP.join([
         personality,   # editable
         _SCOPE,
         medical,       # editable
-        _FACTUAL,
+        _FACTUAL if phone else _FACTUAL_WITHOUT_PHONE,
         tone,          # editable (preset)
         _LANGUAGE,
-        _CONTACT,
+        _CONTACT if phone else _CONTACT_WITHOUT_PHONE,
         _SECURITY,
     ])
     filled = (body.replace("{name}", name).replace("{org}", org)

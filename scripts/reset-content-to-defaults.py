@@ -45,9 +45,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import DB_BACKEND  # noqa: E402
 from app.default_content import (  # noqa: E402
-    DEFAULT_DATASET,
-    DEFAULT_QUESTIONS,
-    DEFAULT_SYNONYMS,
     seed_default_content,
     seed_default_synonyms,
 )

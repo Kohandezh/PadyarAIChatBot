@@ -666,29 +666,35 @@ def test_the_refusal_text_is_read_from_settings_so_a_new_customer_can_change_it(
 # ── DEFECT 4: whole numbers and whole links, never substrings ────────────
 #
 # The verifier used to join the three recorded facts into ONE string and ask
-# `run not in sources`. Measured against the SHIPPED defaults on 2026-08-28,
-# that string holds 2026, 11, 14, 1405 and ۰۲۱۸۸۵۰۳۰۳۰ — so every single digit
-# except 7 and 9 was already a substring of it, and so was every short prefix
-# of the recorded website. These tests run against those shipped defaults on
-# purpose: the hole only opens on a real install's data.
+# `run not in sources`. Measured against a live install's recorded facts on
+# 2026-08-28, that string held the event dates and the recorded phone number
+# — so nearly every single digit was already a substring of it, and so was
+# every short prefix of the recorded website. These tests run against a
+# recorded phone on purpose: the hole only opens on a real install's data.
+
+# The phone these tests record, in Persian digits. The shipped default is
+# empty now (no install facts in code), so the phone-grounding tests seed
+# their own: a SET phone must still flow through the verifier.
+RECORDED_PHONE_FA = "۰۲۱۱۲۳۴۵۶۷۸"
+
 
 def _shipped_defaults():
     """Put the shipped DEFAULT facts in the settings, replacing the fixture's
-    deliberately number-poor ones. A live install records its own facts in
-    these same keys."""
+    deliberately number-poor ones, and record a phone a live install would
+    have. The shipped phone default is empty, and the grounding tests below
+    exercise facts that ARE recorded, so the phone is seeded explicitly."""
     from app.db.queries import set_setting
     from app.services.openai import (DEFAULT_ASSISTANT_KNOWLEDGE,
-                                     DEFAULT_ASSISTANT_PHONE,
                                      DEFAULT_ASSISTANT_WEBSITE)
     set_setting("assistant_knowledge", DEFAULT_ASSISTANT_KNOWLEDGE)
-    set_setting("assistant_phone", DEFAULT_ASSISTANT_PHONE)
+    set_setting("assistant_phone", RECORDED_PHONE_FA)
     set_setting("assistant_website", DEFAULT_ASSISTANT_WEBSITE)
 
 
 def test_prose_inventing_a_hall_number_is_rejected(client):
     """«سالن ۳ در ضلع شمالی است» — an invented hall number, read by a visitor
-    who is standing at a booth and will walk there. The digit 3 appears inside
-    the recorded phone ۰۲۱۸۸۵۰۳۰۳۰, so a substring test called it grounded."""
+    who is standing at a booth and will walk there. The digit 3 appears
+    inside the recorded phone, so a substring test called it grounded."""
     _seed()
     _shipped_defaults()
     from app.services import answer
@@ -743,13 +749,15 @@ def test_prose_repeating_the_recorded_dates_is_still_accepted(client):
 
 def test_prose_repeating_the_recorded_phone_with_a_separator_is_accepted(client):
     """A recorded number the model re-punctuated is still that number:
-    «۰۲۱-۸۸۵۰۳۰۳۰» is the recorded «۰۲۱۸۸۵۰۳۰۳۰». Whole-number matching must
-    not turn a correct phone number into a refusal at a live booth."""
+    «۰۲۱-۱۲۳۴۵۶۷۸» is the recorded «۰۲۱۱۲۳۴۵۶۷۸» (seeded by
+    _shipped_defaults — the shipped default phone is empty). Whole-number
+    matching must not turn a correct phone number into a refusal at a live
+    booth."""
     _seed()
     _shipped_defaults()
     from app.services import answer
     ok, reason = answer.generated_prose_is_grounded(
-        "با ۰۲۱-۸۸۵۰۳۰۳۰ تماس بگیرید.", "fa")
+        "با ۰۲۱-۱۲۳۴۵۶۷۸ تماس بگیرید.", "fa")
     assert ok is True, reason
 
 

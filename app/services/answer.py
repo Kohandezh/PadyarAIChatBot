@@ -538,16 +538,16 @@ def generated_prose_is_grounded(text: str, lang: str = "fa"):
 
     WHOLE NUMBERS, NEVER SUBSTRINGS (measured 2026-08-28). This used to join
     the three records into one string and ask `run not in sources`. Against
-    the shipped defaults that string holds 2026, 11, 14, 1405 and
-    ۰۲۱۸۸۵۰۳۰۳۰, so every single digit except 7 and 9 was already a substring
-    of it and «سالن ۳ در ضلع شمالی است» — an invented hall number, read by a
-    visitor standing at a booth — passed. The same hole let the fake link
-    «dyar.com» through, because it is a substring of the recorded padyar.com.
-    Now each record contributes its whole numbers and its whole links to a
-    SET, and a number in the answer has to BE one of them.
+    the then-shipped defaults that string held the event dates and the
+    recorded phone number, so nearly every single digit was already a
+    substring of it and «سالن ۳ در ضلع شمالی است» — an invented hall number,
+    read by a visitor standing at a booth — passed. The same hole let the
+    fake link «dyar.com» through, because it is a substring of the recorded
+    padyar.com. Now each record contributes its whole numbers and its whole
+    links to a SET, and a number in the answer has to BE one of them.
 
-    A number the model re-punctuated is still grounded: «۰۲۱-۸۸۵۰۳۰۳۰» is the
-    recorded «۰۲۱۸۸۵۰۳۰۳۰», so the digits of one word are also compared joined.
+    A number the model re-punctuated is still grounded: «۰۲۱-۱۲۳۴۵۶۷۸» is the
+    recorded «۰۲۱۱۲۳۴۵۶۷۸», so the digits of one word are also compared joined.
     The word boundary is what does the work — «۳» can never be part of it.
 
     THE VISITOR'S MESSAGE IS DELIBERATELY EXCLUDED from the source set.
@@ -559,7 +559,7 @@ def generated_prose_is_grounded(text: str, lang: str = "fa"):
     WHAT IT STILL CANNOT CATCH, so that nobody trusts it further than it goes:
     a false claim carrying no number and no link («ورود آزاد است»), a number
     spelled out in words («یازده شهریور»), and a genuinely recorded number put
-    into a false sentence («تلفن غرفهٔ آلفا ۰۲۱۸۸۵۰۳۰۳۰ است»). This is a
+    into a false sentence («تلفن غرفهٔ آلفا ۰۲۱۱۲۳۴۵۶۷۸ است»). This is a
     number-and-link check over one paragraph, not a fact checker.
     """
     text = (text or "").strip()

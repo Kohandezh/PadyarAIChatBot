@@ -29,11 +29,13 @@ import json
 # chat_branding_context below) so Settings > Branding controls EVERY theme
 # color; the name is unified to the chat's own name per the owner decision
 # (the three surfaces used to hardcode three different names). The subtitle
-# is the small line under the chat title (default keeps today's pixels).
+# is the small line under the chat title; the default is the neutral
+# «پردیار» wordmark — installs that saved branding (e.g. the live event
+# install) keep their saved value.
 WL_DEFAULTS = {
     "whitelabel_app_name": "دستیار پادیار",
-    # The small line under the chat title. The default keeps today's pixels:
-    # every theme header hardcoded a brand name before this key existed.
+    # The small line under the chat title. Default is the neutral «پردیار»
+    # wordmark; an install that saved a subtitle keeps its saved value.
     "whitelabel_subtitle": "پردیار",
     # Empty = the theme's built-in SVG brand mark; a set URL replaces it.
     "whitelabel_logo_url": "",
