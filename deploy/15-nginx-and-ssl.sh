@@ -20,7 +20,7 @@ if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 <slug> <port> <doma
 SLUG="${1:-}"
 PORT="${2:-}"
 DOMAIN="${3:-}"
-if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ -z "$DOMAIN" ]]; then
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
   echo "Usage: sudo bash $0 <slug> <port> <domain>" >&2; exit 1
 fi
 DOMAINS=("$DOMAIN")
@@ -93,6 +93,12 @@ for d in "${DOMAINS[@]}"; do
   # always: sites-available/<domain>.conf + sites-enabled symlink.
   sed -e "s/{{DOMAIN}}/${d}/g" -e "s/{{SLUG}}/${SLUG}/g" -e "s/{{PORT}}/${PORT}/g" \
     "${HERE}/nginx/instance.conf.template" > "/etc/nginx/sites-available/${d}.conf"
+  # Fail closed on drift: a placeholder the sed does not cover would install
+  # a vhost nginx cannot serve.
+  if grep -q -F '{{' "/etc/nginx/sites-available/${d}.conf"; then
+    echo "15-nginx: unfilled placeholder left in ${d}.conf — template/renderer drift" >&2
+    exit 2
+  fi
   ln -sfn "/etc/nginx/sites-available/${d}.conf" "/etc/nginx/sites-enabled/${d}.conf"
 done
 # The default site would otherwise answer for any unmatched Host.

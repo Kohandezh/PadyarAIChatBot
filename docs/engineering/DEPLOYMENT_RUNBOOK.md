@@ -37,7 +37,9 @@ dataset و ایندکسِ بازیابی کند است و پنجرهٔ کوتا�
 در صف می‌ماند و آسیبی نمی‌زند. صف deploy با `concurrency` مسلسل شده، پس دو
 merge پشت‌سرهم همدیگر را له نمی‌کنند.
 
-دستی (بدون GitHub): `sudo /usr/local/bin/padyar-deploy myevent <sha>` — همان
+دستی (بدون GitHub): `sudo /usr/local/bin/padyar-deploy myevent 8010 <sha>`
+(`myevent 8010` = همان slug و پورتی که در `DEPLOY_SLUG`/`DEPLOY_PORT` GitHub
+تنظیم شده‌اند) — همان
 مراحل، همان بازگشت. deploy دستی و deploy خودکار با یک قفل روی سرور
 (`/run/padyar-deploy-myevent.lock`) پشت‌سرهم می‌شوند، پس صدا زدن دستی وسط یک
 deploy خودکار منتظر می‌ماند (تا ۱۵ دقیقه) و له نمی‌کند.

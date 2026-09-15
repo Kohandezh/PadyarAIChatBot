@@ -19,7 +19,7 @@ if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 <slug> <port> <doma
 SLUG="${1:-}"
 PORT="${2:-}"
 DOMAIN="${3:-}"
-if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ -z "$DOMAIN" ]]; then
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
   echo "Usage: sudo bash $0 <slug> <port> <domain>" >&2; exit 1
 fi
 INSTALLS=("$SLUG")
@@ -56,6 +56,10 @@ for slug in "${INSTALLS[@]}"; do
   install -d "/var/www/padyar/maintenance/${slug}"
   sed "s/{{SITE_TITLE}}/${TITLE}/" "${HERE}/nginx/maintenance.html" \
     > "/var/www/padyar/maintenance/${slug}/__maintenance.html"
+  if grep -q -F '{{' "/var/www/padyar/maintenance/${slug}/__maintenance.html"; then
+    echo "17-watchdog: unfilled placeholder left in ${slug}'s maintenance page" >&2
+    exit 2
+  fi
 done
 
 log "Re-installing the nginx vhosts"
@@ -66,6 +70,10 @@ log "Re-installing the nginx vhosts"
 for d in "$DOMAIN"; do
   sed -e "s/{{DOMAIN}}/${d}/g" -e "s/{{SLUG}}/${SLUG}/g" -e "s/{{PORT}}/${PORT}/g" \
     "${HERE}/nginx/instance.conf.template" > "/etc/nginx/sites-available/${d}.conf"
+  if grep -q -F '{{' "/etc/nginx/sites-available/${d}.conf"; then
+    echo "17-watchdog: unfilled placeholder left in ${d}.conf — template/renderer drift" >&2
+    exit 2
+  fi
   ln -sfn "/etc/nginx/sites-available/${d}.conf" "/etc/nginx/sites-enabled/${d}.conf"
 done
 nginx -t

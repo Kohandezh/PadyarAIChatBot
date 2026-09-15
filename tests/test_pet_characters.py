@@ -98,6 +98,24 @@ def test_unknown_stored_character_falls_back_to_the_default(tmp_path, monkeypatc
     assert get_pet_character()["name"] == _default_name()
 
 
+def test_an_empty_registry_degrades_to_no_character(tmp_path, monkeypatch, caplog):
+    """No valid characters at all must not 500 the shell render: the
+    registry empties, the default collapses to {}, and the operator sees
+    one warning — degrade, never crash."""
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "pet-empty.db"))
+    from app.db.connection import init_db
+    init_db()
+    from app.services import pet_characters
+    empty_dir = tmp_path / "no-characters"
+    empty_dir.mkdir()
+    monkeypatch.setattr(pet_characters, "CHARACTERS_DIR", str(empty_dir))
+    assert pet_characters.discover_characters() == {}
+    with caplog.at_level("WARNING", logger="PadyarAssistant"):
+        assert pet_characters.get_pet_character() == {}
+    assert "registry is empty" in caplog.text
+
+
 def test_the_unconfigured_install_serves_the_registrys_first_character(client):
     default = _registry()[_default_name()]
     html = client.get("/").text

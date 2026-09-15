@@ -69,7 +69,8 @@ done
 log "Checking the connection budget"
 maxconn=$(psql_su -tAc 'SHOW max_connections;')
 echo "  max_connections = ${maxconn}"
-echo "  planned usage   = 1 app x WEB_CONCURRENCY(3) x DB_POOL_MAX_SIZE(5) = 15"
+echo "  planned usage   = per install: WEB_CONCURRENCY(3) x DB_POOL_MAX_SIZE(5) = 15" \
+     "(multiply by the installs hosted on this host)"
 if (( maxconn < 60 )); then
   echo "  WARNING: raise max_connections, or lower WEB_CONCURRENCY/DB_POOL_MAX_SIZE." >&2
 fi

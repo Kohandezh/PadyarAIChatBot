@@ -6,8 +6,9 @@
 # It does NOT install the apps (10-install-app.sh) or the GPU stack
 # (20-gpu-driver.sh).
 #
-# Run as a user with sudo, once per install hosted here:
-#   sudo bash deploy/00-bootstrap-server.sh <slug>
+# Run as a user with sudo, once per host — repeat per install hosted here,
+# or pass every slug at once:
+#   sudo bash deploy/00-bootstrap-server.sh <slug>...
 # (slug: lowercase letters, digits, hyphens — e.g. myevent)
 set -euo pipefail
 

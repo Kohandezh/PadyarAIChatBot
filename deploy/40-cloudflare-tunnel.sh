@@ -25,7 +25,7 @@ if [[ -z "${CF_TUNNEL_TOKEN:-}" ]]; then
   exit 1
 fi
 DOMAIN="${1:-}"
-if [[ -z "$DOMAIN" ]]; then
+if [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
   echo "Usage: sudo CF_TUNNEL_TOKEN=eyJ... bash $0 <domain>" >&2; exit 1
 fi
 

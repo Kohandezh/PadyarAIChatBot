@@ -122,6 +122,12 @@ log "Installing the systemd unit"
 # ${APP_PORT} expansion — nothing per-install is hardcoded in the template.
 sed "s/{{SLUG}}/${SLUG}/g" "${HERE}/systemd/padyar-app.service.template" \
   > "/etc/systemd/system/padyar-${SLUG}.service"
+# Fail closed on drift: a placeholder the sed does not cover would install a
+# unit systemd cannot start.
+if grep -q -F '{{' "/etc/systemd/system/padyar-${SLUG}.service"; then
+  echo "10-install: unfilled placeholder left in padyar-${SLUG}.service — template/renderer drift" >&2
+  exit 2
+fi
 chmod 0644 "/etc/systemd/system/padyar-${SLUG}.service"
 systemctl daemon-reload
 systemctl enable "padyar-${SLUG}"

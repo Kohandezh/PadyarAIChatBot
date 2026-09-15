@@ -20,7 +20,9 @@ drop, not a code change.
   companion state → pose). `app/services/pet_characters.py` scans,
   validates (slug names, sane ints, an `idle` mapping is mandatory) and
   skips anything defective — a half-loaded character is worse than none.
-- **Setting:** `pet_character` (default: the first bundled character).
+- **Setting:** `pet_character` (default: the registry's first character in
+  sorted folder order — no name is hardcoded in the source). An install with
+  no valid characters degrades to none (one warning, `{}`), it never 500s.
   Unknown stored value → the default. Baked into the cached chat shell, so
   its identity rides the
   page-cache key (`pet_character_cache_key`, wired in themes.py).

@@ -15,7 +15,7 @@ warn() { printf '  \033[1;33mWARN\033[0m %s\n' "$*"; }
 SLUG="${1:-}"
 PORT="${2:-}"
 DOMAIN="${3:-}"
-if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ -z "$DOMAIN" ]]; then
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
   echo "Usage: bash $0 <slug> <port> <domain>" >&2; exit 1
 fi
 SERVICE="padyar-${SLUG}"
