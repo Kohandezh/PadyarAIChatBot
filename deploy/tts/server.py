@@ -103,7 +103,7 @@ AUDIO_MEDIA_TYPE = "audio/mpeg"
 AUDIO_SUFFIX = ".mp3"
 
 # --- reference clips for voice cloning -------------------------------------
-# The app user (padyar-inotex) cannot write into VOICES_DIR — the directory
+# The app user (padyar-elecomp) cannot write into VOICES_DIR — the directory
 # belongs to the TTS service's own user — so an admin uploading a sample has to
 # come through this service. That is what POST/DELETE /voices exist for.
 #
@@ -1029,9 +1029,9 @@ def voices():
 # --- voice management ------------------------------------------------------
 #
 # WHY THESE LIVE HERE AND NOT IN THE ADMIN APP: VOICES_DIR is owned by the TTS
-# service's user under /var/lib/padyar, and the two chatbot installs run as
-# padyar-inotex / padyar-elecomp. They can read a voice's NAME through the API
-# but cannot create a file in that directory, and giving them write access to
+# service's user under /var/lib/padyar, and the chatbot install runs as
+# padyar-elecomp. It can read a voice's NAME through the API
+# but cannot create a file in that directory, and giving it write access to
 # the service's state directory to save an upload would be the wrong trade. So
 # the upload travels the same loopback hop everything else does.
 

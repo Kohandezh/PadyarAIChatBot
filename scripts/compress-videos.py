@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shrink the oversized booth clips to the size the rest of the library already is.
 
-WHY THIS EXISTS. The 2026 INOTEX batch arrived in two shapes. The FAQ answers
+WHY THIS EXISTS. The 2026 event batch arrived in two shapes. The FAQ answers
 are 1920x1080 at ~1.5 Mbps and weigh 6-8 MB. The booth clips are the SAME
 1920x1080 at ~26 Mbps and weigh up to 202 MB. It is not that the booth clips are
 longer; they are near-raw exports at roughly 17x the bitrate of every other file

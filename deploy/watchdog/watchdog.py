@@ -36,7 +36,6 @@ from datetime import datetime, timedelta, timezone
 # The installs this watchdog guards, keyed by systemd instance name. Ports are
 # the production ports; run_cycle (Task 2) probes them on localhost.
 INSTALLS = {
-    "inotex": {"port": 8001, "name": "INOTEX"},
     "elecomp": {"port": 8002, "name": "ELECOMP"},
 }
 
@@ -51,7 +50,7 @@ RIAL_PER_TOMAN = 10
 
 # run_cycle (Task 2) keeps each install's state in
 # STATE_DIR/<install>/state.json — a per-install SUBDIRECTORY, not a flat
-# file. Why: two installs run as two different service users sharing this
+# file. Why: installs run as different service users sharing this
 # root-owned parent; each user needs write access to its own state, so the
 # deployment gives each service user its own directory here. Outside the app
 # tree, so a broken install cannot also erase the watchdog's memory.
@@ -363,7 +362,7 @@ def run_cycle(
 
 
 if __name__ == "__main__":
-    # systemd executes this as `watchdog.py --install inotex` per timer tick.
+    # systemd executes this as `watchdog.py --install elecomp` per timer tick.
     # argparse exits 2 on a bad --install BEFORE any cycle runs — that is a
     # deployment error and SHOULD be loud. Once past parsing, the cycle never
     # raises, so a reporting run always exits 0: a oneshot that "fails"

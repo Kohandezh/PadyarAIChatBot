@@ -41,9 +41,8 @@ set -euo pipefail
 SLUG="${1:-}"
 NEW_SHA="${2:-}"
 case "$SLUG" in
-  inotex)  PORT=8001 ;;
   elecomp) PORT=8002 ;;
-  *) echo "Usage: sudo $0 {inotex|elecomp} <commit-sha>" >&2; exit 1 ;;
+  *) echo "Usage: sudo $0 elecomp <commit-sha>" >&2; exit 1 ;;
 esac
 if [[ ! "$NEW_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "padyar-deploy: '$NEW_SHA' is not a commit sha" >&2; exit 1

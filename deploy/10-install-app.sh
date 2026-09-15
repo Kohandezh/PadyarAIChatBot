@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Install (or upgrade) one PadyarAIChatbot instance.
 #
-#   sudo bash deploy/10-install-app.sh inotex
 #   sudo bash deploy/10-install-app.sh elecomp
 #
 # Expects deploy/05-create-databases.sh to have run, and the matching
@@ -12,9 +11,8 @@ set -euo pipefail
 
 SLUG="${1:-}"
 case "$SLUG" in
-  inotex)  PORT=8001 ;;
   elecomp) PORT=8002 ;;
-  *) echo "Usage: sudo bash $0 {inotex|elecomp}" >&2; exit 1 ;;
+  *) echo "Usage: sudo bash $0 elecomp" >&2; exit 1 ;;
 esac
 
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 $SLUG" >&2; exit 1; fi

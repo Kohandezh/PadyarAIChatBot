@@ -11,7 +11,7 @@ from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 mtl_tts.SUPPORTED_LANGUAGES.setdefault("fa", "Persian")
 CKPT = "/var/lib/padyar/tts/models/chatterbox-mtl"
 THREADS = int(sys.argv[1]) if len(sys.argv) > 1 else 32
-TEXT = "سلام! به غرفه اینوتکس خوش آمدید."
+TEXT = "سلام! به نمایشگاه خوش آمدید."
 
 torch.set_num_threads(THREADS)
 print(f"threads={THREADS} (torch reports {torch.get_num_threads()})")

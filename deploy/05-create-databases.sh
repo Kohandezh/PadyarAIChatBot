@@ -5,8 +5,8 @@
 # already exist (0001_initial.sql opens with `CREATE TABLE app.schema_migrations`),
 # so this script creates them and hands ownership to the app role.
 #
-# Passwords are generated here and printed ONCE. Copy them into the two .env
-# files immediately; they are not stored anywhere else.
+# Passwords are generated here and printed ONCE. Copy them into the .env
+# file immediately; they are not stored anywhere else.
 #
 #   sudo bash deploy/05-create-databases.sh
 set -euo pipefail
@@ -18,7 +18,7 @@ psql_su() { sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"; }
 
 declare -A PASSWORDS
 
-for slug in inotex elecomp; do
+for slug in elecomp; do
   db="padyar_${slug}"
   role="padyar_${slug}"
   pass=$(openssl rand -base64 24 | tr -d '/+=' | head -c 28)
@@ -58,7 +58,7 @@ done
 log "Checking the connection budget"
 maxconn=$(psql_su -tAc 'SHOW max_connections;')
 echo "  max_connections = ${maxconn}"
-echo "  planned usage   = 2 apps x WEB_CONCURRENCY(3) x DB_POOL_MAX_SIZE(5) = 30"
+echo "  planned usage   = 1 app x WEB_CONCURRENCY(3) x DB_POOL_MAX_SIZE(5) = 15"
 if (( maxconn < 60 )); then
   echo "  WARNING: raise max_connections, or lower WEB_CONCURRENCY/DB_POOL_MAX_SIZE." >&2
 fi
@@ -68,9 +68,8 @@ cat <<BANNER
 ============================================================
  DATABASE CREDENTIALS — COPY THESE NOW, THEY ARE NOT STORED
 ============================================================
- inotex   DATABASE_URL=postgresql://padyar_inotex:${PASSWORDS[inotex]}@127.0.0.1:5432/padyar_inotex
  elecomp  DATABASE_URL=postgresql://padyar_elecomp:${PASSWORDS[elecomp]}@127.0.0.1:5432/padyar_elecomp
 ============================================================
 
-Next: deploy/10-install-app.sh inotex   (then elecomp)
+Next: deploy/10-install-app.sh elecomp
 BANNER

@@ -22,7 +22,7 @@ from server import load_model, normalize, split_for_synthesis
 # Representative of what the chatbot actually says: a greeting, a short
 # factual answer, and a long one that will be split into chunks.
 SAMPLES = [
-    "سلام! به غرفه اینوتکس خوش آمدید.",
+    "سلام! به نمایشگاه خوش آمدید.",
     "ساعت کاری نمایشگاه از ساعت نه صبح تا هجده است.",
     "برای ثبت‌نام در نمایشگاه کافی است شماره موبایل خود را وارد کنید و کد "
     "تأیید را دریافت نمایید. پس از تأیید شماره، اطلاعات شغلی و حوزه‌های مورد "

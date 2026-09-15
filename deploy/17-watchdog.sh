@@ -4,8 +4,8 @@
 #
 #   sudo bash deploy/17-watchdog.sh
 #
-# Expects deploy/10-install-app.sh (both installs) and
-# deploy/15-nginx-and-ssl.sh to have run first: the watchdog reads each
+# Expects deploy/10-install-app.sh and
+# deploy/15-nginx-and-ssl.sh to have run first: the watchdog reads the
 # install's database through that install's venv, and the maintenance pages
 # are served by the vhosts the nginx script installs. Safe to re-run.
 set -euo pipefail
@@ -13,14 +13,14 @@ set -euo pipefail
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0" >&2; exit 1; fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALLS=(inotex elecomp)
+INSTALLS=(elecomp)
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 
 log "Creating the per-install state directories"
-# One directory per install, owned by that install's user. The two watchdog
+# One directory per install, owned by that install's user. The watchdog
 # services then never share a writable path, so one broken (or compromised)
-# install cannot read, corrupt, or lock the other's alert state.
+# install cannot read, corrupt, or lock another's alert state.
 for slug in "${INSTALLS[@]}"; do
   install -d -o "padyar-${slug}" -g "padyar-${slug}" "/var/lib/padyar-watchdog/${slug}"
 done
@@ -38,7 +38,7 @@ log "Rendering the branded maintenance pages"
 # The vhosts serve /__maintenance.html from these roots on 502/504
 # (proxy_intercept_errors). maintenance.html carries {{SITE_TITLE}} twice;
 # it is replaced once per install here so nginx never templates anything.
-declare -A TITLES=( [inotex]="چت‌بات اینوتکس" [elecomp]="چت‌بات الکامپ" )
+declare -A TITLES=( [elecomp]="چت‌بات الکامپ" )
 for slug in "${INSTALLS[@]}"; do
   install -d "/var/www/padyar/maintenance/${slug}"
   sed "s/{{SITE_TITLE}}/${TITLES[$slug]}/" "${HERE}/nginx/maintenance.html" \
@@ -50,7 +50,7 @@ log "Re-installing the nginx vhosts"
 # roots above. Re-installing picks those up on boxes where 15-nginx-and-ssl.sh
 # ran before the blocks existed. Same layout as that script:
 # sites-available/<domain>.conf + sites-enabled symlink.
-for d in inotex.padyar.com elecomp.padyar.com; do
+for d in elecomp.padyar.com; do
   install -m 0644 "${HERE}/nginx/${d}.conf" "/etc/nginx/sites-available/${d}.conf"
   ln -sfn "/etc/nginx/sites-available/${d}.conf" "/etc/nginx/sites-enabled/${d}.conf"
 done
@@ -58,20 +58,21 @@ nginx -t
 systemctl reload nginx
 
 log "Enabling the watchdog timers"
-systemctl enable --now padyar-watchdog@inotex.timer padyar-watchdog@elecomp.timer
+for slug in "${INSTALLS[@]}"; do
+  systemctl enable --now "padyar-watchdog@${slug}.timer"
+done
 
 cat <<'NEXT'
 
 ------------------------------------------------------------
  WATCHDOG IS LIVE. NEXT STEPS FOR THE OPERATOR
 ------------------------------------------------------------
- Check both timers are scheduled:
+ Check the timer is scheduled:
    systemctl list-timers 'padyar-watchdog@*'
  Check what a cycle reported:
-   journalctl -u padyar-watchdog@inotex.service -n 20
    journalctl -u padyar-watchdog@elecomp.service -n 20
 
- NO SMS WILL GO OUT until the alert phone number is set in EACH
+ NO SMS WILL GO OUT until the alert phone number is set in the
  install's admin panel: تنظیمات → ثبت‌نام و پیامک. The watchdog reads it from
  the database on every cycle and skips alerting while it is empty.
 ------------------------------------------------------------

@@ -249,7 +249,7 @@ def main():
         return 1
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    out = Path(args.out) if args.out else ROOT.parent / f"inotex-chatbot-handover-{stamp}.zip"
+    out = Path(args.out) if args.out else ROOT.parent / f"padyar-chatbot-handover-{stamp}.zip"
 
     total = 0
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:

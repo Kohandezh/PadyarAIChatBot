@@ -100,9 +100,9 @@ No new Python dependency.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `otp_brand_name` | `INOTEX` | Wordmark next to the logo |
-| `otp_brand_mark` | INOTEX hexagon SVG | Inline SVG for the logo |
-| `otp_companion_atlas` | INOTEX atlas path | **Empty string = no companion avatar** |
+| `otp_brand_name` | `پردیار` | Wordmark next to the logo |
+| `otp_brand_mark` | brand hexagon SVG | Inline SVG for the logo |
+| `otp_companion_atlas` | companion atlas path | **Empty string = no companion avatar** |
 | `otp_companion_cell` | `512` | Atlas cell size in px (4 columns, 12 poses) |
 | `otp_color_primary` / `_hover` | `#FCB715` / `#FEBE27` | Primary action |
 | `otp_color_blue` / `_navy` / `_teal` | INOTEX palette | Surfaces and accents |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install the nginx sites and obtain Let's Encrypt certificates for
-# inotex.padyar.com and elecomp.padyar.com.
+# Install the nginx site and obtain a Let's Encrypt certificate for
+# elecomp.padyar.com.
 #
 #   sudo bash deploy/15-nginx-and-ssl.sh
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0" >&2; exit 1; fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOMAINS=(inotex.padyar.com elecomp.padyar.com)
+DOMAINS=(elecomp.padyar.com)
 EMAIL="${CERT_EMAIL:-brainfoemail@gmail.com}"
 CERT_MODE="${CERT_MODE:-dns}"
 CF_INI=/root/.secrets/cloudflare.ini
@@ -108,16 +108,16 @@ cat <<'BANNER'
 ------------------------------------------------------------
  ONE MANUAL STEP LEFT, IN THE CLOUDFLARE DASHBOARD
 ------------------------------------------------------------
- Both names currently return HTTP 525 (SSL handshake failed
- between Cloudflare and this origin). After the certificates
- above are live, set:
+ The name currently returns HTTP 525 (SSL handshake failed
+  between Cloudflare and this origin). After the certificate
+  above is live, set:
 
-   SSL/TLS -> Overview -> Full (strict)
+    SSL/TLS -> Overview -> Full (strict)
 
- Anything less ("Flexible") leaves Cloudflare -> origin
- traffic unencrypted and makes COOKIE_SECURE meaningless.
+  Anything less ("Flexible") leaves Cloudflare -> origin
+  traffic unencrypted and makes COOKIE_SECURE meaningless.
 
- Also confirm the two A records point at this server's public
- address and that 80/443 are forwarded to 192.168.100.6.
+  Also confirm the A record points at this server's public
+  address and that 80/443 are forwarded to 192.168.100.6.
 ------------------------------------------------------------
 BANNER

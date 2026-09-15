@@ -45,14 +45,14 @@ async def test_openai():
 
 if __name__ == "__main__":
     import asyncio
-    print("=== INOTEX Assistant Network Diagnostic ===\n")
+    print("=== Padyar Assistant Network Diagnostic ===\n")
 
     # 1. DNS
     test_dns()
 
     # 2. Check if local ports are open (uvicorn ports)
     test_port_open(8000)
-    test_port_open(8001)
+    test_port_open(8002)
 
     # 3. Test OpenAI API
     asyncio.run(test_openai())
