@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-09-14
 
-First tagged release: the product as it serves the event and ELECOMP
-installs today.
+First tagged release: the product as it serves live event installs
+today.
 
 ### Added
 

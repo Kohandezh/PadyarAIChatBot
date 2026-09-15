@@ -1,14 +1,14 @@
-# elecomp-chat-training
+# chat-training
 
-**Status:** shipped 2026-09-01 (live on the elecomp install, /opt/padyar-elecomp)
+**Status:** shipped 2026-09-01 (a live install, /opt/padyar-<install>)
 **Domain:** chat / retrieval / guide tier
-**Scope:** ELECOMP ONLY — nothing here touches the (now retired) event install.
+**Scope:** one live install only — nothing here touches the (now retired) event install.
 
 ## What this is
 
-Train the elecomp chatbot on the data the install itself produces. Three
+Train the install's chatbot on the data the install itself produces. Three
 inputs, three outputs, all deployed on the GPU box (gpu@192.168.100.6,
-which is also the production host for `padyar-elecomp`):
+which is also the production host for the install):
 
 1. **chat_logs harvest** — real visitor queries that a local tier already
    served confidently become curated `questions` rows, so Tier 0 (exact),
@@ -71,7 +71,7 @@ On the server: working dir `/home/gpu/train-work` (scripts, data,
 talksiran.json, dumps), venvs `/home/gpu/train-venv` (ML stack) and
 `/home/gpu/crawl-venv` (httpx + bs4). Backups taken before any write:
 `/home/gpu/train-work/padyar_<install>_pre_train_20260901_*.dump` (one per
-install — elecomp and the now-retired event install)
+install — the live install and the now-retired event install)
 plus `app/services/guide.py.bak-20260901`.
 
 ## Runbook (refresh cycle)
@@ -83,10 +83,10 @@ crawl-venv/bin/python scripts/talksiran_crawl.py --out talksiran      # re-crawl
 train-venv/bin/python scripts/eval_static.py ...                      # after retrain
 
 # as root, against the install
-cd /opt/padyar-elecomp && set -a && . .env && set +a
+cd /opt/padyar-<install> && set -a && . .env && set +a
 SEED_DEFAULT_CONTENT=false .venv/bin/python /home/gpu/train-work/scripts/harvest_chat_questions.py --apply
 SEED_DEFAULT_CONTENT=false .venv/bin/python /home/gpu/train-work/scripts/import_talks_events.py --input /home/gpu/train-work/talksiran/talksiran.json --apply
-systemctl restart padyar-elecomp                                       # reindex + intent retrain
+systemctl restart padyar-<install>                                     # reindex + intent retrain
 ```
 
 ## Measured results

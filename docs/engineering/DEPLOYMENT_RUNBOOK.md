@@ -37,9 +37,9 @@ dataset و ایندکسِ بازیابی کند است و پنجرهٔ کوتا�
 در صف می‌ماند و آسیبی نمی‌زند. صف deploy با `concurrency` مسلسل شده، پس دو
 merge پشت‌سرهم همدیگر را له نمی‌کنند.
 
-دستی (بدون GitHub): `sudo /usr/local/bin/padyar-deploy elecomp <sha>` — همان
+دستی (بدون GitHub): `sudo /usr/local/bin/padyar-deploy myevent <sha>` — همان
 مراحل، همان بازگشت. deploy دستی و deploy خودکار با یک قفل روی سرور
-(`/run/padyar-deploy-elecomp.lock`) پشت‌سرهم می‌شوند، پس صدا زدن دستی وسط یک
+(`/run/padyar-deploy-myevent.lock`) پشت‌سرهم می‌شوند، پس صدا زدن دستی وسط یک
 deploy خودکار منتظر می‌ماند (تا ۱۵ دقیقه) و له نمی‌کند.
 
 **«SUPERSEDED» در لاگ خطا نیست:** اگر `main` بعد از تأیید شما جلو رفته باشد،
@@ -51,7 +51,7 @@ run بعدی کد جدیدتر را می‌برد. چیزی تغییر نکرد�
 
 ```bash
 sudo install -m 0755 -o root -g root \
-  /opt/padyar-elecomp/deploy/padyar-deploy.sh /usr/local/bin/padyar-deploy
+  /opt/padyar-myevent/deploy/padyar-deploy.sh /usr/local/bin/padyar-deploy
 ```
 
 ## بررسی سلامت
