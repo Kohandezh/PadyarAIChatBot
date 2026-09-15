@@ -2,10 +2,22 @@
 
 Target: `gpu@192.168.100.6`, 40 vCPU / 27 GB RAM / 2× Tesla P40.
 
+The kit is instance-agnostic: every install is named by a **slug**
+(lowercase letters, digits, hyphens — e.g. `myevent`), and everything else
+derives from it — app dir `/opt/padyar-<slug>`, DB and role `padyar_<slug>`,
+Linux user and service `padyar-<slug>`. The examples below use
+slug `myevent`, domain `myevent.example.com`, port `8010`.
+
 | Install | Domain | Port | DB | Linux user |
 |---|---|---|---|---|
-| ELECOMP | `elecomp.padyar.com` | 8002 | `padyar_elecomp` | `padyar-elecomp` |
+| `myevent` (example) | `myevent.example.com` | 8010 (APP_PORT) | `padyar_myevent` | `padyar-myevent` |
 | TTS | *(loopback only)* | 8003 | — | `padyar-tts` |
+
+**Pick one port per install and use the same number everywhere** — it is
+`APP_PORT` in `/opt/padyar-<slug>/.env` (what the systemd unit and the
+watchdog read), the `<port>` argument to the nginx/watchdog/verify scripts,
+and `DEPLOY_PORT` in CI. A mismatch fails loudly (health checks probe the
+wrong port), never silently.
 
 Everything here is idempotent — re-running a script is safe.
 
@@ -16,16 +28,17 @@ Everything here is idempotent — re-running a script is safe.
 git clone https://github.com/Kohandezh/PadyarAIChatBot.git /tmp/padyar-deploy
 cd /tmp/padyar-deploy
 
-sudo bash deploy/00-bootstrap-server.sh      # packages, users, dirs, PG, UFW, fail2ban
-sudo bash deploy/05-create-databases.sh      # 1 DB + role — SAVE THE PRINTED PASSWORD
+sudo bash deploy/00-bootstrap-server.sh myevent   # packages, users, dirs, PG, UFW, fail2ban
+sudo bash deploy/05-create-databases.sh myevent   # 1 DB + role — SAVE THE PRINTED PASSWORD
 
 # Fill in the .env file before installing:
-sudo install -m 0600 deploy/env/elecomp.env.template /opt/padyar-elecomp/.env
-sudo nano /opt/padyar-elecomp/.env           # every <PLACEHOLDER>, incl. SECRET_KEY
+sudo install -m 0600 deploy/env/instance.env.template /opt/padyar-myevent/.env
+sudo nano /opt/padyar-myevent/.env                # every <PLACEHOLDER>, incl. SECRET_KEY and APP_PORT
 
-sudo bash deploy/10-install-app.sh elecomp
-sudo bash deploy/15-nginx-and-ssl.sh         # needs a Cloudflare API token, see below
-sudo bash deploy/17-watchdog.sh              # down-SMS watchdog + branded maintenance page
+sudo bash deploy/10-install-app.sh myevent
+sudo bash deploy/15-nginx-and-ssl.sh myevent 8010 myevent.example.com   # needs a Cloudflare API token, see below
+sudo MAINTENANCE_TITLE="چت‌بات رویداد من" \
+  bash deploy/17-watchdog.sh myevent 8010 myevent.example.com           # down-SMS watchdog + maintenance page
 
 # GPU + TTS (independent of the app above):
 sudo bash deploy/20-gpu-driver.sh
@@ -33,7 +46,7 @@ sudo reboot
 bash deploy/21-verify-gpu.sh
 sudo HF_TOKEN=hf_xxx bash deploy/25-install-tts.sh
 
-bash deploy/30-verify.sh                     # end-to-end smoke test
+bash deploy/30-verify.sh myevent 8010 myevent.example.com   # end-to-end smoke test
 ```
 
 ## Auto-deploy from CI (optional, one-time setup)
@@ -50,6 +63,10 @@ sudo bash deploy/50-install-github-runner.sh <that-token>
 
 # 3. Once, in the browser: repo Settings → Environments → New environment
 #    "production" → Required reviewers → add yourself.
+
+# 4. Once, in the browser: repo Settings → Secrets and variables → Actions →
+#    Variables → add DEPLOY_SLUG=myevent and DEPLOY_PORT=8010 (the install's
+#    APP_PORT). The deploy job refuses to run without both — fail closed.
 ```
 
 What each piece is allowed to do:
@@ -63,10 +80,10 @@ What each piece is allowed to do:
 During an event: do not deploy. The approval click is the calendar — an
 unapproved deploy sits in the queue and harms nothing.
 
-To deploy manually without GitHub: `sudo /usr/local/bin/padyar-deploy elecomp <sha>`
-does exactly what the pipeline does (fetch needs a credential for the private
-repo; a one-line `PADYAR_GIT_TOKEN=... sudo -E` works, or push the branch and
-let the pipeline carry it).
+To deploy manually without GitHub: `sudo /usr/local/bin/padyar-deploy
+myevent 8010 <sha>` does exactly what the pipeline does (fetch needs a
+credential for the private repo; a one-line `PADYAR_GIT_TOKEN=... sudo -E`
+works, or push the branch and let the pipeline carry it).
 
 ## Things that will bite you, and why
 
@@ -76,7 +93,7 @@ true, a non-PostgreSQL backend, a placeholder or passwordless `DATABASE_URL`,
 empty or `*` `ALLOWED_ORIGINS`, a placeholder `ADMIN_PASSWORD`, and
 `OTP_DELIVERY=dev`. The refusal names every problem at once.
 
-`OTP_DELIVERY=dev` blocks **even though the ELECOMP install has the registration
+`OTP_DELIVERY=dev` blocks **even when the install has the registration
 module disabled** — the gate reads the environment variable, not the module
 list. The template sets `OTP_DELIVERY=asanak` for that reason.
 
@@ -108,8 +125,8 @@ consequences:
    survive the edge; a dns-01 challenge does not care whether the origin is
    even reachable yet. `15-nginx-and-ssl.sh` needs a token from
    <https://dash.cloudflare.com/profile/api-tokens> with *Zone → DNS → Edit* on
-   `padyar.com`, at `/root/.secrets/cloudflare.ini`. Pass `CERT_MODE=http` to
-   use webroot instead.
+   your Cloudflare zone, at `/root/.secrets/cloudflare.ini`. Pass
+   `CERT_MODE=http` to use webroot instead.
 
 2. **`conf.d/cloudflare-realip.conf` is not optional.** Without it every request
    arrives from a Cloudflare address, so `app/auth/security.py` rate-limits the
@@ -242,14 +259,14 @@ time and keep live synthesis for the Tier-2 fallback only.
 ## Day-2
 
 ```bash
-systemctl status padyar-elecomp padyar-tts
-journalctl -u padyar-elecomp -f
-curl -s localhost:8002/api/health | jq        # liveness only: {"status":"ok"}
-curl -s localhost:8002/api/ready | jq        # 503 until the retrieval index is built
+systemctl status padyar-myevent padyar-tts
+journalctl -u padyar-myevent -f
+curl -s localhost:8010/api/health | jq        # liveness only: {"status":"ok"}
+curl -s localhost:8010/api/ready | jq        # 503 until the retrieval index is built
 curl -s localhost:8003/health | jq
 
 # upgrade the install (re-runs migrations, restarts the service)
-sudo bash deploy/10-install-app.sh elecomp
+sudo bash deploy/10-install-app.sh myevent
 ```
 
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
@@ -261,16 +278,16 @@ Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `/api/health` every 60 s. Three consecutive failures (≈3 minutes of real
 downtime) send one SMS to the number configured in that install's admin
 panel; a 30-minute reminder follows while the outage lasts. Meanwhile nginx
-replaces 502/504 with a branded Persian "we'll be back" page that reloads
-itself every 30 s — the app's own 503 (in-app maintenance JSON) passes
-through untouched.
+replaces 502/504 with a Persian "we'll be back" page (`MAINTENANCE_TITLE`,
+default چت‌بات پایدیار) that reloads itself every 30 s — the app's own 503
+(in-app maintenance JSON) passes through untouched.
 
 Test it end-to-end once after install:
 
 ```bash
-sudo systemctl stop padyar-elecomp
-journalctl -u padyar-watchdog@elecomp.service -f   # one cycle per minute; SMS on the 3rd fail
-sudo systemctl start padyar-elecomp                 # after ≥3 min; recovery is silent by design
+sudo systemctl stop padyar-myevent
+journalctl -u padyar-watchdog@myevent.service -f   # one cycle per minute; SMS on the 3rd fail
+sudo systemctl start padyar-myevent                # after ≥3 min; recovery is silent by design
 ```
 
 The alert phone and the SMS-credit threshold live in each install's admin

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Install the nginx site and obtain a Let's Encrypt certificate for
-# elecomp.padyar.com.
+# Install the nginx site and obtain a Let's Encrypt certificate for one
+# install's domain.
 #
-#   sudo bash deploy/15-nginx-and-ssl.sh
+#   sudo bash deploy/15-nginx-and-ssl.sh <slug> <port> <domain>
+#
+# <port> must be the install's APP_PORT (from /opt/padyar-<slug>/.env) —
+# the vhost proxies straight to 127.0.0.1:<port>.
 #
 # WHY DNS-01 AND NOT --nginx:
 # padyar.com is proxied by Cloudflare (both names resolve to 172.67.141.4).
@@ -12,10 +15,17 @@
 # is publicly reachable at all. Set CERT_MODE=http to use webroot instead.
 set -euo pipefail
 
-if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0" >&2; exit 1; fi
+if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 <slug> <port> <domain>" >&2; exit 1; fi
+
+SLUG="${1:-}"
+PORT="${2:-}"
+DOMAIN="${3:-}"
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ ! "$PORT" =~ ^[0-9]+$ ]] || [[ -z "$DOMAIN" ]]; then
+  echo "Usage: sudo bash $0 <slug> <port> <domain>" >&2; exit 1
+fi
+DOMAINS=("$DOMAIN")
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOMAINS=(elecomp.padyar.com)
 EMAIL="${CERT_EMAIL:-brainfoemail@gmail.com}"
 CERT_MODE="${CERT_MODE:-dns}"
 CF_INI=/root/.secrets/cloudflare.ini
@@ -78,7 +88,11 @@ done
 
 log "Installing the site configurations"
 for d in "${DOMAINS[@]}"; do
-  install -m 0644 "${HERE}/nginx/${d}.conf" "/etc/nginx/sites-available/${d}.conf"
+  # The repo ships one neutral template (nginx/instance.conf.template); the
+  # domain, slug and port are rendered in here. Same destination layout as
+  # always: sites-available/<domain>.conf + sites-enabled symlink.
+  sed -e "s/{{DOMAIN}}/${d}/g" -e "s/{{SLUG}}/${SLUG}/g" -e "s/{{PORT}}/${PORT}/g" \
+    "${HERE}/nginx/instance.conf.template" > "/etc/nginx/sites-available/${d}.conf"
   ln -sfn "/etc/nginx/sites-available/${d}.conf" "/etc/nginx/sites-enabled/${d}.conf"
 done
 # The default site would otherwise answer for any unmatched Host.

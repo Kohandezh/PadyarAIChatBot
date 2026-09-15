@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Load the talksiran crawl into app.talks_events (elecomp install).
+"""Load the talksiran crawl into one install's app.talks_events.
 
-    cd /opt/padyar-elecomp && set -a && . .env && set +a && \
+    # INSTALL_DIR names the install, e.g. /opt/padyar-myevent:
+    cd /opt/padyar-myevent && set -a && . .env && set +a && \
     SEED_DEFAULT_CONTENT=false .venv/bin/python \
         /home/gpu/train-work/scripts/import_talks_events.py \
         --input /home/gpu/train-work/talksiran/talksiran.json [--apply]
@@ -15,7 +16,9 @@ import json
 import os
 import sys
 
-INSTALL = os.environ.get("INSTALL_DIR", "/opt/padyar-elecomp")
+INSTALL = os.environ.get("INSTALL_DIR", "")
+if not INSTALL:
+    sys.exit("Set INSTALL_DIR to the install's root, e.g. INSTALL_DIR=/opt/padyar-myevent")
 sys.path.insert(0, INSTALL)
 os.environ.setdefault("SEED_DEFAULT_CONTENT", "false")
 

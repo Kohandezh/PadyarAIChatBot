@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Deploy one already-installed PadyarAIChatbot instance to a specific commit.
 #
-#   sudo /usr/local/bin/padyar-deploy <slug> <commit-sha>
+#   sudo /usr/local/bin/padyar-deploy <slug> <port> <commit-sha>
+#
+# <slug> names the install (APP_DIR=/opt/padyar-<slug>, DB=padyar_<slug>,
+# service/user padyar-<slug>); <port> is the install's APP_PORT — the same
+# number in /opt/padyar-<slug>/.env, so the health check below probes the
+# port the unit actually listens on.
 #
 # WHAT THIS IS
 # ------------
@@ -39,11 +44,14 @@
 set -euo pipefail
 
 SLUG="${1:-}"
-NEW_SHA="${2:-}"
-case "$SLUG" in
-  elecomp) PORT=8002 ;;
-  *) echo "Usage: sudo $0 elecomp <commit-sha>" >&2; exit 1 ;;
-esac
+PORT="${2:-}"
+NEW_SHA="${3:-}"
+if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  echo "Usage: sudo $0 <slug> <port> <commit-sha>" >&2; exit 1
+fi
+if [[ ! "$PORT" =~ ^[0-9]+$ ]]; then
+  echo "padyar-deploy: '$PORT' is not a port (use the install's APP_PORT)" >&2; exit 1
+fi
 if [[ ! "$NEW_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "padyar-deploy: '$NEW_SHA' is not a commit sha" >&2; exit 1
 fi

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Merge talksiran exhibitor data into the companies table (elecomp).
+"""Merge talksiran exhibitor data into one install's companies table.
 
-    cd /opt/padyar-elecomp && set -a && . .env && set +a && \
+    # INSTALL_DIR names the install, e.g. /opt/padyar-myevent:
+    cd /opt/padyar-myevent && set -a && . .env && set +a && \
     SEED_DEFAULT_CONTENT=false .venv/bin/python \
         /home/gpu/train-work/scripts/merge_talksiran_exhibitors.py \
         --input /home/gpu/train-work/data/exhibitors.jsonl [--apply]
@@ -23,7 +24,9 @@ import json
 import os
 import sys
 
-INSTALL = os.environ.get("INSTALL_DIR", "/opt/padyar-elecomp")
+INSTALL = os.environ.get("INSTALL_DIR", "")
+if not INSTALL:
+    sys.exit("Set INSTALL_DIR to the install's root, e.g. INSTALL_DIR=/opt/padyar-myevent")
 sys.path.insert(0, INSTALL)
 os.environ.setdefault("SEED_DEFAULT_CONTENT", "false")
 
@@ -142,7 +145,7 @@ def main() -> int:
             " WHERE id = ?", params)
     for e in inserts:
         field = (e.get("field") or "").strip()
-        text = f"غرفه‌دار نمایشگاه الکامپ ۲۹." \
+        text = f"غرفه‌دار نمایشگاه." \
                + (f" زمینه فعالیت: {field}" if field else "")
         conn.execute(
             "INSERT INTO companies (id, title, text, activity_field,"

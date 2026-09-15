@@ -8,17 +8,28 @@
 # Passwords are generated here and printed ONCE. Copy them into the .env
 # file immediately; they are not stored anywhere else.
 #
-#   sudo bash deploy/05-create-databases.sh
+#   sudo bash deploy/05-create-databases.sh <slug>
+# (slug: lowercase letters, digits, hyphens — e.g. myevent)
 set -euo pipefail
 
-if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0" >&2; exit 1; fi
+if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 <slug>" >&2; exit 1; fi
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 psql_su() { sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"; }
 
+INSTALLS=("$@")
+if [[ ${#INSTALLS[@]} -eq 0 ]]; then
+  echo "Usage: sudo bash $0 <slug>..." >&2; exit 1
+fi
+for slug in "${INSTALLS[@]}"; do
+  if [[ ! "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "Bad slug '$slug' — lowercase letters, digits and hyphens only." >&2; exit 1
+  fi
+done
+
 declare -A PASSWORDS
 
-for slug in elecomp; do
+for slug in "${INSTALLS[@]}"; do
   db="padyar_${slug}"
   role="padyar_${slug}"
   pass=$(openssl rand -base64 24 | tr -d '/+=' | head -c 28)
@@ -63,13 +74,17 @@ if (( maxconn < 60 )); then
   echo "  WARNING: raise max_connections, or lower WEB_CONCURRENCY/DB_POOL_MAX_SIZE." >&2
 fi
 
-cat <<BANNER
+echo
+for slug in "${INSTALLS[@]}"; do
+  cat <<BANNER
 
 ============================================================
  DATABASE CREDENTIALS — COPY THESE NOW, THEY ARE NOT STORED
 ============================================================
- elecomp  DATABASE_URL=postgresql://padyar_elecomp:${PASSWORDS[elecomp]}@127.0.0.1:5432/padyar_elecomp
+ ${slug}  DATABASE_URL=postgresql://padyar_${slug}:${PASSWORDS[$slug]}@127.0.0.1:5432/padyar_${slug}
 ============================================================
-
-Next: deploy/10-install-app.sh elecomp
 BANNER
+done
+
+echo
+echo "Next: sudo bash deploy/10-install-app.sh ${INSTALLS[0]}"

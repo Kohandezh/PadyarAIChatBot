@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crawl talksiran.com (the ELECOMP 29 event platform) for training data.
+"""Crawl talksiran.com (the event platform) for training data.
 
     train-venv/bin/python talksiran_crawl.py --out ~/train-work/talksiran
 
@@ -24,7 +24,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 BASE = "https://talksiran.com"
-UA = "PadyarElecompTrainingBot/1.0 (chatbot training crawl; contact: admin@padyar.com)"
+UA = "PadyarTrainingBot/1.0 (chatbot training crawl; contact: admin@padyar.com)"
 DELAY = 0.4
 
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")

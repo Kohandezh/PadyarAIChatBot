@@ -4,16 +4,28 @@
 # Idempotent: safe to re-run. Installs packages, creates the service
 # users and their directories, hardens PostgreSQL, and opens the firewall.
 # It does NOT install the apps (10-install-app.sh) or the GPU stack
-# (20-gpu-chatterbox.sh).
+# (20-gpu-driver.sh).
 #
-# Run as a user with sudo:  sudo bash deploy/00-bootstrap-server.sh
+# Run as a user with sudo, once per install hosted here:
+#   sudo bash deploy/00-bootstrap-server.sh <slug>
+# (slug: lowercase letters, digits, hyphens — e.g. myevent)
 set -euo pipefail
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Run with sudo: sudo bash $0" >&2; exit 1
+  echo "Run with sudo: sudo bash $0 <slug>" >&2; exit 1
 fi
+
+INSTALLS=("$@")
+if [[ ${#INSTALLS[@]} -eq 0 ]]; then
+  echo "Usage: sudo bash $0 <slug>..." >&2; exit 1
+fi
+for slug in "${INSTALLS[@]}"; do
+  if [[ ! "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "Bad slug '$slug' — lowercase letters, digits and hyphens only." >&2; exit 1
+  fi
+done
 
 log "Updating the package index"
 apt-get update -y
@@ -35,7 +47,12 @@ if [[ "$psql_version" != "16" ]]; then
 fi
 
 log "Creating service users"
-for u in padyar-elecomp padyar-tts; do
+USERS=()
+for slug in "${INSTALLS[@]}"; do
+  USERS+=("padyar-${slug}")
+done
+USERS+=(padyar-tts)
+for u in "${USERS[@]}"; do
   if ! id -u "$u" >/dev/null 2>&1; then
     useradd --system --create-home --home-dir "/opt/${u}" --shell /usr/sbin/nologin "$u"
     echo "  created $u"
@@ -45,7 +62,7 @@ for u in padyar-elecomp padyar-tts; do
 done
 
 log "Creating state and log directories"
-for slug in elecomp; do
+for slug in "${INSTALLS[@]}"; do
   install -d -o "padyar-${slug}" -g "padyar-${slug}" -m 0755 \
     "/var/lib/padyar/${slug}/media/videos" \
     "/var/lib/padyar/${slug}/media/uploads" \

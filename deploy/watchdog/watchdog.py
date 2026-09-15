@@ -33,11 +33,27 @@ import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-# The installs this watchdog guards, keyed by systemd instance name. Ports are
-# the production ports; run_cycle (Task 2) probes them on localhost.
-INSTALLS = {
-    "elecomp": {"port": 8002, "name": "ELECOMP"},
-}
+# The guarded install is named by the systemd instance (%i of
+# padyar-watchdog@<install>.service) and configured by that install's own
+# EnvironmentFile: APP_PORT says where the app listens on localhost — the
+# same key the app unit's ExecStart expands. No hardcoded install table: a
+# per-customer platform cannot keep one here, and the unit's environment is
+# the authority an unknown key fails against.
+
+
+def install_port(install: str) -> int | None:
+    """The install's localhost port from APP_PORT, or None when unset.
+
+    None is how "unknown install" manifests: the unit template always loads
+    the install's .env as its EnvironmentFile, so a key with no APP_PORT
+    behind it is a deployment typo (or a test), and the caller reports it
+    instead of probing some guessed port.
+    """
+    raw = os.environ.get("APP_PORT", "").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 # 3 fails absorb a single blip or a rolling restart before an admin is woken;
 # 1800s reminds about a long outage twice an hour at most, trading detection
@@ -263,13 +279,15 @@ def run_cycle(
 ) -> dict:
     """One full probe→decide→alert→persist cycle for one install.
 
-    Returns the (persisted) new state; the only None is an unknown install
-    key, which is a deployment typo, not a runtime condition — journal it
-    and move on rather than raising.
+    Returns the (persisted) new state; the only None is an install with no
+    APP_PORT in the environment, which is a deployment typo, not a runtime
+    condition — journal it and move on rather than raising.
     """
-    if install not in INSTALLS:
-        print(f"[watchdog] {install}: unknown install "
-              f"(choices: {', '.join(sorted(INSTALLS))})", flush=True)
+    port = install_port(install)
+    if port is None:
+        print(f"[watchdog] {install}: no APP_PORT in the environment — unknown install "
+              f"(padyar-watchdog@{install}.service must load the install's .env)",
+              flush=True)
         return None
     if now is None:
         now = time.time()
@@ -288,7 +306,10 @@ def run_cycle(
     state = _load_state(path, install)
 
     try:
-        port, name = INSTALLS[install]["port"], INSTALLS[install]["name"]
+        # The SMS names the install by its slug, uppercased — exactly the
+        # display name the old hardcoded table carried, derived instead of
+        # configured, so a fresh install needs no watchdog-side edit.
+        name = install.upper()
         try:
             healthy = bool(probe(port))
         except Exception:  # noqa: BLE001 — an exploding probe IS a failed probe
@@ -362,15 +383,18 @@ def run_cycle(
 
 
 if __name__ == "__main__":
-    # systemd executes this as `watchdog.py --install elecomp` per timer tick.
-    # argparse exits 2 on a bad --install BEFORE any cycle runs — that is a
-    # deployment error and SHOULD be loud. Once past parsing, the cycle never
+    # systemd executes this as `watchdog.py --install <slug>` per timer tick.
+    # argparse exits 2 on a missing --install BEFORE any cycle runs — that is
+    # a deployment error and SHOULD be loud. An install whose environment
+    # carries no APP_PORT is reported by run_cycle (loud journal line, None)
+    # rather than argparse, because only the unit's EnvironmentFile can say
+    # which installs exist on this host. Once past parsing, the cycle never
     # raises, so a reporting run always exits 0: a oneshot that "fails"
     # because it reported bad news would train operators to ignore the unit.
     parser = argparse.ArgumentParser(
         description="Probe one Padyar install; alert on down/low-credit.")
-    parser.add_argument("--install", required=True, choices=sorted(INSTALLS),
-                        help="install key, as in INSTALLS")
+    parser.add_argument("--install", required=True,
+                        help="install slug; its .env (APP_PORT) must be in the environment")
     arguments = parser.parse_args()
     run_cycle(arguments.install)
     raise SystemExit(0)

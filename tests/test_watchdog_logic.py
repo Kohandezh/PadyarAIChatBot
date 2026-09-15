@@ -65,9 +65,9 @@ def test_credit_alert_fires_once_per_day_and_resets_next_day():
 
 
 def test_messages_are_persian_and_short():
-    m = watchdog.down_message("ELECOMP", 1788091200, reminder=False)  # 2026-08-30 12:00 UTC -> 15:30 Tehran
-    assert "ELECOMP" in m and "پاسخ نمی‌دهد" in m
-    assert watchdog.down_message("ELECOMP", 1788091200, reminder=True).startswith("یادآوری")
+    m = watchdog.down_message("MYEVENT", 1788091200, reminder=False)  # 2026-08-30 12:00 UTC -> 15:30 Tehran
+    assert "MYEVENT" in m and "پاسخ نمی‌دهد" in m
+    assert watchdog.down_message("MYEVENT", 1788091200, reminder=True).startswith("یادآوری")
     c = watchdog.low_credit_message(200_000, 300_000)
     assert "اعتبار" in c and "300٬000" in c and "200٬000" in c
 
@@ -77,8 +77,11 @@ def test_tehran_clock_is_half_hour_offset():
     assert watchdog.tehran_clock(1788091200) == "15:30"
 
 
-def test_installs_ports_are_the_production_ports():
-    # The retired event install is gone from the deploy surface; elecomp is
-    # the production install this watchdog guards.
-    assert "inotex" not in watchdog.INSTALLS
-    assert watchdog.INSTALLS["elecomp"]["port"] == 8002
+def test_install_port_comes_from_the_environment(monkeypatch):
+    # No hardcoded install table anymore: the port is whatever the install's
+    # EnvironmentFile provided, and a missing APP_PORT means "unknown
+    # install" — a per-customer platform cannot pin ports in source.
+    monkeypatch.setenv("APP_PORT", "8010")
+    assert watchdog.install_port("myevent") == 8010
+    monkeypatch.delenv("APP_PORT", raising=False)
+    assert watchdog.install_port("myevent") is None
