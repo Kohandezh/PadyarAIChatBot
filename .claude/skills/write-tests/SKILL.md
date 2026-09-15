@@ -100,7 +100,7 @@ Notes:
 
 ### Retrieval pipeline (`test_search.py`)
 
-Retrieval is BM25 (`app/services/bm25.py`) plus local model2vec embeddings (`app/services/embeddings.py`), fused by the feature reranker (`app/services/rerank.py`). There is no TF-IDF vectorizer and no `search_backend` setting. Scores still come back on the same 0..1 scale, so the thresholds in `app/config.py` keep their meaning.
+Retrieval is BM25 (`app/services/bm25.py`) plus local model2vec embeddings (`app/services/embeddings.py`), fused by the feature reranker (`app/services/rerank.py`). Scores come back on a 0..1 scale, so the thresholds in `app/config.py` keep their meaning.
 
 - A query that closely matches a seeded dataset entry returns that entry with `score >= LOCAL_FALLBACK_THRESHOLD` (0.45).
 - An unrelated/gibberish query returns a score below that threshold (so the route would fall through to the AI tier).

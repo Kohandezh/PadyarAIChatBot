@@ -72,7 +72,7 @@ def _save(client, base="https://api.gapgpt.app/v1", key="sk-panel-111222333",
     return _post(client, {
         "api_base": base, "api_key": key, "model_stt": model_stt,
         "feature_tts": True, "feature_stt": True,
-        "search_backend": "tfidf", "default_lang": "fa",
+        "default_lang": "fa",
     })
 
 

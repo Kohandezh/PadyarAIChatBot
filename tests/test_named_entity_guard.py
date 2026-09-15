@@ -61,9 +61,6 @@ def client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
-        # TF-IDF backend: no embedding model, no trained intent classifier —
-        # the scores in these tests stay deterministic and offline.
-        set_setting("search_backend", "tfidf")
 
         import app.db.connection as dbc
         conn = dbc.get_db_connection()

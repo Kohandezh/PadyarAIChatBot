@@ -9,7 +9,7 @@ The reference deployment is a large public exhibition («رویداد» — the 
 ## 🚀 Features
 
 - **Two-tier intelligence**
-  - **Tier 1 — Local knowledge base:** matches the user's question against the customer's curated dataset using Persian text normalization, synonym expansion, BM25 lexical retrieval and local model2vec embeddings fused by a feature reranker (plus a per-install trained intent classifier). Returns the best-matching video answer. TF-IDF was removed from retrieval on 2026-08-28.
+  - **Tier 1 — Local knowledge base:** matches the user's question against the customer's curated dataset using Persian text normalization, synonym expansion, BM25 lexical retrieval and local model2vec embeddings fused by a feature reranker (plus a per-install trained intent classifier). Returns the best-matching video answer.
   - **Tier 2 — AI fallback:** when local confidence is low, the grounded selection tier has the model pick record ids (our renderer writes the facts back out of the database), else a written answer. All AI calls exit through the Padyar AI Wrapper.
 - **AI-assisted content tools** — «پیشنهاد هوشمند مترادف» (synonym suggestions) and «پیشنهاد سوال» (question-variant suggestions): the model proposes, built-in validation filters, and the operator approves — nothing is saved without an explicit admin action. Applies through the existing add-synonym / add-question paths so reindex stays single-source.
 - **Prometheus metrics** — `GET /metrics` (HTTP, chat-tier, AI-call, circuit-breaker, backup and health metrics), guarded by a `METRICS_TOKEN` bearer token or an admin session. Never public — see `docs/engineering/MONITORING.md`.
@@ -122,7 +122,7 @@ flowchart TB
 | Frontend (chat)  | Vanilla HTML/CSS/JS — no framework                             |
 | Frontend (admin) | Tabler / Bootstrap 5 RTL + Chart.js                           |
 | Database         | PostgreSQL 16 (schemas `app`, `observability`); SQLite for tests/rollback |
-| ML / search      | Pure-Python BM25 + local model2vec embeddings + feature reranker; scikit-learn only for the logistic-regression intent head (no TF-IDF) |
+| ML / search      | Pure-Python BM25 + local model2vec embeddings + feature reranker; scikit-learn only for the logistic-regression intent head |
 | Monitoring       | prometheus-client — `GET /metrics` (token/admin auth)         |
 | AI provider      | Padyar AI Control Plane — 11 provider types behind the Padyar AI Wrapper |
 | AI models        | GPT-5 Nano (classification), GPT-4.1 (chat), Whisper-1 (voice) |

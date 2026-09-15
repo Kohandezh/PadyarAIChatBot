@@ -70,7 +70,6 @@ def client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
-        set_setting("search_backend", "tfidf")
         yield c
     security._chat_rate_limits.clear()
 

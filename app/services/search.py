@@ -35,11 +35,6 @@ companies_lookup: Dict[str, dict] = {}
 # Semantic indexes (local model2vec embeddings, no external API). Rebuilt on
 # every reindex, so dataset edits in the panel refresh them. None when
 # model2vec is not installed on this host — retrieval then runs on BM25 alone.
-#
-# There is no backend choice any more: TF-IDF sat here as a second, selectable
-# engine behind the `search_backend` setting until it was removed on
-# 2026-08-28 — two engines meant two rankings to reason about and the operator
-# had no way to tell which one was better for their content.
 dataset_embedding_index = None
 questions_embedding_index = None
 
@@ -82,9 +77,9 @@ def _bm25_only(index, normalized_query: str, k: int):
     """Raw BM25 order as `(index, score, signals)` triples, or an empty list.
 
     The last resort for the CANDIDATE LIST when the fused ranking is
-    unavailable — the reranker raised, or the embedding index did. TF-IDF
-    held this job before its removal on 2026-08-28; BM25 inherits it because
-    it is pure Python, always built, and never needs a model file.
+    unavailable — the reranker raised, or the embedding index did. BM25
+    holds this job because it is pure Python, always built, and never needs
+    a model file.
 
     It is deliberately NOT used by find_best_match. `BM25Index.top_k`
     normalizes each score against the best hit for that query, so the top
@@ -746,10 +741,9 @@ def find_best_match(query: str):
         except Exception as e:
             logger.error(f"Embedding search failed, no match from this tier: {e}")
 
-    # NO last-resort ranking here, on purpose. TF-IDF (removed 2026-08-28)
-    # used to sit at this point and hand back a real 0..1 cosine score.
-    # BM25 cannot take that job: BM25Index.top_k normalizes every query
-    # against its own best hit, so the top result always scores exactly 1.0.
+    # NO last-resort ranking here, on purpose. BM25Index.top_k normalizes
+    # every query against its own best hit, so the top result always scores
+    # exactly 1.0.
     # Returning that would clear TRUSTED_MATCH_THRESHOLD on EVERY query,
     # including the ones we have no answer for — a degraded guess served as
     # a certainty.

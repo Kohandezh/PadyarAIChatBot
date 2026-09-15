@@ -109,7 +109,7 @@ from app.services import embeddings
 assert embeddings.available(), 'model2vec not installed'
 idx = embeddings.build_index(['سلام'])
 print('embedding backend ready' if idx else 'embedding backend UNAVAILABLE')
-\"" 2>&1 | tail -3 || echo "  WARNING: embedding pre-warm failed; the app falls back to TF-IDF."
+\"" 2>&1 | tail -3 || echo "  WARNING: embedding pre-warm failed; retrieval falls back to BM25 only."
 
 log "Applying database migrations"
 sudo -u "$USER" bash -c "set -a; . '${APP_DIR}/.env'; set +a; cd '${APP_DIR}' && .venv/bin/python scripts/apply_migrations.py"

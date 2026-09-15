@@ -28,15 +28,15 @@ def test_build_index_empty_returns_none():
     assert embeddings.build_index([]) is None
 
 
-def test_search_falls_back_to_tfidf_when_backend_unavailable(monkeypatch):
-    """With the embedding backend selected but the library missing, loading
-    must still produce a working TF-IDF index instead of failing."""
+def test_search_degrades_to_bm25_only_when_embeddings_unavailable(monkeypatch):
+    """With the embedding library missing, loading must still produce a
+    working BM25 index instead of failing."""
     import app.services.search as search
 
     monkeypatch.setattr(embeddings, "available", lambda: False)
     monkeypatch.setattr(
         "app.db.queries.get_setting",
-        lambda key, default=None: "embedding" if key == "search_backend" else default,
+        lambda key, default=None: default,
     )
     search.load_dataset_internal()
     assert search.dataset_embedding_index is None

@@ -222,8 +222,7 @@ CHIP_VIDEO = "/media/videos/hours.mp4"
 def chat_client(tmp_path, monkeypatch):
     """One chip's row, and a client that can talk to /chat.
 
-    TF-IDF backend: no embedding model and no trained intent head, so this
-    stays offline and deterministic — the same arrangement the other /chat
+    Stays offline and deterministic — the same arrangement the other /chat
     tests use.
     """
     import app.config as config
@@ -235,7 +234,6 @@ def chat_client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
-        set_setting("search_backend", "tfidf")
 
         from app.db.connection import get_db_connection
         conn = get_db_connection()

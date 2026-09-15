@@ -40,7 +40,7 @@ chat ast.
 
 The chatbot answers through a **tiered pipeline**. Cheap local tiers run first, and the paid model tiers only run when the local ones are not confident:
 
-1. **Local knowledge base:** matches the query against the customer's curated dataset with BM25 plus local model2vec embeddings, fused by a feature reranker. Returns the best-matching video response. There is no TF-IDF; it was removed on 2026-08-28.
+1. **Local knowledge base:** matches the query against the customer's curated dataset with BM25 plus local model2vec embeddings, fused by a feature reranker. Returns the best-matching video response.
 2. **AI fallback:** when local confidence is low, routes to the configured models via the Padyar AI Wrapper. The model picks record ids and our renderer writes the facts back out of the database.
 
 See "Tiered Intelligence Pipeline" below for every tier and its threshold. That diagram is the authoritative version.
@@ -70,7 +70,7 @@ See "Tiered Intelligence Pipeline" below for every tier and its threshold. That 
 | Frontend (Chat)  | Vanilla HTML/CSS/JS — no framework                             |
 | Frontend (Admin) | Tabler UI (built on Bootstrap 5, RTL) + Chart.js                |
 | Database         | **PostgreSQL 16** (production). SQLite = test backend + migration/rollback artifact only |
-| ML/Search        | Pure-Python BM25, model2vec local embeddings, feature reranker. scikit-learn is used only for the logistic-regression intent head. No TF-IDF, no `search_backend` setting. |
+| ML/Search        | Pure-Python BM25, model2vec local embeddings, feature reranker. scikit-learn is used only for the logistic-regression intent head. |
 | AI Provider      | **Padyar AI Control Plane** — 11 provider types behind the Padyar AI Wrapper (OpenAI, Anthropic, Gemini native; Z.AI, Kimi, DeepSeek, Qwen, xAI, Mistral, OpenAI-compatible; SAKOO/Rayen — live verification at deployment) |
 | AI Models        | Per-route, configured in Admin -> AI -> Routing. Whisper-1 for voice (STT is outside the wrapper). |
 | Monitoring       | prometheus-client — `GET /metrics` (Bearer `METRICS_TOKEN` or admin session; never public). See `docs/engineering/MONITORING.md` |
@@ -671,10 +671,10 @@ This repo carries 18 skills in `.claude/skills/` and 9 agents in
 Two things went wrong and both are fixable by habit:
 
 1. A skill read AFTER the code is written changes nothing. Load it first.
-2. A skill that lies makes the code wrong. On 2026-08-29 three skills still
-   said the main branch was `main-noor`, that retrieval used TF-IDF, and that
-   the database was SQLite. All three were false. An agent that follows a
-   stale skill writes stale code.
+2. A skill that lies makes the code wrong. On 2026-08-29 skills in this repo
+   still said the main branch was `main-noor` and that the database was
+   SQLite. Both were false. An agent that follows a stale skill writes stale
+   code.
 
 ### Which source wins
 

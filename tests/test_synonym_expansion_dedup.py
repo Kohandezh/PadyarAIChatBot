@@ -9,7 +9,7 @@ word became its own first token and appeared several times:
 
 Measured on the live corpus, this pushed the expanded query outside the
 embedding model's comfortable region (dense dropped to 0.000 on
-«هزینه غرفه چقدر است؟») and inflated term frequencies for BM25/TF-IDF
+«هزینه غرفه چقدر است؟») and inflated term frequencies for BM25
 without adding meaning. The retrieval diagnostic run of 2026-08-26 pinned
 the behaviour; these tests hold the fix.
 

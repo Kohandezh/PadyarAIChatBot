@@ -265,7 +265,7 @@ def test_posting_legacy_model_values_no_longer_writes_them(client):
         "api_base": "https://example.test/v1", "api_key": "",
         "model_chat": "should-not-persist", "model_classify": "should-not-persist",
         "model_stt": "whisper-1", "feature_tts": True, "feature_stt": True,
-        "search_backend": "tfidf", "default_lang": "fa"})
+        "default_lang": "fa"})
     assert r.status_code == 200
     assert get_setting("ai_model_chat", "") != "should-not-persist"
     assert get_setting("ai_model_classify", "") != "should-not-persist"
@@ -278,7 +278,7 @@ def test_the_legacy_endpoint_still_accepts_an_old_client_payload(client):
         "api_base": "https://example.test/v1", "api_key": "",
         "model_chat": "x", "model_classify": "y", "model_stt": "whisper-1",
         "feature_tts": True, "feature_stt": True,
-        "search_backend": "tfidf", "default_lang": "fa"})
+        "default_lang": "fa"})
     assert r.status_code == 200
 
 
@@ -300,7 +300,7 @@ def test_the_settings_endpoint_still_requires_csrf(client):
     r = client.post("/admin/api/ai-connection", json={
         "api_base": "", "api_key": "", "model_chat": "", "model_classify": "",
         "model_stt": "", "feature_tts": True, "feature_stt": True,
-        "search_backend": "tfidf", "default_lang": "fa"})
+        "default_lang": "fa"})
     assert r.status_code == 403
 
 
