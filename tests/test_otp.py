@@ -56,7 +56,11 @@ def _no_ip_throttle(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _cleanup():
+def _cleanup(client):
+    # Depends on `client` on purpose: the sweep must run while that
+    # fixture's DB_PATH redirect still holds (it tears down after this
+    # one), or the deletes would recreate the repo-root chat_history.db
+    # this file used to pollute.
     yield
     conn = get_db_connection()
     try:

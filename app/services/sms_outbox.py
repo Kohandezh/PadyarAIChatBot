@@ -244,7 +244,7 @@ def _ask_gateway(provider: str, msgid: str) -> Optional[int]:
     except Exception as e:  # noqa: BLE001 — a poll must survive its gateway
         from app.services.sms import TRANSPORT_FAILED
         if getattr(e, "code", None) == TRANSPORT_FAILED:
-            raise _GatewayUnreachable(str(e)) from e
+            raise _GatewayUnreachable(type(e).__name__) from e
         logger.warning("[sms-outbox] msgstatus failed for %s: %s", msgid, e)
         return None
 
