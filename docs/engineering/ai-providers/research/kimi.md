@@ -440,7 +440,7 @@ Streaming: same fields, but located at `choices[0].usage` in the final chunk (se
 - Requires a stable, repeated prefix — system prompts, documents, tool definitions.
 - Only `cached_tokens` is exposed. There is **no** `cache_creation_input_tokens` /
   `cache_write_tokens` field (Anthropic-style) and **no separate cache-write charge** documented.
-- Practical: put the INOTEX system prompt / knowledge blob **first and byte-stable** in `messages` to
+- Practical: put the install's system prompt / knowledge blob **first and byte-stable** in `messages` to
   earn the ~6× input discount (K2.6: $0.16 cached vs $0.95 uncached).
 
 ### Token counting endpoint

@@ -5,7 +5,7 @@ Owner: Sina (Malik-e product)
 
 ## Scenario
 
-Elecomp runs the same Padyar install as INOTEX but is a different brand
+Elecomp runs the same Padyar install as the event install but is a different brand
 with its own mascot. The operator opens **Settings > Branding → «شخصیت
 همراه»**, picks «الکامپ» from the dropdown, presses «ذخیره شخصیت» — and the
 next visitor's companion is the elecomp bird, with its own poses (it soars
@@ -28,8 +28,8 @@ drop, not a code change.
   strip, and the two pose maps as html-escaped JSON in single-quoted
   attributes).
 - **Renderer:** `static/companion/companion.js` no longer hardcodes the
-  INOTEX grid — `COLS` reads `data-columns`, and `POSE`/`STATE_POSE` merge
-  the character's maps over the INOTEX defaults. An unmapped pose falls
+  `inotex` grid — `COLS` reads `data-columns`, and `POSE`/`STATE_POSE` merge
+  the character's maps over the `inotex` defaults. An unmapped pose falls
   back to the character's idle frame instead of drawing nothing.
 - **Admin:** GET/POST `/admin/api/pet-character` + a card on the branding
   page (dropdown + portrait preview + save). The list is the registry —

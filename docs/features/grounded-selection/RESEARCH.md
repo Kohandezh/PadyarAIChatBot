@@ -111,10 +111,10 @@ Settings, all in Admin -> AI, no deploy:
 
 The one-time code edit that made this possible: `app/services/openai.py`'s four
 fixed prompt sections now carry `{domain}` / `{domain_en}` and the refusal
-sentences come from `app/services/scope.py`, instead of hardcoded
-"INOTEX" / «اینوتکس».
+sentences come from `app/services/scope.py`, instead of the hardcoded event
+brand name.
 
-**What stays INOTEX-shaped, and why that is acceptable:** the deterministic
+**What stays event-shaped, and why that is acceptable:** the deterministic
 company-list tier's vocabulary in `app/services/company_search.py` is Persian
 exhibition language. A hospital's departments will not trigger it. Customer #2
 still works on day one, because `mode: "options"` answers list questions for any

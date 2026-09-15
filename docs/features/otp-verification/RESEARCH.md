@@ -1,4 +1,4 @@
-# OTP Verification + Pet-INOTEX — Feature Notes
+# OTP Verification + Pet Mascot — Feature Notes
 
 تاریخ: ۱۴۰۵/۰۵/۲۳ (2026-08-14) · وضعیت: پیاده‌سازی‌شده، در انتظار بازبینی انسانی
 
@@ -20,7 +20,7 @@
   ۵ درخواست/ساعت به‌ازای هر شماره + محدودیت دوطبقه (به‌ازای مقصد/چلنج با
   سقف پشتیبان per-IP؛ پشت یک NAT دیگر همه با هم مسدود نمی‌شوند)
 
-## Pet-INOTEX
+## Pet mascot
 - دارایی اصیل: `static/otp/pet/inotex-pose-atlas.webp` (کپی از
   `Pet-Inotex/Avatar/poses/`، چک‌سام `35814fe06410107e`، ۱۲ پوز ۳۸۴px)
 - هویت: مینی‌فیگ مرد ریش‌دار کت سرمه‌ای — تأییدشده متمایز از ماسکوت رویداد قبلی

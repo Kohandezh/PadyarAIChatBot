@@ -2,7 +2,7 @@
 
 **Status:** shipped 2026-09-01 (live on the elecomp install, /opt/padyar-elecomp)
 **Domain:** chat / retrieval / guide tier
-**Scope:** ELECOMP ONLY — nothing here touches the inotex install.
+**Scope:** ELECOMP ONLY — nothing here touches the (now retired) event install.
 
 ## What this is
 
@@ -70,7 +70,8 @@ which is also the production host for `padyar-elecomp`):
 On the server: working dir `/home/gpu/train-work` (scripts, data,
 talksiran.json, dumps), venvs `/home/gpu/train-venv` (ML stack) and
 `/home/gpu/crawl-venv` (httpx + bs4). Backups taken before any write:
-`/home/gpu/train-work/padyar_{elecomp,inotex}_pre_train_20260901_*.dump`
+`/home/gpu/train-work/padyar_<install>_pre_train_20260901_*.dump` (one per
+install — elecomp and the now-retired event install)
 plus `app/services/guide.py.bak-20260901`.
 
 ## Runbook (refresh cycle)

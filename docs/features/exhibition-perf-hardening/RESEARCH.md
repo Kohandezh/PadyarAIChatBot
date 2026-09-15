@@ -1,7 +1,7 @@
 # Performance Hardening for Exhibition Load
 
 **Status:** done (2026-08-24) · **Branch:** `perf/exhibition-load-hardening`
-**Trigger:** INOTEX 2026 — ~5000 visitors over 2 days on a single strong server.
+**Trigger:** the 2026 event — ~5000 visitors over 2 days on a single strong server.
 Stress tool results and every threshold below were measured on this branch.
 
 ## What the load looks like

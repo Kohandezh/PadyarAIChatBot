@@ -82,13 +82,11 @@ App starts at `http://127.0.0.1:8000`.
 ## Testing
 
 **Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
-the full pytest suite (with an advisory `pytest-cov` coverage report), the
+the full pytest suite (with an advisory `pytest-cov` coverage report) and the
 **blocking `postgres-tests` job** (a `postgres:16` service container runs
-`tests/postgres` on every push and PR), plus the retrieval/safety eval —
-that run is the pass/fail signal. Separate workflows: `release.yml` (tests +
-GitHub Release on `v*` tags — see `docs/engineering/RELEASING.md`) and
-`freshness.yml` (weekly advisory content-freshness check; on the server the
-systemd timer `padyar-freshness@.timer` does the same — see `deploy/README.md`). Don't run the whole `pytest` suite locally
+`tests/postgres` on every push and PR) — that run is the pass/fail signal.
+A separate `release.yml` workflow runs tests + GitHub Release on `v*` tags
+(see `docs/engineering/RELEASING.md`). Don't run the whole `pytest` suite locally
 as a commit or merge gate: this machine has 15 tests that always fail here
 and always pass on CI (env/network-only, e.g. tests needing a live
 PostgreSQL), so a local full run is not a trustworthy signal.
@@ -180,7 +178,7 @@ PadyarAIChatbot/
   static/vendor/                 # Bootstrap, Chart.js, FontAwesome, Vazirmatn, marked.js
 
   themes/                        # Pluggable chat UI themes
-    inotex/                      # The only selectable theme (official INOTEX palette)
+    inotex/                      # The only selectable theme (official event palette)
     base/                        # Default partials only — not selectable
 
   data/                          # Runtime data (knowledge base lives in the DB;
@@ -328,7 +326,7 @@ WordPress-style partials in `/themes/{name}/`: each has `theme.json`, a `partial
 > (`app/models.py`)، در اعتبارسنجی `app/routers/admin.py` و در فرم
 > `templates/admin/settings_branding.html` + `static/admin/js/settings.js`
 > اضافه کنید. تست `tests/test_public_ui.py::test_inotex_theme_uses_official_palette_tokens`
-> همین قاعده را برای تم اینوتکس نگه می‌دارد؛ برای تم جدید هم تست مشابه بنویسید.
+> همین قاعده را برای تم inotex نگه می‌دارد؛ برای تم جدید هم تست مشابه بنویسید.
 
 ## Key Files
 
@@ -607,27 +605,24 @@ The goal is:
 
 ---
 
-## Session Handoff — 2026-08-14 (INOTEX instance, Padyar platform)
+## Session Handoff — 2026-08-14, updated 2026-09-15 (Padyar platform)
 
-The product instance is now **INOTEX** (پانزدهمین نمایشگاه بین‌المللی نوآوری و
-فناوری — INOTEX 2026). The reusable platform layer is named **Padyar**.
+The reusable platform layer is named **Padyar**. Each install serves one
+customer/event with its own branding, content and enabled modules.
 
-- **Identity:** all previous-event identity was removed from the working tree.
-  Canonical names: display "INOTEX Chatbot", package `inotex-chatbot`,
-  admin route prefix `/secure-panel-admin`.
-- **Content:** the knowledge seed (`app/default_content.py`) carries facts
-  verified against https://inotex.com/ on 2026-08-14. The machine-readable
-  source manifest is `content/sources.json`; conflicts pending human review
-  live in `content/review-queue.md`. Freshness checking:
-  `python3 scripts/refresh-inotex-context.py`.
-- **Mascot policy:** the Pet-INOTEX companion is **back on** (owner request,
-  2026-08-24) via `themes/inotex/partials/footer.html` +
+- **Identity:** admin route prefix `/secure-panel-admin`; default admin
+  username `padyar@admin` (override with `ADMIN_USERNAME`).
+- **Content:** the knowledge seed (`app/default_content.py`) is the bundled
+  default content; each install maintains its own dataset through the admin
+  panel.
+- **Mascot policy:** the pet companion is **on** (owner request, 2026-08-24)
+  via `themes/inotex/partials/footer.html` +
   `static/companion/companion{,-ui}.js` — desktop/tablet only, hidden below a
   640px viewport by the theme CSS. The old pet iframe, its `/assets` mount and
   `static/pet/` remain removed.
-- **Design:** the INOTEX theme uses the official palette
+- **Design:** the `inotex` theme uses the official event palette
   (#FCB715, #FEBE27, #2D5CA7, #1E2D52, #04A584, #00644F, #000000, #FFFFFF)
   as design tokens. The frontend skeleton (routes, partial hierarchy,
   chat/video tabs, input region) is preserved — do not restructure it.
 - **Reset path:** `scripts/reset-content-to-defaults.py` (backs up the DB,
-  then seeds INOTEX defaults).
+  then seeds the bundled defaults).

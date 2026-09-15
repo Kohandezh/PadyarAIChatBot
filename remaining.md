@@ -32,8 +32,8 @@
 >    **هنوز هیچ تگی بریده نشده** (`docs/engineering/RELEASING.md`).
 > 5. **تست PostgreSQL در CI** → job مسدودکنندهٔ `postgres-tests` (سرویس
 >    postgres:16) + گزارش پوشش گزارشی pytest-cov.
-> 6. **تازگی محتوا** → تایمر هفتگی systemd (`deploy/systemd/padyar-freshness@.*`)
->    + workflow گزارشی هفتگی.
+> 6. **تازگی محتوا** → در ۲۰۲۶-۰۹-۱۴ تایمر هفتگی systemd + workflow گزارشی
+>    ساخته شد؛ با بازنشسته‌شدن رویداد، کل این چرخه در ۲۰۲۶-۰۹-۱۵ حذف شد.
 > 7. **بازماندهٔ TF-IDF** → حذف کامل از `scripts/run_eval.py` و
 >    `scripts/debug_similarity.py` و کامنت‌ها (`grep -ri tfidf app/ scripts/` → صفر).
 >
@@ -74,7 +74,7 @@ The request has been blocked from your IP or your location!
 ```
 
 هر دو هاست (`sms.asanak.ir` و `panel.asanak.com`) همین را دادند، در حالی که
-`inotex.com` از همان ماشین باز می‌شود. یعنی **WAF آسانک IP این ماشین را بلاک
+سایت رویداد از همان ماشین باز می‌شود. یعنی **WAF آسانک IP این ماشین را بلاک
 کرده**، نه اینکه اعتبارنامه غلط باشد.
 
 **کاری که باید بشود:**
@@ -259,10 +259,9 @@ read-only اجرا شود. اگر ترجیح می‌دهید فقط دیتابی
 | پشتیبان‌گیری | pg_dump زمان‌بندی‌شده + تأیید SHA-256 + **کپی خارج از سرور** (2026-09-14، `OFFSITE_BACKUP_TARGET` باید per-install تنظیم شود) |
 | مانیتورینگ | `GET /metrics` پرومتئوس با احراز هویت (2026-09-14) — سرور/داشبورد هنوز نیست |
 | انتشار نسخه | `VERSION` + `/api/health` version + `CHANGELOG.md` + `release.yml` روی تگ — **اولین تگ هنوز بریده نشده** |
-| تازگی محتوا | تایمر هفتگی systemd (`padyar-freshness@.*`) + workflow گزارشی هفتگی (2026-09-14) |
-| CI | تست (+ پوشش گزارشی pytest-cov) + **postgres-tests (مسدودکننده، postgres:16)** + گیت ارزیابی (مسدودکننده) + اسکن راز (مسدودکننده) + pip-audit (گزارشی) + deploy |
+| CI | تست (+ پوشش گزارشی pytest-cov) + **postgres-tests (مسدودکننده، postgres:16)** + اسکن راز (مسدودکننده) + pip-audit (گزارشی) + deploy |
 | هدرهای امنیتی | اعمال‌شده، با تست‌هایی که «کجا نباید باشند» را هم قفل می‌کنند |
-| بستهٔ شواهد دانش‌بنیان | `docs/knowledge-based-evidence/` — هر ادعا با فایل و دستور قابل اجرا؛ بازاندازه‌گیری 2026-09-14 |
+| بستهٔ شواهد دانش‌بنیان | در ۲۰۲۶-۰۹-۱۴ تهیه و بازاندازه‌گیری شد؛ با بازنشسته‌شدن رویداد، بسته از مخزن حذف شد |
 
 ---
 
@@ -271,6 +270,5 @@ read-only اجرا شود. اگر ترجیح می‌دهید فقط دیتابی
 1. `.venv/bin/python -m pytest --collect-only -q | tail -2` → باید حدود ۲۶۶۹
    تست جمع‌آوری شود (اجرای کامل را CI بسپارید؛ این ماشین ۱۵ تست محیطی می‌شکند)
 2. `python main.py` بعد `.venv/bin/python scripts/smoke-live.py` → باید ۱۱/۱۱ باشد
-3. `docs/knowledge-based-evidence/00-executive-summary-fa.md` را بخوانید
-4. بند ۱ همین سند را بخوانید — چهار مسدودکننده
-5. `git status --porcelain | grep '^??'` و فایل‌های جدید را `git add` کنید
+3. بند ۱ همین سند را بخوانید — چهار مسدودکننده
+4. `git status --porcelain | grep '^??'` و فایل‌های جدید را `git add` کنید

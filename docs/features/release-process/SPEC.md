@@ -7,7 +7,7 @@
 | Status | Implemented |
 | Domain | infrastructure |
 | Author | تیم پادیار |
-| Sources | The 2026 danesh-bonyan assessment finding («no tags/releases/versioned artifacts»); `docs/superpowers/plans/2026-09-14-assessment-remediation.md` Task 7 |
+| Sources | The 2026 danesh-bonyan assessment finding («no tags/releases/versioned artifacts»); the assessment's remediation plan, Task 7 (plan file since removed from the repo) |
 
 This document describes what IS shipped on branch `task/release-process`, not
 what was planned.

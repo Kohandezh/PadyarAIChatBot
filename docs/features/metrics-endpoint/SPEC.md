@@ -7,7 +7,7 @@
 | Status | Implemented |
 | Domain | infrastructure |
 | Author | تیم پادیار |
-| Sources | ارزیابی ۲۰۲۶ دانش‌بنیان («نبود مانیتورینگ») + برنامهٔ اصلاح `docs/superpowers/plans/2026-09-14-assessment-remediation.md` تک ۲ |
+| Sources | ارزیابی ۲۰۲۶ دانش‌بنیان («نبود مانیتورینگ») + برنامهٔ اصلاح همان ارزیابی، تک ۲ (فایل برنامه بعدها از مخزن حذف شد) |
 
 این سند همان چیزی را مستند می‌کند که الان در کد هست (قانون ضد doc-fiction).
 راهنمای بهره‌بردار: `docs/engineering/MONITORING.md`.

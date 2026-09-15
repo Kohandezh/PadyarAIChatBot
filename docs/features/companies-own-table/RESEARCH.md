@@ -14,7 +14,7 @@ A `dataset` row IS a company when `company_profiles` holds a row with the same
 id. So "is this a company?" is a JOIN, and every consumer has to remember to
 subtract companies before it does anything else.
 
-Nobody remembers every time. On the INOTEX install **168 of 222 `dataset` rows
+Nobody remembers every time. On the event install **168 of 222 `dataset` rows
 are exhibitor companies**, so the retrieval index, the BM25 corpus and the
 intent classifier were all built over a corpus that is three-quarters company
 rows. That is the root cause of the confident-wrong answers: a question about
@@ -103,7 +103,7 @@ removal never touches `questions`.
 
 ### 2. `questions` rows that point at a company — RESOLVED, 2026-08-29
 
-Measured on inotex production: **840 rows**
+Measured on the event install's production DB: **840 rows**
 (`SELECT COUNT(*) FROM questions WHERE dataset_id IN (SELECT dataset_id FROM company_profiles)`).
 
 **They are not dead weight — this was the wrong assumption to check first.**
@@ -181,7 +181,7 @@ correct as-is once companies are not in `dataset` any more. Check each; do not
 sweep.
 
 **Scripts:** `scripts/import-content.py` (writes both tables today),
-`scripts/reset-content-to-defaults.py`, `scripts/import-inotex-programs.py`,
+`scripts/reset-content-to-defaults.py`,
 `scripts/debug_similarity.py`.
 
 ### 4. Admin
@@ -211,7 +211,8 @@ your change breaking something. See `local-suite-has-15-env-failures`.
 
 ## The measurement that says whether it worked
 
-`scripts/run_eval.py --recall-k` against `data/eval/golden-inotex.json`.
+`scripts/run_eval.py --recall-k` against the event install's golden set
+(the golden file itself has since been removed from the repo).
 
 Take a BASELINE READING BEFORE the change, because the golden set today has
 **60 FAQ questions and zero company queries**, so it measures exactly the half
@@ -233,7 +234,7 @@ knowing before the follow-up work.
 3. ~~Write `0013_companies.sql` plus the `init_db()` mirror.~~ Done
    2026-08-30. ~~Test the migration against a restored copy of the production
    dump.~~ Also done 2026-08-30, in a local Docker PostgreSQL 16 restored from
-   a real `pg_dump` of inotex production (`pg_20260829_211034_998ac1_padyar.dump`).
+   a real `pg_dump` of the event install's production (`pg_20260829_211034_998ac1_padyar.dump`).
    Results: `dataset` 224→56, `companies`=168 (exactly `company_profiles`'
    count), `questions` unchanged at 1059 (840 of them company-linked, exactly
    the count from section 2), `company_profiles` dropped, zero orphaned

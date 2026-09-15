@@ -1,4 +1,4 @@
-# معماری سامانه — Padyar Core + نمونهٔ INOTEX
+# معماری سامانه — Padyar Core + نمونهٔ رویداد
 
 تاریخ: ۱۴۰۵/۰۵/۲۳ (2026-08-14)
 
@@ -14,12 +14,10 @@ Padyar Core (سکوی بازمصرف‌پذیر)
   ├── امنیت (توکن HMAC چت، rate limit، نشست ادمین)
   └── مشاهده‌پذیری (/api/health، /api/ready، LOG_FORMAT=json)
 
-INOTEX Experience (نمونهٔ محصول)
-  ├── دانش رسمی seed شده (app/default_content.py — منبع: inotex.com)
-  ├── منیفست منابع + snapshot + تشخیص تغییر (content/)
-  ├── تم inotex (پالت رسمی + طراحی آجری ماژولار + لودر)
-  ├── مجموعهٔ ارزیابی طلایی (data/eval/golden-inotex.json)
-  └── پرامپت‌ها و برچسب‌های INOTEX (app/services/openai.py)
+تجربهٔ رویداد (نمونهٔ محصول)
+  ├── دانش پیش‌فرض seed شده (app/default_content.py)
+  ├── تم inotex (پالت رسمی رویداد + طراحی آجری ماژولار + لودر)
+  └── پرامپت‌ها و برچسب‌های برند نصب (app/services/openai.py)
 ```
 
 جداسازی منطقی است، نه پوشه‌ای — ساختار ریپازیتوری موجود (اسکلت) حفظ شده است.
@@ -43,21 +41,19 @@ INOTEX Experience (نمونهٔ محصول)
 
 ## داده
 
-SQLite (WAL) با ۸ جدول؛ دانش نسخه‌دار (`settings.knowledge_version`) و
-هم‌گام با `content/sources.json`. پشتیبان‌گیری زمان‌بندی‌شده
+SQLite (WAL) با ۸ جدول؛ دانش نسخه‌دار (`settings.knowledge_version`).
+پشتیبان‌گیری زمان‌بندی‌شده
 (app/services/backup.py) + اسکریپت بازنشانی عملیاتی با پشتیبان اجباری
 (scripts/reset-content-to-defaults.py).
 
 ## چرخهٔ حیات دانش
 
+دانش هر نصب از پنل ادمین نگهداری می‌شود (dataset + questions + synonyms) و
+با ساخت مجدد ایندکس اعمال می‌شود. بازگردانی به پیش‌فرض‌های بسته‌بندی‌شده:
+
 ```
-کشف (sources.json)
-  → واکشی (scripts/refresh-inotex-context.py)
-  → هش + snapshot (content/snapshots/)
-  → تشخیص تغییر (freshness-report.json, exit code 2)
-  → صف بازبینی انسانی (content/review-queue.md)   ← دروازهٔ حاکمیتی عمدی
-  → انتشار seed جدید + ارتقای knowledge_version
-  → بازنشانی عملیاتی با پشتیبان
+scripts/reset-content-to-defaults.py   # پشتیبان خودکار + seed جدید
+→ ری‌استارت سرویس تا ایندکس بازسازی شود
 ```
 
 انتشار خودکارِ بدون تأیید انسانی عمداً وجود ندارد.

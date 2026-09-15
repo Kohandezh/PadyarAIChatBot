@@ -130,7 +130,7 @@ See `.env.example` for the full list:
 | ---------------------------- | ------------------------------------------- |
 | `python main.py`             | Start dev server (auto-reload; `HOST`/`PORT` env-overridable, default 127.0.0.1:8000) |
 | `.venv/bin/python -m pytest` | Run the test suite                          |
-| `python scripts/run_eval.py`         | Offline retrieval evaluation against the golden set |
+| `python scripts/run_eval.py --golden <golden.json>` | Offline retrieval evaluation against a golden set |
 | `python scripts/reset-content-to-defaults.py` | Back up the DB and restore bundled content |
 | `python scripts/change-admin.py`     | Change admin password interactively |
 | `python scripts/reset-admin-password.py` | Reset the admin password non-interactively |
@@ -156,7 +156,7 @@ PadyarAIChatbot/
     main.py                      # FastAPI app factory, lifespan, middleware
     config.py                    # All env vars, paths, module config
     models.py                    # Pydantic request/response schemas
-    default_content.py           # Bundled INOTEX knowledge base + synonym seed
+    default_content.py           # Bundled default knowledge base + synonym seed
 
     routers/                     # Route handlers
       public.py                  # Public pages + health check
@@ -197,7 +197,7 @@ PadyarAIChatbot/
       signup.py                  # Server-owned signup flow: validation + steps
       sms.py                     # SMS gateway providers (Asanak)
       taxonomy.py                # Loads/validates data/visit-taxonomy.json (hot-reload)
-      visit_plan.py              # Matches a visitor profile to INOTEX sections
+      visit_plan.py              # Matches a visitor profile to the event's sections
       leads.py                   # Lead capture business logic (visitor/company/admin doors)
       company_profiles.py        # Company records behind the leads module
       company_search.py          # Company lookup for the leads module
@@ -258,7 +258,7 @@ PadyarAIChatbot/
   themes/                        # Pluggable chat UI themes (WordPress-style partials)
     base/                        # Base theme — default partials all themes inherit
       partials/                  # index.html, head.html, header.html, messages.html, video.html, input.html, footer.html
-    inotex/                      # Default theme — official INOTEX palette, modular brick layout
+    inotex/                      # Default theme — official event palette, modular brick layout
       partials/                  # Overrides: header, messages, video, input, footer
     liquid-glass/                # Apple-inspired frosted glass
       partials/                  # Overrides: header (switcher), messages (glass bubbles), input (glass wrapper), footer (JS overrides)
@@ -272,13 +272,9 @@ PadyarAIChatbot/
   data/                          # Runtime data files
     visit-taxonomy.json          # Jobs/interests/flags/sections for registration + planner
     frame-vocabulary.json        # Connector words a model-written lead sentence may use
-    eval/golden-inotex.json      # Golden set for the retrieval evaluation harness
-    eval/smoke-options.json      # Live-install smoke set for the selection tier
+    eval/                        # Selection-tier fixtures: conversations, personas, smoke set
     models/                      # Cached local embedding model (first download)
     otp-dev-outbox.log           # Dev-only OTP outbox (gitignored)
-
-  content/                       # Source-of-truth INOTEX context
-    sources.json, snapshots/, freshness-report.json, review-queue.md
 
   media/                         # Runtime media storage
     videos/                      # Admin-uploaded videos
@@ -288,7 +284,6 @@ PadyarAIChatbot/
     README.md, ARCHITECTURE.md
     engineering/                 # architecture, decisions, security, runbook, AI log
     features/                    # one folder per feature (RESEARCH.md, INDEX.md)
-    knowledge-based-evidence/    # دانش‌بنیان technical evidence package
     _other-product-padyar-ai/    # ⚠️ a DIFFERENT product's docs — reference only
     features/otp-verification/, features/targeted-visit/
 
@@ -306,9 +301,8 @@ PadyarAIChatbot/
     reset-admin-password.py      # Reset the admin password non-interactively
     reset-content-to-defaults.py # Restore the bundled knowledge base
     debug_similarity.py          # Debug similarity matching
-    run_eval.py                  # Retrieval evaluation harness (--recall-k for the recall@K table)
+    run_eval.py                  # Retrieval evaluation harness (--golden <file>, --recall-k for the recall@K table)
     smoke_options.py             # Selection-tier smoke run against a RUNNING install
-    refresh-inotex-context.py    # Refresh content/ snapshots from sources.json
     migrate_json_to_db.py        # One-off JSON → SQLite content migration
     export-otp-module.py         # Package the registration module for another install
     capture_chat_shots.py / capture_proposal_shots.py  # Screenshot capture
@@ -475,7 +469,7 @@ White-label settings live in the `settings` table with prefixed keys (WordPress 
 | Key                                | Default                             | Description                                        |
 | ---------------------------------- | ----------------------------------- | -------------------------------------------------- |
 | `whitelabel_app_name`              | `دستیار پادیار`                     | Display name in admin sidebar and chat UI          |
-| `whitelabel_subtitle`              | `INOTEX`                            | Small line under the chat title                    |
+| `whitelabel_subtitle`              | `پردیار`                            | Small line under the chat title                    |
 | `whitelabel_logo_url`              | (empty = built-in SVG mark)         | Logo image URL                                     |
 | `whitelabel_primary_color`         | `#2D5CA7`                           | Primary brand color (feeds `--wl-primary`)         |
 | `whitelabel_accent_color`          | `#FCB715`                           | Accent color (feeds `--wl-accent`)                 |
@@ -729,13 +723,12 @@ agent reads it and repeats your bug.
 
 **Tests run on GitHub, not on this machine.** `.github/workflows/ci.yml` runs
 the full pytest suite (`test` job, with an advisory `pytest-cov` coverage
-report — no threshold), the PostgreSQL integration suite (`postgres-tests`
-job — blocking, a `postgres:16` service container runs `tests/postgres`), and
-the retrieval/safety eval (`evaluation` job) on every push and every PR — that
-run is the pass/fail signal, not a local one. A separate `release.yml` runs
+report — no threshold) and the PostgreSQL integration suite (`postgres-tests`
+job — blocking, a `postgres:16` service container runs `tests/postgres`) on
+every push and every PR — that run is the pass/fail signal, not a local one.
+A separate `release.yml` runs
 the suite again on `v*` tags and cuts the GitHub Release (see
-`docs/engineering/RELEASING.md`); `freshness.yml` is a weekly advisory
-content-freshness check. This machine has 15 tests that always fail here and
+`docs/engineering/RELEASING.md`). This machine has 15 tests that always fail here and
 always pass on CI (env/network-only, see below) — a local `pytest` run is not
 a trustworthy gate on this box, so don't run the full suite locally before
 committing.
@@ -856,7 +849,6 @@ The `docs/` folder is the project's knowledge base. Keep it current.
 | App structure or setup changes | the Setup + Project Structure here, and `README.md` |
 | Feature status changes         | `docs/features/INDEX.md`                |
 | An architectural decision      | `docs/engineering/DECISIONS.md`         |
-| A measured claim changes       | `docs/knowledge-based-evidence/`        |
 | Cutting a release              | `docs/engineering/RELEASING.md` + `CHANGELOG.md` |
 | AI-assisted work in a session  | `docs/engineering/AI_ASSISTANCE_LOG.md` |
 

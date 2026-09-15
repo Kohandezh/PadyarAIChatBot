@@ -3,13 +3,20 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-09-14 |
-| Updated | 2026-09-14 |
-| Status | Implemented |
+| Updated | 2026-09-15 |
+| Status | Removed (retired with the event install, 2026-09-15) |
 | Domain | infrastructure |
 | Author | تیم پادیار |
 | Sources | The 2026-09-14 danesh-bonyan assessment (freshness checker exists but is never scheduled); `scripts/refresh-inotex-context.py` (shipped 2026-08-14, run by hand); the `padyar-watchdog@` unit pattern; commits on `task/ops-loops` |
 
-This document describes what IS shipped, not what was planned.
+> **Status: REMOVED (2026-09-15).** The whole freshness pipeline this spec
+> describes — the checker script, the `content/` manifest/snapshots, the
+> `padyar-freshness@` systemd units and the `freshness.yml` workflow — was
+> deleted when the event install was retired. The body below is kept as the
+> historical record of what was shipped between 2026-09-14 and 2026-09-15;
+> it describes machinery that no longer exists.
+
+This document describes what WAS shipped at the time, not what ships today.
 
 ---
 

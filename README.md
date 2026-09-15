@@ -2,7 +2,7 @@
 
 **PadyarAIChatbot** is a **CMS for AI video chatbots** — installed once per customer. Each customer deploys the app, enters their own content (Q&A dataset, videos, branding) and manages everything through a web admin panel. No multi-tenant SaaS, no shared database: one install, one customer, fully white-labeled.
 
-The reference deployment is **INOTEX** (the international innovation & technology exhibition), but the app ships with nothing hard-coded — branding, content, theme and enabled features are all configured per install.
+The reference deployment is a large public exhibition («رویداد» — the event), but the app ships with nothing hard-coded — branding, content, theme and enabled features are all configured per install.
 
 > **Product principle:** the app must be usable by anyone, from a child to an elderly person, with zero AI knowledge. Every screen is understandable in seconds; every action takes a few clicks. See [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) for the full design rules.
 
@@ -17,7 +17,7 @@ The reference deployment is **INOTEX** (the international innovation & technolog
 - **Voice input** *(optional module)* — transcribes voice messages to text via Whisper.
 - **Visitor registration** *(optional module `registration`)* — phone verification by SMS one-time code (only a keyed HMAC of the code is stored, never the code itself), a profile form whose job / title / interest options are driven by a data file rather than code, and a targeted-visit planner that matches the visitor's profile to the event's own sections. Managed from two admin pages: SMS gateway + on/off switch, and a form-options editor with a raw-JSON mode.
 - **White-label / branding** — app name, logo, primary/accent colors and welcome text (5 `whitelabel_*` settings), editable on the admin Settings → «برندینگ» page and injected into the chat page, admin sidebar and lead pages.
-- **Pluggable chat themes** — WordPress-style partial templates; switch the active theme from the admin panel. Ships with the `inotex` theme (official INOTEX palette; the only selectable theme in this installation) — `themes/base/` supplies the default partials every theme inherits.
+- **Pluggable chat themes** — WordPress-style partial templates; switch the active theme from the admin panel. Ships with the `inotex` theme (the official event palette; the only selectable theme in this installation) — `themes/base/` supplies the default partials every theme inherits.
 - **Admin panel** (Tabler / Bootstrap 5 RTL) — dashboard with usage stats and low-confidence queries, dataset & questions CRUD, synonym management, video upload & library (in the dataset page), theme switching, white-label settings, AI-assistant settings, and scheduled database backups.
 - **Import / export** — dataset and questions as JSON or CSV.
 - **Database-backed backups with off-site copy** — PostgreSQL `pg_dump --format=custom` backups with SHA-256 verification, a safety backup before restore, maintenance mode during restore, post-restore validation, and (2026-09-14) an off-site copy of every verified dump to an `OFFSITE_BACKUP_TARGET` (`rsync:` or `dir:`) — failures are non-fatal and logged.
@@ -180,7 +180,7 @@ All configuration lives in `app/config.py`, with secrets and overrides supplied 
 | `OPENAI_API_KEY`  | ✅ Yes   | —                      | API key for all AI operations (via the GapGPT proxy)     |
 | `VIDEO_BASE_URL`  | No       | `/media/videos`        | Base URL for serving video files                         |
 | `ENABLED_MODULES` | No       | *(all enabled)*        | Comma-separated optional modules to enable               |
-| `ADMIN_USERNAME`  | No       | `inotex@admin`   | Seeded admin username (first run only)                   |
+| `ADMIN_USERNAME`  | No       | `padyar@admin`   | Seeded admin username (first run only)                   |
 | `ADMIN_PASSWORD`  | No       | *(random)*             | Seeded admin password (first run only)                   |
 | `DB_BACKEND`      | No       | `postgres`             | `postgres` (production) or `sqlite` (tests/rollback)     |
 | `DATABASE_URL`    | No       | *(local dev DSN)*      | PostgreSQL connection string                              |
@@ -253,7 +253,7 @@ PadyarAIChatbot/
 │
 ├── themes/                     # Pluggable chat UI themes (WordPress-style partials)
 │   ├── base/                   # Default partials all themes inherit (not selectable)
-│   └── inotex/                 # The selectable theme (official INOTEX palette)
+│   └── inotex/                 # The selectable theme (official event palette)
 │
 ├── data/Videos/                # Source video files
 ├── media/                      # Runtime media storage (videos/, uploads/) — gitignored
@@ -295,7 +295,7 @@ python backup_db.py   # take one backup now + prune old ones
 
 ## 🔐 Admin Access
 
-- **Default username:** `inotex@admin` (override with `ADMIN_USERNAME`).
+- **Default username:** `padyar@admin` (override with `ADMIN_USERNAME`).
 - **First run:** a salt + bcrypt hash are generated; if no password is supplied via env, a random one is written to `ADMIN_CREDENTIALS.txt`.
 - **Change password:** run `python scripts/change-admin.py`, or use the **Settings → Account** page in the admin panel.
 
