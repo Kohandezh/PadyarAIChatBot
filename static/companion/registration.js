@@ -757,7 +757,7 @@
     // ── Step 3: the targeted-visit plan ──────────────────────────────
     /* Shown right after verification, and again whenever a signed-in visitor
        taps their own name on the brick. The list comes from the server so the
-       browser never decides what INOTEX contains. */
+       browser never decides what the plan contains. */
     function renderPlanStep() {
         state.body.textContent = '';
         setHead(t().planTitle, t().planSub);

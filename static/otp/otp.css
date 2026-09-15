@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════
-   INOTEX OTP verification — brick design on the official palette.
+   Padyar OTP verification — brick design on the official palette.
    Reference: image/otp.PNG (design board; recreated semantically).
    ══════════════════════════════════════════════════════════════════════ */
 
@@ -428,9 +428,9 @@ body {
     font-size: 13px;
 }
 
-/* Pet-INOTEX slot. RE-ENABLED 2026-08-24 (owner request), desktop/tablet
+/* Pet slot. RE-ENABLED 2026-08-24 (owner request), desktop/tablet
    only — see the 639px media query below. Sprite assets: static/otp/pet/. */
-/* ── Pet-INOTEX slot ──────────────────────────────────────────────── )
+/* ── Pet slot ──────────────────────────────────────────────────────── )
 .pet-slot {
     position: absolute;
     z-index: 2;

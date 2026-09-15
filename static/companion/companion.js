@@ -1,10 +1,10 @@
-/* ── Pet-INOTEX companion (shared renderer) ──
+/* ── Standalone pet companion (shared renderer) ──
    Used by both the chat UI (theme footer) and the registration/verification
    page. Configuration comes from data-* attributes on the canvas, so the two
    surfaces can size and place it differently without forking this file.
 
-   MOTION MODEL — ported from the Pet-Inotex engine
-   (Pet-Inotex/src/avatar/CanvasAvatarRenderer.ts #calculateMotion and
+   MOTION MODEL — ported from the standalone pet engine
+   (its src/avatar/CanvasAvatarRenderer.ts #calculateMotion and
    AvatarController.ts). The original is a state machine where most of the
    visible life comes from per-STATE gestures (a jump on success, a shake on
    error, a hover while attentive) layered over a quiet ambient breath — not
@@ -31,13 +31,13 @@
     const CFG = window.OTP_CONFIG || {};
     const ATLAS_URL = (canvasEl && canvasEl.dataset.atlas) || CFG.companionAtlas || '';
     const CELL = Number((canvasEl && canvasEl.dataset.cell) || CFG.companionCell || 512);
-    // Grid width of the atlas. The INOTEX sheet is 4 columns; a character
+    // Grid width of the atlas. The default sheet is 4 columns; a character
     // with a 3-wide sheet (elecomp) ships data-columns of its own.
     const COLS = Number((canvasEl && canvasEl.dataset.columns) || 4) || 4;
 
     // Per-character pose maps ride the canvas as data-pose-index /
     // data-poses JSON (see app/services/pet_characters.py); the literals
-    // below are the INOTEX defaults a bare host keeps.
+    // below are the defaults a bare host keeps.
     const POSE = Object.assign({
         'idle-neutral': 0, 'idle-smile': 1, 'welcome-wave': 2, 'attentive-hands': 3,
         'thinking': 4, 'not-found': 5, 'success': 6, 'sleep': 7,
@@ -346,7 +346,7 @@
         // Atlas unavailable → fall back to the still image rather than an
         // empty box, mirroring AvatarView's fallback path. The companion is
         // decorative, so a still frame loses nothing functionally.
-        console.error('Pet-INOTEX atlas failed to load; using still fallback');
+        console.error('Pet atlas failed to load; using still fallback');
         // The re-arming frame loop above would otherwise spin forever on a
         // canvas that is about to be replaced by the fallback still.
         stop();
