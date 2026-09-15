@@ -25,7 +25,7 @@ def env(monkeypatch):
         "COOKIE_SECURE": "true",
         "DB_BACKEND": "postgres",
         "DATABASE_URL": "postgresql://u:S0me-Str0ng-Passw0rd@127.0.0.1:5432/padyar",
-        "ALLOWED_ORIGINS": "inotex.com",
+        "ALLOWED_ORIGINS": "padyar.com",
         "OTP_DELIVERY": "asanak",
         "SECRET_KEY": "a-real-pinned-secret-value-0123456789",
         "ADMIN_PASSWORD": "",

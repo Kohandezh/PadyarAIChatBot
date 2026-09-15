@@ -15,13 +15,13 @@ BASE = "http://127.0.0.1:8000"
 
 
 def test_login_lands_on_dashboard(page: Page):
-    page.goto(f"{BASE}/secure-panel-inotex/login")
+    page.goto(f"{BASE}/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
 
-    expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+    expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
     expect(page.get_by_text("داشبورد")).to_be_visible()
 ```
 

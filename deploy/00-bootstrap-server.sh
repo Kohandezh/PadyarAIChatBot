@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Bootstrap a bare Ubuntu 24.04 host for two PadyarAIChatbot installs.
+# Bootstrap a bare Ubuntu 24.04 host for the PadyarAIChatbot install.
 #
-# Idempotent: safe to re-run. Installs packages, creates the two service
+# Idempotent: safe to re-run. Installs packages, creates the service
 # users and their directories, hardens PostgreSQL, and opens the firewall.
 # It does NOT install the apps (10-install-app.sh) or the GPU stack
 # (20-gpu-chatterbox.sh).
@@ -35,7 +35,7 @@ if [[ "$psql_version" != "16" ]]; then
 fi
 
 log "Creating service users"
-for u in padyar-inotex padyar-elecomp padyar-tts; do
+for u in padyar-elecomp padyar-tts; do
   if ! id -u "$u" >/dev/null 2>&1; then
     useradd --system --create-home --home-dir "/opt/${u}" --shell /usr/sbin/nologin "$u"
     echo "  created $u"
@@ -45,7 +45,7 @@ for u in padyar-inotex padyar-elecomp padyar-tts; do
 done
 
 log "Creating state and log directories"
-for slug in inotex elecomp; do
+for slug in elecomp; do
   install -d -o "padyar-${slug}" -g "padyar-${slug}" -m 0755 \
     "/var/lib/padyar/${slug}/media/videos" \
     "/var/lib/padyar/${slug}/media/uploads" \

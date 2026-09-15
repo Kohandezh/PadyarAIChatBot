@@ -79,7 +79,7 @@ log "Granting the runner exactly one privilege"
 # travels in process environments (/proc/PID/environ, owner-only) and never
 # in argv, on disk, or in logs (GitHub masks it anyway).
 cat > /etc/sudoers.d/gh-runner-deploy <<'SUDOERS'
-gh-runner ALL=(root) NOPASSWD: /usr/local/bin/padyar-deploy inotex *, /usr/local/bin/padyar-deploy elecomp *
+gh-runner ALL=(root) NOPASSWD: /usr/local/bin/padyar-deploy elecomp *
 Defaults:gh-runner env_keep += "PADYAR_GIT_TOKEN"
 SUDOERS
 chmod 0440 /etc/sudoers.d/gh-runner-deploy

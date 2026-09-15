@@ -2,8 +2,8 @@
 
 This is a CMS installed per-customer, so the install's own name, colours,
 welcome text and optional logo live in the `settings` table — never in code
-literals. Defaults here reproduce the INOTEX chat pixel-for-pixel: an install
-that never opens the branding form renders exactly what it shipped with.
+literals. Defaults here give a new install the stock Padyar look: one that
+never opens the branding form renders exactly what it shipped with.
 
 Surfaces served (all read through get_branding / chat_branding_context):
   * the chat page (title, header, welcome, --wl-* palette, JS brand override)
@@ -29,12 +29,14 @@ import json
 # chat_branding_context below) so Settings > Branding controls EVERY theme
 # color; the name is unified to the chat's own name per the owner decision
 # (the three surfaces used to hardcode three different names). The subtitle
-# is the small line under the chat title (default keeps today's pixels).
+# is the small line under the chat title; the default is the neutral
+# «پردیار» wordmark — installs that saved branding (e.g. the live event
+# install) keep their saved value.
 WL_DEFAULTS = {
     "whitelabel_app_name": "دستیار پادیار",
-    # The small line under the chat title. The default keeps today's pixels:
-    # every theme header hardcoded "INOTEX" before this key existed.
-    "whitelabel_subtitle": "INOTEX",
+    # The small line under the chat title. Default is the neutral «پردیار»
+    # wordmark; an install that saved a subtitle keeps its saved value.
+    "whitelabel_subtitle": "پردیار",
     # Empty = the theme's built-in SVG brand mark; a set URL replaces it.
     "whitelabel_logo_url": "",
     "whitelabel_primary_color": "#2D5CA7",
@@ -45,7 +47,7 @@ WL_DEFAULTS = {
     "whitelabel_dark_teal_color": "#00644F",
     "whitelabel_background_color": "#000000",
     "whitelabel_white_color": "#FFFFFF",
-    "whitelabel_welcome_text": "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید.",
+    "whitelabel_welcome_text": "سلام! من دستیار پادیار هستم. درباره پردیار هر سوالی دارید بپرسید.",
     # Background images behind the two tabs (the theme paints them on
     # .view-container). Same shipped photo for both, so an install that
     # never opens the form renders today's pixels. Empty = the default.

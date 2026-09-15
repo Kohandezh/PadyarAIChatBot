@@ -56,7 +56,7 @@ LIST_QUESTION = "شرکت‌های هوش مصنوعی را معرفی کن"
 # accepts a number or a link from.
 KNOWLEDGE = "نمایشگاه امسال در روز 20 مرداد گشایش می یابد."
 PHONE = "021-12345678"
-WEBSITE = "https://inotex.example.ir"
+WEBSITE = "https://event.example.ir"
 
 
 def _seed(rows=DATASET, with_profiles=True):
@@ -666,28 +666,35 @@ def test_the_refusal_text_is_read_from_settings_so_a_new_customer_can_change_it(
 # ── DEFECT 4: whole numbers and whole links, never substrings ────────────
 #
 # The verifier used to join the three recorded facts into ONE string and ask
-# `run not in sources`. Measured against the SHIPPED defaults on 2026-08-28,
-# that string holds 2026, 11, 14, 1405 and ۰۲۱۸۸۵۰۳۰۳۰ — so every single digit
-# except 7 and 9 was already a substring of it, and so was every short prefix
-# of the recorded website. These tests run against those shipped defaults on
-# purpose: the hole only opens on a real install's data.
+# `run not in sources`. Measured against a live install's recorded facts on
+# 2026-08-28, that string held the event dates and the recorded phone number
+# — so nearly every single digit was already a substring of it, and so was
+# every short prefix of the recorded website. These tests run against a
+# recorded phone on purpose: the hole only opens on a real install's data.
+
+# The phone these tests record, in Persian digits. The shipped default is
+# empty now (no install facts in code), so the phone-grounding tests seed
+# their own: a SET phone must still flow through the verifier.
+RECORDED_PHONE_FA = "۰۲۱۱۲۳۴۵۶۷۸"
+
 
 def _shipped_defaults():
-    """Put the DEFAULT INOTEX facts in the settings, replacing the fixture's
-    deliberately number-poor ones. This is the data a live install has."""
+    """Put the shipped DEFAULT facts in the settings, replacing the fixture's
+    deliberately number-poor ones, and record a phone a live install would
+    have. The shipped phone default is empty, and the grounding tests below
+    exercise facts that ARE recorded, so the phone is seeded explicitly."""
     from app.db.queries import set_setting
     from app.services.openai import (DEFAULT_ASSISTANT_KNOWLEDGE,
-                                     DEFAULT_ASSISTANT_PHONE,
                                      DEFAULT_ASSISTANT_WEBSITE)
     set_setting("assistant_knowledge", DEFAULT_ASSISTANT_KNOWLEDGE)
-    set_setting("assistant_phone", DEFAULT_ASSISTANT_PHONE)
+    set_setting("assistant_phone", RECORDED_PHONE_FA)
     set_setting("assistant_website", DEFAULT_ASSISTANT_WEBSITE)
 
 
 def test_prose_inventing_a_hall_number_is_rejected(client):
     """«سالن ۳ در ضلع شمالی است» — an invented hall number, read by a visitor
-    who is standing at a booth and will walk there. The digit 3 appears inside
-    the recorded phone ۰۲۱۸۸۵۰۳۰۳۰, so a substring test called it grounded."""
+    who is standing at a booth and will walk there. The digit 3 appears
+    inside the recorded phone, so a substring test called it grounded."""
     _seed()
     _shipped_defaults()
     from app.services import answer
@@ -714,22 +721,26 @@ def test_prose_inventing_a_small_number_is_rejected(client, prose):
 
 
 def test_prose_inventing_a_link_that_is_a_substring_of_the_recorded_site_is_rejected(client):
-    """"otex.com" is not a site anybody recorded. It passed because it is a
-    substring of the recorded inotex.com, and a visitor will follow a link."""
+    """"dyar.com" is not a site anybody recorded. It passed the old substring
+    check because it is a substring of the recorded padyar.com, and a visitor
+    will follow a link."""
     _seed()
     _shipped_defaults()
     from app.services import answer
     ok, reason = answer.generated_prose_is_grounded(
-        "جزئیات در otex.com آمده است.", "fa")
+        "جزئیات در dyar.com آمده است.", "fa")
     assert ok is False
     assert reason == "shape", reason
 
 
 def test_prose_repeating_the_recorded_dates_is_still_accepted(client):
     """The guard against over-tightening. The recorded dates are exactly what
-    a written answer should be able to say."""
+    a written answer should be able to say. The platform ships no default
+    facts any more (openai.py), so this install records its own dates first."""
     _seed()
     _shipped_defaults()
+    from app.db.queries import set_setting
+    set_setting("assistant_knowledge", "نمایشگاه از ۱۱ تا ۱۴ شهریور ۱۴۰۵ برگزار می شود.")
     from app.services import answer
     ok, reason = answer.generated_prose_is_grounded(
         "نمایشگاه از ۱۱ تا ۱۴ شهریور ۱۴۰۵ برگزار می شود.", "fa")
@@ -738,13 +749,15 @@ def test_prose_repeating_the_recorded_dates_is_still_accepted(client):
 
 def test_prose_repeating_the_recorded_phone_with_a_separator_is_accepted(client):
     """A recorded number the model re-punctuated is still that number:
-    «۰۲۱-۸۸۵۰۳۰۳۰» is the recorded «۰۲۱۸۸۵۰۳۰۳۰». Whole-number matching must
-    not turn a correct phone number into a refusal at a live booth."""
+    «۰۲۱-۱۲۳۴۵۶۷۸» is the recorded «۰۲۱۱۲۳۴۵۶۷۸» (seeded by
+    _shipped_defaults — the shipped default phone is empty). Whole-number
+    matching must not turn a correct phone number into a refusal at a live
+    booth."""
     _seed()
     _shipped_defaults()
     from app.services import answer
     ok, reason = answer.generated_prose_is_grounded(
-        "با ۰۲۱-۸۸۵۰۳۰۳۰ تماس بگیرید.", "fa")
+        "با ۰۲۱-۱۲۳۴۵۶۷۸ تماس بگیرید.", "fa")
     assert ok is True, reason
 
 
@@ -753,9 +766,10 @@ def test_prose_repeating_the_recorded_phone_with_a_separator_is_accepted(client)
 # WHAT WAS BROKEN (measured 2026-08-28). The prose verifier decided what a link
 # IS from an allowlist of four TLDs: .com .ir .org .net, plus "@", a scheme and
 # "www.". Anything else was not a link at all, so it never entered the check:
-# «padyar.dev» and «inotex.co» were shipped to a visitor with nothing verifying
-# them. A visitor will follow a link, and the modern TLD list is thousands long,
-# so an allowlist of four was a guarantee of holes rather than a filter.
+# «padyar.dev» and a rival event's .co host were shipped to a visitor with
+# nothing verifying them. A visitor will follow a link, and the modern TLD
+# list is thousands long, so an allowlist of four was a guarantee of holes
+# rather than a filter.
 #
 # `_looks_like_link()` now decides by STRUCTURE (labels, a dot, a final label
 # of two or more letters, the whole token), and BOTH loops of the function use
@@ -766,11 +780,11 @@ def test_prose_repeating_the_recorded_phone_with_a_separator_is_accepted(client)
 
 @pytest.mark.parametrize("host", [
     "padyar.dev",
-    "inotex.co",
-    "inotex.info",
+    "event.co",
+    "event.info",
     "exhibition.app",
     "booth.xyz",
-    "inotex.tehran-expo.online",
+    "event.tehran-expo.online",
 ])
 def test_prose_inventing_a_link_on_an_unlisted_tld_is_rejected(client, host):
     """None of these is a recorded site and every one of them is a link a

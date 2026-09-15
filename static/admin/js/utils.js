@@ -47,7 +47,7 @@ export async function fetchAuth(url, options = {}) {
         }
     }
     if (res.status === 401) {
-        window.location.href = '/secure-panel-inotex/login';
+        window.location.href = '/secure-panel-admin/login';
     }
     return res;
 }

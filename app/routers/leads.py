@@ -4,7 +4,7 @@ Three audiences, three doors, and no shared credential between them:
 
   /v/{code}      a field visitor, identified by their own personal link
   /edit/{token}  a company contact, holding a one-time invite from the booth
-  /secure-panel-inotex/leads  an administrator, on the existing admin session
+  /secure-panel-admin/leads  an administrator, on the existing admin session
 
 Nothing here trusts anything the browser says about who it is. The visitor
 cookie carries the visitor's CODE, the same secret their personal link is
@@ -955,7 +955,7 @@ async def admin_revert_edit(edit_id: str, admin: str = Depends(verify_admin)):
         raise _fail(e)
 
 
-@router.get("/secure-panel-inotex/leads", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/leads", response_class=HTMLResponse)
 async def admin_page(request: Request):
     """Same session check and login redirect as every other admin page
     (see app/routers/public.py)."""
@@ -967,7 +967,7 @@ async def admin_page(request: Request):
     return _render("admin/leads.html", request=request, active_page="leads")
 
 
-@router.get("/secure-panel-inotex/companies", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/companies", response_class=HTMLResponse)
 async def admin_companies_page(request: Request):
     """The organizer's exhibitor book: every company beside what is known
     about it, editable in place."""

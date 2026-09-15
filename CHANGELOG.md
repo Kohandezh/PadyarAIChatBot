@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-09-14
 
-First tagged release: the product as it serves the INOTEX 2026 and ELECOMP
+First tagged release: the product as it serves the event and ELECOMP
 installs today.
 
 ### Added
@@ -19,7 +19,7 @@ installs today.
   selection over record ids — the paid models run only when the local tiers
   are not confident.
 - Guide and events knowledge tiers (hours, entrances, transit, halls and
-  booth numbers, talks/panels) refreshed from the official INOTEX sources,
+  booth numbers, talks/panels) refreshed from the official event sources,
   with context-based suggestion chips that always offer the next question.
 - White-label branding (palette, logo, backgrounds), the per-install
   optional-module system, and the leads pipeline (exhibition lead capture,

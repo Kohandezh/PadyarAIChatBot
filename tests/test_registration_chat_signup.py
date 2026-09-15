@@ -15,6 +15,7 @@ Two halves:
 from pathlib import Path
 
 import pytest
+import sqlite3
 from fastapi.testclient import TestClient
 
 from app.db.connection import get_db_connection
@@ -38,7 +39,14 @@ def outbox(monkeypatch):
 
 
 @pytest.fixture()
-def client():
+def client(tmp_path, monkeypatch):
+    # The suite's DB redirect idiom (see test_otp.py): without it these OTP
+    # sends landed in the repo-root chat_history.db and baited every later
+    # boot's delivery poller into asking the real gateway about the
+    # leftover rows.
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "signup.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     # Origin + User-Agent, because verify mints the visitor session cookie and
     # the profile endpoint consumes it, so both validate the request origin.
     with TestClient(app) as c:
@@ -54,17 +62,25 @@ def _no_ip_throttle(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _cleanup():
+def _cleanup(client):
+    # Depends on `client` on purpose: the sweep must run while that
+    # fixture's DB_PATH redirect still holds (it tears down after this
+    # one) — also for the static-source tests that never request a
+    # client themselves — or the deletes would recreate the repo-root
+    # chat_history.db this file used to pollute.
     yield
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM otp_challenges WHERE destination LIKE '+9891200000%'")
         # A verified challenge is now promoted to a durable `visitors`
-        # row (app/routers/otp.py). These three OTP files run against
-        # the ambient database, so their test numbers have to be swept
-        # out of that table too or they pile up in a real install.
+        # row (app/routers/otp.py). The test numbers have to be swept out
+        # of that table too or they pile up — this file now runs on its
+        # own tmp DB, but the sweep keeps the pattern the sibling OTP
+        # files share honest.
         conn.execute("DELETE FROM visitors WHERE phone LIKE '+9891200000%'")
         conn.commit()
+    except sqlite3.OperationalError:
+        pass  # a static-source test's fresh tmp DB has no OTP tables yet
     finally:
         conn.close()
 

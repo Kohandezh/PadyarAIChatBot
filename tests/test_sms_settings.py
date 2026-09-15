@@ -73,9 +73,9 @@ def _payload(**overrides):
 
 def test_page_requires_admin(client):
     """Anonymous visitors are bounced to the login page, never shown the form."""
-    r = client.get("/secure-panel-inotex/settings/sms", follow_redirects=False)
+    r = client.get("/secure-panel-admin/settings/sms", follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/secure-panel-inotex/login"
+    assert r.headers["location"] == "/secure-panel-admin/login"
 
 
 def test_api_requires_admin(client):
@@ -86,7 +86,7 @@ def test_api_requires_admin(client):
 
 def test_page_renders_for_admin(client):
     _login(client)
-    r = client.get("/secure-panel-inotex/settings/sms")
+    r = client.get("/secure-panel-admin/settings/sms")
     assert r.status_code == 200
     html = r.text
     assert 'id="sms-form"' in html
@@ -103,15 +103,15 @@ def test_page_renders_for_admin(client):
 def test_daily_budget_consequence_is_on_the_page(client):
     """The cap stops sending. That has to be readable, not hidden in a tooltip."""
     _login(client)
-    html = client.get("/secure-panel-inotex/settings/sms").text
+    html = client.get("/secure-panel-admin/settings/sms").text
     assert "هیچ پیامکی فرستاده" in html
     assert "سقفی وجود" in html
 
 
 def test_sidebar_links_to_the_page(client):
     _login(client)
-    html = client.get("/secure-panel-inotex/settings/ai").text
-    assert '/secure-panel-inotex/settings/sms' in html
+    html = client.get("/secure-panel-admin/settings/ai").text
+    assert '/secure-panel-admin/settings/sms' in html
 
 
 # ── Secrets never leave the server ──────────────────────────────────────
@@ -134,7 +134,7 @@ def test_get_never_returns_the_stored_secrets(client):
 def test_page_source_never_contains_a_stored_secret(client):
     _login(client)
     client.post("/admin/api/sms", json=_payload(password=PASSWORD, api_key=API_KEY))
-    html = client.get("/secure-panel-inotex/settings/sms").text
+    html = client.get("/secure-panel-admin/settings/sms").text
     assert PASSWORD not in html
     assert API_KEY not in html
     # The secret inputs exist but ship with no value attribute at all —

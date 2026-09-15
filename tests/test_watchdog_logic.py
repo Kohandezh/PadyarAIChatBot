@@ -65,9 +65,9 @@ def test_credit_alert_fires_once_per_day_and_resets_next_day():
 
 
 def test_messages_are_persian_and_short():
-    m = watchdog.down_message("INOTEX", 1788091200, reminder=False)  # 2026-08-30 12:00 UTC -> 15:30 Tehran
-    assert "INOTEX" in m and "پاسخ نمی‌دهد" in m
-    assert watchdog.down_message("INOTEX", 1788091200, reminder=True).startswith("یادآوری")
+    m = watchdog.down_message("ELECOMP", 1788091200, reminder=False)  # 2026-08-30 12:00 UTC -> 15:30 Tehran
+    assert "ELECOMP" in m and "پاسخ نمی‌دهد" in m
+    assert watchdog.down_message("ELECOMP", 1788091200, reminder=True).startswith("یادآوری")
     c = watchdog.low_credit_message(200_000, 300_000)
     assert "اعتبار" in c and "300٬000" in c and "200٬000" in c
 
@@ -78,5 +78,7 @@ def test_tehran_clock_is_half_hour_offset():
 
 
 def test_installs_ports_are_the_production_ports():
-    assert watchdog.INSTALLS["inotex"]["port"] == 8001
+    # The retired event install is gone from the deploy surface; elecomp is
+    # the production install this watchdog guards.
+    assert "inotex" not in watchdog.INSTALLS
     assert watchdog.INSTALLS["elecomp"]["port"] == 8002

@@ -24,7 +24,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--count", type=int, default=1000)
     ap.add_argument("--concurrency", type=int, default=50)
-    ap.add_argument("--texts", default="/tmp/inotex_texts.json")
+    ap.add_argument("--texts", default="/tmp/padyar_texts.json")
     ap.add_argument("--out", default="/tmp/position-result.json")
     args = ap.parse_args()
 

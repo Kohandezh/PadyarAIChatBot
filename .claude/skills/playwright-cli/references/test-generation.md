@@ -9,7 +9,7 @@ into a pytest test.
 `page.*` calls, preferring role/label/placeholder locators.
 
 ```bash
-.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-inotex/login \
+.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-admin/login \
   --target python --output tests/e2e/_capture.py
 ```
 
@@ -21,7 +21,7 @@ Inspector window where you can copy from.
 After typing into the login form, codegen produces something like:
 
 ```python
-page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
 page.get_by_placeholder("نام کاربری").fill("admin")
 page.get_by_placeholder("رمز عبور").fill("admin")
 page.get_by_placeholder("رنگ مورد علاوه؟").fill("آبی")
@@ -39,14 +39,14 @@ from playwright.sync_api import Page, expect
 
 
 def test_admin_login(page: Page):
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")          # stabilized from placeholder
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
 
     # assertions added by hand:
-    expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+    expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
     expect(page.get_by_text("داشبورد")).to_be_visible()
 ```
 

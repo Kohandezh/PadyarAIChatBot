@@ -12,7 +12,7 @@ export async function logout() {
     // The token is derived from the session that just died. Drop the cached
     // copy so the next login does not reuse a token bound to a dead session.
     resetCsrfToken();
-    window.location.href = '/secure-panel-inotex/login';
+    window.location.href = '/secure-panel-admin/login';
 }
 
 export async function reloadDataset() {
@@ -45,7 +45,7 @@ export async function downloadCSV() {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `inotex-export-${new Date().toLocaleDateString()}.csv`;
+        a.download = `padyar-export-${new Date().toLocaleDateString()}.csv`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -71,7 +71,7 @@ export function initLogin() {
             });
 
             if (res.ok) {
-                window.location.href = '/secure-panel-inotex';
+                window.location.href = '/secure-panel-admin';
             } else if (res.status === 429) {
                 const data = await res.json();
                 errorDiv.innerText = '⚠️ ' + data.detail;

@@ -15,7 +15,7 @@ It is deliberately NOT phonetics. An operator writes «دوور», not `/duːr/`
 because the thing they can check is whether it sounds right when they press
 play, and the thing they cannot do is learn IPA.
 
-WHOLE WORDS ONLY. The INOTEX narration contains «دوربینِ شناخته‌شده», and a
+WHOLE WORDS ONLY. The event narration contains «دوربینِ شناخته‌شده», and a
 plain string replace would turn a rule about «دور» into «دوووربین». The one
 rule that matters here is that a rule fires on a word, never inside one.
 """

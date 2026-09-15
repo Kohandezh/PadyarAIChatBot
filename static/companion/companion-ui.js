@@ -1,11 +1,11 @@
 /* ── Companion UI: control rail, drag, and the mini ChatBox ──
-   Ported from the Pet-Inotex module (src/ui/AvatarView.ts and
+   Ported from the standalone pet module (src/ui/AvatarView.ts and
    src/ui/ChatBox.ts) so the companion behaves the way that validated app
    does: eye / − / + controls beside the character, pointer drag, single tap
    to open the chat (and look toward the tap), double tap for one energetic
    reaction, and an expandable chat panel.
 
-   ONE DELIBERATE DIFFERENCE from the standalone module: Pet-Inotex's ChatBox
+   ONE DELIBERATE DIFFERENCE from the standalone module: its ChatBox
    answers from its own bundled JSON. Here the panel is a compact VIEW of the
    page's single conversation — it mirrors the main transcript and sends
    through the same /chat pipeline. A second, competing knowledge source on

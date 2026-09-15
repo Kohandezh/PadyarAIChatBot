@@ -182,7 +182,7 @@ def unknown_salient_tokens(query: str) -> list:
     know — the strongest "asked about something we have nothing on" signal.
 
     Why this must exist (measured 2026-08-26, live): «تاریخ برگزاری نمایشگاه
-    الکامپ» was served the INOTEX date with 0.844 confidence. الکامپ appears
+    الکامپ» was served the event's date with 0.844 confidence. الکامپ appears
     in no document, no curated question and no synonym, and the lexical
     retrievers simply DROP unknown terms — so the query degraded to its
     common words («تاریخ برگزاری نمایشگاه») and matched strongly. Coverage

@@ -1,8 +1,8 @@
 """Tests for the operator reset/migration script (R1).
 
 Verifies the explicit, backed-up reset path operators use to wipe a legacy
-(Noor/Padyar/medical) install and restore the verifiable INOTEX defaults —
-while preserving admin accounts and (by default) chat logs and settings.
+(Noor/Padyar/medical) install back to the empty defaults — while
+preserving admin accounts and (by default) chat logs and settings.
 """
 import sqlite3
 import subprocess
@@ -49,7 +49,7 @@ def _run(db: Path, *flags):
     )
 
 
-def test_reset_replaces_legacy_content_with_inotex_defaults(tmp_path):
+def test_reset_replaces_legacy_content_with_empty_defaults(tmp_path):
     db = tmp_path / "chat_history.db"
     _legacy_db(db)
 
@@ -57,13 +57,13 @@ def test_reset_replaces_legacy_content_with_inotex_defaults(tmp_path):
     assert r.returncode == 0, r.stderr
 
     conn = sqlite3.connect(str(db))
-    # Legacy medical row is gone; INOTEX defaults present.
+    # Legacy medical row is gone; the install starts from a blank knowledge
+    # base — the defaults are empty, whatever the seed lists currently hold.
     assert conn.execute("SELECT COUNT(*) FROM dataset WHERE id='vid_lasik'").fetchone()[0] == 0
-    # Every seeded default landed, whatever the knowledge base currently holds.
-    from app.default_content import INOTEX_DATASET, INOTEX_QUESTIONS, INOTEX_SYNONYMS
-    assert conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0] == len(INOTEX_DATASET)
-    assert conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0] == len(INOTEX_QUESTIONS)
-    assert conn.execute("SELECT COUNT(*) FROM synonyms").fetchone()[0] == len(INOTEX_SYNONYMS)
+    from app.default_content import DEFAULT_DATASET, DEFAULT_QUESTIONS, DEFAULT_SYNONYMS
+    assert conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0] == len(DEFAULT_DATASET)
+    assert conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0] == len(DEFAULT_QUESTIONS)
+    assert conn.execute("SELECT COUNT(*) FROM synonyms").fetchone()[0] == len(DEFAULT_SYNONYMS)
     conn.close()
 
 

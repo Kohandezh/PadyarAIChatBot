@@ -572,15 +572,15 @@ def test_api_requires_admin(client):
 
 
 def test_page_requires_admin(client):
-    r = client.get("/secure-panel-inotex/infrastructure/backups",
+    r = client.get("/secure-panel-admin/infrastructure/backups",
                    follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/secure-panel-inotex/login"
+    assert r.headers["location"] == "/secure-panel-admin/login"
 
 
 def test_page_renders_for_admin(client):
     _login(client)
-    html = client.get("/secure-panel-inotex/infrastructure/backups").text
+    html = client.get("/secure-panel-admin/infrastructure/backups").text
     assert 'id="backups-body"' in html
     assert 'id="restoreModal"' in html
     assert '/static/admin/js/infra_backups.js' in html

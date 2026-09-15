@@ -29,7 +29,7 @@ USERNAME = "fake-account"
 SOURCE = "98200049"
 
 ENV_SAMPLE = """\
-# INOTEX chatbot configuration
+# Padyar chatbot configuration
 OPENAI_API_KEY=sk-fake-openai-key
 
 # Keep this comment: an operator's own note
@@ -155,12 +155,12 @@ def test_saved_password_is_not_stored_in_plaintext(client, env_file):
 def test_non_secret_fields_stay_readable(client, env_file):
     """Username, sender and URLs are not secrets — an operator must see them."""
     _login(client)
-    client.post("/admin/api/sms", json=_payload(password=PASSWORD, sms_host="inotex.example.com"))
+    client.post("/admin/api/sms", json=_payload(password=PASSWORD, sms_host="sms.example.com"))
 
     env_text = env_file.read_text(encoding="utf-8")
     assert "ASANAK_USERNAME=%s" % USERNAME in env_text
     assert "ASANAK_SOURCE=%s" % SOURCE in env_text
-    assert "OTP_SMS_HOST=inotex.example.com" in env_text
+    assert "OTP_SMS_HOST=sms.example.com" in env_text
     assert _raw_setting("sms_asanak_username") == USERNAME
 
 
@@ -287,7 +287,7 @@ def test_env_keeps_its_other_keys_and_comments(client, env_file):
     client.post("/admin/api/sms", json=_payload(password=PASSWORD))
 
     text = env_file.read_text(encoding="utf-8")
-    assert "# INOTEX chatbot configuration" in text
+    assert "# Padyar chatbot configuration" in text
     assert "# Keep this comment: an operator's own note" in text
     assert "OPENAI_API_KEY=sk-fake-openai-key" in text
     assert "COOKIE_SECURE=false" in text
@@ -488,7 +488,7 @@ def test_test_send_shows_the_mapped_gateway_reason(client, monkeypatch):
 
 def test_the_form_has_an_input_for_every_gateway_field(client):
     _login(client)
-    html = client.get("/secure-panel-inotex/settings/sms").text
+    html = client.get("/secure-panel-admin/settings/sms").text
     for field in ("sms-username", "sms-password", "sms-api-key",
                   "sms-source", "sms-url", "sms-status-url", "sms-credit-url",
                   "sms-trim", "sms-send-to-blacklist", "sms-host"):
@@ -505,7 +505,7 @@ def test_every_provider_has_a_tab_and_a_pane(client):
     template-only change.
     """
     _login(client)
-    html = client.get("/secure-panel-inotex/settings/sms").text
+    html = client.get("/secure-panel-admin/settings/sms").text
 
     assert '<select id="sms-provider"' not in html, "the select came back"
     for provider in ("asanak", "dev"):

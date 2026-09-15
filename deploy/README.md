@@ -1,10 +1,9 @@
-# Deployment kit — two chatbots + Persian TTS on one Ubuntu 24.04 host
+# Deployment kit — one chatbot + Persian TTS on one Ubuntu 24.04 host
 
 Target: `gpu@192.168.100.6`, 40 vCPU / 27 GB RAM / 2× Tesla P40.
 
 | Install | Domain | Port | DB | Linux user |
 |---|---|---|---|---|
-| INOTEX | `inotex.padyar.com` | 8001 | `padyar_inotex` | `padyar-inotex` |
 | ELECOMP | `elecomp.padyar.com` | 8002 | `padyar_elecomp` | `padyar-elecomp` |
 | TTS | *(loopback only)* | 8003 | — | `padyar-tts` |
 
@@ -18,20 +17,17 @@ git clone https://github.com/Kohandezh/PadyarAIChatBot.git /tmp/padyar-deploy
 cd /tmp/padyar-deploy
 
 sudo bash deploy/00-bootstrap-server.sh      # packages, users, dirs, PG, UFW, fail2ban
-sudo bash deploy/05-create-databases.sh      # 2 DBs + roles — SAVE THE PRINTED PASSWORDS
+sudo bash deploy/05-create-databases.sh      # 1 DB + role — SAVE THE PRINTED PASSWORD
 
-# Fill in the two .env files before installing:
-sudo install -m 0600 deploy/env/inotex.env.template  /opt/padyar-inotex/.env
+# Fill in the .env file before installing:
 sudo install -m 0600 deploy/env/elecomp.env.template /opt/padyar-elecomp/.env
-sudo nano /opt/padyar-inotex/.env            # every <PLACEHOLDER>, incl. SECRET_KEY
-sudo nano /opt/padyar-elecomp/.env
+sudo nano /opt/padyar-elecomp/.env           # every <PLACEHOLDER>, incl. SECRET_KEY
 
-sudo bash deploy/10-install-app.sh inotex
 sudo bash deploy/10-install-app.sh elecomp
 sudo bash deploy/15-nginx-and-ssl.sh         # needs a Cloudflare API token, see below
 sudo bash deploy/17-watchdog.sh              # down-SMS watchdog + branded maintenance page
 
-# GPU + TTS (independent of the two apps above):
+# GPU + TTS (independent of the app above):
 sudo bash deploy/20-gpu-driver.sh
 sudo reboot
 bash deploy/21-verify-gpu.sh
@@ -42,7 +38,7 @@ bash deploy/30-verify.sh                     # end-to-end smoke test
 
 ## Auto-deploy from CI (optional, one-time setup)
 
-After the two installs are live and verified, merges to `main` can deploy
+After the install is live and verified, merges to `main` can deploy
 themselves: CI green → one approval click → the server updates itself. Setup:
 
 ```bash
@@ -67,7 +63,7 @@ What each piece is allowed to do:
 During an event: do not deploy. The approval click is the calendar — an
 unapproved deploy sits in the queue and harms nothing.
 
-To deploy manually without GitHub: `sudo /usr/local/bin/padyar-deploy inotex <sha>`
+To deploy manually without GitHub: `sudo /usr/local/bin/padyar-deploy elecomp <sha>`
 does exactly what the pipeline does (fetch needs a credential for the private
 repo; a one-line `PADYAR_GIT_TOKEN=... sudo -E` works, or push the branch and
 let the pipeline carry it).
@@ -80,9 +76,9 @@ true, a non-PostgreSQL backend, a placeholder or passwordless `DATABASE_URL`,
 empty or `*` `ALLOWED_ORIGINS`, a placeholder `ADMIN_PASSWORD`, and
 `OTP_DELIVERY=dev`. The refusal names every problem at once.
 
-`OTP_DELIVERY=dev` blocks **even on the ELECOMP install where the registration
-module is disabled** — the gate reads the environment variable, not the module
-list. Both templates set `OTP_DELIVERY=asanak` for that reason.
+`OTP_DELIVERY=dev` blocks **even though the ELECOMP install has the registration
+module disabled** — the gate reads the environment variable, not the module
+list. The template sets `OTP_DELIVERY=asanak` for that reason.
 
 **`SECRET_KEY` must be pinned, and must differ per install.** The key that
 decrypts stored `enc:` secrets (provider keys, SMS credentials) is derived from
@@ -104,8 +100,8 @@ which is what keeps uploaded video out of the git tree and safe across upgrades.
 
 ### Cloudflare
 
-Both names resolve to `172.67.141.4` — Cloudflare's edge — and today both
-return **HTTP 525** (Cloudflare cannot complete TLS with the origin). Two
+The name resolves to `172.67.141.4` — Cloudflare's edge — and today
+returns **HTTP 525** (Cloudflare cannot complete TLS with the origin). Two
 consequences:
 
 1. **Certificates use DNS-01, not `--nginx`.** An http-01 challenge has to
@@ -134,7 +130,7 @@ assumed:
   `ECONNREFUSED`) — not dropped, actively rejected;
 * a packet capture on the server recorded **zero inbound SYNs** on 80/443
   during that probe;
-* meanwhile nginx serves both sites correctly on the LAN.
+* meanwhile nginx serves the site correctly on the LAN.
 
 So the refusal happens at the router or the ISP, one hop above the machine,
 and no origin-side change can fix it. `deploy/40-cloudflare-tunnel.sh` installs
@@ -144,11 +140,11 @@ port-forward rule, no static IP, unaffected by ISP inbound policy or CGNAT.
 Two things that go with it, both already in this kit:
 
 * `nginx/00-default-server.conf` — returns 444 for any unmatched `Host`.
-  Without it a bare-IP request is served by whichever site loaded first
-  (alphabetically elecomp), which matters once the host is public and being
+  Without it a bare-IP request is served by the one defined site, which
+  matters once the host is public and being
   scanned. Note its `listen` repeats `http2`: nginx takes protocol options from
   the first `listen` for an address:port and `conf.d/` loads before
-  `sites-enabled/`, so omitting it silently disables HTTP/2 for both sites.
+  `sites-enabled/`, so omitting it silently disables HTTP/2 for the site.
 * `set_real_ip_from 127.0.0.1` in `nginx/cloudflare-realip.conf` — cloudflared
   runs on this host, so tunnelled requests arrive from loopback rather than a
   Cloudflare range. Without it `CF-Connecting-IP` is ignored and every visitor
@@ -227,7 +223,7 @@ installs the Persian checkpoint as `t3_cfg.safetensors`, keeping the English
 original as `t3_cfg.en.safetensors` so a rollback is one `mv`.
 
 `Thomcles/Chatterbox-TTS-Persian-Farsi` is **CC BY-NC 4.0 — non-commercial**.
-Fine for INOTEX's own install and for evaluation; it cannot ship in an
+Fine for this project's own install and for evaluation; it cannot ship in an
 installation sold to a customer without permission from the author.
 
 **Measured on this host.** GPU (P40, float32): RTF ~1.7 warm, ~3.1 cold.
@@ -246,14 +242,14 @@ time and keep live synthesis for the Tier-2 fallback only.
 ## Day-2
 
 ```bash
-systemctl status padyar-inotex padyar-elecomp padyar-tts
-journalctl -u padyar-inotex -f
-curl -s localhost:8001/api/health | jq        # liveness only: {"status":"ok"}
-curl -s localhost:8001/api/ready | jq        # 503 until the retrieval index is built
+systemctl status padyar-elecomp padyar-tts
+journalctl -u padyar-elecomp -f
+curl -s localhost:8002/api/health | jq        # liveness only: {"status":"ok"}
+curl -s localhost:8002/api/ready | jq        # 503 until the retrieval index is built
 curl -s localhost:8003/health | jq
 
-# upgrade an install (re-runs migrations, restarts the service)
-sudo bash deploy/10-install-app.sh inotex
+# upgrade the install (re-runs migrations, restarts the service)
+sudo bash deploy/10-install-app.sh elecomp
 ```
 
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
@@ -272,9 +268,9 @@ through untouched.
 Test it end-to-end once after install:
 
 ```bash
-sudo systemctl stop padyar-inotex
-journalctl -u padyar-watchdog@inotex.service -f   # one cycle per minute; SMS on the 3rd fail
-sudo systemctl start padyar-inotex                 # after ≥3 min; recovery is silent by design
+sudo systemctl stop padyar-elecomp
+journalctl -u padyar-watchdog@elecomp.service -f   # one cycle per minute; SMS on the 3rd fail
+sudo systemctl start padyar-elecomp                 # after ≥3 min; recovery is silent by design
 ```
 
 The alert phone and the SMS-credit threshold live in each install's admin
@@ -290,33 +286,3 @@ Deploys under ~3 minutes intentionally never SMS: a ~60 s deploy restart
 shows the maintenance page but cannot reach the 3-failure threshold. The
 page covers the visitor for that window; the phone is reserved for outages
 that need a human.
-
-## Content freshness check (weekly)
-
-`scripts/refresh-inotex-context.py` fetches every official INOTEX page from
-`content/sources.json`, hashes the body, and compares it with the snapshot
-under `content/snapshots/`. It never writes to the database — publication of
-new facts always passes through human review
-(`content/review-queue.md`). Exit codes are findings, not failures:
-`0` fresh · `2` at least one page changed · `3` at least one page
-unreachable (last good snapshot kept).
-
-The same check also runs weekly from GitHub Actions
-(`.github/workflows/freshness.yml`), advisory and network-dependent — the
-on-host timer below is the reliable one.
-
-Install per site (the units template on the install slug, like the
-watchdog):
-
-```bash
-sudo install -m 0644 deploy/systemd/padyar-freshness@.service /etc/systemd/system/padyar-freshness@.service
-sudo install -m 0644 deploy/systemd/padyar-freshness@.timer /etc/systemd/system/padyar-freshness@.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now padyar-freshness@inotex.timer
-systemctl list-timers 'padyar-freshness@*'
-journalctl -u padyar-freshness@inotex.service -n 20
-```
-
-A `changed` line in the journal (unit stays green — `SuccessExitStatus=2 3`)
-means a page moved: follow the `next_step` in
-`content/freshness-report.json`.

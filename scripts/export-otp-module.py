@@ -100,14 +100,14 @@ No new Python dependency.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `otp_brand_name` | `INOTEX` | Wordmark next to the logo |
-| `otp_brand_mark` | INOTEX hexagon SVG | Inline SVG for the logo |
-| `otp_companion_atlas` | INOTEX atlas path | **Empty string = no companion avatar** |
+| `otp_brand_name` | `پردیار` | Wordmark next to the logo |
+| `otp_brand_mark` | brand hexagon SVG | Inline SVG for the logo |
+| `otp_companion_atlas` | companion atlas path | **Empty string = no companion avatar** |
 | `otp_companion_cell` | `512` | Atlas cell size in px (4 columns, 12 poses) |
 | `otp_color_primary` / `_hover` | `#FCB715` / `#FEBE27` | Primary action |
-| `otp_color_blue` / `_navy` / `_teal` | INOTEX palette | Surfaces and accents |
+| `otp_color_blue` / `_navy` / `_teal` | event palette | Surfaces and accents |
 | `otp_color_background` | `#000000` | Page background |
-| `otp_background_image` | INOTEX bricks | Background image URL (may be empty) |
+| `otp_background_image` | event backdrop | Background image URL (may be empty) |
 
 Set these from the destination install's admin/settings layer — do not edit the
 copied source.
@@ -149,7 +149,7 @@ Run `pytest tests/test_otp.py` in the destination project to verify.
 
 `app/services/visit_plan.py` ranks an event's sections against what the visitor
 said about their work. The matching logic is generic; the section list is NOT —
-it is INOTEX 2026's official programme.
+it is the source event's official programme.
 
 **Before using this in another event, replace `SECTIONS` and `FALLBACK_IDS`
 with that event's own verified sections**, and keep the `note` honest about

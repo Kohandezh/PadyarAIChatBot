@@ -6,7 +6,7 @@
   "expectations": {
     "options": "the answer offers a numbered choice — source ai_options or local_company_search, and the options array is non-empty",
     "pick": "the answer is one record chosen from the offer printed by the PREVIOUS query — source local_pick",
-    "answer": "one record answers it outright — any of the single-record tiers",
+    "answer": "one recorded answer, or the assistant's own conversational reply (a greeting, a capabilities question) — never a refusal, never a list",
     "refuse": "out of scope: source refuse, or HTTP 503, never a confident record"
   },
   "queries": [
@@ -28,9 +28,9 @@
     {"q": "نتیجه بازی دیشب چه شد؟", "expect": "refuse", "cat": "out_of_scope"},
     {"q": "برای سردرد چه قرصی بخورم؟", "expect": "refuse", "cat": "out_of_scope"},
 
-    {"q": "اینوتکس چیست؟", "expect": "answer", "cat": "named"},
+    {"q": "سلام، خوش امدی؟", "expect": "answer", "cat": "named"},
     {"q": "ساعت بازدید نمایشگاه چند است؟", "expect": "answer", "cat": "named"},
-    {"q": "محل برگزاری اینوتکس کجاست؟", "expect": "answer", "cat": "named"},
+    {"q": "دستیار تو چه زمینه‌ای کمک می‌کنه؟", "expect": "answer", "cat": "named"},
     {"q": "شماره تماس دبیرخانه چیست؟", "expect": "answer", "cat": "named"},
     {"q": "چطور غرفه رزرو کنم؟", "expect": "answer", "cat": "named"}
   ]

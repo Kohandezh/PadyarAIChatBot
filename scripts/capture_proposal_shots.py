@@ -63,7 +63,7 @@ def main():
         ctx = browser.new_context(viewport=DESK, device_scale_factor=2, locale="fa-IR")
         page = ctx.new_page()
         print("Admin login...")
-        page.goto(BASE + "/secure-panel-inotex/login", wait_until="domcontentloaded")
+        page.goto(BASE + "/secure-panel-admin/login", wait_until="domcontentloaded")
         page.wait_for_timeout(1200)
         shot(page, "04-admin-login")
         ctx.close()
@@ -79,14 +79,14 @@ def main():
         page = ctx.new_page()
 
         admin_pages = [
-            ("05-admin-dashboard", "/secure-panel-inotex"),
-            ("06-admin-dataset", "/secure-panel-inotex/manage-datasets"),
-            ("07-admin-questions", "/secure-panel-inotex/manage-questions"),
-            ("08-admin-synonyms", "/secure-panel-inotex/synonyms"),
-            ("09-admin-themes", "/secure-panel-inotex/themes"),
-            ("10-admin-settings-account", "/secure-panel-inotex/settings/account"),
-            ("11-admin-settings-ai", "/secure-panel-inotex/settings/ai"),
-            ("12-admin-settings-backup", "/secure-panel-inotex/settings/backup"),
+            ("05-admin-dashboard", "/secure-panel-admin"),
+            ("06-admin-dataset", "/secure-panel-admin/manage-datasets"),
+            ("07-admin-questions", "/secure-panel-admin/manage-questions"),
+            ("08-admin-synonyms", "/secure-panel-admin/synonyms"),
+            ("09-admin-themes", "/secure-panel-admin/themes"),
+            ("10-admin-settings-account", "/secure-panel-admin/settings/account"),
+            ("11-admin-settings-ai", "/secure-panel-admin/settings/ai"),
+            ("12-admin-settings-backup", "/secure-panel-admin/settings/backup"),
         ]
         for name, path in admin_pages:
             print(f"Admin {name}...")

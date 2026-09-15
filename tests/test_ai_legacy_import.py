@@ -180,6 +180,15 @@ def wrapper_env(tmp_path, monkeypatch):
     set_setting("ai_api_key", "sk-legacy-key-123456")
     set_setting("ai_model_chat", "gpt-4.1")
     set_setting("ai_model_classify", "gpt-5-nano")
+    # The stub adapters below answer with the id of a dataset entry; fresh
+    # installs seed no content any more, so the fixture owns that row itself.
+    from app.db.connection import get_db_connection
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO dataset (id, title, text, video_url)"
+        " VALUES ('event-overview', 'درباره نمایشگاه', 'معرفی رویداد.', '')")
+    conn.commit()
+    conn.close()
     from app.services.search import load_dataset_internal
     load_dataset_internal()               # populate the intent list
     from app.services.ai import legacy_import
@@ -193,7 +202,7 @@ class OkCompatAdapter:
 
     async def invoke(self, rt, model_id, req):
         from app.services.ai.request import AIResponse
-        return AIResponse(content="inotex-overview", task=req.task,
+        return AIResponse(content="event-overview", task=req.task,
                           provider_type=rt.provider_type,
                           provider_instance_id=rt.instance_id,
                           provider_name=rt.display_name, model=model_id,
@@ -214,7 +223,7 @@ def test_classify_intent_contract_preserved(wrapper_env, monkeypatch):
 
     # matched id
     entry, tokens, cost = asyncio.run(classify_intent("درباره نمایشگاه"))
-    assert entry and entry["id"] == "inotex-overview"
+    assert entry and entry["id"] == "event-overview"
     assert tokens == 15
     assert cost >= 0
 
@@ -255,7 +264,7 @@ def test_get_openai_response_returns_content(wrapper_env, monkeypatch):
     _install(monkeypatch, OkCompatAdapter())
     from app.services.openai import get_openai_response
     content, tokens, cost = asyncio.run(get_openai_response("سلام"))
-    assert content == "inotex-overview"
+    assert content == "event-overview"
     assert tokens == 15
 
 
@@ -549,6 +558,22 @@ def chat_client(tmp_path, monkeypatch):
         store._invalidate_runtime()
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
+        # Same as wrapper_env: the ladder's stubbed classifier answers with
+        # this entry's id, and the empty default seed no longer provides one.
+        # The text deliberately covers the vocabulary of the fallback-ladder
+        # queries («ساعات بازدید نمایشگاه پردیار») so the unknown-entity gate
+        # stays a no-op for them, exactly as it was against the old seeded
+        # corpus.
+        from app.db.connection import get_db_connection
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO dataset (id, title, text, video_url)"
+            " VALUES ('event-overview', 'درباره نمایشگاه',"
+            " 'ساعات بازدید نمایشگاه پردیار و معرفی رویداد.', '')")
+        conn.commit()
+        conn.close()
+        from app.services.search import load_dataset_internal
+        load_dataset_internal()
         from app.auth.security import generate_chat_token
         c.headers.update({"Origin": "http://localhost",
                           "User-Agent": "Mozilla/5.0 (gate-h-test)",
@@ -565,7 +590,7 @@ def _ask(client, message="هوا امروز چند درجه است زززز"):
 
     The previous filler («یک پرسش کاملا بی‌ربط زززز») did that before the
     2026-08-26 expansion dedup; with healthy queries reaching the classifier,
-    it confidently maps that filler to inotex-targeted-visit at p=0.66 and the
+    it confidently maps that filler to the targeted-visit record at p=0.66 and the
     tests started asserting against local_intent instead of the ladder. This
     weather filler is out-of-domain by topic, not just by noise words — the
     golden set carries a sibling of it under `unsupported`."""
@@ -573,7 +598,7 @@ def _ask(client, message="هوا امروز چند درجه است زززز"):
 
 
 def test_ladder_ai_classifier_match_is_served(chat_client, monkeypatch):
-    _install(monkeypatch, OkCompatAdapter())          # answers "inotex-overview"
+    _install(monkeypatch, OkCompatAdapter())          # answers "event-overview"
     r = _ask(chat_client)
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "openai_classified"
@@ -626,7 +651,7 @@ def test_ladder_ai_failure_falls_back_to_a_strong_local_match(chat_client, monke
         async def invoke(self, rt, model_id, req):
             raise AIError(code="all_routes_failed", provider_detail="down")
     _install(monkeypatch, Dead())
-    entry = {"id": "inotex-overview", "title": "t", "text": "پاسخ محلی",
+    entry = {"id": "event-overview", "title": "t", "text": "پاسخ محلی",
              "video_url": ""}
     from app.routers import chat as chat_router
     monkeypatch.setattr(chat_router, "find_best_match", lambda q: (entry, 0.55))
@@ -640,7 +665,7 @@ def test_ladder_ai_failure_falls_back_to_a_strong_local_match(chat_client, monke
     # A query made only of vocabulary words: this test is about the FALLBACK
     # ladder, and the unknown-entity gate (correctly) defers the weather
     # filler before the fallback could ever serve it.
-    r = _ask(chat_client, "ساعات بازدید نمایشگاه اینوتکس")
+    r = _ask(chat_client, "ساعات بازدید نمایشگاه پردیار")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local"
     # startswith, not ==: 0.55 is below TRUSTED_MATCH_THRESHOLD, so the answer
@@ -660,7 +685,7 @@ def test_ladder_kill_switch_skips_the_ai_branch_entirely(chat_client, monkeypatc
             reached["n"] += 1
             raise AssertionError("external AI called while the kill switch is on")
     _install(monkeypatch, NeverCalled())
-    entry = {"id": "inotex-overview", "title": "t", "text": "پاسخ محلی",
+    entry = {"id": "event-overview", "title": "t", "text": "پاسخ محلی",
              "video_url": ""}
     from app.routers import chat as chat_router
     monkeypatch.setattr(chat_router, "find_best_match", lambda q: (entry, 0.55))
@@ -671,7 +696,7 @@ def test_ladder_kill_switch_skips_the_ai_branch_entirely(chat_client, monkeypatc
     # test: it reads the real index, and its rescue would answer before the
     # kill-switch branch this test is about.
     monkeypatch.setattr(chat_router, "resolve_named_entity", lambda q: (None, set()))
-    r = _ask(chat_client, "ساعات بازدید نمایشگاه اینوتکس")
+    r = _ask(chat_client, "ساعات بازدید نمایشگاه پردیار")
     assert r.status_code == 200, r.text
     assert r.json()["source"] == "local"
     assert reached["n"] == 0

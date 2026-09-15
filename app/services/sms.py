@@ -163,8 +163,8 @@ _DEFAULT_REJECT_TEXT = ("متن ثبت‌شدهٔ شرکت شما تأیید ن�
 # The bulk "please confirm your details" campaign (migrations/0023). Same
 # {magic_link} rule as the two above; a separate sentence because it asks a
 # whole exhibition's worth of companies the same question at once.
-_DEFAULT_CAMPAIGN_TEXT = ("نمایشگاه INOTEX برای نمایش درست اطلاعات شرکت شما به "
-                          "تأیید خود شما نیاز دارد.\nلطفاً از طریق لینک زیر "
+_DEFAULT_CAMPAIGN_TEXT = ("برای نمایش درست اطلاعات شرکت شما به بازدیدکنندگان، "
+                          "شمارهٔ خود را تأیید کنید.\nلطفاً از طریق لینک زیر "
                           "وارد شوید، اطلاعات را بررسی و تأیید کنید:\n{magic_link}")
 
 
@@ -239,6 +239,12 @@ _AUTH_MESSAGE = "نام کاربری یا رمز عبور وب‌سرویس در
 # request was made, because the day's budget is spent. A string cannot collide
 # with an Asanak code, so a caller can compare without guessing.
 BUDGET_EXHAUSTED = "budget_exhausted"
+
+# The other non-numeric value: the request never reached the gateway
+# (timeout, connection failure). Same no-collision reasoning — a caller can
+# tell "the gateway is unreachable" (stop retrying this round) apart from
+# "the gateway answered no" (a numeric business code).
+TRANSPORT_FAILED = "transport_failed"
 
 # "The sender line may not send links". The one refusal a caller must be able
 # to act on differently: the invite still has to reach the contact, so the
@@ -449,7 +455,8 @@ def _http_post(url: str, payload: dict):
         return e.code, body
     except Exception as e:  # noqa: BLE001 — network failures are expected
         logger.error("[sms] asanak request failed: %s", type(e).__name__)
-        raise SmsError(detail="ارتباط با سامانه پیامک برقرار نشد.")
+        raise SmsError(detail="ارتباط با سامانه پیامک برقرار نشد.",
+                       code=TRANSPORT_FAILED)
 
 
 def _result(http_status: int, body: str):
@@ -586,7 +593,8 @@ def _http_post_json(url: str, document: dict):
         return e.code, body
     except Exception as e:  # noqa: BLE001 — network failures are expected
         logger.error("[sms] asanak template request failed: %s", type(e).__name__)
-        raise SmsError(detail="ارتباط با سامانه پیامک برقرار نشد.")
+        raise SmsError(detail="ارتباط با سامانه پیامک برقرار نشد.",
+                       code=TRANSPORT_FAILED)
 
 
 def _send_template(template_id: str, destination: str, parameters: dict,

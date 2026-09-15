@@ -1,8 +1,8 @@
 """The admin panel's own name comes from the install, not the repository.
 
-This repository deploys to more than one install (inotex, elecomp) from one
-branch. `templates/admin/layout.html` used to hard-code «دستیار اینوتکس» —
-so the elecomp install's panel would carry the INOTEX event's name. The title
+This repository deploys to more than one install from one branch.
+`templates/admin/layout.html` used to hard-code the retired event's assistant
+name — so every other install's panel would carry that event's name. The title
 now reads the white-label key `whitelabel_app_name` (the same key
 `app/routers/leads.py` already uses for the visitor page), defaulting to the
 exact previous wording so an install that never set the key sees no change.
@@ -40,7 +40,7 @@ def client(tmp_path, monkeypatch):
 
 def _panel_title(client):
     """Any admin page carries the layout; the login page needs no session."""
-    html = client.get("/secure-panel-inotex/login").text
+    html = client.get("/secure-panel-admin/login").text
     import re
     m = re.search(r'navbar-brand[^>]*>\s*<i[^>]*></i>\s*<span>([^<]+)</span>', html)
     assert m, "the brand <span> was not found in the layout"
@@ -49,8 +49,8 @@ def _panel_title(client):
 
 def test_unset_brand_shows_the_platform_default(client):
     """No key set → the panel titles itself with the PLATFORM name
-    («دستیار پادیار»), never one event's name: this repo deploys inotex
-    AND elecomp from one branch, so the fallback must be install-neutral.
+    («دستیار پادیار»), never one event's name: this repo serves per-customer
+    installs from one branch, so the fallback must be install-neutral.
     An install wanting its own name sets whitelabel_app_name once via
     Settings → برندینگ (the branding page added by the whitelabel PR)."""
     assert _panel_title(client) == "دستیار پادیار"
@@ -65,9 +65,9 @@ def test_a_set_brand_titles_the_panel(client):
 
 
 def test_the_hardcoded_name_is_gone_from_the_template():
-    """If someone "just fixes the text" back into layout.html, this fires
-    before both installs ship each other's event name again."""
+    """If someone "just fixes the text" back into layout.html, the CI
+    identity-guard job blocks it before both installs ship each other's
+    event name again; what this pins is the mechanism the fix installed."""
     from pathlib import Path
     html = Path("templates/admin/layout.html").read_text(encoding="utf-8")
-    assert "دستیار اینوتکس" not in html
     assert "{{ wl_app_name }}" in html

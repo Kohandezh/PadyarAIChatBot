@@ -34,20 +34,18 @@ def model_for(task: str) -> str:
     return (get_setting(f"ai_model_{task}", "") or "").strip() or _MODEL_DEFAULTS[task]
 
 # --- Editable assistant content (admin Settings → "محتوای دستیار هوشمند") ---
-# Defaults for a new INOTEX installation. Administrators can override them.
+# Defaults for a new installation. Administrators can override them.
 DEFAULT_ASSISTANT_NAME = "دستیار پادیار"
-DEFAULT_ASSISTANT_ORG = "نمایشگاه بین‌المللی نوآوری و فناوری (اینوتکس)"
-DEFAULT_ASSISTANT_PHONE = "۰۲۱۸۸۵۰۳۰۳۰"
-DEFAULT_ASSISTANT_WEBSITE = "inotex.com"
-DEFAULT_ASSISTANT_KNOWLEDGE = """
-INOTEX INFORMATION:
-- Name: پانزدهمین نمایشگاه بین‌المللی نوآوری و فناوری (اینوتکس ۲۰۲۶).
-- Dates: ۱۱ تا ۱۴ شهریور ۱۴۰۵.
-- Venue: پارک فناوری پردیس.
-- Official website: https://inotex.com/
-- Topics: نوآوری، فناوری، استارتاپ‌ها، شرکت‌های دانش‌بنیان، سرمایه‌گذاری، هوش مصنوعی، اینترنت اشیا و زیست‌بوم نوآوری.
-- Use the official website as the source of truth for time-sensitive information such as registration, schedules, participants and announcements.
-    """
+DEFAULT_ASSISTANT_ORG = "پردیار"
+# Empty by design: no install facts ship in code, and the retired event's
+# secretariat number must not reach a fresh install's visitors. An install
+# records its own phone in Settings; an empty value drops the phone lines
+# from the prompt (see build_system_prompt).
+DEFAULT_ASSISTANT_PHONE = ""
+DEFAULT_ASSISTANT_WEBSITE = "padyar.com"
+# No event facts ship in code (same rule as app/default_content.py): the
+# install's own knowledge arrives through the admin panel.
+DEFAULT_ASSISTANT_KNOWLEDGE = ""
 
 # --- Editable prompt SECTIONS (admin can change personality, tone, safety) ---
 # Each editable section's default reproduces the original prompt content. The
@@ -57,7 +55,7 @@ INOTEX INFORMATION:
 DEFAULT_PERSONALITY = (
     "ROLE & IDENTITY:\n"
     "You are {name}, an AI assistant for {org}.\n"
-    "You help visitors and exhibitors find clear, current INOTEX information.\n"
+    "You help visitors and exhibitors find clear, current {domain_en} information.\n"
     "Introduce yourself as {name} ONLY in the first message of a conversation."
 )
 
@@ -115,15 +113,15 @@ TONE_PRESETS = {
 
 # Ready-made safety rules the admin can APPEND to their own text.
 MEDICAL_PRESETS = [
-    {"label": "ارجاع به سایت رسمی", "text": "- For registration, dates, prices, hall locations or participant lists, always direct the user to the official INOTEX website."},
+    {"label": "ارجاع به سایت رسمی", "text": "- For registration, dates, prices, hall locations or participant lists, always direct the user to the official {domain_en} website."},
     {"label": "بدون قیمت‌سازی", "text": "- Never invent or quote fees, booth prices, or sponsorship costs; refer the user to the official website."},
     {"label": "اطلاعات زمان‌دار", "text": "- Treat dates, schedules and announcements as time-sensitive; encourage checking the official website for the latest."},
-    {"label": "حفظ محدوده", "text": "- Keep answers limited to the INOTEX exhibition and its services; politely decline unrelated requests."},
+    {"label": "حفظ محدوده", "text": "- Keep answers limited to {domain_en} and its services; politely decline unrelated requests."},
 ]
 
 # Fixed sections — product safety/structure, NOT customer-editable.
 #
-# {domain} / {domain_en} instead of a hardcoded "INOTEX" / «اینوتکس»: these
+# {domain} / {domain_en} instead of a hardcoded brand name: these
 # four sections were the last place a new deployment in a different category
 # (a hospital, a book fair) needed a PYTHON edit. They are filled by the same
 # str.replace() chain build_system_prompt() already runs for
@@ -147,16 +145,31 @@ _FACTUAL = (
     "- If unsure, direct to {phone} or {website}."
 )
 
+# An install with no phone recorded (the shipped default) gets these
+# variants: the phone clauses drop out entirely rather than render empty —
+# a "direct to" pointing at nothing invites the model to invent a number.
+_FACTUAL_WITHOUT_PHONE = (
+    "FACTUAL INTEGRITY:\n"
+    "- Never invent dates, prices, registrations, participant names or contact details.\n"
+    "- If unsure, direct to {website}."
+)
+
 _LANGUAGE = (
     "LANGUAGE:\n"
     "- Match the user's language (Persian or English).\n"
     "- Finglish or mixed input → respond in Persian.\n"
-    "- Common event/tech terms may stay in English (INOTEX, AI, IoT, startup)."
+    "- Common event/tech terms may stay in English (event names, AI, IoT, startup)."
 )
 
 _CONTACT = (
     "CONTACT:\n"
     "- Phone: {phone} (always in this format)\n"
+    "- Website: {website}\n"
+    "- Encourage checking the official website at most once per response."
+)
+
+_CONTACT_WITHOUT_PHONE = (
+    "CONTACT:\n"
     "- Website: {website}\n"
     "- Encourage checking the official website at most once per response."
 )
@@ -182,7 +195,9 @@ def build_system_prompt() -> str:
 
     name = get_setting("assistant_name", DEFAULT_ASSISTANT_NAME)
     org = get_setting("assistant_org", DEFAULT_ASSISTANT_ORG)
-    phone = get_setting("assistant_phone", DEFAULT_ASSISTANT_PHONE)
+    # Whitespace-only counts as empty: a "Phone:" label followed by spaces is
+    # the same defect as one followed by nothing.
+    phone = (get_setting("assistant_phone", DEFAULT_ASSISTANT_PHONE) or "").strip()
     website = get_setting("assistant_website", DEFAULT_ASSISTANT_WEBSITE)
     knowledge = get_setting("assistant_knowledge", DEFAULT_ASSISTANT_KNOWLEDGE)
     # What this assistant is ABOUT, and what it says when a question is not.
@@ -198,14 +213,17 @@ def build_system_prompt() -> str:
     tone_key = get_setting("assistant_tone", DEFAULT_TONE)
     tone = TONE_PRESETS.get(tone_key, TONE_PRESETS[DEFAULT_TONE])["text"]
 
+    # No phone recorded → the phone-less section variants: no dangling
+    # "Phone:" line, no "direct to {phone}" clause. The {phone} replace
+    # below then simply finds no token to fill.
     body = _SECTION_SEP.join([
         personality,   # editable
         _SCOPE,
         medical,       # editable
-        _FACTUAL,
+        _FACTUAL if phone else _FACTUAL_WITHOUT_PHONE,
         tone,          # editable (preset)
         _LANGUAGE,
-        _CONTACT,
+        _CONTACT if phone else _CONTACT_WITHOUT_PHONE,
         _SECURITY,
     ])
     filled = (body.replace("{name}", name).replace("{org}", org)
@@ -213,7 +231,11 @@ def build_system_prompt() -> str:
                   .replace("{domain_en}", domain_en).replace("{domain}", domain_fa)
                   .replace("{refusal_fa}", refusal_fa)
                   .replace("{refusal_en}", refusal_en))
-    return filled + "\n" + knowledge
+    # The knowledge default ships empty; only a set value earns the separator,
+    # so a fresh install's prompt does not end in a dangling blank section.
+    if knowledge:
+        return filled + "\n" + knowledge
+    return filled
 
 
 def _build_intent_list():
@@ -239,19 +261,22 @@ async def classify_intent(query: str):
     from app.services.search import dataset
     from app.services.ai.wrapper import padyar_ai
     from app.services.ai.errors import AIError
+    from app.services import scope
 
     intent_list = _build_intent_list()
+    # Same {domain_en} fill build_system_prompt() runs: the classifier prompt
+    # is built separately, so it gets its own replace over the same setting.
     system_prompt = (
-        "You are a classification engine for an INOTEX exhibition chatbot.\n"
+        "You are a classification engine for an {domain_en} chatbot.\n"
         "Given a user question, determine which intent it matches from the list below.\n"
         "Respond with ONLY the intent ID and nothing else.\n"
         "Identify the user's ACTUAL request, not just topics mentioned in passing. "
         "Past history is context, not the request.\n"
         "If the question is about registration, dates, venue, hall maps, participants, "
-        "services, news or any other INOTEX topic, choose the closest matching intent.\n"
-        "If the question is completely unrelated to the INOTEX exhibition, respond with: out_of_domain\n\n"
+        "services, news or any other {domain_en} topic, choose the closest matching intent.\n"
+        "If the question is completely unrelated to {domain_en}, respond with: out_of_domain\n\n"
         f"INTENTS:\n{intent_list}"
-    )
+    ).replace("{domain_en}", scope.domain("en"))
 
     try:
         # temperature=0.0 is a PREFERENCE: the adapter drops it for models

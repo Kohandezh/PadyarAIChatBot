@@ -222,16 +222,16 @@ def test_settings_backup_page_hides_the_sqlite_list_on_postgres(client, monkeypa
     import app.config as config
     monkeypatch.setattr(config, "DB_BACKEND", "postgres")
     _admin(client, monkeypatch)
-    html = client.get("/secure-panel-inotex/settings/backup").text
+    html = client.get("/secure-panel-admin/settings/backup").text
     # The dead controls are gone...
     assert "backup-list" not in html
     assert "restore-upload-btn" not in html
     # ...and the operator is pointed at the page that works.
-    assert "/secure-panel-inotex/infrastructure/backups" in html
+    assert "/secure-panel-admin/infrastructure/backups" in html
 
 
 def test_settings_backup_page_keeps_the_list_on_sqlite(client, monkeypatch):
     _admin(client, monkeypatch)
-    html = client.get("/secure-panel-inotex/settings/backup").text
+    html = client.get("/secure-panel-admin/settings/backup").text
     assert 'id="backup-list"' in html
     assert 'id="create-backup-btn"' in html

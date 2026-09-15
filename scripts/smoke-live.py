@@ -78,7 +78,7 @@ def _chat(base):
     token = re.search(r'name="chat-token"\s+content="([^"]+)"', page).group(1)
     status, body = post(
         f"{base}/chat",
-        {"message": "اینوتکس چیست", "lang": "fa"},
+        {"message": "سلام", "lang": "fa"},
         {"X-Chat-Token": token, "Origin": base},
     )
     assert status == 200, f"HTTP {status}: {body[:160]}"
@@ -93,7 +93,7 @@ def _chat_origin(base):
     token = re.search(r'name="chat-token"\s+content="([^"]+)"', page).group(1)
     status, _ = post(
         f"{base}/chat",
-        {"message": "اینوتکس چیست", "lang": "fa"},
+        {"message": "سلام", "lang": "fa"},
         {"X-Chat-Token": token, "Origin": "https://evil.example"},
     )
     assert status in (400, 403), f"foreign origin was accepted (HTTP {status})"
@@ -102,7 +102,7 @@ def _chat_origin(base):
 
 @check("chat: a missing token is refused")
 def _chat_no_token(base):
-    status, _ = post(f"{base}/chat", {"message": "اینوتکس چیست"}, {"Origin": base})
+    status, _ = post(f"{base}/chat", {"message": "سلام"}, {"Origin": base})
     assert status in (400, 401, 403), f"tokenless request accepted (HTTP {status})"
     return f"refused with {status}"
 
@@ -129,8 +129,8 @@ def _plan(base):
 
 @check("admin: pages require a login")
 def _admin_guard(base):
-    for path in ("/secure-panel-inotex/settings/sms",
-                 "/secure-panel-inotex/settings/taxonomy"):
+    for path in ("/secure-panel-admin/settings/sms",
+                 "/secure-panel-admin/settings/taxonomy"):
         req = urllib.request.Request(f"{base}{path}")
         opener = urllib.request.build_opener(NoRedirect())
         try:

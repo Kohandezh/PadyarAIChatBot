@@ -112,13 +112,13 @@ def test_saving_the_taxonomy_requires_a_login(anon, taxonomy_file):
 
 
 def test_the_page_sends_anonymous_visitors_to_the_login_screen(anon):
-    res = anon.get("/secure-panel-inotex/settings/taxonomy", follow_redirects=False)
+    res = anon.get("/secure-panel-admin/settings/taxonomy", follow_redirects=False)
     assert res.status_code in (302, 303, 307)
     assert "login" in res.headers["location"]
 
 
 def test_the_page_renders_for_an_admin(client):
-    res = client.get("/secure-panel-inotex/settings/taxonomy")
+    res = client.get("/secure-panel-admin/settings/taxonomy")
     assert res.status_code == 200
     assert "گزینه‌های فرم ثبت‌نام" in res.text
     assert "settings_taxonomy.js" in res.text

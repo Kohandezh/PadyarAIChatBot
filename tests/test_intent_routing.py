@@ -146,11 +146,11 @@ def test_branch_address_synonym_disambiguates(tmp_path, monkeypatch):
     assert score >= cfg.TRUSTED_MATCH_THRESHOLD
 
 
-# ── Trusted-tier ordering (the اینوتکس-date incident, 2026-08-27) ─────────
+# ── Trusted-tier ordering (the event-date incident, 2026-08-27) ───────────
 #
-# «اینوتکس امسال چه زمانی برگزار می‌شود؟» was served by Tier 1 (dataset
+# «پردیار امسال چه زمانی برگزار می‌شود؟» was served by Tier 1 (dataset
 # retrieval, "programs" FAQ entry, 0.95) while the questions blend held the
-# CORRECT entry (inotex-date) at 0.965 — Tier 1 answered unconditionally
+# CORRECT entry (event-date) at 0.965 — Tier 1 answered unconditionally
 # before the questions score was ever compared. These tests pin the rule:
 # when both local signals clear TRUSTED_MATCH_THRESHOLD, the higher score
 # wins (questions win an exact tie).
@@ -182,7 +182,7 @@ def _stub_local_tiers(monkeypatch, dataset_score, questions_score):
 
     dataset_entry = {"id": "faq-programs", "title": "برنامه‌ها",
                      "text": "پاسخ دیتاست", "video_url": ""}
-    questions_entry = {"id": "inotex-date", "title": "تاریخ اینوتکس",
+    questions_entry = {"id": "event-date", "title": "تاریخ رویداد",
                        "text": "پاسخ پرسش‌ها", "video_url": ""}
 
     monkeypatch.setattr(chat_router, "find_best_match",
@@ -198,7 +198,7 @@ def _stub_local_tiers(monkeypatch, dataset_score, questions_score):
     return dataset_entry, questions_entry
 
 
-def _ask(client, message="اینوتکس امسال چه زمانی برگزار می‌شود؟"):
+def _ask(client, message="پردیار امسال چه زمانی برگزار می‌شود؟"):
     return client.post("/chat", json={"message": message, "lang": "fa"})
 
 

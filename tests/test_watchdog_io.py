@@ -35,14 +35,14 @@ def _cycle(tmp_path, **overrides):
         sender=_send,
         settings_reader=SETTINGS,
         credit_reader=RICH_CREDIT,
-        state_path=tmp_path / "inotex.json",
+        state_path=tmp_path / "elecomp.json",
     )
     defaults.update(overrides)
-    return watchdog.run_cycle("inotex", **defaults)
+    return watchdog.run_cycle("elecomp", **defaults)
 
 
 def _disk_state(tmp_path):
-    return json.loads((tmp_path / "inotex.json").read_text(encoding="utf-8"))
+    return json.loads((tmp_path / "elecomp.json").read_text(encoding="utf-8"))
 
 
 def test_three_bad_probes_send_exactly_one_alert_sms(tmp_path):
@@ -51,7 +51,7 @@ def test_three_bad_probes_send_exactly_one_alert_sms(tmp_path):
     assert len(SENT) == 1
     dest, text = SENT[0]
     assert dest == PHONE
-    assert "INOTEX" in text and "پاسخ نمی‌دهد" in text
+    assert "ELECOMP" in text and "پاسخ نمی‌دهد" in text
     assert _disk_state(tmp_path)["fail_count"] == 3
 
 
@@ -86,7 +86,7 @@ def test_down_with_no_phone_configured_sends_nothing_but_persists(tmp_path, caps
 
 
 def test_settings_db_down_falls_back_to_cached_phone(tmp_path):
-    state_path = tmp_path / "inotex.json"
+    state_path = tmp_path / "elecomp.json"
     state_path.write_text(json.dumps({
         "fail_count": 2, "down_since": 1000.0, "last_alert": 0.0,
         "credit_day": "", "credit_alerted": False, "cached_phone": PHONE,
@@ -116,7 +116,7 @@ def test_probe_exception_counts_as_unhealthy_without_crashing(tmp_path):
 
 
 def test_corrupt_state_file_resets_to_fresh_state(tmp_path):
-    (tmp_path / "inotex.json").write_text("not json", encoding="utf-8")
+    (tmp_path / "elecomp.json").write_text("not json", encoding="utf-8")
     result = _cycle(tmp_path, now=1000)
     assert result["fail_count"] == 1  # ran as a fresh cycle, not a crash
     assert _disk_state(tmp_path)["fail_count"] == 1
@@ -137,10 +137,10 @@ def test_default_state_lives_in_per_install_directory(tmp_path, monkeypatch):
     # root-owned parent where every persist would fail silently.
     monkeypatch.setattr(watchdog, "STATE_DIR", str(tmp_path))
     result = watchdog.run_cycle(
-        "inotex", now=1000, probe=lambda port: True, sender=_send,
+        "elecomp", now=1000, probe=lambda port: True, sender=_send,
         settings_reader=SETTINGS, credit_reader=RICH_CREDIT,
     )
-    state_file = tmp_path / "inotex" / "state.json"
+    state_file = tmp_path / "elecomp" / "state.json"
     assert state_file.is_file()
     assert result["fail_count"] == 0
     assert json.loads(state_file.read_text(encoding="utf-8"))["fail_count"] == 0

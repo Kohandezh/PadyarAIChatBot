@@ -43,8 +43,8 @@ def _render(template_name: str, **context) -> HTMLResponse:
     from app.config import ENABLED_MODULES
     context.setdefault("enabled_modules", ENABLED_MODULES)
     # The panel's own name. This repository deploys to more than one install
-    # (inotex, elecomp) from one branch, so a literal name in layout.html
-    # would brand every install with one event's identity — the white-label
+    # from one branch, so a literal name in layout.html would brand every
+    # install with one event's identity — the white-label
     # key is the install's display name. RAW value, deliberately not
     # pre-escaped: this Jinja env has autoescape=True, so Jinja escapes it —
     # pre-escaping here would double-escape in the sidebar. (The theme env is
@@ -196,8 +196,9 @@ async def read_root(request: Request):
 # printed on the suggested-question chips. Nothing else.
 #
 # It replaces /api/dataset and /api/questions, which were unauthenticated and
-# returned every row of the knowledge base — on the INOTEX install, 222 dataset
-# rows of which 168 are exhibitor company records with their full write-ups.
+# returned every row of the knowledge base — on the first production
+# install, 222 dataset rows of which 168 are exhibitor company records
+# with their full write-ups.
 # That is the customer's commercial content, and anyone who typed the URL could
 # download the lot. The chips only ever printed a title, so the answer bodies,
 # the row ids, the video paths and the whole long tail of rows the chips never
@@ -254,7 +255,7 @@ async def _require_admin(request: Request):
         await verify_admin(request)
         return None
     except Exception:
-        return RedirectResponse(url="/secure-panel-inotex/login", status_code=303)
+        return RedirectResponse(url="/secure-panel-admin/login", status_code=303)
 
 
 def _require_module(module_name: str) -> None:
@@ -273,15 +274,15 @@ def _require_module(module_name: str) -> None:
         raise HTTPException(status_code=404, detail="Module not enabled")
 
 
-@router.get("/secure-panel-inotex/login", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request):
     redirect = await _require_admin(request)
     if redirect is None:
-        return RedirectResponse(url="/secure-panel-inotex", status_code=303)
+        return RedirectResponse(url="/secure-panel-admin", status_code=303)
     return _render("admin/login.html", request=request)
 
 
-@router.get("/secure-panel-inotex", response_class=HTMLResponse)
+@router.get("/secure-panel-admin", response_class=HTMLResponse)
 async def admin_dashboard(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -290,7 +291,7 @@ async def admin_dashboard(request: Request):
                    js_version=admin_js_version("dashboard.js", "resources.js"))
 
 
-@router.get("/secure-panel-inotex/manage-datasets", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/manage-datasets", response_class=HTMLResponse)
 async def admin_datasets(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -298,7 +299,7 @@ async def admin_datasets(request: Request):
     return _render("admin/dataset.html", request=request, active_page="dataset")
 
 
-@router.get("/secure-panel-inotex/manage-questions", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/manage-questions", response_class=HTMLResponse)
 async def admin_questions(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -306,7 +307,7 @@ async def admin_questions(request: Request):
     return _render("admin/questions.html", request=request, active_page="questions")
 
 
-@router.get("/secure-panel-inotex/synonyms", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/synonyms", response_class=HTMLResponse)
 async def admin_synonyms(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -314,7 +315,7 @@ async def admin_synonyms(request: Request):
     return _render("admin/synonyms.html", request=request, active_page="synonyms")
 
 
-@router.get("/secure-panel-inotex/themes", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/themes", response_class=HTMLResponse)
 async def admin_themes(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -322,7 +323,7 @@ async def admin_themes(request: Request):
     return _render("admin/themes.html", request=request, active_page="themes")
 
 
-@router.get("/secure-panel-inotex/visitors", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/visitors", response_class=HTMLResponse)
 async def admin_visitors(request: Request):
     """The people who registered, and how to reach them again.
 
@@ -351,7 +352,7 @@ async def admin_visitors(request: Request):
                    js_version=admin_js_version("visitors.js"))
 
 
-@router.get("/secure-panel-inotex/conversations", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/conversations", response_class=HTMLResponse)
 async def admin_conversations(request: Request):
     """Every chat session, and the one-click list of the bot's wrong answers.
 
@@ -372,7 +373,7 @@ async def admin_conversations(request: Request):
                    js_version=admin_js_version("conversations.js"))
 
 
-@router.get("/secure-panel-inotex/infrastructure/database", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/infrastructure/database", response_class=HTMLResponse)
 async def admin_infra_database(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -382,7 +383,7 @@ async def admin_infra_database(request: Request):
                    active_page="infra_database")
 
 
-@router.get("/secure-panel-inotex/infrastructure/storage", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/infrastructure/storage", response_class=HTMLResponse)
 async def admin_infra_storage(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -392,7 +393,7 @@ async def admin_infra_storage(request: Request):
                    active_page="infra_storage")
 
 
-@router.get("/secure-panel-inotex/ops", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ops", response_class=HTMLResponse)
 async def admin_ops_dashboard(request: Request):
     # Page shell only — the maintenance banner it once carried lives in
     # layout.html and renders on every admin page regardless of this gate.
@@ -403,7 +404,7 @@ async def admin_ops_dashboard(request: Request):
     return _render("admin/ops_dashboard.html", request=request, active_page="ops")
 
 
-@router.get("/secure-panel-inotex/ops/services", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ops/services", response_class=HTMLResponse)
 async def admin_ops_services(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -412,7 +413,7 @@ async def admin_ops_services(request: Request):
     return _render("admin/ops_services.html", request=request, active_page="ops_services")
 
 
-@router.get("/secure-panel-inotex/security/sessions", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/security/sessions", response_class=HTMLResponse)
 async def admin_security_sessions(request: Request):
     # Sessions sit under the ops module per the sidebar grouping; if session
     # management ever becomes its own module, layout.html moves with it.
@@ -424,7 +425,7 @@ async def admin_security_sessions(request: Request):
                    active_page="security_sessions")
 
 
-@router.get("/secure-panel-inotex/logs", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/logs", response_class=HTMLResponse)
 async def admin_logs(request: Request):
     """The one explorer serves every category via ?category= — twelve
     near-identical templates would be twelve places to fix a bug."""
@@ -440,7 +441,7 @@ async def admin_logs(request: Request):
                    page_title=f"لاگ‌ها — {title}")
 
 
-@router.get("/secure-panel-inotex/logs/overview", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/logs/overview", response_class=HTMLResponse)
 async def admin_logs_overview(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -452,7 +453,7 @@ async def admin_logs_overview(request: Request):
 
 # ── AI provider control plane pages ─────────────────────────────────────
 
-@router.get("/secure-panel-inotex/ai/providers", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ai/providers", response_class=HTMLResponse)
 async def admin_ai_providers(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -460,7 +461,7 @@ async def admin_ai_providers(request: Request):
     return _render("admin/ai_providers.html", request=request, active_page="ai_providers")
 
 
-@router.get("/secure-panel-inotex/ai/models", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ai/models", response_class=HTMLResponse)
 async def admin_ai_models(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -468,7 +469,7 @@ async def admin_ai_models(request: Request):
     return _render("admin/ai_models.html", request=request, active_page="ai_models")
 
 
-@router.get("/secure-panel-inotex/ai/routing", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ai/routing", response_class=HTMLResponse)
 async def admin_ai_routing(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -476,7 +477,7 @@ async def admin_ai_routing(request: Request):
     return _render("admin/ai_routing.html", request=request, active_page="ai_routing")
 
 
-@router.get("/secure-panel-inotex/ai/usage", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ai/usage", response_class=HTMLResponse)
 async def admin_ai_usage(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -484,7 +485,7 @@ async def admin_ai_usage(request: Request):
     return _render("admin/ai_usage.html", request=request, active_page="ai_usage")
 
 
-@router.get("/secure-panel-inotex/ai/debug", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ai/debug", response_class=HTMLResponse)
 async def admin_ai_debug(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -492,7 +493,7 @@ async def admin_ai_debug(request: Request):
     return _render("admin/ai_debug.html", request=request, active_page="ai_debug")
 
 
-@router.get("/secure-panel-inotex/logs/settings", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/logs/settings", response_class=HTMLResponse)
 async def admin_logs_settings(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -503,13 +504,13 @@ async def admin_logs_settings(request: Request):
                    active_page="logs_settings", categories=CATEGORIES)
 
 
-@router.get("/secure-panel-inotex/settings", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request):
     # Settings is split into sub-pages; land on the account page.
-    return RedirectResponse(url="/secure-panel-inotex/settings/account", status_code=303)
+    return RedirectResponse(url="/secure-panel-admin/settings/account", status_code=303)
 
 
-@router.get("/secure-panel-inotex/settings/account", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/account", response_class=HTMLResponse)
 async def admin_settings_account(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -517,7 +518,7 @@ async def admin_settings_account(request: Request):
     return _render("admin/settings_account.html", request=request, active_page="settings_account")
 
 
-@router.get("/secure-panel-inotex/settings/ai", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/ai", response_class=HTMLResponse)
 async def admin_settings_ai(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -525,7 +526,7 @@ async def admin_settings_ai(request: Request):
     return _render("admin/settings_ai.html", request=request, active_page="settings_ai")
 
 
-@router.get("/secure-panel-inotex/settings/sms", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/sms", response_class=HTMLResponse)
 async def admin_settings_sms(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -533,7 +534,7 @@ async def admin_settings_sms(request: Request):
     return _render("admin/settings_sms.html", request=request, active_page="settings_sms")
 
 
-@router.get("/secure-panel-inotex/settings/backup", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/backup", response_class=HTMLResponse)
 async def admin_settings_backup(request: Request):
     redirect = await _require_admin(request)
     if redirect:
@@ -549,7 +550,7 @@ async def admin_settings_backup(request: Request):
                    backup_engine=("postgres" if DB_BACKEND == "postgres" else "sqlite"))
 
 
-@router.get("/secure-panel-inotex/settings/branding", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/branding", response_class=HTMLResponse)
 async def admin_settings_branding(request: Request):
     # Branding is core, never module-gated: every install has a name and
     # colors, whether or not it bought any optional module.
@@ -597,8 +598,9 @@ async def readiness_check(deep: bool = False, request: Request = None):
     """Readiness: is the retrieval layer actually able to answer?
 
     ``deep=true`` additionally probes the external AI endpoint (never done
-    in the request path). Returns 503 while the local layer is not ready so
-    an orchestrator holds traffic until the index is built.
+    in the request path). Returns 503 only when the local model stack itself
+    fails to load — an empty knowledge base is healthy, so this is an
+    exception state, not a warm-up window.
 
     The deep probe is admin-only: it makes the server call the external
     provider, and an anonymous caller able to trigger outbound traffic on

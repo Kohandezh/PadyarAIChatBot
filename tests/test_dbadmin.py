@@ -571,8 +571,8 @@ def test_the_router_dispatches_through_an_explicit_dict_not_getattr():
 # own. These tests guard the templates: that they render at all, that they are
 # behind the admin session, and that they load their own ES module.
 
-PAGES = [("/secure-panel-inotex/infrastructure/database", "infra_database.js"),
-         ("/secure-panel-inotex/infrastructure/storage", "infra_storage.js")]
+PAGES = [("/secure-panel-admin/infrastructure/database", "infra_database.js"),
+         ("/secure-panel-admin/infrastructure/storage", "infra_storage.js")]
 
 
 @pytest.mark.parametrize("url,script", PAGES)
@@ -581,7 +581,7 @@ def test_the_page_is_behind_the_admin_session(client, url, script):
         pytest.skip(f"{url} is not wired yet")
     r = client.get(url, follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/secure-panel-inotex/login"
+    assert r.headers["location"] == "/secure-panel-admin/login"
 
 
 @pytest.mark.parametrize("url,script", PAGES)

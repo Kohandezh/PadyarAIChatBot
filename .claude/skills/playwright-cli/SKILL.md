@@ -36,16 +36,16 @@ PORT=8010 .venv/bin/python main.py       # HOST/PORT env vars are honored
 Key URLs in this app:
 
 - Public chat UI: `http://127.0.0.1:8000/`
-- Admin login page: `http://127.0.0.1:8000/secure-panel-inotex/login`
+- Admin login page: `http://127.0.0.1:8000/secure-panel-admin/login`
 - Admin login POST (JSON): `/admin/login`
-- Admin pages: dataset, questions, settings, backup (under `/secure-panel-inotex`)
+- Admin pages: dataset, questions, settings, backup (under `/secure-panel-admin`)
 
 > The public chat endpoint is protected by an HMAC chat token injected into the page, an `Origin`/`Referer` allowlist, and a rate limit (2 requests / 30s per IP). Real-browser e2e works because the loaded page carries a valid token and `localhost` is an allowed origin — but pace requests to avoid the rate limit.
 
 ## Record a flow with codegen
 
 ```bash
-.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-inotex/login --target python
+.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-admin/login --target python
 ```
 
 A browser opens; your interactions are transcribed to Python (`page.goto(...)`, `page.get_by_role(...)`, `page.get_by_label(...).fill(...)`, etc.). Copy the generated body into a `tests/e2e/` test. Use `--output tests/e2e/raw_capture.py` to write straight to a file.
@@ -56,7 +56,7 @@ A browser opens; your interactions are transcribed to Python (`page.goto(...)`, 
 from playwright.sync_api import Page, expect
 
 def test_admin_login_page_loads(page: Page):
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     expect(page.locator("#username")).to_be_visible()
 ```
 
@@ -71,7 +71,7 @@ Useful pytest-playwright CLI flags:
 .venv/bin/pytest tests/e2e --base-url http://127.0.0.1:8000  # then page.goto("/...")
 ```
 
-With `--base-url` set, relative paths work: `page.goto("/secure-panel-inotex/login")`.
+With `--base-url` set, relative paths work: `page.goto("/secure-panel-admin/login")`.
 
 ## Common locators
 
@@ -94,7 +94,7 @@ This app's admin login fields have real ids: `#username`, `#password`, `#sec-ans
 
 ```python
 expect(page.locator("#username")).to_be_visible()
-expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
 expect(page.get_by_text("داشبورد")).to_be_visible()
 expect(page.locator("#login-error")).to_have_text("")
 expect(page.get_by_role("textbox", name="نام کاربری")).to_have_value("admin")
@@ -132,12 +132,12 @@ import re
 from playwright.sync_api import Page, expect
 
 def test_admin_login_flow(page: Page):
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")          # security answer
     page.get_by_role("button", name="ورود به سیستم").click()
-    expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+    expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
     expect(page.get_by_text("داشبورد")).to_be_visible()
 ```
 

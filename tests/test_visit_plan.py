@@ -173,7 +173,7 @@ def test_every_recommended_section_exists_in_the_taxonomy():
 
 
 def test_note_always_states_the_exhibitor_directory_is_not_published():
-    for lang, marker in (("fa", "غرفه‌داران"), ("en", "exhibitor")):
+    for lang, marker in (("fa", "فهرست شرکت‌ها"), ("en", "exhibitor")):
         plan = visit_plan.recommend({"interests": "هوش مصنوعی"}, lang=lang)
         assert marker in plan["note"]
 
@@ -187,7 +187,7 @@ def test_plan_text_is_empty_without_a_real_match():
 def test_plan_text_lists_sections_and_the_note():
     text = visit_plan.plan_text({"interests": "هوش مصنوعی"})
     assert "همایش ملی هوش مصنوعی" in text
-    assert "غرفه‌داران" in text
+    assert "فهرست شرکت‌ها" in text
 
 
 def test_plan_text_separates_general_sections_from_matches():
@@ -196,8 +196,8 @@ def test_plan_text_separates_general_sections_from_matches():
     assert "مدیا هاب — چون در حوزهٔ رسانه و محتوا فعالید." in text
     assert "و اگر وقت داشتید" in text
     # The topped-up entry appears as a bare title, with no invented reason.
-    assert "• استیج اینوتکس\n" in text or text.endswith("• استیج اینوتکس")
-    assert "استیج اینوتکس —" not in text
+    assert "• استیج اصلی\n" in text or text.endswith("• استیج اصلی")
+    assert "استیج اصلی —" not in text
 
 
 # ── HTTP surface ─────────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ def answer(monkeypatch):
 
 @pytest.fixture
 def targeted_entry():
-    return {"id": "inotex-targeted-visit", "text": "پایه", "text_en": "base", "video_url": ""}
+    return {"id": "targeted-visit", "text": "پایه", "text_en": "base", "video_url": ""}
 
 
 def test_targeted_answer_is_personalised_for_a_described_visitor(answer, targeted_entry):
@@ -286,7 +286,7 @@ def test_targeted_answer_is_untouched_without_a_profile(answer, targeted_entry):
 
 def test_other_entries_are_never_personalised(answer):
     from app.models import VisitorProfile
-    entry = {"id": "inotex-overview", "text": "پایه", "video_url": ""}
+    entry = {"id": "event-overview", "text": "پایه", "video_url": ""}
     assert answer(entry, VisitorProfile(interests="هوش مصنوعی")) == "پایه"
 
 

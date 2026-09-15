@@ -28,8 +28,9 @@ def admin_client(tmp_path, monkeypatch):
                      " VALUES ('smsadmin','x','y','q','z')")
         conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
                      " VALUES (?,?,?)",
-                     (token, "smsadmin",
-                      (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()))
+                      (token, "smsadmin",
+                       (datetime.datetime.now(datetime.timezone.utc)
+                        + datetime.timedelta(hours=1)).isoformat()))
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)

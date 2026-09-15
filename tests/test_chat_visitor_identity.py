@@ -40,7 +40,7 @@ TARGETED_TEXT = "بازدید هدفمند یعنی غرفه‌های مرتبط
 PLAIN_QUESTION = "ساعت کاری نمایشگاه چیست؟"
 
 DATASET = [
-    ("inotex-targeted-visit", "بازدید هدفمند", TARGETED_TEXT, ""),
+    ("targeted-visit", "بازدید هدفمند", TARGETED_TEXT, ""),
     ("faq-hours", "ساعت کاری", "نمایشگاه هر روز از ۹ صبح تا ۱۸ باز است.", ""),
 ]
 
@@ -65,7 +65,7 @@ def _seed():
     for entry_id, title, text, video in DATASET:
         conn.execute("INSERT INTO dataset (id, title, text, video_url)"
                      " VALUES (?, ?, ?, ?)", (entry_id, title, text, video))
-    for question, entry_id in ((TARGETED_QUESTION, "inotex-targeted-visit"),
+    for question, entry_id in ((TARGETED_QUESTION, "targeted-visit"),
                                (PLAIN_QUESTION, "faq-hours")):
         conn.execute("INSERT INTO questions (question, dataset_id, video_url)"
                      " VALUES (?, ?, '')", (question, entry_id))
@@ -265,6 +265,37 @@ class TestTheBodyIsNotIdentity:
         # ...and the shape itself survives, because the server now builds it.
         from app.models import VisitorProfile
         assert VisitorProfile(job="ج", position="س", interests="ع").job == "ج"
+
+
+# ── The record id behind the personalised entry ───────────────────────────
+
+class TestThePersonalisedRecordId:
+    """The record id was renamed to the neutral "targeted-visit" (the
+    inotex de-brand). Legacy installs carry rows under the old
+    "inotex-targeted-visit" id; the chat matcher accepts both, so an
+    existing dataset keeps personalising after the rename."""
+
+    def test_the_legacy_id_still_triggers_the_personalised_suffix(self, client):
+        import app.db.connection as dbc
+        conn = dbc.get_db_connection()
+        conn.execute(
+            "UPDATE dataset SET id = 'inotex-targeted-visit'"
+            " WHERE id = 'targeted-visit'")
+        conn.execute(
+            "UPDATE questions SET dataset_id = 'inotex-targeted-visit'"
+            " WHERE dataset_id = 'targeted-visit'")
+        conn.commit()
+        conn.close()
+        from app.services import search
+        search.load_dataset_internal()
+
+        _sign_in(client, interests=AI_INTEREST)
+
+        r = _ask(client, TARGETED_QUESTION)
+        assert r.status_code == 200, r.text
+        text = r.json()["text"]
+        assert text.startswith(TARGETED_TEXT)
+        assert PLAN_MARKER in text, text
 
 
 # ── The gate ─────────────────────────────────────────────────────────────

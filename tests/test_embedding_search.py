@@ -10,7 +10,7 @@ from app.services import embeddings
 
 
 def test_calibration_maps_noise_to_zero_and_matches_high():
-    # Band measured on the INOTEX corpus (see embeddings.py): noise ≤ 0.49
+    # Band measured on the live event corpus (see embeddings.py): noise ≤ 0.49
     # maps toward 0, a genuine paraphrase (~0.72) must clear the 0.70 trust
     # bar, and saturation reaches 1.0 well before a perfect cosine.
     assert embeddings._calibrate(0.30) == 0.0

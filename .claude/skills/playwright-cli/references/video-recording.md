@@ -18,12 +18,12 @@ with sync_playwright() as p:
     )
     page = context.new_page()
 
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-inotex**")
+    page.wait_for_url("**/secure-panel-admin**")
 
     # Video is flushed to disk when the context closes
     context.close()

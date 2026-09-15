@@ -58,7 +58,13 @@ class LocalRetrievalProvider:
         t0 = time.perf_counter()
         try:
             from app.services import search
-            ok = bool(search.dataset)
+            # Readiness = the retrieval layer is BUILT and loadable, so an
+            # orchestrator holds traffic only while the index is still coming
+            # up. An empty knowledge base is a supported state (fresh installs
+            # seed no content), not a boot condition — the panel's health
+            # probe still reports it as DEGRADED, and the count rides the
+            # detail line here.
+            ok = True
             detail = (
                 f"dataset={len(search.dataset)} entries, "
                 f"backend={'embedding+bm25' if search.dataset_embedding_index is not None else 'bm25'}, "

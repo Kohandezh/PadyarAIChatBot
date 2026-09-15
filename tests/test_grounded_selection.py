@@ -505,7 +505,7 @@ def test_a_query_naming_an_unknown_entity_never_reaches_the_candidate_list(clien
     nowhere in the corpus, so unknown_salient_tokens() fires and every local
     candidate is nulled. Showing the model eight of our records anyway would
     reopen the hole through the model instead of through retrieval: it would
-    happily pick the closest INOTEX record for a question about a rival
+    happily pick the closest event record for a question about a rival
     exhibition."""
     _seed()
     seen = _fake_candidates(monkeypatch, ["co-alfa", "co-beta"])
@@ -887,7 +887,7 @@ def test_an_unrelated_question_after_a_list_does_not_prepend_the_stale_records(
         client, monkeypatch):
     """The gate that let this through was a token COUNT:
     `len(content_tokens(query)) <= 6 or (tokens & BACKREF_WORDS)`. Measured
-    over data/eval/golden-inotex.json (2026-08-28) it is true for 58 of the 60
+    over the retired event's golden corpus (2026-08-28) it is true for 58 of the 60
     golden queries — booth questions are short, so the gate stood open on
     almost every turn. For fifteen minutes after any list, an unrelated
     question got up to five stale companies pushed to the FRONT of the model's
@@ -949,7 +949,7 @@ def test_what_counts_as_a_follow_up_and_what_does_not():
 
     for message in ("ساعت کاری نمایشگاه", "پارکینگ کجاست",
                     "هزینه غرفه چقدر است", "یکی از سالن ها کجاست",
-                    "تاریخ برگزاری اینوتکس ۲۰۲۶"):
+                    "تاریخ برگزاری پردیار ۲۰۲۶"):
         assert not is_followup(message, offer), message
 
     # No list on the table, so nothing to follow up on.

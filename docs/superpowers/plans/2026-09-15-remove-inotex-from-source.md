@@ -500,10 +500,11 @@ Expected: rg — no output.
 
 ---
 
-### Task 10: CHANGELOG, remaining.md, spec/plan check-in
+### Task 10: Docs scrub (full committed-tree scope), CHANGELOG, remaining.md
 
 **Files:**
-- Modify: `CHANGELOG.md` (2 hits), `remaining.md` (3 hits)
+- Delete: `docs/knowledge-based-evidence/` (entire directory — the retired event's evidence package; measurements cannot be neutralized), `docs/superpowers/plans/2026-09-14-assessment-remediation.md` (finished plan artifact), `docs/engineering/ai-providers/research/_git-baseline-before-ai-phase.txt` if it is a frozen historical capture whose inotex mentions cannot be reworded without falsifying it — assess and delete rather than falsify
+- Modify (scrub in place, mechanical rewording): `CHANGELOG.md` (2 hits), `remaining.md` (3 hits), `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/engineering/{AI_ASSISTANCE_LOG,ARCHITECTURE,CODE_OWNERSHIP,DECISIONS,DEPLOYMENT_RUNBOOK,HUMAN_REVIEW_CHECKLIST}.md`, `docs/engineering/ai-providers/research/kimi.md`, every `docs/features/**` file matching `rg -li 'INOTEX|اینوتکس|inotex\.com|secure-panel-inotex'` — replace brand words with neutral ones («رویداد»/"the event"), old admin path already renamed by Task 2's sed, drop stale freshness-workflow references (AGENTS.md/CLAUDE.md describe the deleted `padyar-freshness@` units and `scripts/refresh-inotex-context.py` as live — reword or remove those sentences; do not describe machinery that no longer exists)
 - Add: `docs/superpowers/specs/2026-09-15-remove-inotex-from-source-design.md`, `docs/superpowers/plans/2026-09-15-remove-inotex-from-source.md`
 
 **Interfaces:** none.
@@ -614,3 +615,17 @@ EOF
 ```
 
 (Push/PR only after Sina confirms — commits were approved as part of the one-PR approach; pushing is the explicit final gate.)
+
+---
+
+### Task 12 (post-review, Sina-requested): timezone-correct tests, OTP-fixture isolation, poll bail-out
+
+**Files:**
+- Modify: `tests/test_leads_{company_tools,contacts_admin,sms_channel,campaigns,edit_fields}.py`, `tests/test_marketing_notes.py`, `tests/test_sms_{production_guard,outbox}.py` (naive `utcnow()+timedelta` session-expiry seeds → aware UTC), `tests/test_otp.py` (client fixture gains the DB_PATH/SEED_DEFAULT_CONTENT tmp-redirect idiom), `app/services/sms_outbox.py` (poll_deliveries: stop asking the gateway after a transport-level failure this round)
+- Test: the 16 timezone-dependent failures (they are the failing cases; local machine runs UTC+3:30, CI runs UTC)
+
+**Interfaces:** none new.
+
+- Root causes (evidence in ledger): tests seed `admin_sessions.expiry` with naive-UTC `utcnow()` while `compare_now()` compares naive LOCAL now → any UTC+ host reads the row as already expired → 401 (16 failures reproduce on origin/main locally, green on UTC CI). test_otp.py's bare `client` fixture skips the suite's DB_PATH isolation idiom → OTP sends land in the repo-root `chat_history.db`, whose 40 queued rows made every later app boot's delivery poller hit the WAF-blackholed asanak gateway 10 s per row (the "hang"). `poll_deliveries` asks up to 50 rows serially with no early bail-out.
+- Steps: (1) fix the 8 test files' expiry seeds to `datetime.datetime.now(datetime.timezone.utc) + …` (verify each utcnow usage in them; only time-comparison seeds change); (2) give test_otp.py's client fixture the tmp DB_PATH + `SEED_DEFAULT_CONTENT=False` redirect (idiom: tests/test_leads_contacts_admin.py:21-23) and wipe any repo-root scratch DBs the run leaves; (3) in poll_deliveries, wrap `_ask_gateway` per row so a transport error (timeout/URLError) marks the remaining queued rows untouched and returns early with a log line; (4) run the 6 failing files → 0 failures; run tests/test_otp.py → completes in seconds; full k–z chunk green.
+- Commit: `fix: timezone-correct admin-session seeds, isolate the OTP fixture, bail out of gateway polls early`

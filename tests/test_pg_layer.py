@@ -16,7 +16,7 @@ def test_question_mark_inside_a_persian_literal_is_not_a_placeholder():
     """The knowledge base is full of Persian questions. A blind ?->%s replace
     corrupts them and produces a silently wrong query."""
     from app.db.pg import translate
-    out = translate("SELECT * FROM dataset WHERE title = 'اینوتکس چیست؟' AND id = ?")
+    out = translate("SELECT * FROM dataset WHERE title = 'پردیار چیست؟' AND id = ?")
     assert "چیست؟" in out
     assert out.count("%s") == 1
 

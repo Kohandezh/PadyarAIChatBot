@@ -2,7 +2,7 @@
 
 The scenario: the contact was never stood next to a field visitor — the
 operator met them on the phone or in a corridor. The operator opens
-/secure-panel-inotex/leads, picks the company from the same search the booth
+/secure-panel-admin/leads, picks the company from the same search the booth
 sees, types the responsible person's details, and gets a one-time edit link to
 hand over personally. The row lands in the SAME table as booth leads, owns its
 company by the SAME rule, and its text goes through the SAME review queue.
@@ -35,8 +35,9 @@ def admin_client(tmp_path, monkeypatch):
                      " VALUES ('cadmin','x','y','q','z')")
         conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
                      " VALUES (?,?,?)",
-                     (token, "cadmin",
-                      (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()))
+                      (token, "cadmin",
+                       (datetime.datetime.now(datetime.timezone.utc)
+                        + datetime.timedelta(hours=1)).isoformat()))
         conn.commit()
         conn.close()
         c.cookies.set("admin_session", token)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish both sites through a Cloudflare Tunnel.
+# Publish the site through a Cloudflare Tunnel.
 #
 #   sudo CF_TUNNEL_TOKEN=eyJ... bash deploy/40-cloudflare-tunnel.sh
 #
@@ -60,7 +60,7 @@ PY
 TUNNEL_ID=$(cat /etc/cloudflared/tunnel-id)
 
 log "Writing the ingress configuration"
-# Both hostnames go to nginx on HTTPS 127.0.0.1:443 rather than straight to
+# The hostname goes to nginx on HTTPS 127.0.0.1:443 rather than straight to
 # uvicorn, so media serving, the 500m upload limit and the proxy timeouts
 # still apply. originServerName makes the Let's Encrypt certificate validate,
 # which is what keeps this equivalent to Full (strict).
@@ -78,12 +78,6 @@ originRequest:
   noHappyEyeballs: true
 
 ingress:
-  - hostname: inotex.padyar.com
-    service: https://127.0.0.1:443
-    originRequest:
-      originServerName: inotex.padyar.com
-      httpHostHeader: inotex.padyar.com
-
   - hostname: elecomp.padyar.com
     service: https://127.0.0.1:443
     originRequest:
@@ -138,7 +132,7 @@ TOKEN=$(awk -F' = ' '{print $2}' /root/.secrets/cloudflare.ini)
 ZONE=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=padyar.com" \
   -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;print(json.load(sys.stdin)['result'][0]['id'])")
 
-for host in inotex.padyar.com elecomp.padyar.com; do
+for host in elecomp.padyar.com; do
   rec=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?name=$host" \
     -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;r=json.load(sys.stdin)['result'];print(r[0]['id'] if r else '')")
   body=$(printf '{"type":"CNAME","name":"%s","content":"%s.cfargotunnel.com","proxied":true,"ttl":1}' "$host" "$TUNNEL_ID")
@@ -157,4 +151,4 @@ print('  $host ->', d['result']['content'], 'proxied=' + str(d['result']['proxie
 "
 done
 
-log "Done. Verify from outside with:  curl -I https://inotex.padyar.com/"
+log "Done. Verify from outside with:  curl -I https://elecomp.padyar.com/"

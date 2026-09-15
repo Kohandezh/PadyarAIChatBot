@@ -25,12 +25,24 @@ Nothing here sends anything. The send paths in app/services/sms.py call
 record() on their way out; the poller only reads the gateway.
 """
 import secrets
+import socket
+import urllib.error
 from datetime import datetime, timedelta
 from typing import Optional
 
 from app.config import logger
 from app.db.connection import get_db_connection
 from app.db.timeutil import to_naive_utc
+
+
+class _GatewayUnreachable(Exception):
+    """`asanak_status` could not reach the gateway at the transport level
+    (timeout, connection failure — sms.py surfaces these as
+    SmsError(code=TRANSPORT_FAILED)). A gateway-RETURNED answer, even a
+    refusal, is never transport. `poll_deliveries` stops its round on this:
+    a blackholed gateway fails every remaining row the same way, and
+    TIMEOUT_SECONDS apiece — ten seconds, up to fifty rows — is how one
+    dead endpoint stalls a boot."""
 
 # How long a queued row keeps being asked. Iranian carriers answer within
 # minutes; anything still wordless after a day is a message that did not
@@ -143,6 +155,9 @@ def poll_deliveries(limit: int = 50) -> dict:
     a message with no word after a day is a message that did not happen, and
     the operator needs that answer more than another day of "queued". Returns
     a small summary for the log and the admin button that triggered it.
+
+    The round stops at the first `_GatewayUnreachable`: the unasked rows stay
+    queued for a round when the gateway answers again.
     """
     ensure_table()
     now = _now()
@@ -171,8 +186,14 @@ def poll_deliveries(limit: int = 50) -> dict:
         conn.close()
 
     asked = delivered = failed = 0
-    for row in rows:
-        answer = _ask_gateway(row["provider"], row["msgid"])
+    for index, row in enumerate(rows):
+        try:
+            answer = _ask_gateway(row["provider"], row["msgid"])
+        except _GatewayUnreachable as e:
+            logger.warning("[sms-outbox] gateway unreachable (%s); stopping this"
+                           " round with %d of %d queued row(s) unasked",
+                           e, len(rows) - index, len(rows))
+            break
         if answer is None:
             continue  # the gateway could not be asked; it stays queued
         asked += 1
@@ -208,6 +229,9 @@ def _ask_gateway(provider: str, msgid: str) -> Optional[int]:
     Only Asanak exists today (see sms.PROVIDERS); the provider column is
     checked anyway so a second gateway's rows wait for their own asker
     instead of being asked with the wrong credentials.
+
+    Raises `_GatewayUnreachable` on a transport-level failure (timeout,
+    URLError, socket error); every other failure is per-row and logged here.
     """
     if (provider or "").lower() != "asanak":
         return None
@@ -215,7 +239,12 @@ def _ask_gateway(provider: str, msgid: str) -> Optional[int]:
         from app.services import sms as sms_service
         code = _status_code(sms_service.asanak_status(msgid))
         return code
+    except (urllib.error.URLError, TimeoutError, socket.error) as e:
+        raise _GatewayUnreachable(type(e).__name__) from e
     except Exception as e:  # noqa: BLE001 — a poll must survive its gateway
+        from app.services.sms import TRANSPORT_FAILED
+        if getattr(e, "code", None) == TRANSPORT_FAILED:
+            raise _GatewayUnreachable(type(e).__name__) from e
         logger.warning("[sms-outbox] msgstatus failed for %s: %s", msgid, e)
         return None
 

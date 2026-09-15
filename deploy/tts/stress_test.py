@@ -116,7 +116,7 @@ def main():
     ap.add_argument("--concurrency", type=int, default=50)
     ap.add_argument("--phase2", type=int, default=24, help="fresh generations")
     ap.add_argument("--conc2", type=int, default=8)
-    ap.add_argument("--texts", default="/tmp/inotex_texts.json")
+    ap.add_argument("--texts", default="/tmp/elecomp_texts.json")
     ap.add_argument("--fresh-base", default=None,
                     help="file whose text seeds phase 2 (default: the corpus)")
     ap.add_argument("--out", default="/tmp/stress-result.json")

@@ -49,7 +49,7 @@ sys.path.insert(0, str(ROOT))
 # here and the app imports must not pick a production backend by accident.
 os.environ.setdefault("DB_BACKEND", "sqlite")
 # An import must never SEED, only import: init_db() with the default flag
-# would squeeze the INOTEX starter dataset into whatever database this tool
+# would squeeze the starter dataset into whatever database this tool
 # is pointed at — on a customer install that is cross-customer content
 # pollution, plus a default-credential admin row. Whoever wants the starter
 # content can run the app once without this script.

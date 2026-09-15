@@ -1,9 +1,11 @@
 """OTP verification — service, API and security contract tests.
 
-Runs against the real app database (WAL SQLite) exactly like the running
-product; every challenge created here is isolated by its unguessable id and
-cleaned up afterwards. Delivery is captured by monkeypatching the provider
-seam — no file writes, no network, and the raw code never touches a log.
+Runs against the app's own WAL SQLite engine, redirected per test to a tmp
+database (the suite idiom — see test_leads_contacts_admin.py): the old
+ambient runs landed every OTP challenge in the repo-root chat_history.db,
+and the next boot's delivery poller then asked the real gateway about each
+leftover row. Delivery is captured by monkeypatching the provider seam — no
+file writes, no network, and the raw code never touches a log.
 """
 import re
 import sqlite3
@@ -26,7 +28,13 @@ def outbox(monkeypatch):
 
 
 @pytest.fixture()
-def client():
+def client(tmp_path, monkeypatch):
+    # The suite's DB redirect idiom: without it these OTP sends landed in
+    # the repo-root chat_history.db and baited every later boot's delivery
+    # poller into asking the real gateway about the leftover rows.
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "otp.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     # Origin + User-Agent on every request: /api/auth/otp/verify mints the
     # visitor session cookie, so it runs validate_request_origin like the rest
     # of the public surface. A real browser always sends both; TestClient
@@ -48,15 +56,20 @@ def _no_ip_throttle(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _cleanup():
+def _cleanup(client):
+    # Depends on `client` on purpose: the sweep must run while that
+    # fixture's DB_PATH redirect still holds (it tears down after this
+    # one), or the deletes would recreate the repo-root chat_history.db
+    # this file used to pollute.
     yield
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM otp_challenges WHERE destination LIKE '+9891200000%'")
         # A verified challenge is now promoted to a durable `visitors`
-        # row (app/routers/otp.py). These three OTP files run against
-        # the ambient database, so their test numbers have to be swept
-        # out of that table too or they pile up in a real install.
+        # row (app/routers/otp.py). The test numbers have to be swept out
+        # of that table too or they pile up — this file now runs on its
+        # own tmp DB, but the sweep keeps the pattern the sibling OTP
+        # files share honest.
         conn.execute("DELETE FROM visitors WHERE phone LIKE '+9891200000%'")
         conn.commit()
     except sqlite3.OperationalError:

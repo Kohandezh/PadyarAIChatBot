@@ -5,7 +5,7 @@ WHAT WAS BROKEN
 app/main.py built `FastAPI(...)` with the defaults, so all three were served
 to anybody, with no session and no token. One unauthenticated
 `GET /openapi.json` returned the complete route table: the obscured admin path
-(/secure-panel-inotex), every /admin/api/... endpoint, and the exact request
+(/secure-panel-admin), every /admin/api/... endpoint, and the exact request
 body each one accepts. The `Referrer-Policy` header the same file sets exists
 to keep that panel path out of other people's logs, which is wasted effort
 while anyone can simply read it.
@@ -95,7 +95,7 @@ def test_production_does_not_leak_the_admin_panel_path():
     with _app_declared_as("production") as fastapi_app:
         client = TestClient(fastapi_app)
         body = client.get("/openapi.json").text
-        assert "/secure-panel-inotex" not in body
+        assert "/secure-panel-admin" not in body
         assert "/admin/api" not in body
 
 

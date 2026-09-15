@@ -25,7 +25,7 @@ def _post(client, url, body=None):
 def test_the_admin_session_is_accepted_from_a_timestamptz_expiry(client):
     """The session row's `expiry` is a real TIMESTAMPTZ here. If the auth path
     ever goes back to string comparison, every one of these turns into a 303."""
-    res = client.get("/secure-panel-inotex", follow_redirects=False)
+    res = client.get("/secure-panel-admin", follow_redirects=False)
     assert res.status_code == 200
 
 
@@ -36,18 +36,18 @@ def test_an_expired_session_is_still_rejected(client, conn):
                  (datetime.datetime.now(datetime.timezone.utc)
                   - datetime.timedelta(hours=2), "pgadmin"))
     conn.commit()
-    res = client.get("/secure-panel-inotex", follow_redirects=False)
+    res = client.get("/secure-panel-admin", follow_redirects=False)
     assert res.status_code == 303
 
 
 # ── Pages render ────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("path,marker", [
-    ("/secure-panel-inotex/settings/ai", "محتوای دستیار هوشمند"),
-    ("/secure-panel-inotex/ai/routing", "مسیریابی هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/providers", "سرویس‌دهنده‌های هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/models", "مدل‌های هوش مصنوعی"),
-    ("/secure-panel-inotex/ai/usage", "مصرف و هزینهٔ هوش مصنوعی"),
+    ("/secure-panel-admin/settings/ai", "محتوای دستیار هوشمند"),
+    ("/secure-panel-admin/ai/routing", "مسیریابی هوش مصنوعی"),
+    ("/secure-panel-admin/ai/providers", "سرویس‌دهنده‌های هوش مصنوعی"),
+    ("/secure-panel-admin/ai/models", "مدل‌های هوش مصنوعی"),
+    ("/secure-panel-admin/ai/usage", "مصرف و هزینهٔ هوش مصنوعی"),
 ])
 def test_admin_pages_return_200_on_postgresql(client, path, marker):
     res = client.get(path)
@@ -60,7 +60,7 @@ def test_the_settings_ai_page_renders_with_a_configured_provider(client):
                           {"base_url": "https://93.184.216.34/v1"},
                           "sk-page-render-0001", enabled=True, actor="pgtest")
     store._invalidate_runtime()
-    res = client.get("/secure-panel-inotex/settings/ai")
+    res = client.get("/secure-panel-admin/settings/ai")
     assert res.status_code == 200
     assert "sk-page-render-0001" not in res.text
 
@@ -70,7 +70,7 @@ def test_the_routing_page_renders_with_targets_present(client):
                                 {"base_url": "https://93.184.216.34/v1"},
                                 "sk-routing-0002", enabled=True, actor="pgtest")
     store.add_target("chat", iid, "gpt-4.1", actor="pgtest")
-    res = client.get("/secure-panel-inotex/ai/routing")
+    res = client.get("/secure-panel-admin/ai/routing")
     assert res.status_code == 200
     assert "sk-routing-0002" not in res.text
 
@@ -82,7 +82,7 @@ def test_get_ai_connection_returns_200_and_a_stt_status_block(client):
     assert res.status_code == 200, res.text[:400]
     body = res.json()
     assert "stt" in body and "configured" in body["stt"]
-    assert body["routing_url"] == "/secure-panel-inotex/ai/routing"
+    assert body["routing_url"] == "/secure-panel-admin/ai/routing"
 
 
 def test_get_ai_connection_never_returns_the_key(client):

@@ -491,7 +491,7 @@ async def test_sms(req: SmsTestRequest):
     probe_code = f"{secrets.randbelow(100000):05d}"
     try:
         msgid = sms_service.send(provider, destination,
-                                 "پیام آزمایشی سامانهٔ اینوتکس", code=probe_code)
+                                 "پیام آزمایشی سامانهٔ پردیار", code=probe_code)
     except sms_service.SmsError as e:
         # The operator sees the gateway's own reason (expired web-service
         # password, no credit, sender barred from links...). A visitor never
@@ -566,7 +566,7 @@ async def get_ai_connection():
         "model_classify": get_setting("ai_model_classify", ""),
         "model_chat_deprecated": True,
         "model_classify_deprecated": True,
-        "routing_url": "/secure-panel-inotex/ai/routing",
+        "routing_url": "/secure-panel-admin/ai/routing",
         "model_stt": get_setting("ai_model_stt", ""),
         # Where transcription actually gets its credential. Never the secret.
         "stt": _stt_status(),

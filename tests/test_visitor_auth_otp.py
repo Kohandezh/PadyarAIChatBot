@@ -12,8 +12,9 @@ Identity now comes from one place: the HttpOnly session cookie minted by
 `POST /api/auth/otp/verify`. So the tests here are mostly about what must NOT
 work — a body field, a header, a borrowed id, a request from another site.
 
-Runs against the ambient database like the other OTP suites, with its own
-phone-number prefix (`+9891200002…`) so its rows never collide with theirs.
+Runs against its own per-test tmp database (the suite idiom — see
+test_otp.py), with its own phone-number prefix (`+9891200002…`) so its rows
+never collide with the other OTP suites'.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -41,16 +42,29 @@ def outbox(monkeypatch):
 
 
 @pytest.fixture()
-def client():
+def client(tmp_path, monkeypatch):
     """One browser: its own cookie jar, so a session belongs to it alone."""
+    # The suite's DB redirect idiom (see test_otp.py): without it these OTP
+    # sends landed in the repo-root chat_history.db and baited every later
+    # boot's delivery poller into asking the real gateway about the
+    # leftover rows.
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "visitor_otp.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     with TestClient(app) as c:
         c.headers.update(BROWSER)
         yield c
 
 
 @pytest.fixture()
-def other_client():
-    """A SECOND browser. Separate jar, so it never inherits a session."""
+def other_client(tmp_path, monkeypatch):
+    """A SECOND browser. Separate jar, so it never inherits a session.
+
+    tmp_path is per-test, so this is the SAME tmp database `client` uses:
+    one install, two cookie jars — that is the isolation under test."""
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "visitor_otp.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     with TestClient(app) as c:
         c.headers.update(BROWSER)
         yield c
@@ -66,7 +80,10 @@ def _no_ip_throttle(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _cleanup():
+def _cleanup(client):
+    # Depends on `client` on purpose: the sweep must run while that
+    # fixture's DB_PATH redirect still holds (it tears down after this
+    # one), or the deletes would recreate the repo-root chat_history.db.
     yield
     conn = get_db_connection()
     try:

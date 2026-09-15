@@ -261,7 +261,7 @@
     }
   ],
   "fallback_ids": [
-    "inotex-stage",
+    "main-stage",
     "pioneers-festival"
   ],
   "sections": [
@@ -334,8 +334,8 @@
     },
     {
       "id": "pitch-battle",
-      "fa": "اینوتکس پیچ و بتل",
-      "en": "INOTEX Pitch & Battle",
+      "fa": "پیچ و بتل",
+      "en": "Pitch & Battle",
       "keywords": [
         "استارتاپ",
         "استارت‌آپ",
@@ -452,9 +452,9 @@
       "why_en": "Because technology policy and regulation touch your work."
     },
     {
-      "id": "inotex-stage",
-      "fa": "استیج اینوتکس",
-      "en": "INOTEX Stage",
+      "id": "main-stage",
+      "fa": "استیج اصلی",
+      "en": "Main Stage",
       "keywords": [
         "سخنرانی",
         "کارگاه",

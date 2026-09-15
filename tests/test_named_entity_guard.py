@@ -36,15 +36,15 @@ DATASET = [
     ("phone-faq", "دبیرخانه نمایشگاه",
      "شماره تلفن دبیرخانه نمایشگاه ۰۲۱۱۲۳۴۵۶۷۸ است "
      "و راه ارتباط و تماس همین شماره است."),
-    ("inotex-date", "تاریخ برگزاری نمایشگاه",
-     "نمایشگاه اینوتکس در خرداد برگزار می شود."),
+    ("event-date", "تاریخ برگزاری نمایشگاه",
+     "نمایشگاه پردیار در خرداد برگزار می شود."),
 ]
 
 QUESTIONS = [
     # The lexical anchor the incident rode on: a curated phone question whose
     # tokens dominate a "phone number of company X" query.
     (1, "شماره تلفن و راه ارتباط", "phone-faq"),
-    (2, "تاریخ برگزاری نمایشگاه اینوتکس", "inotex-date"),
+    (2, "تاریخ برگزاری نمایشگاه پردیار", "event-date"),
     # Hand-curated mapping used by the Tier 0 test: an exact hit on this row
     # must stay authoritative even though the question names the company.
     (3, "شماره تماس دوندگان لبه علم", "phone-faq"),
@@ -196,7 +196,7 @@ def test_query_with_no_named_entity_conflict_keeps_its_trusted_local_answer(clie
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] in ("local", "local_questions"), body
-    assert body["text"] == _text_of("inotex-date")
+    assert body["text"] == _text_of("event-date")
 
 
 def test_tier0_exact_curated_hit_is_not_overridden(client, monkeypatch):
@@ -262,13 +262,19 @@ def _reseed(dataset_rows, questions=(), synonyms=(), profiles=None):
     search.load_dataset_internal()
 
 
-# The امسال shape: «امسال» sits in exactly one (question-style) title but in
-# other entries' TEXTS — a generic word, not a name.
+# The امسال shape: «امسال» sits in exactly one title but in other entries'
+# TEXTS — a generic word, not a name. The brand word «پردیار» stays OUT of the
+# stage title on purpose: with it, the title shared پردیار+امسال+question
+# shape with «پردیار امسال چه زمانی برگزار می شود» and its dense score alone
+# (0.7053 vs 0.3153) carried the stage row over the trust bar at 0.7293 —
+# measured with the pinned embedding model, the exact local/CI divergence of
+# 2026-09-15. It lives in the stage TEXT instead, so it still appears in two
+# documents and never becomes a distinctive title token.
 EMSAL_DATASET = [
-    ("stage", "استیج اینوتکس امسال چه برنامه ای دارد",
-     "برنامه استیج شامل سخنرانی و رویداد است و امسال بخش تازه ای دارد."),
-    ("inotex-date", "تاریخ برگزاری نمایشگاه اینوتکس",
-     "زمان برگزاری نمایشگاه اینوتکس خرداد است و نمایشگاه در همان زمان برگزار می شود."),
+    ("stage", "برنامه استیج نمایشگاه امسال",
+     "برنامه استیج پردیار شامل سخنرانی و رویداد است."),
+    ("event-date", "تاریخ برگزاری نمایشگاه پردیار",
+     "زمان برگزاری نمایشگاه پردیار امسال خرداد است و نمایشگاه در همان زمان برگزار می شود."),
     ("workshop", "کارگاه های آموزشی",
      "کارگاه های آموزشی امسال در سالن دوم برگزار می شود."),
 ]
@@ -276,22 +282,23 @@ EMSAL_DATASET = [
 
 def test_a_token_unique_in_one_title_but_common_in_texts_does_not_anchor(client, monkeypatch):
     """The امسال shape (live 2026-08-27): «امسال» has title-df 1 (the stage
-    entry's question-style title) but lives in a second entry's text. It must
-    not be a name — the date question flows through the normal pipeline
-    instead of being anchored to the stage programme."""
+    entry's title) but lives in other entries' texts. Retrieval must rank the
+    DATE row first by a wide margin, so whatever tier answers — Tier 1 trusted
+    or the mocked AI's grounding — the visitor gets the date entry's own text,
+    never the stage programme."""
     _reseed(EMSAL_DATASET)
     from app.services import search
     assert "امسال" not in search._distinctive_title_tokens
-    entry, tokens = search.resolve_named_entity("اینوتکس امسال چه زمانی برگزار می شود")
+    entry, tokens = search.resolve_named_entity("پردیار امسال چه زمانی برگزار می شود")
     assert entry is None and tokens == set()
 
-    _mock_ai(monkeypatch)
-    r = _ask(client, "اینوتکس امسال چه زمانی برگزار می شود")
+    _mock_ai(monkeypatch, generated=EMSAL_DATASET[1][2])
+    r = _ask(client, "پردیار امسال چه زمانی برگزار می شود")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] != "local_entity", body
-    stage_text = next(x for i, _t, x in EMSAL_DATASET if i == "stage")
-    assert body["text"] != stage_text, body
+    date_text = EMSAL_DATASET[1][2]
+    assert body["text"] == date_text, body
 
 
 # The شماره shape: a synonym (تماس→شماره) injects «شماره» into the contact
@@ -304,8 +311,8 @@ SYN_DATASET = [
     ("contact-faq", "تماس با دبیرخانه نمایشگاه",
      "شماره تلفن دبیرخانه نمایشگاه ۰۲۱۱۲۳۴۵۶۷۸ است "
      "و راه ارتباط و تماس همین شماره است."),
-    ("inotex-date", "تاریخ برگزاری نمایشگاه",
-     "نمایشگاه اینوتکس در خرداد برگزار می شود."),
+    ("event-date", "تاریخ برگزاری نمایشگاه",
+     "نمایشگاه پردیار در خرداد برگزار می شود."),
 ]
 
 

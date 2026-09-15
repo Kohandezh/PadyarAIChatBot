@@ -86,7 +86,7 @@ def scenario(name, n_miss, n_hit, corpus, stamp):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--texts", default="/tmp/inotex_texts.json")
+    ap.add_argument("--texts", default="/tmp/padyar_texts.json")
     ap.add_argument("--out", default="/tmp/blocking-result.json")
     ap.add_argument("--cases", default="0,8,45")
     args = ap.parse_args()

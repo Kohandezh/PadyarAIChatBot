@@ -5,8 +5,8 @@ Same key-value pattern as whitelabel_* (branding.py) / menu_show_*
 static/otp/pet/characters/, each holding a character.json (atlas, cell size,
 column count, fallback, optional hide strip, and the two pose maps the
 shared companion.js consumes). An install that never opens the form gets
-the INOTEX character — byte-identical to the hardcoded markup this
-replaced (the json points at the same flat asset URLs).
+the default character named below; every bundled character stays
+selectable in the admin panel.
 
 The character is baked into the cached chat shell (footer.html's canvas
 data-* attributes), so — like branding/menu settings — the context carries
@@ -27,7 +27,7 @@ from app.db.queries import get_setting, set_setting
 logger = logging.getLogger("PadyarAssistant")
 
 CHARACTERS_DIR = os.path.join(BASE_DIR, "static", "otp", "pet", "characters")
-DEFAULT_CHARACTER = "inotex"
+DEFAULT_CHARACTER = "elecomp"
 
 # Registry values are page attributes, not free text: names are slugs and
 # the pose maps are {slug: slug} / {slug: int}. Anything else would ride

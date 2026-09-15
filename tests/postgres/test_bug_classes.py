@@ -261,7 +261,7 @@ def test_the_lastrowid_probe_cannot_abort_the_caller_transaction(conn):
     precisely so an insert into `synonyms` (composite PK, no sequence) does not
     take the request down with it."""
     conn.execute("INSERT INTO synonyms (source, target) VALUES (?,?)",
-                 ("اینوتکس", "inotex"))
+                 ("پردیار", "padyar"))
     # NOTE: `lastrowid` is NOT asserted to be None here. `lastval()` is
     # SESSION-scoped, so on a pooled connection that already inserted into some
     # identity table it returns that unrelated sequence value instead of
@@ -280,6 +280,6 @@ def test_lastrowid_is_populated_for_an_identity_table(conn):
     conn.execute("INSERT INTO dataset (id, title, text) VALUES (?,?,?)",
                  ("q-owner", "t", "x"))
     cur = conn.execute("INSERT INTO questions (question, dataset_id)"
-                       " VALUES (?,?)", ("اینوتکس کجاست؟", "q-owner"))
+                       " VALUES (?,?)", ("پردیار کجاست؟", "q-owner"))
     conn.commit()
     assert isinstance(cur.lastrowid, int) and cur.lastrowid > 0

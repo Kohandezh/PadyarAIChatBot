@@ -1,7 +1,7 @@
 """The الکامپ incident: an unknown named entity must not get a confident local answer.
 
 WHAT HAPPENED (live, 2026-08-26): «تاریخ برگزاری نمایشگاه الکامپ» was served
-the INOTEX date at 0.844 confidence. الکامپ appears in no document, no curated
+the event's own date at 0.844 confidence. الکامپ appears in no document, no curated
 question and no synonym; the lexical retrievers silently drop unknown tokens,
 so the query degraded to its common words and matched strongly — while the
 single word that made the question about ANOTHER exhibition vanished. The AI
@@ -23,12 +23,35 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "guard.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     from app.main import app
     from app.auth import security
     security._chat_rate_limits.clear()
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
+        # The guard flags only tokens the WHOLE corpus does not know, so the
+        # tests must own their vocabulary: installs no longer ship a seeded
+        # knowledge base, and leaning on one would make these tests pass or
+        # fail with the default content instead of with the guard.
+        import app.db.connection as dbc
+        conn = dbc.get_db_connection()
+        conn.execute("DELETE FROM synonyms")
+        conn.executemany(
+            "INSERT INTO dataset (id, title, text, video_url) VALUES (?, ?, ?, '')",
+            [("event-date", "تاریخ برگزاری نمایشگاه",
+              "تاریخ برگزاری نمایشگاه پردیار امسال خرداد ماه است."),
+             ("faq-ask", "پرسش های پرتکرار",
+              "پاسخ هر پرسش را بپرسید: نمایشگاه چیست و غرفه هر شرکت کجاست."),
+             ("faq-en", "Tickets", "How do I book a booth for the show?")])
+        conn.executemany(
+            "INSERT INTO questions (id, question, dataset_id, video_url)"
+            " VALUES (?, ?, ?, '')",
+            [(1, "تاریخ برگزاری نمایشگاه پردیار", "event-date")])
+        conn.commit()
+        conn.close()
+        from app.services import search
+        search.load_dataset_internal()
         from app.auth.security import generate_chat_token
         c.headers.update({"Origin": "http://localhost",
                           "X-Chat-Token": generate_chat_token()})
@@ -67,8 +90,8 @@ def test_unknown_salient_tokens_on_the_incident_query(client):
 
 def test_known_queries_flag_nothing(client):
     from app.services import search
-    for q in ("تاریخ برگزاری نمایشگاه اینوتکس",
-              "کافه سرمایه چیست؟",
+    for q in ("تاریخ برگزاری نمایشگاه پردیار",
+              "غرفه هر شرکت کجاست؟",
               "How do I book a booth?"):
         assert search.unknown_salient_tokens(q) == [], q
 
@@ -78,7 +101,7 @@ def test_typo_tolerance_keeps_a_one_edit_word_known(client):
     # برگذاری (ذ) is one substitution away from برگزاری — a typo, not an
     # unknown entity. Flagging it would defer every query with a common
     # Persian spelling slip.
-    assert "برگذاری" not in search.unknown_salient_tokens("تاریخ برگذاری نمایشگاه اینوتکس")
+    assert "برگذاری" not in search.unknown_salient_tokens("تاریخ برگذاری نمایشگاه پردیار")
 
 
 def test_unimported_company_name_is_unknown(client):
@@ -102,7 +125,7 @@ def test_known_entity_still_answers_locally(client, monkeypatch):
     """The guard must not become a blanket deferral: a query about something
     the corpus owns keeps its local (free, instant) answer."""
     _mock_ai(monkeypatch)
-    r = _ask(client, "تاریخ برگزاری نمایشگاه اینوتکس")
+    r = _ask(client, "تاریخ برگزاری نمایشگاه پردیار")
     assert r.status_code == 200, r.text
     assert r.json()["source"].startswith("local"), r.json()["source"]
 

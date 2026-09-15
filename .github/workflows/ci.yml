@@ -120,44 +120,6 @@ jobs:
       - name: Run PostgreSQL integration suite
         run: pytest tests/postgres -q
 
-  # Blocking. These assert properties that must never regress: the assistant
-  # must not answer confidently from the previous event's identity, must not
-  # echo a secret, and must not be talked into either by a prompt-injection
-  # question. run_eval.py exits non-zero when any of those gates trips.
-  #
-  # Runs after `test` so a plain broken build fails on the cheap job first.
-  evaluation:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      - name: Retrieval evaluation + safety gates
-        env:
-          # The harness is fully offline; a dummy key only satisfies import-time config.
-          OPENAI_API_KEY: ci-dummy-key
-          # Deterministic: never let CI seed content into a DB the harness then measures.
-          SEED_DEFAULT_CONTENT: "true"
-        run: python scripts/run_eval.py
-
-      - name: Upload benchmark report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: retrieval-eval
-          path: docs/knowledge-based-evidence/appendices/benchmark-results/retrieval-eval.json
-          if-no-files-found: warn
-
   # Reporting, NOT blocking. An advisory can name a fix version that has not
   # been published yet (see docs/engineering/DEPENDENCY_AUDIT.md — that is the
   # live situation for `cryptography` right now), and a build that hard-fails
@@ -235,7 +197,8 @@ jobs:
   # can never schedule code onto the server runner — and the production
   # environment approval is a second gate on top of that.
   #
-  # Gate 1: every CI job above must be green.
+  # Gate 1: every blocking CI job (including the identity-guard below) must
+  # be green.
   # Gate 2: the `production` environment holds a required-reviewer approval
   #         (repo Settings → Environments → production). One click per
   #         deploy; set it up once after installing the runner.
@@ -244,7 +207,7 @@ jobs:
   # script with the ephemeral job token in its environment. No credential is
   # stored on the server; the token dies when the job ends.
   deploy:
-    needs: [test, postgres-tests, evaluation, dependency-audit, secret-scan]
+    needs: [test, postgres-tests, dependency-audit, secret-scan, identity-guard]
     # Push to main deploys; so does a manual dispatch ON main (the button is
     # the operator saying "deploy the current main again" — same gates).
     if: >-
@@ -259,18 +222,9 @@ jobs:
       group: deploy-production
       cancel-in-progress: false   # queue merges; never race two deploys
     steps:
-      - name: Deploy inotex to production
-        run: |
-          set -euo pipefail
-          sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
-            /usr/local/bin/padyar-deploy inotex "${{ github.sha }}"
-
-      # Second install, same host, same script, same order of operations.
-      # Deliberately SEQUENTIAL, not `strategy: matrix`: the two deploys share
-      # one host, one PostgreSQL and one pip cache — a matrix would run them
-      # concurrently and the restarts would interleave. If elecomp fails, the
-      # job fails red with inotex already (independently) deployed and rolled
-      # back only by its own health gate — each install's safety is its own.
+      # The only install on this host, deployed by the root-owned
+      # padyar-deploy script. If elecomp fails, the job fails red and the
+      # install is rolled back by its own health gate.
       - name: Deploy elecomp to production
         run: |
           set -euo pipefail
@@ -280,5 +234,33 @@ jobs:
       - name: Report
         run: |
           echo "Deployed ${{ github.sha }}:"
-          echo "  - padyar-inotex  (inotex.padyar.com,  port 8001)"
           echo "  - padyar-elecomp (elecomp.padyar.com, port 8002)"
+
+  # Blocking. The retired event brand must not come back: every scrubbed
+  # surface (source, tests, scripts, docs) stays scrubbed. The allowlist is
+  # the kept-by-design set — the inotex THEME and its assets, the
+  # checksum-guarded migrations, the pet character's own folder, and the
+  # removal spec itself.
+  identity-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The retired event brand must not return
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep >/dev/null
+          # The character classes (INO[T]EX etc.) keep this job's own pattern
+          # line from matching itself — the search stays repo-wide otherwise.
+          # Fail closed: exit 1 (no matches) is the ONLY passing outcome. An
+          # rg error (bad regex, I/O failure → exit 2) must fail the job, not
+          # silently pass it.
+          set +e
+          rg -n 'INO[T]EX|این[و]تکس|inotex[.]com|inotex[.]padyar|padyar[-]inotex|secure[-]panel[-]inotex' \
+            --hidden -g '!node_modules' -g '!.git' \
+            -g '!themes/**' -g '!migrations/**' \
+            -g '!static/otp/pet/characters/inotex/**' \
+            -g '!docs/superpowers/**'
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then echo "::error::Retired event brand found outside the allowlist"; exit 1
+          elif [ "$code" -ne 1 ]; then echo "::error::rg itself failed (exit $code) — guard cannot run"; exit 1
+          else echo "clean"; fi

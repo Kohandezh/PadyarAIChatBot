@@ -300,7 +300,7 @@ def test_the_page_and_apis_require_an_admin(tmp_path, monkeypatch):
         assert anon.delete("/admin/api/company-profiles/co-a").status_code in (401, 403)
         assert anon.post("/admin/api/company-profiles/bulk-delete",
                          json={"ids": ["co-a"]}).status_code in (401, 403)
-        page = anon.get("/secure-panel-inotex/companies",
+        page = anon.get("/secure-panel-admin/companies",
                         follow_redirects=False)
         assert page.status_code in (302, 303, 401, 403)
 

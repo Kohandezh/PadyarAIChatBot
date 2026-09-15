@@ -44,8 +44,8 @@ DEFAULT_REFUSAL_EN = ("Honestly, I didn't quite get what you meant. "
 
 # What the assistant is FOR, in one short phrase. Used inside the system
 # prompt's fixed sections so a new customer does not need a code change.
-DEFAULT_DOMAIN_FA = "نمایشگاه اینوتکس"
-DEFAULT_DOMAIN_EN = "the INOTEX exhibition"
+DEFAULT_DOMAIN_FA = "پردیار"
+DEFAULT_DOMAIN_EN = "the event"
 
 
 def _customer_text(key_fa: str, key_en: str, default_fa: str, default_en: str,

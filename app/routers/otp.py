@@ -1,6 +1,6 @@
 """OTP verification (SMS sign-up / sign-in step) — public API + /verify page.
 
-PORTABLE MODULE. Nothing here is INOTEX-specific: the brand name, mark,
+PORTABLE MODULE. Nothing here is event-specific: the brand name, mark,
 palette and companion avatar all come from settings (see `branding()` below),
 so the same files drop into any Padyar-based installation — see
 docs/engineering/OTP_MODULE.md and scripts/export-otp-module.py.
@@ -499,7 +499,7 @@ async def update_profile(body: ProfileUpdateBody, request: Request,
 @router.post("/api/visit-plan",
              dependencies=[Depends(validate_request_origin)])
 async def visit_plan_endpoint(body: VisitPlanBody, request: Request):
-    """Which official INOTEX sections match this visitor's work and interests.
+    """Which of the event's official sections match this visitor's work and interests.
 
     Open to anonymous callers on purpose — see VisitPlanBody. When a session
     exists the STORED profile wins over the body, exactly as the challenge id
@@ -853,7 +853,7 @@ async def save_taxonomy(body: TaxonomySaveBody):
     }
 
 
-@router.get("/secure-panel-inotex/settings/taxonomy", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/settings/taxonomy", response_class=HTMLResponse)
 async def admin_taxonomy_page(request: Request):
     """The admin screen. Same session check and login redirect as the other
     admin pages (see app/routers/public.py)."""

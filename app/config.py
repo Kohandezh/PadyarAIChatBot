@@ -72,9 +72,10 @@ PADYAR_ENV = (os.getenv("PADYAR_ENV") or "development").strip().lower()
 # True in production. Set COOKIE_SECURE=true in the production .env.
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
-# A fresh installation opens with the bundled INOTEX knowledge base. Set this
-# to false for an install that will import its own content, or for tests that
-# need to assert against an empty knowledge base.
+# A fresh installation opens with the bundled default knowledge base (the
+# platform ships it empty — content arrives per install). Set this to false
+# for an install that will import its own content, or for tests that need
+# to assert against an empty knowledge base.
 SEED_DEFAULT_CONTENT = os.getenv("SEED_DEFAULT_CONTENT", "true").lower() == "true"
 
 # Dedicated secret for signing chat tokens. Leave empty to auto-generate a
@@ -323,7 +324,7 @@ def is_module_enabled(module_name: str) -> bool:
 # settings rows in the admin panel instead.
 
 # How many retrieved records the model is shown before it chooses one.
-# Measured on data/eval/golden-inotex.json (2026-08-28, embedding + rerank):
+# Measured on the retired golden eval set (2026-08-28, embedding + rerank):
 # recall@1=0.786, @3=0.857, @5=0.929, @8=0.952, @13=0.952. The curve is flat
 # after 8, so eight records buy the whole ceiling and nothing beyond it.
 ANSWER_TOPK = 8

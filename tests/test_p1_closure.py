@@ -83,7 +83,7 @@ def test_a_duplicate_does_not_overwrite_the_existing_row(client):
 def test_a_persian_duplicate_id_behaves_the_same(client):
     """ids are TEXT and the product is Persian-first, so a non-ASCII id must
     take exactly the same path — not trip some encoding-specific branch."""
-    pid = "نمایشگاه-اینوتکس"
+    pid = "نمایشگاه-پردیار"
     assert _post(client, "/admin/api/dataset",
                  {"id": pid, "title": "T", "text": "X"}).status_code == 200
     assert _post(client, "/admin/api/dataset",
@@ -240,20 +240,20 @@ def test_two_eligible_instances_are_ambiguous_so_it_does_not_guess(client):
 # ── P1 #3 — dead Settings → AI model controls ───────────────────────────
 
 def test_the_dead_model_inputs_are_gone_from_the_rendered_page(client):
-    html = client.get("/secure-panel-inotex/settings/ai").text
+    html = client.get("/secure-panel-admin/settings/ai").text
     assert 'id="ai-conn-model-chat"' not in html
     assert 'id="ai-conn-model-classify"' not in html
 
 
 def test_the_page_points_the_operator_at_ai_routing(client):
-    html = client.get("/secure-panel-inotex/settings/ai").text
-    assert "/secure-panel-inotex/ai/routing" in html
+    html = client.get("/secure-panel-admin/settings/ai").text
+    assert "/secure-panel-admin/ai/routing" in html
 
 
 def test_the_still_meaningful_stt_model_field_remains(client):
     """`ai_model_stt` IS read at runtime, so it must not be removed with the
     two that were not."""
-    html = client.get("/secure-panel-inotex/settings/ai").text
+    html = client.get("/secure-panel-admin/settings/ai").text
     assert 'id="ai-conn-model-stt"' in html
 
 
@@ -286,7 +286,7 @@ def test_the_api_reports_the_legacy_model_fields_as_deprecated(client):
     d = client.get("/admin/api/ai-connection").json()
     assert d["model_chat_deprecated"] is True
     assert d["model_classify_deprecated"] is True
-    assert d["routing_url"] == "/secure-panel-inotex/ai/routing"
+    assert d["routing_url"] == "/secure-panel-admin/ai/routing"
 
 
 def test_the_ai_kill_switch_still_works(client):

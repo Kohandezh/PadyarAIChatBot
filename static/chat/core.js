@@ -1,4 +1,4 @@
-/* ── INOTEX Chat Core ──
+/* ── Padyar Chat Core ──
    Text-first chat functionality loaded by all themes.
    Themes override theme-specific behavior via ChatConfig before calling initChat().
 
@@ -56,7 +56,7 @@ const QUESTIONS_PER_PAGE = 5;
 // absent = "open", the default this project's owner asked for.
 const SIDEBAR_COLLAPSED_KEY = 'inotex_sidebar_collapsed';
 
-// English suggested questions used to live here as a hardcoded INOTEX list;
+// English suggested questions used to live here as a hardcoded list;
 // the admin-managed question bank (title_en column, read by
 // getDisplayQuestions()) replaced it — nothing referenced it, so it is gone.
 
@@ -1471,7 +1471,7 @@ function initChat() {
     }
 
     // Open on whichever view the theme's markup marked active, instead of
-    // hardcoding one here. A theme that ships no INOTEX media should land the
+    // hardcoding one here. A theme that ships no avatar media should land the
     // visitor in the chat; one with a real avatar can mark the video view
     // active and land there. Falls back to video for older themes.
     const initialView = document.getElementById('text-view')?.classList.contains('active')

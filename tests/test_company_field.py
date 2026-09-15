@@ -368,7 +368,7 @@ def test_public_profile_never_returns_a_withheld_field(client):
 
 # ── The shadowing bug: the tier was only reachable from the anchor ───────
 #
-# Measured on inotex.padyar.com one hour after the tier shipped, 2026-08-27.
+# Measured on the live event install one hour after the tier shipped, 2026-08-27.
 # answer_company_field() was called only from inside the named-entity anchor's
 # OVERRIDE and RESCUE paths. «شماره تماس شرکت دکیو» matched a DIFFERENT entry,
 # so the override fired and the phone was served. «سایت شرکت دکیو» matched the

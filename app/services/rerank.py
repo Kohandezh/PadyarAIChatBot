@@ -37,7 +37,7 @@ W_COVERAGE = 0.15
 AGREEMENT_BONUS = 0.04
 
 # Tokens that carry no topical content: they must not count toward coverage,
-# otherwise a query like «اینوتکس چیست» looks "covered" by every INOTEX entry.
+# otherwise a query like «نمایشگاه چیست» looks "covered" by every exhibition entry.
 STOPWORDS = {
     "و", "در", "به", "از", "که", "را", "با", "این", "آن", "است", "هست", "برای",
     "می", "شود", "شد", "کن", "کنم", "کنید", "چه", "چی", "چیست", "چیه", "آیا",

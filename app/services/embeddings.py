@@ -21,9 +21,14 @@ import numpy as np
 from app.config import BASE_DIR, logger
 
 DEFAULT_MODEL = "minishlab/potion-multilingual-128M"
+# Pin the exact snapshot so every install embeds identically: "latest"
+# once silently changed a retrieval ranking between CI (fresh download)
+# and dev/exhibition machines (August cache) — 2026-09-15. Keep in sync
+# with the snapshot shipped under data/models.
+DEFAULT_MODEL_REVISION = "73908c3438cf03b6a01bcb9611d62b23d0726f08"
 CACHE_DIR = str(Path(BASE_DIR) / "data" / "models")
 
-# Calibration band, measured on the live INOTEX corpus (2026-08-14, golden
+# Calibration band, measured on the live event corpus (2026-08-14, golden
 # set): a genuine colloquial paraphrase scores cos ≈ 0.72, ambiguous
 # wrong-entry matches cluster at 0.65–0.67, and out-of-domain queries top out
 # near 0.49. The floor/span are set so the genuine match calibrates above
@@ -64,9 +69,18 @@ def _get_model(name: str):
             # Pin the download cache inside the project so an exhibition
             # machine carries its model with the installation.
             os.environ.setdefault("HF_HOME", CACHE_DIR)
+            from huggingface_hub import snapshot_download
             from model2vec import StaticModel
-            logger.info(f"[embeddings] loading model {name} (cache: {CACHE_DIR})")
-            _model = StaticModel.from_pretrained(name)
+            logger.info(f"[embeddings] loading model {name}@{DEFAULT_MODEL_REVISION} (cache: {CACHE_DIR})")
+            # Only the files StaticModel reads — the default fetches the whole
+            # repo snapshot (onnx/, .eval_results/), which the shipped cache
+            # does not carry, so an offline exhibition box would raise.
+            snapshot = snapshot_download(
+                repo_id=name,
+                revision=DEFAULT_MODEL_REVISION,
+                allow_patterns=["model.safetensors", "tokenizer.json", "config.json", "README.md"],
+            )
+            _model = StaticModel.from_pretrained(snapshot)
             _model_name = name
         return _model
 

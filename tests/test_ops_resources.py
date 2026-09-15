@@ -428,7 +428,7 @@ def test_the_dashboard_ships_its_scripts_with_a_working_cache_buster(client):
     nothing at all and every visit gets the same cacheable URL forever.
     """
     import re
-    res = client.get("/secure-panel-inotex")
+    res = client.get("/secure-panel-admin")
     assert res.status_code == 200
     for script in ("dashboard.js", "resources.js"):
         match = re.search(rf"/static/admin/js/{script}\?v=(\d*)", res.text)

@@ -220,7 +220,7 @@ def test_both_endpoints_reject_missing_csrf_token(admin_client):
 # --- the UI wiring (ADR-017: the feature is the scenario, not the endpoint) ---
 
 def test_dataset_edit_modal_carries_the_assist_controls(admin_client):
-    r = admin_client.get("/secure-panel-inotex/manage-datasets")
+    r = admin_client.get("/secure-panel-admin/manage-datasets")
     assert r.status_code == 200
     assert "پیشنهاد سوال" in r.text
     assert "افزودن انتخاب‌شده‌ها" in r.text

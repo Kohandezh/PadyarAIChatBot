@@ -7,7 +7,7 @@ Covers the whole contract from plans/whitelabel-minimal.md:
     welcome, --wl-* palette, window.PADYAR_BRAND)
   * the page-cache key flipping on save (no stale shell) while the
     per-visitor chat token stays a fresh splice per request
-  * defaults rendering the INOTEX look pixel-identical (no logo <img>)
+  * defaults rendering the theme's look pixel-identical (no logo <img>)
   * escaping: html.escape for text positions, json+`</`-guard for the
     script payload — never html.escape inside <script>
   * the admin page (sidebar name + pre-filled form) and API auth
@@ -26,7 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 DEFAULT_NAME = "دستیار پادیار"
-DEFAULT_GREETING = "سلام! من دستیار پادیار هستم. درباره نمایشگاه اینوتکس هر سوالی دارید بپرسید."
+DEFAULT_GREETING = "سلام! من دستیار پادیار هستم. درباره پردیار هر سوالی دارید بپرسید."
 DEFAULT_BG = "/themes/inotex/static/bg-bricks.jpg"
 DEFAULT_FOOTER = "قدرت گرفته از سکوی ملی متن باز هوش مصنوعی"
 
@@ -65,7 +65,7 @@ def _login(client):
 def _post_branding(client, **overrides):
     body = {
         "app_name": "دستیار سازمانی",
-        "subtitle": "INOTEX",
+        "subtitle": "پردیار",
         "logo_url": "",
         "primary_color": "#123456",
         "accent_color": "#ABCDEF",
@@ -95,7 +95,7 @@ def test_branding_roundtrip_defaults_save_readback(client):
     current = r.json()
     assert current == {
         "whitelabel_app_name": DEFAULT_NAME,
-        "whitelabel_subtitle": "INOTEX",
+        "whitelabel_subtitle": "پردیار",
         "whitelabel_logo_url": "",
         "whitelabel_primary_color": "#2D5CA7",
         "whitelabel_accent_color": "#FCB715",
@@ -218,7 +218,7 @@ def test_brand_line_and_marks_follow_the_settings(client):
     With no logo the built-in marks stay (pixel-identical default)."""
     _login(client)
     html = client.get("/").text
-    assert '<p class="inx-loader-label">INOTEX</p>' in html  # wl_subtitle default
+    assert '<p class="inx-loader-label">پردیار</p>' in html  # wl_subtitle default
     assert "inx-hex-outline" in html
     assert '<img class="brand-mark"' not in html
 
@@ -275,7 +275,7 @@ def test_branding_save_invalidates_page_cache_and_keeps_token_fresh(client):
     assert t1 != t2
 
 
-# ── 5. Defaults render INOTEX-identical ────────────────────────────────
+# ── 5. Defaults render the inotex theme identically ─────────────────────
 
 def test_defaults_render_inotex_identical(client):
     html = client.get("/").text
@@ -285,7 +285,7 @@ def test_defaults_render_inotex_identical(client):
     assert "--wl-accent:#FCB715;" in html
     # The default subtitle keeps the pre-key pixels: the header line every
     # theme used to hardcode.
-    assert 'class="header-subtitle">INOTEX</div>' in html
+    assert 'class="header-subtitle">پردیار</div>' in html
     assert "--wl-teal:#04A584;" in html
     # No logo set → no <img>; the built-in SVG mark is what renders.
     assert '<img class="brand-mark"' not in html
@@ -321,7 +321,7 @@ def test_admin_branding_page_shows_name_and_prefilled_form(client):
     assert _post_branding(client, app_name="دستیار سازمانی",
                           welcome_text="پیام جدید",
                           subtitle="سمینار سالانه").status_code == 200
-    page = client.get("/secure-panel-inotex/settings/branding")
+    page = client.get("/secure-panel-admin/settings/branding")
     assert page.status_code == 200
     # Sidebar carries the install's own name via {{ wl_app_name }}.
     assert "<span>دستیار سازمانی</span>" in page.text
@@ -329,7 +329,7 @@ def test_admin_branding_page_shows_name_and_prefilled_form(client):
     assert 'value="دستیار سازمانی"' in page.text
     assert 'value="سمینار سالانه"' in page.text
     assert "پیام جدید</textarea>" in page.text
-    assert 'href="/secure-panel-inotex/settings/branding"' in page.text
+    assert 'href="/secure-panel-admin/settings/branding"' in page.text
     # The two background fields ship pre-filled with the current values.
     assert 'id="brand-chat-bg"' in page.text
     assert 'id="brand-video-bg"' in page.text

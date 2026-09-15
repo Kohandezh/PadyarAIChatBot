@@ -33,7 +33,7 @@ Run the app (it must be reachable while you explore and while tests run):
 Use `codegen` against the running app. It opens a browser and transcribes your actions to Python:
 
 ```bash
-.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-inotex/login \
+.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-admin/login \
   --target python --output tests/e2e/_capture_login.py
 ```
 
@@ -44,7 +44,7 @@ Click/type through the flow; close the browser to finish. The output file holds 
 codegen prefers role/label/placeholder locators, e.g.:
 
 ```python
-page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
 page.get_by_placeholder("نام کاربری").fill("admin")
 page.get_by_placeholder("رمز عبور").fill("admin")
 page.get_by_placeholder("رنگ مورد علاقه؟").fill("آبی")
@@ -67,7 +67,7 @@ codegen records actions, not checks. Use `expect()` (auto-waits) after each key 
 
 ```python
 from playwright.sync_api import expect
-expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
 expect(page.get_by_text("داشبورد")).to_be_visible()
 ```
 
@@ -86,7 +86,7 @@ from playwright.sync_api import Page, expect
 BASE = "http://127.0.0.1:8000"
 
 def test_admin_login_lands_on_dashboard(page: Page):
-    page.goto(f"{BASE}/secure-panel-inotex/login")
+    page.goto(f"{BASE}/secure-panel-admin/login")
 
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
@@ -94,16 +94,16 @@ def test_admin_login_lands_on_dashboard(page: Page):
     page.get_by_role("button", name="ورود به سیستم").click()
 
     # Login POSTs JSON to /admin/login, then redirects into the panel
-    expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+    expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
     expect(page.get_by_text("داشبورد")).to_be_visible()
 
 
 def test_navigate_admin_pages(page: Page):
     # Assumes a logged-in session (see conftest fixture below)
-    page.goto(f"{BASE}/secure-panel-inotex")
+    page.goto(f"{BASE}/secure-panel-admin")
     for label in ("دیتاست", "سوالات", "تنظیمات", "پشتیبان‌گیری"):
         page.get_by_role("link", name=label).click()
-        expect(page).to_have_url(re.compile(r"/secure-panel-inotex"))
+        expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
 ```
 
 To avoid logging in for every test, capture the session once and reuse `storage_state` (see [../playwright-cli/references/storage-state.md](../playwright-cli/references/storage-state.md)). A `conftest.py` fixture:
@@ -115,12 +115,12 @@ import pytest
 def admin_storage_state(browser):
     context = browser.new_context()
     page = context.new_page()
-    page.goto("http://127.0.0.1:8000/secure-panel-inotex/login")
+    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
     page.locator("#username").fill("admin")
     page.locator("#password").fill("admin")
     page.locator("#sec-answer").fill("آبی")
     page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-inotex**")
+    page.wait_for_url("**/secure-panel-admin**")
     state_path = "tests/e2e/.auth/admin.json"
     context.storage_state(path=state_path)
     context.close()

@@ -1,9 +1,9 @@
 """The company-list tier: list questions are answered from the database.
 
-WHAT HAPPENED (live, 2026-08-27): «شرکت‌های هوش مصنوعی اینوتکس را معرفی کن»
+WHAT HAPPENED (live, 2026-08-27): «شرکت‌های هوش مصنوعی نمایشگاه را معرفی کن»
 is a LIST question, but single-document retrieval can only ever pick one
 entry. The faq-20 entry — literally the out-of-scope REFUSAL text — contains
-«هوش مصنوعی اینوتکس» and acted as a token magnet: Tier 1 served the refusal
+«هوش مصنوعی نمایشگاه» and acted as a token magnet: Tier 1 served the refusal
 at 0.81. The dataset holds one row per company plus a company_profiles row
 carrying activity_field, so the right answer was a list of the AI companies.
 
@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 # the corpus vocabulary rich enough (معرفی، حوزه، داریم، زیست، فناوری) that
 # the unknown-entity guard does not fire on the test queries.
 REFUSAL_TEXT = (
-    "این سوال خارج از حوزه هوش مصنوعی اینوتکس است. "
+    "این سوال خارج از حوزه هوش مصنوعی نمایشگاه است. "
     "ما فقط درباره نمایشگاه پاسخ داریم و معرفی شرکت های حاضر، "
     "از هوش مصنوعی تا زیست فناوری، از طریق همین گفتگو انجام می شود."
 )
@@ -131,7 +131,7 @@ def _ask(client, message):
 
 def test_a_list_question_lists_the_ai_companies_instead_of_the_refusal_faq(client, monkeypatch):
     """The measured incident shape: the refusal FAQ is a token magnet for
-    «هوش مصنوعی اینوتکس», but the visitor asked for a LIST — every AI company
+    «هوش مصنوعی نمایشگاه», but the visitor asked for a LIST — every AI company
     is named, the refusal text is nowhere, and no LLM is involved."""
     _seed(COMPANIES, extra_dataset=[("faq-20", "سوال خارج از موضوع", REFUSAL_TEXT)])
     _mock_ai(monkeypatch, forbid=True)

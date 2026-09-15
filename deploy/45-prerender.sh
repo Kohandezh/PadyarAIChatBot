@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Pre-render one install's dataset answers into the TTS cache.
 #
-#   sudo bash deploy/45-prerender.sh inotex
 #   sudo bash deploy/45-prerender.sh elecomp --dry-run
 #
 # Runs the model in a STANDALONE process, not through the service: the same
@@ -12,8 +11,8 @@ set -euo pipefail
 SLUG="${1:-}"
 shift || true
 case "$SLUG" in
-  inotex|elecomp) ;;
-  *) echo "Usage: sudo bash $0 {inotex|elecomp} [--dry-run]" >&2; exit 1 ;;
+  elecomp) ;;
+  *) echo "Usage: sudo bash $0 {elecomp} [--dry-run]" >&2; exit 1 ;;
 esac
 [[ $EUID -eq 0 ]] || { echo "Run with sudo" >&2; exit 1; }
 

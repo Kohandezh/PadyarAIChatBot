@@ -7,7 +7,7 @@ Persian "این شناسه قبلاً وجود دارد". The SQLite suite could
 """
 import pytest
 
-PERSIAN_ID = "اینوتکس-تست-یونیکد"
+PERSIAN_ID = "پردیار-تست-یونیکد"
 
 
 def _create(client, item_id, **extra):
@@ -19,13 +19,13 @@ def _create(client, item_id, **extra):
 # ── Create ──────────────────────────────────────────────────────────────
 
 def test_create_returns_201_shape_and_persists(client, conn):
-    res = _create(client, "pg-create", title="اینوتکس چیست", text="یک رویداد")
+    res = _create(client, "pg-create", title="پردیار چیست", text="یک رویداد")
     assert res.status_code == 200, res.text
     assert res.json() == {"status": "created"}
 
     row = conn.execute("SELECT title, text, position FROM dataset WHERE id = ?",
                        ("pg-create",)).fetchone()
-    assert row["title"] == "اینوتکس چیست"
+    assert row["title"] == "پردیار چیست"
     assert row["position"] is not None
 
 
@@ -41,7 +41,7 @@ def test_a_persian_id_round_trips_intact(client, conn):
 def test_text_containing_a_question_mark_and_a_percent_survives(client, conn):
     """The adapter rewrites `?` -> `%s` and doubles `%`. A knowledge base full
     of Persian questions is exactly where that goes wrong."""
-    text = "۱۰۰% از بازدیدکنندگان؟ بله — اینوتکس چیست؟"
+    text = "۱۰۰% از بازدیدکنندگان؟ بله — پردیار چیست؟"
     assert _create(client, "pg-punct", text=text).status_code == 200
     row = conn.execute("SELECT text FROM dataset WHERE id = ?",
                        ("pg-punct",)).fetchone()

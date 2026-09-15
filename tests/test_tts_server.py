@@ -289,7 +289,7 @@ def test_cache_path_is_mp3_and_fans_out():
 
 @needs_ffmpeg
 def test_first_request_generates_mp3_and_second_is_a_cache_hit(client, model):
-    body = {"text": "سلام، به نمایشگاه اینوتکس خوش آمدید. امیدوارم روز خوبی داشته باشید."}
+    body = {"text": "سلام، به نمایشگاه پردیار خوش آمدید. امیدوارم روز خوبی داشته باشید."}
 
     first = client.post("/tts", json=body)
     assert first.status_code == 200

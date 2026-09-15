@@ -72,7 +72,7 @@ def _fail(status: int, message: str, event: str, actor: str = "",
 # feature. `_render`/`_require_admin` are reused from the public router rather
 # than re-implemented — there must be one template environment, not two.
 
-@router.get("/secure-panel-inotex/infrastructure/backups", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/infrastructure/backups", response_class=HTMLResponse)
 async def infra_backups_page(request: Request):
     redirect = await _require_admin(request)
     if redirect:

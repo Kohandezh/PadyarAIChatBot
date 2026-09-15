@@ -1,4 +1,4 @@
-/* ── INOTEX OTP verification flow ──
+/* ── Padyar OTP verification flow ──
    Server-authoritative: the timer renders server state; verification,
    expiry, attempts and resend limits are enforced by the backend.
 */

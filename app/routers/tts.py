@@ -495,7 +495,7 @@ async def tts_lexicon_save(payload: dict, username: str = Depends(verify_admin))
     return {"status": "ok", "entries": saved}
 
 
-@router.get("/secure-panel-inotex/ai/tts", response_class=HTMLResponse)
+@router.get("/secure-panel-admin/ai/tts", response_class=HTMLResponse)
 async def admin_tts_page(request: Request):
     """Same session check and login redirect as every other admin page
     (see app/routers/public.py). Living in the module's own router means an

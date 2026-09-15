@@ -69,7 +69,7 @@ def test_a_rejected_action_is_still_recorded_as_a_security_event(svc):
 # ── Successful actions ──────────────────────────────────────────────────
 
 def test_a_known_action_runs_and_is_audited(svc):
-    result = svc.run("health_check", actor="inotex@admin", ip="10.0.0.1")
+    result = svc.run("health_check", actor="padyar@admin", ip="10.0.0.1")
     assert result["ok"] is True
     assert result["duration_ms"] >= 0
     events = [e["event_name"] for e in _audit_rows("audit")]

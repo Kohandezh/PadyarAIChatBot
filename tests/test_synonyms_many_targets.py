@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "test_synonyms.db"))
-    # The bundled INOTEX synonyms would drown the rows these tests count.
+    # The bundled default synonyms would drown the rows these tests count.
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
 
     from app.main import app

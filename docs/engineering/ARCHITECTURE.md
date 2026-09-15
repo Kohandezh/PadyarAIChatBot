@@ -1,37 +1,59 @@
-# Architecture Standard
+# معماری سامانه — Padyar Core + نمونهٔ رویداد
 
-## Principle
+تاریخ: ۱۴۰۵/۰۵/۲۳ (2026-08-14)
 
-Architecture should make the intended behavior easy to reason about and hard to misuse.
+## دو لایهٔ منطقی
 
-## Before Adding a New Pattern
+```
+Padyar Core (سکوی بازمصرف‌پذیر)
+  ├── بازیابی هیبریدی (همپوشانی واژگانی + امبدینگ محلی + TF-IDF + طبقه‌بند intent)
+  ├── نرمال‌سازی فارسی و بسط مترادف (app/utils/normalizer.py)
+  ├── لایهٔ providerها (app/services/providers.py)
+  ├── سیستم ماژول (app/modules/registry.py)
+  ├── سیستم تم چندلایه (themes/ — الگوی وردپرسی partialها)
+  ├── امنیت (توکن HMAC چت، rate limit، نشست ادمین)
+  └── مشاهده‌پذیری (/api/health، /api/ready، LOG_FORMAT=json)
 
-Check:
-1. existing code patterns;
-2. existing modules/services/components;
-3. existing configuration;
-4. existing data model;
-5. existing security/session lifecycle;
-6. existing UI patterns;
-7. whether the requested behavior can be implemented without a new abstraction.
+تجربهٔ رویداد (نمونهٔ محصول)
+  ├── دانش پیش‌فرض seed شده (app/default_content.py)
+  ├── تم inotex (پالت رسمی رویداد + طراحی آجری ماژولار + لودر)
+  └── پرامپت‌ها و برچسب‌های برند نصب (app/services/openai.py)
+```
 
-## Boundaries
+جداسازی منطقی است، نه پوشه‌ای — ساختار ریپازیتوری موجود (اسکلت) حفظ شده است.
 
-Keep responsibilities at the layer where they naturally belong. Do not create layers solely to satisfy an abstract architecture diagram.
+## خط لولهٔ پاسخ‌گویی (app/routers/chat.py)
 
-## Modules
+```
+پرسش کاربر
+  → نرمال‌سازی + حذف سلام ابتدای پیام
+  → Tier 0: تطبیق تقریباً دقیق (Jaccard-only) با پرسش‌های منتخب  [≥0.9]
+  → Tier 1: تطبیق موثق توضیحات (امبدینگ محلی/TF-IDF)            [≥0.70]
+  → Tier 1.5: طبقه‌بند intent محلی (LR روی امبدینگ‌های خود نصب)
+              با گیت پویا بر اساس دقت holdout
+  → Tier 2: طبقه‌بند LLM خارجی (فقط اگر فعال و پیکربندی‌شده)
+  → Tier 3: پاسخ مولد LLM (فقط برای out_of_domain تأییدشده)
+  → fallback امن: پاسخ محکم محلی یا 503
+```
 
-Padyar uses a module registry. New optional capabilities should follow the existing module pattern rather than introducing an independent feature-loading mechanism.
+هیچ لایه‌ای از پایین‌دست به vendor خاصی وابسته نیست؛ endpoint خارجی هر
+سرویس سازگار با OpenAI API است (پروکسی تجاری، سکوی ملی، یا self-hosted).
 
-## Decisions
+## داده
 
-When two materially different architectural approaches remain viable, record the decision and rationale in the repository's architecture decision log.
+SQLite (WAL) با ۸ جدول؛ دانش نسخه‌دار (`settings.knowledge_version`).
+پشتیبان‌گیری زمان‌بندی‌شده
+(app/services/backup.py) + اسکریپت بازنشانی عملیاتی با پشتیبان اجباری
+(scripts/reset-content-to-defaults.py).
 
-## Target vs Current State
+## چرخهٔ حیات دانش
 
-Architecture documents must distinguish:
-- current implementation;
-- target architecture;
-- migration plan.
+دانش هر نصب از پنل ادمین نگهداری می‌شود (dataset + questions + synonyms) و
+با ساخت مجدد ایندکس اعمال می‌شود. بازگردانی به پیش‌فرض‌های بسته‌بندی‌شده:
 
-A target architecture is not permission to rewrite unrelated legacy systems opportunistically.
+```
+scripts/reset-content-to-defaults.py   # پشتیبان خودکار + seed جدید
+→ ری‌استارت سرویس تا ایندکس بازسازی شود
+```
+
+انتشار خودکارِ بدون تأیید انسانی عمداً وجود ندارد.

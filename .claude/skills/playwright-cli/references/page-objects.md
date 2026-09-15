@@ -40,7 +40,7 @@ class LoginPage(BasePage):
         self.submit: Locator = page.get_by_role("button", name="ورود به سیستم")
 
     def open(self):
-        self.goto("/secure-panel-inotex/login")
+        self.goto("/secure-panel-admin/login")
 
     def login(self, user: str, pw: str, answer: str):
         self.open()
@@ -48,7 +48,7 @@ class LoginPage(BasePage):
         self.password.fill(pw)
         self.sec_answer.fill(answer)
         self.submit.click()
-        self.page.wait_for_url("**/secure-panel-inotex**")
+        self.page.wait_for_url("**/secure-panel-admin**")
 ```
 
 ### Fixtures

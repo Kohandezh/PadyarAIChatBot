@@ -1,12 +1,12 @@
 """How a visitor actually phrases a list question, versus how the tier read it.
 
-WHAT HAPPENED (live on inotex.padyar.com, 2026-08-28). «شرکت های فعال در حوزه
+WHAT HAPPENED (live on the event install, 2026-08-28). «شرکت های فعال در حوزه
 هوش مصنوعی» returned the right numbered list. Every one of these returned the
 generic exhibitor FAQ instead:
 
     شرکت های فعال در حوضه هوش مصنوعی
-    من شرکت های فعال در حوزه هوش مصنوعی که در اینوتکس شرکت کرده اند رو اطلاعات شون رو میخوام
-    شرکت های فعال در حوزه فناوری اطلاعات که در اینوتکس شرکت کرده اند رو اطلاعات شون رو میخوام!
+    من شرکت های فعال در حوزه هوش مصنوعی که در نمایشگاه شرکت کرده اند رو اطلاعات شون رو میخوام
+    شرکت های فعال در حوزه فناوری اطلاعات که در نمایشگاه شرکت کرده اند رو اطلاعات شون رو میخوام!
     دیگه چه شرکت هایی داریم؟
 
 The list-intent check fired on ALL of them. The break was one line later. Topic
@@ -78,7 +78,7 @@ def test_a_long_natural_sentence_still_finds_the_field(client):
     """The sentence a visitor actually types. It CONTAINS «هوش مصنوعی», which
     works on its own, and everything else in it is conversation."""
     _seed(COMPANIES)
-    r = _ask("من شرکت های فعال در حوزه هوش مصنوعی که در اینوتکس"
+    r = _ask("من شرکت های فعال در حوزه هوش مصنوعی که در نمایشگاه"
              " شرکت کرده اند رو اطلاعات شون رو میخوام")
     assert r is not None, "the tier refused a question it can answer exactly"
     assert r["count"] == 3, r
@@ -110,7 +110,7 @@ def test_the_information_technology_sentence_selects_that_field(client):
     """The IT twin of the AI sentence. «اطلاعات» is a real facet word here
     («فناوری اطلاعات...») and the visitor means it."""
     _seed(COMPANIES)
-    r = _ask("شرکت های فعال در حوزه فناوری اطلاعات که در اینوتکس"
+    r = _ask("شرکت های فعال در حوزه فناوری اطلاعات که در نمایشگاه"
              " شرکت کرده اند رو اطلاعات شون رو میخوام!")
     assert r is not None, r
     assert _titles(r) == {"شرکت دکیو"}, r

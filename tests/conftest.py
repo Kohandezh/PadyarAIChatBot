@@ -90,6 +90,37 @@ def _reset_settings_cache():
 
 
 @pytest.fixture(autouse=True)
+def _reset_search_index_refresh_window():
+    """Open the search index's version-poll window around every test.
+
+    Readers re-check the stored index version at most once per
+    INDEX_REFRESH_SECONDS (search.py); a suite runs tests less than that
+    apart, so without this a test could answer from the previous test's
+    corpus. Zeroing the timestamp forces exactly one fresh version read
+    against the CURRENT test's database on first use — no rebuild unless
+    the version actually differs.
+    """
+    from app.services import search
+    search._last_version_check = 0.0
+    yield
+    search._last_version_check = 0.0
+
+
+@pytest.fixture(autouse=True)
+def _no_background_sms_poller(monkeypatch):
+    """Keep the lifespan's delivery-poll loop from racing the tests.
+
+    Every TestClient boot fires one immediate poll in a worker thread
+    (app/main.py). That thread can race a test's own writes and refresh
+    calls. No test exercises the loop itself — tests call poll_deliveries()
+    directly or via the admin endpoint — so the boot poll is stubbed for
+    every test in the suite.
+    """
+    import app.main as main_module
+    monkeypatch.setattr(main_module, "_poll_sms_deliveries_once", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _reset_log_storm_suppression():
     """Clear applog's duplicate-suppression window between tests.
 
