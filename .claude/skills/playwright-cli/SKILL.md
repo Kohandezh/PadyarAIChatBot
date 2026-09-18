@@ -1,155 +1,236 @@
 ---
 name: playwright-cli
-description: Drive a real browser and write Playwright e2e tests in Python (pytest-playwright) against the running PadyarAIChatbot FastAPI app. Covers the standard Playwright CLI (codegen, install), the pytest `page` fixture, locators, assertions, screenshots, and headed/headless runs.
-allowed-tools: Bash(playwright:*) Bash(pytest:*) Bash(.venv/bin/python:*) Edit Write Read
+description: Drive a real browser against this app with playwright-cli, then write the regression test in Python. Covers the repo's mandatory async Playwright rule, tests/e2e/, and the CLI reference (selectors, mocking, storage, tracing, video).
+allowed-tools: Bash(playwright-cli:*) Bash(.venv/bin/python:*) Bash(python:*)
 ---
 
-# Browser Automation with Playwright (Python)
+# Browser automation and browser tests
 
-This project is **Python / FastAPI**. There is no custom `playwright-cli` binary here — "playwright-cli" now means the **standard Playwright CLI** (`playwright ...`) plus **pytest-playwright** for tests. You drive a real browser two ways:
+Two different things. Keep them apart.
 
-1. **`playwright codegen <url>`** — opens a browser, records your clicks/typing, and prints runnable Python code. This is the closest thing to the old record-and-replay workflow.
-2. **A Python script** using `sync_playwright()` — for scripted exploration or one-off automation (see [references/running-code.md](references/running-code.md)).
+- **`playwright-cli`** is an interactive tool for exploring the app in a browser right
+  now. You type commands, it acts and prints a snapshot. Nothing is committed.
+- **A browser test** is Python, lives in `tests/e2e/`, and runs in CI.
 
-Tests are written as `pytest` functions that receive a `page` fixture from **pytest-playwright**.
+You explore with the CLI, then you write the test in Python by hand. The CLI prints
+TypeScript, so you translate. `references/test-generation.md` shows the mapping.
 
-## Installation & setup
+## The one rule you must not break
 
-The test tooling is **already installed** and tracked in **`requirements-dev.txt`** (`pytest`, `pytest-playwright`; kept out of `requirements.txt` so customer installs don't pull in Playwright + browser binaries). Chromium is already downloaded. On a fresh checkout:
+**Every browser test in this repo uses Playwright's ASYNC api.**
+
+```python
+async def test_something():
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        ...
+```
+
+The sync pytest fixtures `page`, `browser`, `context`, `browser_context` and `playwright`
+are **banned**. `tests/test_suite_isolation.py` fails the suite with an AST check if one
+appears.
+
+This is not a style preference. `pytest.ini` sets `asyncio_mode = auto`, so a loop is
+already running, and Playwright's sync api refuses to start inside one. Worse,
+`pytest-playwright` hands the sync driver out through a **session-scoped** fixture, so it
+outlives the file that asked for it and every later test calling `asyncio.run()` fails
+too. Measured 2026-08-28: one single sync browser test took `pytest -q` from 15 failures
+to 141.
+
+So: define your own async browser fixture in the test file. Never request a
+pytest-playwright fixture. See `references/page-objects.md` for the fixture this repo
+actually uses.
+
+## Repo facts
+
+| | |
+|---|---|
+| Language | Python. There is no TypeScript, no node project, no `playwright.config.ts` |
+| Tests live in | `tests/e2e/` (collected by the default `pytest` run) |
+| Run one file | `.venv/bin/python -m pytest tests/e2e/test_chat_localisation.py -q` |
+| Browser binary | `.venv/bin/python -m playwright install chromium` |
+| Test deps | `requirements-dev.txt` (`pytest`, `pytest-asyncio`, `pytest-playwright`) |
+| Dev server | `python main.py`, serves `http://127.0.0.1:8000` |
+| Admin panel | `http://127.0.0.1:8000/secure-panel-admin` (login at `/secure-panel-admin/login`) |
+| Language | Persian, `<html lang="fa" dir="rtl">`. English is a runtime switch |
+| Test IDs | There are **none**. No `data-testid` anywhere. Use ids, roles, or `data-i18n` |
+| Gate | CI on GitHub decides pass/fail, not a local run |
+
+Most tests in `tests/e2e/` never start the dev server. They render the page once through
+FastAPI's `TestClient`, then serve it and every asset to Chromium from disk through a
+`page.route` handler. Nothing reaches a network. Start the real server only when you need
+the real backend.
+
+## Quick start with the CLI
 
 ```bash
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m playwright install chromium   # download the browser binary
+python main.py &                                      # dev server on 127.0.0.1:8000
+playwright-cli open http://127.0.0.1:8000
+playwright-cli snapshot
+playwright-cli click e15                              # refs come from the snapshot
+playwright-cli close
 ```
 
-(Browsers downloaded by `playwright install` live in a cache, not in the repo — don't commit them.)
+After each command the CLI prints a snapshot of the browser state. Use the refs (`e15`)
+from that snapshot to target elements.
 
-## Start the app first
+`playwright-cli` is a standalone binary. If it is missing, install it with
+`npm install -g @playwright/cli@latest`. It is a developer tool only. It is not a
+dependency of this app and must never be added to `requirements.txt`.
 
-E2E tests hit the running server. Start it in a separate terminal / background:
+## Command reference
+
+Run `playwright-cli <command> --help` for full options.
+
+**Core interaction**
 
 ```bash
-.venv/bin/python main.py                 # default http://127.0.0.1:8000
-PORT=8010 .venv/bin/python main.py       # HOST/PORT env vars are honored
+playwright-cli open [url]                # also: --browser=chrome|firefox|webkit|msedge,
+                                         #       --persistent, --profile=DIR, --config=FILE
+playwright-cli goto <url>
+playwright-cli click|dblclick|hover <ref>
+playwright-cli fill <ref> <text> [--submit]
+playwright-cli type <text>
+playwright-cli select <ref> <value>
+playwright-cli check|uncheck <ref>
+playwright-cli drag <ref> <ref>
+playwright-cli drop <ref> --path=FILE | --data="mime=value"
+playwright-cli upload <file>
+playwright-cli eval "<js>" [ref]         # read attributes/text not in the snapshot
+playwright-cli dialog-accept ["text"] | dialog-dismiss
+playwright-cli resize <w> <h>
+playwright-cli close | close-all | kill-all
 ```
 
-Key URLs in this app:
-
-- Public chat UI: `http://127.0.0.1:8000/`
-- Admin login page: `http://127.0.0.1:8000/secure-panel-admin/login`
-- Admin login POST (JSON): `/admin/login`
-- Admin pages: dataset, questions, settings, backup (under `/secure-panel-admin`)
-
-> The public chat endpoint is protected by an HMAC chat token injected into the page, an `Origin`/`Referer` allowlist, and a rate limit (2 requests / 30s per IP). Real-browser e2e works because the loaded page carries a valid token and `localhost` is an allowed origin — but pace requests to avoid the rate limit.
-
-## Record a flow with codegen
+**Navigation and input**
 
 ```bash
-.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-admin/login --target python
+playwright-cli go-back | go-forward | reload
+playwright-cli press <Key> | keydown <Key> | keyup <Key>
+playwright-cli mousemove <x> <y> | mousedown [right] | mouseup [right] | mousewheel <x> <y>
 ```
 
-A browser opens; your interactions are transcribed to Python (`page.goto(...)`, `page.get_by_role(...)`, `page.get_by_label(...).fill(...)`, etc.). Copy the generated body into a `tests/e2e/` test. Use `--output tests/e2e/raw_capture.py` to write straight to a file.
-
-## The `page` fixture (pytest-playwright)
-
-```python
-from playwright.sync_api import Page, expect
-
-def test_admin_login_page_loads(page: Page):
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    expect(page.locator("#username")).to_be_visible()
-```
-
-Useful pytest-playwright CLI flags:
+**Capture**
 
 ```bash
-.venv/bin/pytest tests/e2e                       # run e2e tests (headless)
-.venv/bin/pytest tests/e2e --headed              # watch the browser
-.venv/bin/pytest tests/e2e --headed --slowmo 500 # slow each action by 500ms
-.venv/bin/pytest tests/e2e --browser chromium    # also: firefox, webkit
-.venv/bin/pytest tests/e2e -k login              # filter by test name
-.venv/bin/pytest tests/e2e --base-url http://127.0.0.1:8000  # then page.goto("/...")
+playwright-cli snapshot [target] [--filename=F] [--depth=N] [--boxes]
+playwright-cli screenshot [ref] [--filename=F]
+playwright-cli pdf --filename=F
 ```
 
-With `--base-url` set, relative paths work: `page.goto("/secure-panel-admin/login")`.
+**Tabs**
 
-## Common locators
-
-Prefer role/label/text locators — they survive refactors better than CSS:
-
-```python
-page.get_by_role("button", name="ورود به سیستم")   # Persian button text
-page.get_by_label("نام کاربری")
-page.get_by_text("داشبورد")
-page.get_by_placeholder("رمز عبور")
-page.locator("#username")                           # CSS / id when needed
-page.get_by_test_id("create-doc-button")            # data-testid (set test_id_attribute if custom)
+```bash
+playwright-cli tab-list | tab-new [url] | tab-close [index] | tab-select <index>
 ```
 
-This app's admin login fields have real ids: `#username`, `#password`, `#sec-answer`, and the submit button is the form's submit (text "ورود به سیستم").
+**Storage, network, devtools**
 
-## Common assertions
-
-`expect()` auto-waits and retries until the timeout:
-
-```python
-expect(page.locator("#username")).to_be_visible()
-expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
-expect(page.get_by_text("داشبورد")).to_be_visible()
-expect(page.locator("#login-error")).to_have_text("")
-expect(page.get_by_role("textbox", name="نام کاربری")).to_have_value("admin")
+```bash
+playwright-cli state-save|state-load [file]                  # -> storage-state.md
+playwright-cli cookie-* / localstorage-* / sessionstorage-*  # -> storage-state.md
+playwright-cli route|unroute|route-list                      # -> request-mocking.md
+playwright-cli console [level] | network                     # devtools logs
+playwright-cli run-code "<js>" | --filename=F                # -> running-code.md
+playwright-cli tracing-start|tracing-stop                    # -> tracing.md
+playwright-cli video-start|video-chapter|video-stop          # -> video-recording.md
+playwright-cli show --annotate                               # ask the user via the dashboard
+playwright-cli generate-locator <ref> [--raw]
+playwright-cli highlight <ref> [--style=...] [--hide]
+playwright-cli attach --extension=chrome | --cdp=chrome|URL  # -> session-management.md
 ```
 
-## Screenshots
+`eval` and `run-code` take **JavaScript**, because they run inside the CLI's own driver
+process. That is a property of the tool, not of this repo. Your test file stays Python.
 
-```python
-page.screenshot(path="artifacts/login.png")                # viewport
-page.screenshot(path="artifacts/full.png", full_page=True) # whole page
-page.locator("#login-form").screenshot(path="artifacts/form.png")  # one element
+## Raw and JSON output
+
+`--raw` strips the status, generated code and snapshot sections and returns only the
+result value, which makes it pipeable. `--json` wraps every reply as JSON.
+
+```bash
+playwright-cli --raw eval "document.documentElement.lang"
+playwright-cli --raw snapshot > before.yml
+playwright-cli click e5
+playwright-cli --raw snapshot > after.yml && diff before.yml after.yml
+CONV=$(playwright-cli --raw cookie-get padyar_conv)
 ```
 
-From the CLI you can also capture during a run with `--screenshot=on` (pytest-playwright writes failures to `test-results/`).
+## Targeting elements in this app
 
-## Inspecting attributes not in the snapshot
+Prefer refs from the snapshot. CSS selectors and Playwright locators also work.
 
-When you need an `id`, `class`, or `data-*` you can't see, read it from the element (see [references/element-attributes.md](references/element-attributes.md)):
+There are **no `data-testid` attributes** in this repo, so `getByTestId` will find
+nothing. What to use instead, in order of preference:
 
-```python
-el = page.locator("#login-form button[type=submit]")
-print(el.get_attribute("class"))
-print(el.evaluate("e => getComputedStyle(e).display"))
+1. **A stable id.** The chat UI is built around them:
+   `#user-input`, `#send-btn`, `#mic-btn`, `#new-chat-btn`, `#menu-toggle`,
+   `#theme-btn`, `#lang-btn`, `#chat-view-content`, `#loading-bubble`,
+   `#welcome-message`, `#avatar-video`, `#text-view`, `#video-view`, `#menu-history`.
+2. **A role plus an accessible name.** Remember the name is Persian by default.
+3. **`data-i18n` / `data-i18n-title`.** These mark every translatable control, so they
+   are stable across a language switch where the visible text is not.
+4. **A structural class** from `static/chat/base.css` (`.message.bot .bubble`,
+   `.questions-list li`, `.menu-drawer.open`). Last resort, since a theme may restyle it.
+
+```bash
+playwright-cli click e15
+playwright-cli click "#send-btn"
+playwright-cli click "getByRole('button', { name: 'گفتگوی جدید' })"
+playwright-cli click "[data-i18n='newChat']"
 ```
 
-## Headed vs headless
+Never assert on Persian text you typed from memory. Copy it out of the template or the
+`I18N` table in `static/chat/core.js`.
 
-- **Headless** (default) for CI and fast runs.
-- **Headed** (`--headed`) when debugging or recording video. Add `--slowmo` to watch each step.
+## Named sessions
 
-## Example: admin login form (scripted)
+Run several isolated browsers at once with `-s=<name>` (details in
+`references/session-management.md`):
 
-```python
-import re
-from playwright.sync_api import Page, expect
+```bash
+playwright-cli -s=visitor open http://127.0.0.1:8000
+playwright-cli -s=admin   open http://127.0.0.1:8000/secure-panel-admin/login
+playwright-cli list
+playwright-cli close-all
+```
 
-def test_admin_login_flow(page: Page):
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill("admin")
-    page.locator("#sec-answer").fill("آبی")          # security answer
-    page.get_by_role("button", name="ورود به سیستم").click()
-    expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
-    expect(page.get_by_text("داشبورد")).to_be_visible()
+This is the right way to check the kiosk threat model: one browser is the previous
+visitor, another is the next one.
+
+## Example: send a message in the chat
+
+```bash
+python main.py &
+playwright-cli open http://127.0.0.1:8000
+playwright-cli snapshot
+playwright-cli fill "#user-input" "ساعت کاری نمایشگاه چیست؟"
+playwright-cli click "#send-btn"
+playwright-cli snapshot
+playwright-cli --raw eval "document.querySelectorAll('.message.bot .bubble').length"
+playwright-cli close
+```
+
+## After you find the bug
+
+Reproducing it in the CLI is half the job. The other half is a test that fails without
+the fix and passes with it, in `tests/e2e/`, using the async api. Then push and check CI:
+
+```bash
+gh run list --branch <branch> --limit 1
+gh run watch
 ```
 
 ## Specific tasks
 
-- **Writing & running pytest-playwright tests** [references/playwright-tests.md](references/playwright-tests.md)
-- **Request mocking (`page.route`)** [references/request-mocking.md](references/request-mocking.md)
-- **Running custom Playwright code (`sync_playwright`)** [references/running-code.md](references/running-code.md)
-- **Browser context isolation & reuse** [references/session-management.md](references/session-management.md)
+- **Running and debugging browser tests** [references/playwright-tests.md](references/playwright-tests.md)
+- **The async browser fixture this repo uses** [references/page-objects.md](references/page-objects.md)
+- **Turning a CLI session into a Python test** [references/test-generation.md](references/test-generation.md)
+- **Request mocking** [references/request-mocking.md](references/request-mocking.md)
+- **Running custom Playwright code from the CLI** [references/running-code.md](references/running-code.md)
+- **Browser session management** [references/session-management.md](references/session-management.md)
 - **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
-- **Test generation from codegen** [references/test-generation.md](references/test-generation.md)
 - **Tracing** [references/tracing.md](references/tracing.md)
 - **Video recording** [references/video-recording.md](references/video-recording.md)
-- **Page Object Model (POM)** [references/page-objects.md](references/page-objects.md)
 - **Inspecting element attributes** [references/element-attributes.md](references/element-attributes.md)

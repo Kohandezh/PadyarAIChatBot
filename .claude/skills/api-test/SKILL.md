@@ -1,208 +1,345 @@
 ---
 name: api-test
-description: Generate pytest tests for PadyarAIChatbot FastAPI routes via TestClient. Covers admin cookie-session auth (login-and-reuse or dependency_overrides), the public chat endpoint's token + origin + rate-limit requirements, and the admin dataset/questions/backup endpoints. Uses a real temp SQLite DB — never mocks the database.
+description: Generate pytest tests for FastAPI endpoints in app/routers/, services in app/services/, and helpers in app/utils/ and app/auth/. Picks the test type (unit, TestClient endpoint test, real-PostgreSQL integration test) from the target. Uses the real database, never a mocked one.
 ---
 
-You are a test engineer for **PadyarAIChatbot** (FastAPI + SQLite). Generate route/endpoint tests using FastAPI's `TestClient`, following the patterns below exactly.
+You are a test engineer for the PadyarAIChatbot API. The app is FastAPI. Tests
+are pytest. Generate tests that follow the patterns already in `tests/`.
 
-## Bootstrapping (no `tests/` dir exists yet)
+There is no Hono, no Vitest, no Supabase, no Drizzle and no `apps/api`
+directory. Endpoints live in `app/routers/*.py` and are tested through
+FastAPI's `TestClient`.
 
-Test deps are **already installed** and tracked in **`requirements-dev.txt`** (`pytest`, `pytest-asyncio`, `pytest-playwright`; `httpx` is already a runtime dep). `pytest.ini` enables asyncio auto-mode. You only need to create `tests/` + `tests/conftest.py` and write the tests. On a fresh checkout:
+Read `docs/engineering/TESTING.md` and `docs/engineering/API_STANDARDS.md`
+before you start.
 
-```bash
-.venv/bin/python -m pip install -r requirements-dev.txt
+## Test Type Detection
+
+Decide from the target:
+
+**Endpoint tests** (the default for anything in `app/routers/`):
+
+- The target is an HTTP route (for example "test the dataset create endpoint",
+  "test POST /admin/api/dataset")
+- Drives the whole request pipeline with `TestClient(app)`: middleware, CSRF,
+  auth dependency, router, service, database
+- Lives in `tests/test_<area>.py`
+
+**Service tests** (`app/services/`):
+
+- The target is business logic (`app/services/otp.py`, `app/services/leads.py`,
+  `app/services/answer.py`)
+- Calls the service function directly against a throwaway database
+- Mocks only what leaves the machine (the AI wrapper, the SMS gateway)
+
+**Unit tests** (`app/utils/`, `app/auth/`, scoring maths):
+
+- The target is a pure function with no database and no network
+- Import, call, assert. No fixture beyond `monkeypatch` if anything is patched
+
+**Real-PostgreSQL tests** (`tests/postgres/`):
+
+- The bug class only exists on PostgreSQL: int-for-boolean writes,
+  `enabled = 1` comparisons, `json.loads()` on an already parsed JSONB dict,
+  TIMESTAMPTZ compared as a string, `sqlite3.IntegrityError` that psycopg
+  never raises
+- Read `tests/postgres/conftest.py` before adding one
+
+If unsure, write the **endpoint test**. It exercises the most real code per
+line and catches the auth mistakes that matter most here.
+
+## File Naming and Location
+
+```
+tests/test_<area>.py            # endpoint, service and unit tests, flat
+tests/postgres/test_<area>.py   # needs a real PostgreSQL 16 server
+tests/e2e/test_<flow>.py        # browser tests (see the e2e-test-gen skill)
+tests/conftest.py               # the ONE shared conftest, already exists
+tests/postgres/conftest.py      # schema isolation + the authenticated client
 ```
 
-Run with:
+There is no `routes/`, `services/` or `lib/` subdirectory, and no
+`.unit.`/`.integration.` suffix. Name the file after the feature a reader would
+grep for.
 
-```bash
-.venv/bin/python -m pytest tests/test_admin_api.py -q
-```
+## The three doors, and their fixtures
 
-`app.config` raises `ValueError` at import unless `OPENAI_API_KEY` is set, so `tests/conftest.py` must set a dummy key **before** any `app.*` import.
+This app has three separate authentication surfaces. A test must use the right
+one or it proves nothing.
 
-## The FastAPI app
+| Door | What the client must send | Example file |
+|---|---|---|
+| Admin (`/admin/**`, `/secure-panel-admin/**`) | `admin_session` cookie plus `X-CSRF-Token` on POST/PUT/PATCH/DELETE | `tests/test_conversations_admin.py` |
+| Chat (`/chat`) | `Origin` header plus `X-Chat-Token`, and the per-IP rate limit applies | `tests/test_chat_options_pick.py` |
+| Public visitor (`/api/auth/otp/*`, `/verify`) | `Origin` and `User-Agent` | `tests/test_otp.py` |
 
-The ASGI app is `app.main:app` — a FastAPI instance created at import time in `app/main.py`. Its lifespan calls `init_db()`, and routers are loaded from the module registry based on `ENABLED_MODULES`. For tests, import it and wrap it:
+### Admin endpoint test
+
+Taken from `tests/test_conversations_admin.py`:
 
 ```python
-from fastapi.testclient import TestClient
-from app.main import app
-
-client = TestClient(app)   # sync client; uses the already-installed httpx
-```
-
-`TestClient` runs the lifespan on context entry and **persists cookies** across requests on the same instance — that is what makes the admin login-and-reuse flow work.
-
-## Critical rule: real temp DB, NEVER mock the DB
-
-Use a real throwaway SQLite file. `app.config.DB_PATH` (= `BASE_DIR/chat_history.db`) is **not env-overridable**, but `get_db_connection()` and `init_db()` in `app/db/connection.py` re-import `DB_PATH` from `app.config` **inside the function body** on every call. So monkeypatching the attribute before requests run is sufficient and clean — and keeps tests off the real `chat_history.db`.
-
-## conftest.py — fixtures
-
-```python
-# tests/conftest.py
-import os
-os.environ.setdefault("OPENAI_API_KEY", "test-key")   # before any app import
-os.environ["ADMIN_USERNAME"] = "test@admin"
-os.environ["ADMIN_PASSWORD"] = "test-password-123"
-os.environ["ADMIN_SECURITY_ANSWER"] = "blue"
+import datetime
+import secrets
 
 import pytest
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    import app.config
-    from app.db.connection import init_db
-    db_file = tmp_path / "test.db"
-    monkeypatch.setattr(app.config, "DB_PATH", str(db_file))
-    init_db()   # creates tables + seeds the admin from the env vars above
-    return str(db_file)
+def app_db(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "myfeature.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    yield
 
 
 @pytest.fixture
-def client(temp_db):
+def anon(app_db):
     from app.main import app
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
-def admin_client(client):
-    """A TestClient already logged in as admin (session cookie set)."""
-    resp = client.post("/admin/login", json={
-        "username": "test@admin",
-        "password": "test-password-123",
-        "sec_answer": "blue",
-    })
-    assert resp.status_code == 200
-    return client
-```
-
-Notes:
-- The login body is `LoginRequest`: `{username, password, sec_answer}` (POST `/admin/login`, `app/routers/admin.py`).
-- Setting `ADMIN_*` env vars before `init_db()` makes the seeded admin password deterministic so the login fixture can authenticate. Otherwise the seeded password is random.
-- The admin session cookie is named `admin_session` (`config.ADMIN_COOKIE_NAME`); `verify_admin` reads it from the request cookies.
-
-## Admin auth: two ways
-
-### Option A — login and reuse the cookie (preferred; exercises real auth)
-Use the `admin_client` fixture above. The same `TestClient` carries the `admin_session` cookie on every subsequent call.
-
-### Option B — override the dependency (skip the login round-trip)
-```python
-def test_with_dep_override(client):
+def client(app_db):
     from app.main import app
-    from app.auth.security import verify_admin
-    app.dependency_overrides[verify_admin] = lambda: "test-admin"
-    try:
-        resp = client.get("/admin/api/dataset")
-        assert resp.status_code == 200
-    finally:
-        app.dependency_overrides.clear()
+    with TestClient(app) as c:
+        from app.db.connection import get_db_connection
+        conn = get_db_connection()
+        token = secrets.token_hex(16)
+        conn.execute("INSERT OR IGNORE INTO admins (username, password_hash,"
+                     " salt, security_question, security_answer_hash)"
+                     " VALUES ('panel','x','y','q','z')")
+        conn.execute("INSERT INTO admin_sessions (token, username, expiry)"
+                     " VALUES (?,?,?)",
+                     (token, "panel",
+                      (datetime.datetime.now()
+                       + datetime.timedelta(hours=1)).isoformat()))
+        conn.commit()
+        conn.close()
+        c.cookies.set("admin_session", token)
+        from app.auth.csrf import token_for_session
+        c.headers["X-CSRF-Token"] = token_for_session(token)
+        yield c
 ```
-Admin routes declare `dependencies=[Depends(verify_admin)]`, so overriding `verify_admin` unblocks all of them. Always clear overrides in a `finally`.
 
-Every admin route should also have a **401/unauthenticated** test: hit it with a plain `client` (no login, no override) and assert it is rejected.
+Two details that break tests if you skip them:
 
-## Public chat endpoint (`POST /chat`)
+- The session row is inserted directly. There is no login helper fixture, and
+  going through `POST /admin/login` would drag the brute-force lockout into
+  every test.
+- `X-CSRF-Token` is `token_for_session(session_token)`. The CSRF middleware
+  gates `POST`, `PUT`, `PATCH` and `DELETE` under `/admin/`,
+  `/secure-panel-admin` and `/api/synonyms`. Only `POST /admin/login` is
+  exempt. Without the header the middleware answers 403 before your route runs
+  and the failure looks like a routing bug.
 
-`/chat` (`app/routers/chat.py`) enforces three things, in order: `validate_request_origin`, `validate_chat_token`, `check_rate_limit`. To get a 200 you must satisfy all three:
+### The gate test every admin router needs
 
-- **Origin/Referer** in `config.ALLOWED_ORIGINS` — `localhost` and `127.0.0.1` are always allowed. Send `Origin: http://localhost`.
-- **Chat token** in the `X-Chat-Token` header — mint one with `generate_chat_token()` from `app/auth/security.py`.
-- **Rate limit** — `CHAT_RATE_LIMIT = 2` requests per `CHAT_RATE_WINDOW = 30s` per client IP. The 3rd quick request from the same IP is rejected.
-
-Request body is `ChatRequest`: `{"message": "..."}`. Response is `ChatResponse`: `{type, text, video_url, confidence, source}`.
+The constitution says each endpoint authenticates and authorizes on its own.
+One route that forgets `Depends(verify_admin)` publishes visitor names, phone
+numbers and everything people typed. Prove it in one parametrized test:
 
 ```python
-def test_chat_returns_response(client):
-    from app.auth.security import generate_chat_token
-    token = generate_chat_token()
-    resp = client.post(
-        "/chat",
-        json={"message": "سلام"},
-        headers={"X-Chat-Token": token, "Origin": "http://localhost"},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["source"] in ("local", "openai", "gpt")  # confirm valid sources in chat.py
-    assert "text" in body
+API_ROUTES = [
+    "/admin/api/conversations",
+    "/admin/api/conversations/weak",
+    "/admin/api/visitors",
+]
 
 
-def test_chat_rejects_missing_token(client):
-    resp = client.post(
-        "/chat",
-        json={"message": "سلام"},
-        headers={"Origin": "http://localhost"},
-    )
-    assert resp.status_code in (401, 403)   # confirm exact code in validate_chat_token
-
-
-def test_chat_rate_limited(client):
-    from app.auth.security import generate_chat_token
-    token = generate_chat_token()
-    h = {"X-Chat-Token": token, "Origin": "http://localhost"}
-    client.post("/chat", json={"message": "a"}, headers=h)
-    client.post("/chat", json={"message": "b"}, headers=h)
-    third = client.post("/chat", json={"message": "c"}, headers=h)
-    assert third.status_code == 429   # confirm code raised by check_rate_limit
+@pytest.mark.parametrize("route", API_ROUTES)
+def test_every_api_route_refuses_an_anonymous_caller(anon, route):
+    assert anon.get(route).status_code in (401, 403), route
 ```
 
-If you do not want the AI tier to fire (no real network), seed a high-confidence dataset match first (`save_dataset`/`save_questions` + refresh the search index) or monkeypatch `app.routers.chat.classify_intent` / `get_openai_response`. The chat module imports those names directly, so patch them on `app.routers.chat`, not on `app.services.openai`. **Never let a test hit the real GapGPT API.**
-
-## Admin dataset / questions / backup endpoints
-
-Verified routes (all under `Depends(verify_admin)`):
-
-| Method & path | Source |
-| --- | --- |
-| `GET /admin/api/dataset` | `app/routers/dataset.py` |
-| `POST /admin/api/dataset` | create entry |
-| `PUT /admin/api/dataset/{item_id}` | update |
-| `DELETE /admin/api/dataset/{item_id}` | delete |
-| `GET /admin/api/dataset/export` / `POST /admin/api/dataset/import` | export/import |
-| `GET /admin/api/questions` + `POST/PUT/DELETE` + `/export` + `/import` | questions CRUD |
-| `GET /admin/api/backups`, `POST /admin/api/backups/create`, `GET /admin/api/backups/download/{name}`, `DELETE /admin/api/backups/{name}`, `POST /admin/api/backups/restore/{name}` | `app/routers/admin.py` |
-| `POST /admin/login`, `POST /admin/logout`, `GET /admin/check_auth`, `GET /admin/api/stats` | `app/routers/admin.py` |
-
-Always re-grep `app/routers/` to confirm a route, its method, and its request body before asserting on it — do not invent endpoints or payload shapes.
+Admin PAGE routes redirect instead of returning a status code. Assert the
+redirect, not a 401:
 
 ```python
-def test_dataset_crud(admin_client):
-    resp = admin_client.post("/admin/api/dataset", json={
-        "id": "lasik", "title": "لیزیک", "text": "توضیح", "video_url": "",
-    })   # confirm the exact request schema in dataset.py first
-    assert resp.status_code in (200, 201)
-
-    listed = admin_client.get("/admin/api/dataset")
-    assert listed.status_code == 200
-    assert any(item["id"] == "lasik" for item in listed.json())
-
-
-def test_dataset_requires_auth(client):
-    assert client.get("/admin/api/dataset").status_code == 401
+@pytest.mark.parametrize("route", PAGE_ROUTES)
+def test_pages_send_an_anonymous_visitor_to_the_login(anon, route):
+    res = anon.get(route, follow_redirects=False)
+    assert res.status_code == 303, route
+    assert "/login" in res.headers.get("location", "")
 ```
 
-## Critical rules
+### Chat endpoint test
 
-1. **NEVER mock the database** — use a real temp SQLite DB via the `temp_db` fixture and the `DB_PATH` monkeypatch. Off-limits: the real `chat_history.db`.
-2. **Mock only external network** (OpenAI/GapGPT). Patch `app.routers.chat.classify_intent` / `get_openai_response` (the chat router imports them by name).
-3. **Always test auth** — every admin route gets a 401/unauthenticated test; `/chat` gets a missing-token rejection test.
-4. **Reuse one TestClient per logged-in flow** — cookies persist on the instance; that is how login-and-reuse works.
-5. **Clear `app.dependency_overrides`** in a `finally` whenever you use Option B.
-6. **Verify before asserting** — grep `app/routers/` for the real route, method, status codes, and request/response schema. Confirm exact status codes (401 vs 403, 200 vs 201) against the handler rather than guessing.
-7. **Function-scoped temp DB** — each test starts from a freshly initialized DB.
+From `tests/test_chat_options_pick.py`:
+
+```python
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "options.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.main import app
+    from app.auth import security
+    security._chat_rate_limits.clear()
+    with TestClient(app) as c:
+        from app.auth.security import generate_chat_token
+        c.headers.update({"Origin": "http://localhost",
+                          "X-Chat-Token": generate_chat_token()})
+        yield c
+    security._chat_rate_limits.clear()
+```
+
+Clear `security._chat_rate_limits` on both sides. The limiter is per-IP
+process state and every test client shares one IP, so a file with more than 20
+chat calls throttles itself.
+
+### Public visitor endpoint test
+
+From `tests/test_otp.py`. A real browser always sends `Origin` and
+`User-Agent`, `TestClient` sends neither, and `validate_request_origin` runs on
+the public surface:
+
+```python
+with TestClient(app) as c:
+    c.headers.update({"Origin": "http://localhost",
+                      "User-Agent": "pytest-agent/1.0"})
+    yield c
+```
+
+When a test file fires dozens of requests, disable only the per-IP limiter and
+leave the product limits that the file is asserting:
+
+```python
+@pytest.fixture(autouse=True)
+def _no_ip_throttle(monkeypatch):
+    import app.routers.otp as otp_router
+    monkeypatch.setattr(otp_router, "check_rate_limit", lambda request: None)
+```
+
+## Real-PostgreSQL tests (`tests/postgres/`)
+
+`tests/conftest.py` pins `DB_BACKEND=sqlite` so the main suite is fast and
+hermetic. Production is PostgreSQL 16. `tests/postgres/` closes that gap
+against a real server.
+
+How it works, so you use it correctly:
+
+- Opt-in with `RUN_POSTGRES_TESTS=1`. Without it every test in the directory
+  skips, so a machine with no server still runs green.
+- The session fixture creates two throwaway schemas
+  (`padyar_test_<pid>_<rand>` and `..._obs`), applies the real
+  `migrations/*.sql` into them with the `app.` and `observability.` prefixes
+  rewritten, and drops them at the end.
+- `app` is deliberately NOT on the test `search_path`, so a table the harness
+  forgot to create fails loudly instead of silently hitting the operator's live
+  table.
+- `_live_data_is_untouched` snapshots the live `app.*` row counts before and
+  after the session and fails if anything moved.
+
+Fixtures available there:
+
+| Fixture | What it gives you |
+|---|---|
+| `client` | `TestClient` with an admin session, CSRF header and data in the test schemas |
+| `conn` | A connection through the real adapter (`app/db/pg.py`), which is where placeholder translation and `lastrowid` emulation live |
+| `raw` | A raw psycopg connection, for the few assertions that must bypass the adapter (for example "what type did the column actually get?") |
+| `pg_clean` | Autouse. TRUNCATEs every test table with `RESTART IDENTITY CASCADE` before each test |
+
+Example, from `tests/postgres/test_dataset_api.py`:
+
+```python
+def test_a_duplicate_id_is_a_controlled_409_not_a_500(client):
+    assert _create(client, "pg-dup").status_code == 200
+    res = _create(client, "pg-dup", title="دیگر")
+    assert res.status_code == 409
+    assert res.json()["detail"] == "ID already exists"
+```
+
+That test exists because `app/routers/dataset.py` caught
+`sqlite3.IntegrityError`, which PostgreSQL never raises. On the production
+backend a duplicate id was a 500 with a traceback. The SQLite suite could not
+see it.
+
+CI runs this directory as a separate blocking job (`postgres-tests` in
+`.github/workflows/ci.yml`, with a `postgres:16` service container).
+
+## Unit test example
+
+```python
+from app.utils.normalizer import normalize_persian
+
+
+def test_arabic_letters_are_folded_onto_their_persian_forms():
+    arabic = normalize_persian("كتاب عربي", expand_synonyms=False)
+    persian = normalize_persian("کتاب عربی", expand_synonyms=False)
+    assert arabic == persian
+```
+
+`expand_synonyms=False` keeps the test off the database. The default is True
+and reads the `synonyms` table, which a unit test should not depend on.
+
+Patch dependencies with `monkeypatch`, not a mocking library:
+
+```python
+def test_reads_the_default_when_the_setting_is_absent(monkeypatch):
+    monkeypatch.setattr("app.db.queries.get_setting",
+                        lambda key, default=None: default)
+    ...
+```
+
+## Critical Rules
+
+1. **Never mock the database.** Tests run against a throwaway SQLite file
+   (`tmp_path`) or a throwaway PostgreSQL schema. A mocked database hides the
+   SQL bugs the test exists to catch.
+2. **Always redirect `config.DB_PATH` to `tmp_path`.** Otherwise the test
+   writes into the developer's real `chat_history.db`. Set
+   `SEED_DEFAULT_CONTENT = False` too, so only your rows are there.
+3. **Always test the anonymous caller** for every admin route. 401/403 for
+   API routes, a 303 to `/login` for page routes.
+4. **Send `X-CSRF-Token`** on every admin mutation, built with
+   `app.auth.csrf.token_for_session`.
+5. **Test pagination** on any endpoint that returns a collection. The
+   constitution forbids unbounded collections, so assert the limit is applied
+   and that a second page is reachable.
+6. **Patch the importing module, not the defining one.** `app/routers/chat.py`
+   did `from ... import get_openai_response` at import time, so
+   `monkeypatch.setattr(chat, "get_openai_response", fake)` is what works.
+7. **Never reach the network.** Patch the AI wrapper
+   (`app.services.ai.wrapper.padyar_ai.generate`) and the SMS provider seam.
+8. **Reset process-wide state you disturb:** `security._chat_rate_limits`,
+   `search._last_version_check`, the settings cache. `tests/conftest.py`
+   already handles the common ones.
+9. **Kiosk is the threat model.** This runs on a shared booth browser. For any
+   session, cookie or history feature, write the test that proves the next
+   person does not inherit the last person's state.
+10. **Never add a second top-level `conftest.py`.** Extend `tests/conftest.py`
+    only when more than one file needs the fixture.
+11. **Never use pytest-playwright's sync fixtures** (`page`, `browser`,
+    `context`, `browser_context`, `playwright`). `tests/test_suite_isolation.py`
+    fails the suite if one appears. See the `e2e-test-gen` skill.
 
 ## Workflow
 
-1. Read the target router/handler and its request/response models (`app/models.py`).
-2. Pick the auth approach (login-and-reuse via `admin_client`, or `dependency_overrides`).
-3. Ensure `tests/conftest.py` has `temp_db`, `client`, and `admin_client`.
-4. Write tests under `tests/` (e.g. `tests/test_admin_api.py`, `tests/test_chat_api.py`) with descriptive `test_*` names: a happy path, an auth-rejection path, and a validation/error path.
-5. Run `.venv/bin/python -m pytest tests/<file> -q` until green.
-6. Run `python -m py_compile app/main.py app/routers/chat.py` before committing.
+1. Read the router or service you are testing, and the dependency that guards
+   it (`Depends(verify_admin)`, chat token, visitor session).
+2. Read an existing test file that covers a nearby area and copy its fixtures.
+3. Decide the test type from the table above.
+4. Write the tests: success, invalid input, unauthorized, missing resource,
+   duplicate request, and the regression you actually came for.
+5. Run just your file:
 
-Do NOT add inline comments to generated test code unless a setup step is genuinely non-obvious.
+   ```bash
+   .venv/bin/python -m pytest tests/test_myfeature.py -q
+   ```
+
+6. Do not run the full suite locally. This machine has 15 tests that always
+   fail here (they need a live PostgreSQL or the network) and always pass on
+   CI. The local pre-commit check is only
+   `python -m py_compile app/main.py app/routers/chat.py`.
+7. After pushing, CI is the gate:
+
+   ```bash
+   gh run list --branch <branch> --limit 1
+   gh run watch
+   ```
+
+DO NOT add inline comments to generated test code unless the setup is genuinely
+hard to follow. Put the reasoning in the module docstring, the way the existing
+files do.

@@ -1,0 +1,23 @@
+{
+  "skill_name": "writing-spikes",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A customer wants the chatbot to answer from their own PDF manuals, not just the curated dataset. Before anyone designs this, I need a spike on what approach fits our stack. What are the options and what do you recommend?",
+      "expected_output": "A docs/features/<slug>/RESEARCH.md built from docs/engineering/templates/SPIKE.md: one framed question, constraints (per-customer install, local tiers must still work with the AI provider off, PostgreSQL 16, pip + requirements.txt, Persian text), real alternatives with evidence, findings verified against app/services/search.py and app/db/connection.py, a recommendation with explicit trade-offs, and an outcome of -> ADR (a new ingestion dependency plus a new place customer content lives is a durable architectural decision). Must NOT write the ADR itself. Must add a row to docs/features/INDEX.md. Must not invent a docs/spikes/ directory or an RFC.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Add an admin button that exports the wrong-answer queue to CSV. Figure out the cleanest way given how the conversations module already reads that data, then recommend an approach.",
+      "expected_output": "Ideally the answer says a full spike is NOT warranted: FEATURE_DEVELOPMENT_WORKFLOW.md scales process with risk, and this reuses an existing admin router, an existing verify_admin dependency and an existing read path in app/routers/conversations_admin.py. If a short research note is written, it must ground in the real code, note the pagination rule from the constitution for an unbounded export, and route -> PLAN or -> SPEC rather than over-escalating to an ADR.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Visitors keep getting a confident wrong answer when they ask about a company. Research whether we should change TRUSTED_MATCH_THRESHOLD, and tell me whether this needs an ADR.",
+      "expected_output": "A research doc that first verifies the current tier order and thresholds in app/routers/chat.py and app/config.py, checks docs/engineering/DECISIONS.md for the existing threshold ADRs (ADR-003, ADR-004, ADR-005) instead of re-deciding them silently, runs or cites a measurement (scripts/run_eval.py --golden) rather than arguing, presents real alternatives, and explicitly applies the escalation test: a change to a pipeline threshold is a durable decision, so -> ADR, with the measurement recorded in the entry. Must state what it trades off (a lower floor answers more queries and is confidently wrong more often at a booth).",
+      "files": []
+    }
+  ]
+}

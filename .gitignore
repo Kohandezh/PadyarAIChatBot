@@ -110,6 +110,12 @@ graphify-out/
 # Local embedding model cache (regenerable, ~100MB)
 data/models/
 
+# Hugging Face hub cache. app/services/embeddings.py sets HF_HOME to the repo
+# cache dir, so a local run of the embedding model drops ~1GB of downloaded
+# weights here. Regenerable, never source. tests/test_no_legacy_engine_references.py
+# already skips it; this keeps `git add .` from staging it.
+.hfcache/
+
 # Knowledge snapshots are runtime state. The freshness checker that wrote
 # them is gone, but a working copy from before its removal can still carry
 # the directory on disk — keep it out of commits.

@@ -1,184 +1,342 @@
 ---
 name: write-tests
-description: Generate focused pytest tests for the PadyarAIChatbot (Python + FastAPI). Use this to create unit tests for services/utils/auth and integration tests via FastAPI's TestClient, covering the BM25 + embeddings retrieval pipeline, Persian normalization, auth/rate-limit, and dataset/questions import-export.
+description: Generate focused pytest tests for Python code in this repo (services, utils, auth helpers, FastAPI routers). Use this to create unit tests, FastAPI TestClient integration tests, and real-PostgreSQL tests that cover critical functionality.
 ---
 
-You are an expert Python testing engineer generating tests for **PadyarAIChatbot** — a FastAPI + SQLite app with a hybrid retrieval pipeline (BM25 + local model2vec embeddings, fused by a feature reranker) and OpenAI (via the GapGPT proxy) fallback. Tests use **pytest**.
+You are a test engineer for PadyarAIChatbot, a Python 3.10+ FastAPI app with a
+pytest suite. Generate focused, essential tests that match the patterns already
+in `tests/`.
 
-## Project Testing Reality (read this first)
+There is no TypeScript, React, Vitest or Jest in this repo. Everything is
+pytest: plain `def test_...` functions and bare `assert`. No `describe`, no
+`it`, no `expect`.
 
-- `tests/` and `tests/conftest.py` **already exist** and hold a large suite. Add to them. Read `tests/conftest.py` for the fixtures before you write a new one, and never create a second `conftest.py` at the top level.
-- The test deps are **already installed** and tracked in **`requirements-dev.txt`** (kept separate from `requirements.txt` so customer installs don't pull in pytest/Playwright): `pytest`, `pytest-asyncio`, `pytest-playwright`. `httpx` is already a runtime dependency (TestClient uses it). A fresh checkout sets up with:
-  ```bash
-  .venv/bin/python -m pip install -r requirements-dev.txt
-  ```
-- `pytest-asyncio` runs in **auto** mode (configured in `pytest.ini`), so `async def test_*` works without a per-test marker.
-- Run tests with the project interpreter:
-  ```bash
-  .venv/bin/python -m pytest
-  .venv/bin/python -m pytest tests/test_search.py -q
-  ```
-- `app.config` raises `ValueError` at import if `OPENAI_API_KEY` is missing. The test process must have it set (a dummy value is fine since real network calls are mocked). Set it in `tests/conftest.py` **before** anything imports `app.*`, or export it in the environment.
-- Before committing, honor the CLAUDE.md mandatory check:
-  ```bash
-  python -m py_compile app/main.py app/routers/chat.py
-  ```
+Read `docs/engineering/TESTING.md` before you start. It is the repo's testing
+standard and it wins over this file if the two disagree.
 
-## File Layout
+## Step 0: Read the existing tests first
 
-All tests live in a top-level `tests/` directory. It already holds far more files than the sketch below; this is the naming pattern to follow, not the full list:
+`tests/` has over 130 files. Almost every shape you need is already in there.
+Before writing anything, read:
 
-```
-tests/
-├── conftest.py            # shared fixtures: temp DB, TestClient, admin login, chat token
-├── test_search.py         # retrieval: BM25 + embeddings + reranker (app/services/search.py)
-├── test_normalizer.py     # Persian normalization + synonyms (app/utils/normalizer.py)
-├── test_security.py       # tokens, password hashing, rate limit (app/auth/security.py)
-├── test_openai.py         # classify_intent / get_openai_response with the OpenAI client mocked
-├── test_chat_api.py       # POST /chat integration (token + origin + rate limit)
-└── test_admin_api.py      # admin login + dataset/questions/backup endpoints
-```
+- `tests/conftest.py` (the shared fixtures, all autouse, described below)
+- one or two test files that cover code near your target
 
-## Step 1: Analyze the target
+Match their idioms. Do not invent a fixture or a helper that does not exist.
 
-Identify: purpose, dependencies (DB? OpenAI network? HTTP layer?), and side effects. Then pick a strategy.
+## Step 1: Code Analysis
 
-## Step 2: Choose UNIT vs INTEGRATION
+Identify:
 
-**UNIT tests** (no HTTP, call the function directly) for:
+- Purpose and functionality
+- Dependencies (other services, the database, the AI wrapper, the network)
+- Complexity level
+- Code scope (pure util, service function, auth helper, router endpoint)
+- Side effects (database writes, HTTP calls, file writes, module-level state)
 
-- `app/utils/normalizer.py` — `normalize_persian(text)`, synonym expansion. Pure-ish (synonyms load from DB, so use the temp-DB fixture).
-- `app/services/search.py` — `find_best_match(query)` returns `(best_match, score)`; `find_similar_question(query)`. Threshold `SIMILARITY_THRESHOLD = 0.20`. Needs dataset rows in the temp DB.
-- `app/auth/security.py` — `hash_password` / `verify_password`, `generate_chat_token`, `validate_chat_token`, `check_rate_limit`.
-- `app/services/openai.py` — `classify_intent`, `get_openai_response`. **Mock the OpenAI/GapGPT client — never hit the real API.**
+Module-level state matters more here than in most codebases. Several services
+keep process-wide caches (`app/services/search.py` index version,
+`app/db/queries.py` settings cache, `app/services/applog.py` duplicate
+suppression). If your target holds state between calls, the test has to reset
+it or the next test inherits it.
 
-**INTEGRATION tests** (via `TestClient`) for anything that goes through a FastAPI route: `/chat`, `/admin/*`. See the `api-test` skill for the full route-testing playbook.
+## Step 2: Determine Test Strategy
 
-## Step 3: The conftest temp-DB pattern (critical)
+| Target | Test type | How |
+|---|---|---|
+| Pure function, no DB, no network (`app/utils/normalizer.py`, `app/services/bm25.py`, scoring maths) | Unit | Import it, call it, assert. No fixture needed |
+| Service function that reads or writes the database (`app/services/conversations.py`, `app/services/otp.py`) | Integration | Redirect `config.DB_PATH` to `tmp_path`, call the real function |
+| A router endpoint in `app/routers/` | Integration through HTTP | FastAPI `TestClient`. See the `api-test` skill for the full pattern |
+| Code whose bug only shows on PostgreSQL (booleans, JSONB, TIMESTAMPTZ, unique violations) | Real-PostgreSQL | Add it under `tests/postgres/` |
+| Anything a visitor sees in a browser | Browser e2e | Playwright's ASYNC api. See the `e2e-test-gen` skill |
 
-`app/config.DB_PATH` is computed at import time as `BASE_DIR/chat_history.db` and is **NOT env-overridable**. `get_db_connection()` and `init_db()` (in `app/db/connection.py`) both do `from app.config import DB_PATH` **inside** the function body — they re-read `app.config.DB_PATH` on every call. That makes it cleanly monkeypatchable: set `app.config.DB_PATH` to a temp path *before* the code runs, and every connection opens against the throwaway DB. **Never let tests touch the real `chat_history.db`.**
+When unsure between unit and integration, prefer the integration test that
+goes through the real database. The suite runs on throwaway SQLite files, so a
+real-database test is still fast and hermetic.
+
+## Step 3: Generate Tests
+
+### Focus on essential scenarios
+
+- **Core functionality** only. Test the main purpose and the business rule.
+- **Critical error paths** that a real visitor or operator will hit.
+- **Key edge cases** that represent real input. Persian text, an empty
+  dataset, an expired token, a shared kiosk where the next person must not
+  inherit the last person's state.
+- **Security boundaries.** If the code guards access, test the denied path
+  explicitly. The constitution requires it.
+- **Important state changes** that affect what a visitor sees.
+
+### Testing philosophy: quality over quantity
+
+**DO test:**
+
+- Business logic and visitor-facing behaviour
+- Error handling that changes what the visitor sees
+- The seam between two modules (router to service, service to database)
+- The retrieval and selection rules (thresholds, tier gates, refusals)
+- Denied access, expired sessions, and anything a kiosk visitor could inherit
+
+**DO NOT test:**
+
+- Private helpers that have no contract of their own
+- Trivial getters or pass-through wrappers
+- Third-party library behaviour (FastAPI, psycopg, model2vec have their own tests)
+- Every possible input, only realistic ones
+- The same happy path five times with different words
+
+### Style rules that this suite follows
+
+- One module docstring at the top saying WHY the file exists and what broke.
+  Most files here do this and it is the reason the suite is readable.
+- Test names are sentences: `test_a_duplicate_id_is_a_controlled_409_not_a_500`,
+  `test_every_api_route_refuses_an_anonymous_caller`. A name should say the
+  rule, not the function under test.
+- Arrange, Act, Assert inside the body.
+- Independent tests. Never rely on a previous test having run.
+- `assert x == y, "why this matters"` when the failure would otherwise be a
+  mystery.
+
+### pytest syntax you will actually use
+
+| Need | Use |
+|---|---|
+| A test | `def test_name():` or `async def test_name():` (asyncio auto mode, no marker) |
+| Setup and teardown | `@pytest.fixture` with `yield` |
+| Replace a function or attribute | `monkeypatch.setattr(module, "name", replacement)` |
+| Replace by dotted path | `monkeypatch.setattr("app.db.queries.get_setting", fake)` |
+| Temp files and databases | the built-in `tmp_path` fixture |
+| Table-driven cases | `@pytest.mark.parametrize("route", ROUTES)` |
+| Expect an error | `with pytest.raises(HTTPException) as exc:` |
+| Skip when an optional dependency is missing | `pytest.importorskip("playwright.async_api")` |
+| Skip on a condition | `@pytest.mark.skipif(not embeddings.available(), reason="...")` |
+
+`monkeypatch` replaces what `vi.mock` did elsewhere. It undoes itself after
+each test, which is why the suite uses it instead of manual patching.
+
+### The shared fixtures in `tests/conftest.py`
+
+All of these are autouse. They already run for your test, so do not repeat
+them:
+
+- `.env` is redirected to a throwaway file (`config.ENV_FILE`)
+- the log store is redirected to a throwaway file (`config.LOGS_DB_PATH`)
+- the settings TTL cache is cleared before and after
+- the search index refresh window is reopened
+- the background SMS poller is stubbed out
+- applog's duplicate suppression is cleared
+
+`tests/conftest.py` also pins process-wide environment before `app.*` imports:
+`DB_BACKEND=sqlite`, `ENABLED_MODULES=""` (all optional modules load),
+`BCRYPT_ROUNDS=4`, `OTP_DEST_HOURLY_LIMIT=50`.
+
+Never create a second top-level `conftest.py`. Add a shared fixture to the
+existing one only when more than one file needs it. Otherwise keep the fixture
+in your own test file.
+
+### The database redirect idiom
+
+Every test that touches the database points `config.DB_PATH` at `tmp_path`
+first. Without it the test writes into the developer's real
+`chat_history.db`.
 
 ```python
-# tests/conftest.py
-import os
-os.environ.setdefault("OPENAI_API_KEY", "test-key")  # must precede any app import
-
 import pytest
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    """Point the app at a throwaway SQLite DB and initialize the schema."""
-    import app.config
-    from app.db.connection import init_db
-
-    db_file = tmp_path / "test_chat_history.db"
-    # get_db_connection()/init_db() re-import DB_PATH from app.config each call,
-    # so patching the attribute is enough.
-    monkeypatch.setattr(app.config, "DB_PATH", str(db_file))
-    init_db()  # creates all tables + seeds default synonyms/settings/admin
-    return str(db_file)
+def app_db(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "myfeature.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    yield
 ```
 
-Notes:
-- `init_db()` seeds the `synonyms`, `settings`, and `admins` tables. The seeded admin password is random unless you set `ADMIN_PASSWORD`/`ADMIN_SECURITY_ANSWER` env vars before `init_db()` — set them in the fixture when a test needs to log in (see the `api-test` skill).
-- To seed dataset/questions rows for search tests, use `app.db.queries.save_dataset([...])` and `save_questions([...])` after `init_db()`.
+`SEED_DEFAULT_CONTENT = False` keeps the bundled knowledge base out of the
+test database, so your assertions see only the rows you inserted.
 
-## Step 4: pytest idioms (replacing Vitest)
+### Unit test example (pure function)
 
-| Vitest | pytest |
-| --- | --- |
-| `describe`/`it` | plain `def test_*` functions (group by file/module) |
-| `expect(x).toBe(y)` | `assert x == y` |
-| `expect(fn).toThrow()` | `with pytest.raises(SomeError): fn()` |
-| `vi.mock(...)` / `vi.fn()` | `monkeypatch.setattr(...)` / `unittest.mock.MagicMock` |
-| `beforeEach` | a `@pytest.fixture` passed as an argument |
-| table-driven cases | `@pytest.mark.parametrize` |
-| async test | `@pytest.mark.asyncio` (needs `pytest-asyncio`) |
-
-## What to cover (this project's high-value tests)
-
-### Retrieval pipeline (`test_search.py`)
-
-Retrieval is BM25 (`app/services/bm25.py`) plus local model2vec embeddings (`app/services/embeddings.py`), fused by the feature reranker (`app/services/rerank.py`). Scores come back on a 0..1 scale, so the thresholds in `app/config.py` keep their meaning.
-
-- A query that closely matches a seeded dataset entry returns that entry with `score >= LOCAL_FALLBACK_THRESHOLD` (0.45).
-- An unrelated/gibberish query returns a score below that threshold (so the route would fall through to the AI tier).
-- `find_best_match` returns the tuple shape `(dict-or-None, float)`.
-- The embedding index is `None` when model2vec is not installed on the host, and retrieval then runs on BM25 alone. A test must not assume the embedding index exists.
+Shape taken from `tests/test_embedding_search.py`:
 
 ```python
-def test_find_best_match_returns_relevant_entry(temp_db):
-    from app.db.queries import save_dataset, save_questions
-    from app.services.search import find_best_match, load_dataset_internal
+"""Semantic retriever unit tests.
 
-    save_dataset([{"id": "lasik", "title": "لیزیک", "text": "توضیح لیزیک", "video_url": ""}])
-    save_questions([{"question": "عمل لیزیک چیست", "dataset_id": "lasik", "video_url": ""}])
-    load_dataset_internal()  # rebuild the in-memory BM25 + embedding indexes from the DB
+The calibration contract is exercised without the model, so CI stays
+hermetic.
+"""
+from app.services import embeddings
 
-    best, score = find_best_match("عمل لیزیک")
 
-    assert best is not None
-    assert best["id"] == "lasik"
-    assert score >= 0.45
+def test_calibration_maps_noise_to_zero_and_matches_high():
+    assert embeddings._calibrate(0.30) == 0.0
+    assert embeddings._calibrate(0.72) > 0.70
+    assert embeddings._calibrate(0.95) == 1.0
+
+
+def test_build_index_empty_returns_none():
+    assert embeddings.build_index([]) is None
+
+
+def test_search_degrades_to_bm25_only_when_embeddings_unavailable(monkeypatch):
+    import app.services.search as search
+
+    monkeypatch.setattr(embeddings, "available", lambda: False)
+    monkeypatch.setattr(
+        "app.db.queries.get_setting",
+        lambda key, default=None: default,
+    )
+    search.load_dataset_internal()
+    assert search.dataset_embedding_index is None
 ```
 
-(Confirm the exact in-memory refresh entrypoint in `app/services/search.py` before relying on `load_dataset_internal()`.)
-
-### Persian normalization (`test_normalizer.py`)
-Edge cases that matter for Persian text:
-- Arabic vs Persian characters: `ي → ی`, `ك → ک`.
-- Diacritics/zero-width chars stripped; extra whitespace collapsed.
-- Synonym expansion uses the seeded `synonyms` table (e.g. `لیزیک → لیزر لیزیک`).
+### Integration test example (service plus database)
 
 ```python
 import pytest
 
-@pytest.mark.parametrize("raw, expected_substr", [
-    ("كيف", "کیف"),          # Arabic kaf/ya normalized to Persian
-    ("  سلام  ", "سلام"),     # trimmed
-])
-def test_normalize_persian(temp_db, raw, expected_substr):
-    from app.utils.normalizer import normalize_persian
-    assert expected_substr in normalize_persian(raw)
+
+@pytest.fixture
+def app_db(tmp_path, monkeypatch):
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "conversations.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    yield
+
+
+def test_a_visitor_is_attached_to_their_conversation(app_db):
+    from app.services import conversations
+
+    conversations.get_or_create_conversation("c-1", lang="fa", ip="10.0.0.1",
+                                             user_agent="kiosk")
+    conversations.append_visitor_message("c-1", "ساعت کاری چند است؟")
+    visitor_id = conversations.upsert_visitor(
+        first_name="علی", last_name="رضایی", phone="09121112233",
+        job="دانشجو", position="مدیر", interests="هوش مصنوعی")
+    conversations.attach_visitor("c-1", visitor_id)
+
+    rows = conversations.list_conversations()
+    assert rows and rows[0]["visitor_id"] == visitor_id
 ```
 
-### Auth & rate limit (`test_security.py`)
-- `verify_password(p, hash_password(p))` is True; wrong password is False.
-- `validate_chat_token` accepts a token from `generate_chat_token()` and rejects a missing/garbage token.
-- `check_rate_limit` allows `CHAT_RATE_LIMIT` (2) calls per IP in the window, then raises on the next. Build a fake `Request` with the client IP you want, or drive it through `/chat` (see `api-test`).
+Call the real service function. Do not mock `get_db_connection`. The database
+in a test is a throwaway SQLite file, so there is nothing to protect by
+mocking, and a mock would hide exactly the SQL bugs the test exists to catch.
 
-### OpenAI fallback (`test_openai.py`)
-Mock the client — do **not** call the network. `app/services/openai.py` builds module-level `AsyncOpenAI` clients (`_classification_client`) and ad-hoc clients inside `get_openai_response`/`_transcribe_sync`. Monkeypatch the relevant client (or its `.chat.completions.create`) to return a canned response object, then assert the parsing/branching logic.
+### Endpoint tests
+
+Endpoints get their own skill. Use `api-test` for routers under
+`app/routers/`. It has the working `TestClient` fixtures for the three doors
+(admin session plus CSRF, chat token plus Origin, public visitor).
+
+### Browser tests
+
+Anything a visitor sees goes through the `e2e-test-gen` skill. The one rule
+you must not break: Playwright's ASYNC api only, with your own `browser`
+fixture. `tests/test_suite_isolation.py` fails the suite with an AST check if
+a test asks for pytest-playwright's sync `page`, `browser`, `context`,
+`browser_context` or `playwright` fixtures.
+
+### AI and network calls
+
+Never let a test reach the network. Patch the seam the router imports:
 
 ```python
-import pytest
+def _mock_ai(monkeypatch, generated="پاسخ"):
+    import app.routers.chat as chat
 
-@pytest.mark.asyncio
-async def test_classify_intent_parses_model_output(monkeypatch):
-    import app.services.openai as oai
-    # patch the client's create() to return a stub matching what the code reads
-    ...  # assert classify_intent("...") returns the expected intent/branch
+    async def fake_generate(query, lang="fa"):
+        return generated, 2, 0.0
+
+    monkeypatch.setattr(chat, "get_openai_response", fake_generate)
 ```
 
-### Dataset/questions import-export
-Unit-test `save_dataset` / `save_questions` round-trips against the temp DB; integration-test the `/admin/api/dataset/import|export` and `/admin/api/questions/import|export` routes via `api-test`.
+Patch the name on the module that USES it (`app.routers.chat`), not the module
+that defines it. The router did `from ... import get_openai_response` at import
+time, so patching the source module would not change what the router calls.
 
-## Best practices
+## Step 4: File location and naming
 
-- **AAA**: Arrange (fixtures/seed data) → Act (call) → Assert. One behavior per test.
-- Test **behavior and outcomes**, not implementation details.
-- Use `@pytest.mark.parametrize` instead of copy-pasting near-identical happy paths.
-- Mock only what is **external** (OpenAI/GapGPT network, the system clock if needed). **Never mock SQLite** — use the real temp DB.
-- Keep tests independent: each gets a fresh `temp_db` (function-scoped fixture).
-- Do **not** add inline comments to generated test code unless a setup step is genuinely non-obvious.
+The suite is flat. One file per feature or area:
 
-## Workflow
+```
+tests/test_<area>.py          # unit and integration, the default home
+tests/postgres/test_<area>.py # needs a real PostgreSQL server
+tests/e2e/test_<flow>.py      # browser test for a whole visitor flow
+```
 
-1. Read the source file(s) to understand inputs/outputs and dependencies.
-2. Decide unit vs integration; for integration defer to the `api-test` skill.
-3. Ensure `tests/conftest.py` exists with the `temp_db` (and, for routes, `client`) fixtures.
-4. Write the tests under `tests/` with descriptive `test_*` names.
-5. Test deps are already installed (`requirements-dev.txt`) — run `.venv/bin/python -m pip install -r requirements-dev.txt` on a fresh checkout.
-6. Run `.venv/bin/python -m pytest -q` and iterate until green.
-7. Run `python -m py_compile app/main.py app/routers/chat.py` before committing.
+There is no `unit/` or `integration/` directory and no `.unit.` or
+`.integration.` suffix. Pick the name a reader would grep for:
+`test_visitor_session.py`, `test_chat_options_pick.py`,
+`test_conversations_admin.py`.
+
+A browser test that covers one defect in one feature may live next to that
+feature's other tests instead of `tests/e2e/` (`tests/test_kiosk_privacy.py`
+does this). Both are collected by the default run, which is the point.
+
+## Step 5: Run and verify
+
+Run only what you wrote:
+
+```bash
+.venv/bin/python -m pytest tests/test_myfeature.py -q
+```
+
+Set up the test environment once, if it is not there yet:
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m playwright install chromium   # browser tests only
+```
+
+**Do not run the full suite locally and do not treat it as a gate.** This Mac
+has 15 tests that always fail here and always pass on CI, because they need a
+live PostgreSQL or the network (`test_company_profiles`,
+`test_leads_company_tools`, `test_leads_contacts_admin`,
+`test_leads_sms_channel`, `test_sms_production_guard`). Chasing them wastes
+time.
+
+The local pre-commit check is only a syntax check on the files you touched:
+
+```bash
+python -m py_compile app/main.py app/routers/chat.py
+```
+
+**CI on GitHub is the pass/fail gate.** `.github/workflows/ci.yml` runs the
+full suite (`test` job) and the real-PostgreSQL suite (`postgres-tests` job,
+blocking). After pushing:
+
+```bash
+gh run list --branch <branch> --limit 1
+gh run watch
+```
+
+## Output Format
+
+### 1. Analysis Summary
+
+Brief description of the code and its key characteristics.
+
+### 2. Test Strategy
+
+State the type (unit, integration, real-PostgreSQL, browser) and why.
+
+### 3. Test File Location
+
+The exact path under `tests/`.
+
+### 4. Test Implementation
+
+The test code.
+
+### 5. Coverage Notes
+
+Which scenarios are covered, and which known gaps you left on purpose.
+`docs/engineering/TESTING.md` asks you to record a limitation rather than
+silently downgrade confidence.
+
+Now analyse the target and write focused tests, essential functionality first.
+
+DO NOT add inline comments to generated test code unless the setup is genuinely
+hard to follow. Put the reasoning in the module docstring instead, the way the
+existing files do.

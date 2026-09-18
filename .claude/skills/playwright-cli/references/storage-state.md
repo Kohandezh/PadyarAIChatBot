@@ -1,127 +1,169 @@
-# Storage State (cookies, localStorage)
+# Storage: Cookies and localStorage
 
-Save a browser context's cookies + localStorage to a JSON file and reload it later to
-skip the login flow. In this app the admin panel uses a **cookie session**, so saving
-storage state after logging in lets every test start already-authenticated.
+This app keeps visitor state in both, and **the kiosk is the threat model**. One booth
+browser is shared by strangers all day, so "the next person inherits the last person's
+state" is the default bug. Most of what you will check here is whether something was
+really forgotten.
 
-## Save storage state
+## What this app stores
 
-```python
-# after logging in within `context`
-context.storage_state(path="tests/e2e/.auth/admin.json")
+### Cookies (set by the server)
+
+| Cookie | What it carries |
+|---|---|
+| `padyar_conv` | The server's handle on the current conversation. Cleared by "New chat" |
+| `padyar_visitor` | The visitor session. HttpOnly, so page JS cannot read, write or forge it |
+| `padyar_edit_s` | The company-contact edit session on `/edit/{token}` (leads module) |
+
+Admin sessions use their own cookie with a sliding 1-hour expiry.
+
+### localStorage (written by the page)
+
+| Key | What it carries |
+|---|---|
+| `inotex_chat_history` | This browser's copy of the transcript. Replayed by `loadHistory()` |
+| `inotex_lang` | `fa` or `en` |
+| `inotex-light-mode` | `'1'` or `'0'`. See the `dark-mode` skill |
+| `inotex-video-sound` | `'1'` or `'0'` |
+| `inotex-theme` | Dead key from a deleted theme. Still read by the boot script |
+
+Both halves matter. `padyar_conv` is the server's copy of the transcript,
+`inotex_chat_history` is the browser's, and a reset that forgets one but not the other
+replays the previous visitor's messages to the next one. That is a real bug this repo has
+shipped and fixed (`tests/test_kiosk_privacy.py`).
+
+## Checking a reset by hand
+
+```bash
+playwright-cli open http://127.0.0.1:8000
+playwright-cli fill "#user-input" "سلام"
+playwright-cli click "#send-btn"
+
+playwright-cli cookie-list
+playwright-cli localstorage-list
+
+playwright-cli click "#new-chat-btn"
+
+playwright-cli --raw cookie-get padyar_conv          # should be gone
+playwright-cli --raw localstorage-get inotex_chat_history   # should be gone
 ```
 
-Standalone script that logs in once and saves state:
+## Cookies
 
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch()
-    context = browser.new_context()
-    page = context.new_page()
-
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill("admin")
-    page.locator("#sec-answer").fill("آبی")
-    page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-admin**")
-
-    context.storage_state(path="tests/e2e/.auth/admin.json")
-    context.close()
-    browser.close()
+```bash
+playwright-cli cookie-list
+playwright-cli cookie-list --domain=127.0.0.1
+playwright-cli cookie-list --path=/api
+playwright-cli cookie-get padyar_conv
+playwright-cli cookie-set padyar_conv abc123
+playwright-cli cookie-set padyar_conv abc123 --domain=127.0.0.1 --path=/ --httpOnly --sameSite=Lax
+playwright-cli cookie-set remember token123 --expires=1735689600
+playwright-cli cookie-delete padyar_conv
+playwright-cli cookie-clear
 ```
 
-## Restore storage state
+Several cookies at once, via `run-code` (JavaScript):
 
-```python
-context = browser.new_context(storage_state="tests/e2e/.auth/admin.json")
-page = context.new_page()
-page.goto("http://127.0.0.1:8000/secure-panel-admin")   # already logged in
+```bash
+playwright-cli run-code "async page => {
+  await page.context().addCookies([
+    { name: 'padyar_conv', value: 'c1', domain: '127.0.0.1', path: '/', httpOnly: true }
+  ]);
+}"
 ```
 
-### In pytest-playwright (the common case)
+## localStorage
 
-Build the state once per session, then hand each test a pre-authenticated context:
-
-```python
-import pytest
-
-@pytest.fixture(scope="session")
-def admin_storage_state(browser):
-    ctx = browser.new_context()
-    page = ctx.new_page()
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill("admin")
-    page.locator("#sec-answer").fill("آبی")
-    page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-admin**")
-    path = "tests/e2e/.auth/admin.json"
-    ctx.storage_state(path=path)
-    ctx.close()
-    return path
-
-@pytest.fixture
-def admin_page(browser, admin_storage_state):
-    ctx = browser.new_context(storage_state=admin_storage_state)
-    page = ctx.new_page()
-    yield page
-    ctx.close()
+```bash
+playwright-cli localstorage-list
+playwright-cli localstorage-get inotex-light-mode
+playwright-cli localstorage-set inotex-light-mode 1
+playwright-cli localstorage-set inotex_lang en
+playwright-cli localstorage-delete inotex_chat_history
+playwright-cli localstorage-clear
 ```
 
-A test then takes `admin_page` and is already inside the panel.
+## sessionStorage
 
-## File format
+```bash
+playwright-cli sessionstorage-list
+playwright-cli sessionstorage-get <key>
+playwright-cli sessionstorage-set <key> <value>
+playwright-cli sessionstorage-delete <key>
+playwright-cli sessionstorage-clear
+```
 
-The saved JSON looks like:
+## Storage state files
+
+Save and restore a whole browser state (cookies plus per-origin storage):
+
+```bash
+playwright-cli state-save                    # auto filename
+playwright-cli state-save admin-auth.json
+playwright-cli state-load admin-auth.json
+playwright-cli open http://127.0.0.1:8000/secure-panel-admin
+```
+
+File format:
 
 ```json
 {
   "cookies": [
-    {
-      "name": "admin_session",
-      "value": "…",
-      "domain": "127.0.0.1",
-      "path": "/",
-      "expires": 1735689600,
-      "httpOnly": true,
-      "secure": false,
-      "sameSite": "Lax"
-    }
+    { "name": "padyar_conv", "value": "abc123", "domain": "127.0.0.1",
+      "path": "/", "expires": 1735689600, "httpOnly": true,
+      "secure": false, "sameSite": "Lax" }
   ],
   "origins": [
-    {
-      "origin": "http://127.0.0.1:8000",
-      "localStorage": [{ "name": "theme", "value": "dark" }]
-    }
+    { "origin": "http://127.0.0.1:8000",
+      "localStorage": [ { "name": "inotex-light-mode", "value": "1" } ] }
   ]
 }
 ```
 
-## Cookies & localStorage at runtime
+## The same things in a Python test
 
-Read/modify directly on the context or page when you don't want a full state file:
+Set state before the page loads. This is how you test the light-mode boot script, which
+runs on the first paint and is too late to influence afterwards:
 
 ```python
-# cookies
-cookies = context.cookies()
-context.add_cookies([{
-    "name": "foo", "value": "bar",
-    "domain": "127.0.0.1", "path": "/",
-}])
-context.clear_cookies()
-
-# localStorage (runs in the page)
-page.evaluate("() => localStorage.setItem('theme', 'dark')")
-value = page.evaluate("() => localStorage.getItem('theme')")
-page.evaluate("() => localStorage.clear()")
+context = await browser.new_context()
+await context.add_init_script(
+    "localStorage.setItem('inotex-light-mode', '1')")
+page = await context.new_page()
+await page.goto(f"{ORIGIN}/")
+assert "light-mode" in await page.evaluate("document.body.className")
 ```
+
+Read and clear at runtime:
+
+```python
+value = await page.evaluate("localStorage.getItem('inotex_chat_history')")
+await page.evaluate("localStorage.clear()")
+
+cookies = await page.context.cookies()
+assert not [c for c in cookies if c["name"] == "padyar_conv"]
+await page.context.clear_cookies()
+```
+
+Set a cookie:
+
+```python
+await page.context.add_cookies([
+    {"name": "padyar_conv", "value": "c1", "url": ORIGIN},
+])
+```
+
+**Always use a fresh `browser.new_context()` per test.** A shared context leaks one test's
+language, light mode and history into the next, which is the same failure the kiosk has
+with real people.
 
 ## Security notes
 
-- The app's admin session cookie is sensitive — **never commit** state files.
-- Add `tests/e2e/.auth/` (and any `*.auth.json`) to `.gitignore`.
-- Prefer test-only credentials; delete state files after the run.
-- The admin session has a sliding 1-hour expiry, so regenerate state if it goes stale.
+- Never commit a storage-state file containing a real session. Delete it when done.
+- Never put a real admin password in a script, a test or a saved state file.
+- `padyar_visitor` is HttpOnly on purpose. A browser test must not be able to forge a
+  signed-in session by writing `localStorage`. That was the exact defect
+  `tests/e2e/test_visitor_session_e2e.py` exists to hold down: `isSignedIn()` used to mean
+  "localStorage has a name in it", so four seconds in a console got anyone past the gate.
+  Identity now comes from `GET /api/auth/session`, which reads the cookie the page cannot
+  see. If a change makes localStorage enough again, that test must fail.

@@ -1,81 +1,110 @@
 # Tracing
 
-A Playwright trace captures DOM snapshots, screenshots, network activity, and console
-logs for every action — the best tool for debugging a flaky or failing e2e test. View
-traces in the Trace Viewer.
+Capture a detailed execution trace for debugging. A trace holds DOM snapshots,
+screenshots, network activity and console logs for every step.
 
-## With pytest-playwright
-
-The simplest path — let the test runner record traces:
+## From the CLI
 
 ```bash
-.venv/bin/pytest tests/e2e --tracing on                  # always
-.venv/bin/pytest tests/e2e --tracing retain-on-failure   # only on failures
+playwright-cli tracing-start
+
+playwright-cli open http://127.0.0.1:8000
+playwright-cli fill "#user-input" "ساعت کاری نمایشگاه چیست؟"
+playwright-cli click "#send-btn"
+
+playwright-cli tracing-stop
 ```
 
-Trace zips land under `test-results/`. Open one:
+## Output files
 
-```bash
-.venv/bin/playwright show-trace test-results/<...>/trace.zip
-```
+Tracing creates a `traces/` directory with:
 
-## In a `sync_playwright` script
+### `trace-{timestamp}.trace`
 
-Start/stop tracing on the **context**:
+The action log: every click, fill and navigation, a DOM snapshot before and after each
+one, screenshots, timings, console messages and source locations.
 
-```python
-from playwright.sync_api import sync_playwright
+### `trace-{timestamp}.network`
 
-with sync_playwright() as p:
-    browser = p.chromium.launch()
-    context = browser.new_context()
+Every request and response, with headers, bodies, timing (DNS, connect, TLS, TTFB,
+download), sizes, and failures.
 
-    context.tracing.start(screenshots=True, snapshots=True, sources=True)
+### `resources/`
 
-    page = context.new_page()
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")
-    page.get_by_role("button", name="ورود به سیستم").click()
-
-    context.tracing.stop(path="trace.zip")
-    context.close()
-    browser.close()
-```
-
-Then:
-
-```bash
-.venv/bin/playwright show-trace trace.zip
-```
+Cached images, fonts, stylesheets and scripts, so the page can be reconstructed on replay.
 
 ## What a trace captures
 
-| Category    | Details                                            |
-| ----------- | -------------------------------------------------- |
-| Actions     | clicks, fills, navigations, keyboard input         |
-| DOM         | full snapshot before/after each action             |
-| Screenshots | visual state at each step                          |
-| Network     | requests, responses, headers, bodies, timing       |
-| Console     | all console messages                               |
-| Sources     | the line of test code that triggered each action   |
+| Category | Details |
+|---|---|
+| Actions | Clicks, fills, hovers, keyboard input, navigations |
+| DOM | Full snapshot before and after each action |
+| Screenshots | Visual state at each step |
+| Network | All requests, responses, headers, bodies, timing |
+| Console | Every `console.log`, `warn` and `error` |
+| Timing | Precise timing per operation |
 
-## Trace vs video vs screenshot
+## When to reach for it in this repo
 
-| Feature           | Trace        | Video       | Screenshot       |
-| ----------------- | ------------ | ----------- | ---------------- |
-| Format            | .zip (viewer)| .webm       | .png             |
-| DOM inspection    | Yes          | No          | No               |
-| Network details   | Yes          | No          | No               |
-| Step-by-step      | Yes          | Continuous  | Single frame     |
-| Best for          | Debugging    | Demos       | Quick capture    |
+**A click that does nothing.** The DOM snapshot at the moment of the click shows whether
+the element was there, visible and hittable. The chat header lays itself out inside a
+fixed frame, and buttons there can report as outside the viewport, which is why
+`tests/e2e/test_chat_localisation.py` fires `#lang-btn` through `page.evaluate` instead
+of a Playwright click. A trace is how you find out you are in that situation.
 
-## Best practices
+**An answer that never arrives.** The network log shows whether `/chat` was called, what
+was posted, and what came back. The tiered pipeline can answer locally or call a model, so
+the request body and the status tell you which tier ran.
 
-1. **Trace the whole flow**, not just the failing step — start tracing before the first
-   action so the viewer shows the lead-up to the problem.
-2. **Use `retain-on-failure`** in routine runs so passing tests don't pile up trace zips.
-3. **Clean up old traces** — they're sizable:
+**A screen that renders wrong only after several steps.** Step-by-step DOM replay beats
+re-running the flow and hoping to catch the moment.
 
-   ```bash
-   find test-results -name 'trace.zip' -mtime +7 -delete
-   ```
+## In a Python test
+
+```python
+context = await browser.new_context()
+await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+page = await context.new_page()
+# ... the failing steps ...
+await context.tracing.stop(path="/tmp/trace.zip")
+await context.close()
+```
+
+Open it with:
+
+```bash
+.venv/bin/python -m playwright show-trace /tmp/trace.zip
+```
+
+Write the trace to `/tmp` or the session scratchpad, never into the repo. Do not leave
+tracing switched on in a committed test. It slows every run and CI does not read the
+output.
+
+## Practice
+
+**Start tracing before the problem, not at it.** Trace the whole flow. The cause is
+usually two steps earlier than the failure.
+
+**Clean up.** Traces are large.
+
+```bash
+find .playwright-cli/traces -mtime +7 -delete
+```
+
+## Limits
+
+- Tracing adds overhead.
+- Large traces use significant disk space.
+- Some dynamic content does not replay perfectly. Video playback in the avatar tab is one
+  case: the trace shows the element and the network fetch, not the frames.
+
+## Trace, video, screenshot
+
+| | Trace | Video | Screenshot |
+|---|---|---|---|
+| Format | `.trace` file | `.webm` | `.png` / `.jpeg` |
+| DOM inspection | Yes | No | No |
+| Network details | Yes | No | No |
+| Step-by-step replay | Yes | Continuous | Single frame |
+| File size | Medium | Large | Small |
+| Best for | Debugging | Demos | Quick capture |

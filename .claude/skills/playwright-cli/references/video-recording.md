@@ -1,116 +1,126 @@
 # Video Recording
 
-Record a browser session as video (WebM) for debugging, documentation, or proof of work.
-In Python Playwright, video is a **context option**: pass `record_video_dir` (and
-optionally `record_video_size`) when creating the context. One video is written per page
-when the context closes.
+Record a browser session as WebM, for a demo, a PR, or proof that a fix works.
 
-## Basic recording (`sync_playwright`)
+This is a `playwright-cli` feature and its scripting api is JavaScript, because the code
+runs in the CLI's driver process. It is for showing work, not for tests. Do not add video
+recording to anything in `tests/e2e/`.
 
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch()
-    context = browser.new_context(
-        record_video_dir="recordings/",
-        record_video_size={"width": 1280, "height": 800},
-    )
-    page = context.new_page()
-
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill("admin")
-    page.locator("#sec-answer").fill("آبی")
-    page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-admin**")
-
-    # Video is flushed to disk when the context closes
-    context.close()
-    print(page.video.path())     # path to the .webm file
-    browser.close()
-```
-
-To rename the file to something descriptive after closing:
-
-```python
-import shutil
-src = page.video.path()
-# shutil.move (not os.replace) — falls back to copy+delete across filesystems,
-# which os.replace can't do (raises OSError: Invalid cross-device link in CI/Docker).
-shutil.move(src, "recordings/admin-login-2026-06-13.webm")
-```
-
-## With pytest-playwright
-
-Let the runner record automatically — videos go to `test-results/`:
+## Basic recording
 
 ```bash
-.venv/bin/pytest tests/e2e --video on                 # always
-.venv/bin/pytest tests/e2e --video retain-on-failure  # only failing tests
+playwright-cli open
+playwright-cli video-start demo.webm
+
+playwright-cli video-chapter "چت" --description="Asking the assistant a question" --duration=2000
+
+playwright-cli goto http://127.0.0.1:8000
+playwright-cli snapshot
+playwright-cli fill "#user-input" "ساعت کاری نمایشگاه چیست؟"
+playwright-cli click "#send-btn"
+
+playwright-cli video-stop
 ```
 
-Or set it per-test via the `browser_context_args` fixture:
+## Recording a whole scripted run
 
-```python
-import pytest
+For anything you will actually show someone, write the script to a file and run it once.
+That lets you pace the typing, pause between steps, and annotate.
 
-@pytest.fixture(scope="session")
-def browser_context_args(browser_context_args):
-    return {**browser_context_args,
-            "record_video_dir": "recordings/",
-            "record_video_size": {"width": 1280, "height": 800}}
+1. Work the scenario through the CLI first and note every locator you used.
+2. Write the script.
+3. `playwright-cli run-code --filename=your-script.js`
+
+Overlays are `pointer-events: none`, so a sticky overlay never blocks a click.
+
+```js
+async (page) => {
+  await page.screencast.start({
+    path: "chat-demo.webm",
+    size: { width: 1280, height: 800 },
+  });
+  await page.goto("http://127.0.0.1:8000");
+
+  await page.screencast.showChapter("Asking a question", {
+    description: "The visitor types in Persian and the assistant answers.",
+    duration: 2000,
+  });
+
+  await page.locator("#user-input")
+    .pressSequentially("ساعت کاری نمایشگاه چیست؟", { delay: 60 });
+  await page.locator("#send-btn").click();
+  await page.waitForTimeout(1500);
+
+  await page.screencast.showChapter("Light mode", {
+    description: "A per-visitor preference, stored in this browser only.",
+    duration: 2000,
+  });
+
+  await page.locator("#menu-toggle").click();
+  await page.locator("#theme-btn").click();
+  await page.waitForTimeout(1500);
+
+  // A sticky annotation that stays while you keep interacting.
+  const annotation = await page.screencast.showOverlay(`
+    <div style="position: absolute; top: 8px; left: 8px;
+      padding: 6px 12px; background: rgba(0,0,0,0.7);
+      border-radius: 8px; font-size: 13px; color: white;">
+      body.light-mode
+    </div>
+  `);
+  await page.waitForTimeout(1500);
+  await annotation.dispose();
+
+  // Highlight a specific element and label it.
+  const bounds = await page.locator("#send-btn").boundingBox();
+  await page.screencast.showOverlay(
+    `<div style="position: absolute;
+        top: ${bounds.y}px; left: ${bounds.x}px;
+        width: ${bounds.width}px; height: ${bounds.height}px;
+        border: 2px solid red;"></div>`,
+    { duration: 2000 }
+  );
+
+  await page.screencast.stop();
+};
 ```
 
-## Producing a polished "hero" recording
+## Overlay api
 
-Playwright's Python API records the raw session; there are no built-in chapter/overlay
-helpers. To make a narrated demo, slow the actions and type character-by-character, and
-inject your own on-page overlays with `page.evaluate(...)`:
+| Method | Use |
+|---|---|
+| `page.screencast.showChapter(title, { description?, duration?, styleSheet? })` | Full-screen chapter card with a blurred backdrop, for section transitions |
+| `page.screencast.showOverlay(html, { duration? })` | Custom HTML overlay, for callouts and highlights |
+| `disposable.dispose()` | Remove a sticky overlay added without a duration |
+| `page.screencast.hideOverlays()` / `showOverlays()` | Hide or show all overlays |
 
-```python
-def type_slowly(locator, text, delay_ms=60):
-    locator.press_sequentially(text, delay=delay_ms)   # human-paced typing
+## Notes for this app
 
-def show_overlay(page, html, ms=2000):
-    # overlays are pointer-events:none so they won't block clicks
-    handle = page.evaluate_handle(
-        """(html) => {
-            const el = document.createElement('div');
-            el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:99999';
-            el.innerHTML = html;
-            document.body.appendChild(el);
-            return el;
-        }""",
-        html,
-    )
-    page.wait_for_timeout(ms)
-    return handle  # call handle.evaluate("el => el.remove()") to dismiss
+- The page is RTL. Put an overlay on the **left** when you want it out of the way of the
+  drawer, which sits at the physical right on desktop.
+- Chapter titles and descriptions are yours to write. Persian in the chapter card reads
+  naturally next to a Persian UI, but keep it short. A card nobody can read in 2 seconds
+  is a card nobody reads.
+- The video tab plays an avatar clip and can start muted. If the recording is meant to
+  show sound working, click the sound control first, because autoplay only allows muted.
+- Use `pressSequentially` with a delay for typing. An instant `fill` looks like a glitch.
 
-# Usage inside a recorded session:
-show_overlay(page, "<div style='position:absolute;top:16px;right:16px;"
-                   "padding:8px 14px;background:rgba(0,0,0,.7);color:#fff;"
-                   "border-radius:8px;font-family:Vazirmatn'>ورود مدیر</div>", 1500)
-type_slowly(page.locator("#username"), "admin")
-type_slowly(page.locator("#password"), "admin")
-page.wait_for_timeout(800)
-page.get_by_role("button", name="ورود به سیستم").click()
+## Naming and cleanup
+
+```bash
+playwright-cli video-start /tmp/recordings/light-mode-2026-09-18.webm
 ```
 
-Use `page.wait_for_timeout(...)` to pace the recording so steps are watchable. Keep this
-app's RTL/Persian UI in mind: use the Vazirmatn font in overlays and right-align labels.
+Write recordings to `/tmp` or the session scratchpad. Do not commit `.webm` files. Attach
+them to a PR or an issue instead.
 
-## Video vs tracing
+## Video or trace
 
-| Feature  | Video                 | Tracing                                  |
-| -------- | --------------------- | ---------------------------------------- |
-| Output   | .webm file            | .zip (Trace Viewer)                      |
-| Shows    | visual recording      | DOM snapshots, network, console, actions |
-| Use case | demos, documentation  | debugging, analysis                      |
-| Size     | larger                | smaller                                  |
+| | Video | Trace |
+|---|---|---|
+| Output | WebM file | Trace file, opened in the Trace Viewer |
+| Shows | Visual recording | DOM snapshots, network, console, actions |
+| Use | Demos, documentation, PR evidence | Debugging |
+| Size | Larger | Smaller |
 
-## Limitations
-
-- Recording adds slight overhead.
-- Video is only flushed when the context closes — always `context.close()` to get the file.
-- Large recordings consume disk space; clean up `recordings/` periodically.
+Recording adds overhead, and large recordings use significant disk space.

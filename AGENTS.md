@@ -86,7 +86,7 @@ the full pytest suite (with an advisory `pytest-cov` coverage report) and the
 **blocking `postgres-tests` job** (a `postgres:16` service container runs
 `tests/postgres` on every push and PR) — that run is the pass/fail signal.
 A separate `release.yml` workflow runs tests + GitHub Release on `v*` tags
-(see `docs/engineering/RELEASING.md`). Don't run the whole `pytest` suite locally
+(see `docs/features/release-process/SPEC.md`). Don't run the whole `pytest` suite locally
 as a commit or merge gate: this machine has 15 tests that always fail here
 and always pass on CI (env/network-only, e.g. tests needing a live
 PostgreSQL), so a local full run is not a trustworthy signal.
