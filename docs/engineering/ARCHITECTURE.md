@@ -393,8 +393,8 @@ TCP و احراز هویت به‌ازای هر query.
 
 ### 9.2 مهاجرت‌ها
 
-- `migrations/NNNN_name.sql`، امروز **۲۹ فایل** (`0001_initial.sql` تا
-  `0029_drop_search_backend_setting.sql`).
+- `migrations/NNNN_name.sql`، امروز **۲۹ فایل**، از `0001` تا `0029`. برای دیدن
+  فهرست، `ls migrations/`.
 - با `scripts/apply_migrations.py` اعمال می‌شوند. هر فایل در تراکنش خودش.
 - اسکریپت sha256 هر فایل اعمال‌شده را نگه می‌دارد. **ویرایش یک مهاجرتِ اعمال‌شده
   ممنوع است**: اسکریپت `REFUSING TO CONTINUE` چاپ می‌کند و با کد ۲ خارج می‌شود، و
