@@ -21,7 +21,7 @@ The reference deployment is a large public exhibition («رویداد» — the 
 - **Admin panel** (Tabler / Bootstrap 5 RTL) — dashboard with usage stats and low-confidence queries, dataset & questions CRUD, synonym management, video upload & library (in the dataset page), theme switching, white-label settings, AI-assistant settings, and scheduled database backups.
 - **Import / export** — dataset and questions as JSON or CSV.
 - **Database-backed backups with off-site copy** — PostgreSQL `pg_dump --format=custom` backups with SHA-256 verification, a safety backup before restore, maintenance mode during restore, post-restore validation, and (2026-09-14) an off-site copy of every verified dump to an `OFFSITE_BACKUP_TARGET` (`rsync:` or `dir:`) — failures are non-fatal and logged.
-- **Release & versioning** — a `VERSION` file drives `app.__version__` and the `version` field in `/api/health`; `CHANGELOG.md` records changes; pushing a `v*` tag runs the full suite and cuts a GitHub Release (`docs/engineering/RELEASING.md`).
+- **Release & versioning** — a `VERSION` file drives `app.__version__` and the `version` field in `/api/health`; `CHANGELOG.md` records changes; pushing a `v*` tag runs the full suite and cuts a GitHub Release (`docs/features/release-process/SPEC.md`).
 - **Modular architecture** — every feature is a module; optional modules are toggled per install via `ENABLED_MODULES`.
 - **Security** — HMAC-signed chat tokens, origin validation, per-IP rate limiting, bcrypt admin password hashing (with legacy SHA-256 upgrade-on-login), brute-force lockout and sliding admin sessions.
 
@@ -338,7 +338,7 @@ python -m py_compile app/main.py app/routers/chat.py
 
 ### CI/CD
 
-`.github/workflows/ci.yml` runs on every PR and push: `test` (full suite + advisory `pytest-cov` coverage report), `postgres-tests` (blocking — a `postgres:16` service container runs the `tests/postgres` integration suite), `dependency-audit` (advisory pip-audit) and `secret-scan` (blocking) execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval. A separate `release.yml` workflow (on `v*` tags) runs the suite again, then cuts the GitHub Release from the CHANGELOG; see `docs/engineering/RELEASING.md`.
+`.github/workflows/ci.yml` runs on every PR and push: `test` (full suite + advisory `pytest-cov` coverage report), `postgres-tests` (blocking — a `postgres:16` service container runs the `tests/postgres` integration suite), `dependency-audit` (advisory pip-audit) and `secret-scan` (blocking) execute on GitHub-hosted `ubuntu-latest` runners (free while the repo is public). Merges to `main` additionally run `deploy` on the self-hosted `padyar` runner on the production server, gated by the `production` environment's reviewer approval. A separate `release.yml` workflow (on `v*` tags) runs the suite again, then cuts the GitHub Release from the CHANGELOG; see `docs/features/release-process/SPEC.md`.
 
 ## 🤝 Contributing
 

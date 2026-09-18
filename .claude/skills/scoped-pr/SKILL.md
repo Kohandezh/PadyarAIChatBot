@@ -1,117 +1,149 @@
 ---
 name: scoped-pr
-description: Use when taking on bug fixes, addressing reported issues, or any change that could span multiple root causes — and again before creating a branch, commit, or pull request. Keeps each PR scoped to one root cause (not one file, not one ticket), branching off and targeting the repo's main branch (main) with git + the gh CLI.
+description: Use when taking on bug fixes, addressing reported issues, or any change that could span multiple root causes, and again before creating a branch, commit, or pull request. Keeps each PR scoped to one root cause (not one file, not one ticket), and drives the branch, commit, and `gh pr create --draft` flow this repo uses.
 ---
 
 # Scoped PR
 
 ## Overview
 
-One reviewable idea per PR. Scope every PR to a single **root cause** — not one file, not one ticket.
-
-This repo's main branch is **`main`**. PRs are created with the `gh` CLI against `main`. There is **no helper script** — use plain `git` and `gh pr create`.
-
-`.github/workflows/ci.yml` still triggers on both `main` and `main-noor`. Only `main` is the default branch and only `main` deploys. Never base or target a branch on `main-noor`.
+One reviewable idea per PR. Scope every PR to a single **root cause**, not one file and not one ticket.
 
 Apply this at two moments:
 
-1. **Early** — when you take on work that fixes bugs or addresses issues, _before_ writing code. Decide the PR boundaries up front.
-2. **Backstop** — before you branch, commit, or open a PR, re-check the change still maps to one root cause.
+1. **Early**, when you take on work that fixes a bug or addresses an issue, *before* writing code. Decide the PR boundaries up front.
+2. **Backstop**, before you branch, commit, or open a PR. Re-check that the change still maps to one root cause.
 
-> **Only branch, commit, push, or open a PR when the user explicitly asks.**
+The reasoning behind it is in `docs/engineering/ENGINEERING_CONSTITUTION.md` (root cause before compensation, minimum necessary complexity) and the STOP CONDITIONS section of `CLAUDE.md`.
 
-## Step 1 — Decide the boundary first
+## Step 1: decide the boundary first
 
-Before touching code, list the distinct root causes in the requested work. **One root cause = one PR.** If the task contains N independent causes, plan N branches and N PRs.
+Before touching code, list the distinct root causes in the requested work. **One root cause equals one PR.** If the task holds N independent causes, plan N branches and N PRs.
 
 Decide with these tests:
 
-- **Split when** the changes have different _causes_, fix different _symptoms_, or could be reverted independently. Ask: _"Could I revert fix A without affecting fix B?"_ If yes → separate PRs.
-- **Keep together when** several files share _one_ cause (e.g. one bug touching the router, the service, and the db layer), or splitting would leave a non-building intermediate state.
-- **Don't over-split.** Mechanical churn from a single action (one rename, one find-and-replace) and genuinely atomic changes stay one PR. Splitting an atomic change into five PRs is as wrong as bundling five causes into one.
-- **The drive-by test.** _"Am I changing this because the task needs it, or because I'm already in the file?"_ The second is always a separate PR — no drive-by renames or "while I was here" refactors.
+- **Split when** the changes have different *causes*, fix different *symptoms*, or could be reverted independently. Ask: "Could I revert fix A without affecting fix B?" If yes, separate PRs.
+- **Keep together when** several files share *one* cause (one bug touching the router, the service, and the template), or when splitting would leave a state that does not run.
+- **Do not over-split.** Mechanical churn from a single action (one rename across the repo, one docs sweep) stays one PR. Splitting an atomic change into five PRs is as wrong as bundling five causes into one.
+- **The drive-by test.** "Am I changing this because the task needs it, or because I am already in the file?" The second is always a separate PR. No drive-by renames, no "while I was here" refactors.
 
-Remember the project's module principle: a new feature is normally one optional module (`app/modules/registry.py`) — router + service + optional admin page. That whole module is usually one root cause / one PR.
+If the work is one cause, continue. If it is several, run the steps below once per cause, finishing one PR before starting the next.
 
-If the work is one cause, continue. If it is several, do the steps below once per cause, fully finishing one PR before starting the next.
+## Step 2: start clean, off the latest main
 
-## Step 2 — Start clean, off the latest main
+The default branch is `main`. Branch from the freshly fetched remote tip so unmerged work from a previous fix never leaks into this PR:
 
 ```bash
+git status --short                     # must be clean; stash or commit first
 git fetch origin
-git switch -c <branch-name> origin/main
+git switch -c fix/<short-name> origin/main
 ```
 
-Branching from the latest `origin/main` keeps unmerged work from a previous fix out of this PR. Make sure the tree is clean first (`git status`) so you don't pick up unrelated changes.
+Branch names follow the type prefix of the commit: `fix/`, `feat/`, `chore/`, `docs/`, `refactor/`.
 
 ### Optional: isolate in a worktree
 
-In-place branch switching is the default. **Only when you want isolation** (e.g. to keep the current checkout untouched, or to work several PRs in parallel):
+Switching branches in place is the default. Use a worktree **only when you want isolation** (to keep the current checkout untouched, or to work on several PRs at once).
 
-- **Prefer the native `EnterWorktree` tool** — always use the harness's worktree tool over raw git when it exists. First detect existing isolation (`git rev-parse --git-dir` ≠ `--git-common-dir` ⇒ already in a worktree — don't nest).
-- **Manual path:** create the worktree *outside* the repo root so it never clutters `git status` or nests a checkout inside the tracked tree: `git worktree add ../worktrees/<branch> -b <branch> origin/main`, then `cd` in (or `EnterWorktree` its path) and continue.
+- Prefer the harness's `EnterWorktree` tool over raw git when it is available.
+- Check you are not already isolated first: if `git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`, you are already in a worktree. Do not nest.
+- Manual path:
 
-### Big features → stack, don't bundle
+  ```bash
+  git fetch origin
+  git worktree add ../padyar-<branch> -b fix/<short-name> origin/main
+  ```
 
-A large feature is still one root cause per PR — slice it into a stack of dependent PRs. Branch each slice off the one below, and target the parent when opening the PR:
+  A worktree does not need a clean tree, because it leaves the current checkout alone.
+
+### Big features: stack, do not bundle
+
+A large feature is still one root cause per PR. Slice it into a stack of dependent PRs with **GitHub's native stacked PRs via `gh stack`** (`gh extension install github/gh-stack`), not hand-set base branches. GitHub tracks the chain, shows each PR's position, and merges the stack atomically.
 
 ```bash
-git switch -c feat/x-1-schema origin/main
-# …commit, open PR with --base main…
-git switch -c feat/x-2-api feat/x-1-schema
+gh stack init feat/x-1-migration    # bottom slice, off main
 # …commit…
-gh pr create --base feat/x-1-schema --title "feat(api): x endpoint" --fill
+gh stack add feat/x-2-service       # next slice, branched off the one below
+# …commit…
+gh stack submit                     # push all branches, open the linked PRs
 ```
 
-Each PR's diff then shows only its own slice. **Merge bottom-up — first slice first.** After merging slice A into `main`, rebase the next slice onto the updated `main` (`git rebase --onto origin/main <tip-of-A> feat/x-2-api`) before opening/merging it.
+`gh stack submit` opens an editor per new PR (Ctrl+S submits all). `--auto` uses generated titles, `--open` creates them ready for review instead of draft. Re-run `submit` whenever you add commits or slices. Move around with `gh stack view` / `down` / `up` / `top`. To fix a lower slice: `gh stack down`, commit, `gh stack rebase --upstack`, `gh stack submit`.
 
-## Step 3 — Fix it
+Each PR's diff then shows only its own slice, and `gh stack merge` lands them bottom-up. Full merge and rebase procedure: the [merge-stacks](../merge-stacks/SKILL.md) skill.
 
-Keep the diff confined to the one root cause. Follow the project's conventions (see `software-architecture` and `implement` skills). If a test suite exists for the area (pytest), add or update tests; otherwise verify via `python -m py_compile` and by running `python main.py`.
+**Titles.** GitHub's stack UI already shows each PR's position, so an `[n/N]` marker is optional. Add one only if the user asks. Do state the dependency in the body (`Stacked on #128, merge after it`), and keep any marker out of commit messages, because commits get squashed on merge.
 
-## Step 4 — Commit
+## Step 3: fix it, test first
 
-Use the `commit` skill. It runs the mandatory `python -m py_compile` checks and writes a conventional-commit message ending with the `Co-Authored-By: Claude Opus 4.8` trailer. If it flags that the diff spans more than one root cause, stop and return to Step 1 — split before committing.
+Write the failing test before the fix (red, then green). The test must fail when the fix is removed, per `docs/engineering/TESTING.md`. A security-sensitive change tests the denied path too, not only the allowed one. A browser-visible change needs a Playwright test using the **async** API.
 
-## Step 5 — Open the PR
+Keep the diff confined to the one root cause. If the fix needs a new capability, it goes in as a module in `app/modules/registry.py` (optional first), per `CLAUDE.md`.
 
-Push the branch, then create the PR against `main` with `gh`:
+## Step 4: check and commit
+
+Local pre-commit check is the compile only:
 
 ```bash
-git push -u origin <branch-name>
-gh pr create --base main --title "<title>" --body "<body>"
+python -m py_compile app/main.py app/routers/chat.py
+python -m py_compile <every .py file you changed>
 ```
 
-- Use `--fill` to default title/body from the branch's commits, or supply `--title`/`--body` for richer context.
-- `-F <file>` / `--body-file -` reads the body from a file or stdin.
-- `--draft` opens a draft PR.
+**Do not run the full pytest suite locally as a gate.** CI on GitHub is the pass/fail signal, and 15 tests always fail on this machine while passing on CI.
 
-**End every PR body with the standard footer:**
+Then use the `commit` skill. It writes the conventional message and the required `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>` trailer. If it flags that the diff spans more than one root cause, stop and return to Step 1.
+
+If you finished a feature, refresh the code graph before opening the PR:
+
+```bash
+graphify update .
+```
+
+## Step 5: open the PR as a draft
+
+There is no `scripts/pr.sh` in this repo. Use `gh` directly:
+
+```bash
+git push -u origin HEAD
+gh pr create --draft --base main \
+  -t "fix(chat): keep the offer list pickable after a theme switch" \
+  -F /tmp/pr-body.md
+```
+
+Useful flags: `-t/--title`, `-b/--body`, `-F/--body-file <path>` (`-` reads stdin), `-d/--draft`, `-f/--fill` (title and body from the commits), `-r/--reviewer`, `-l/--label`.
+
+Open as a **draft** and mark it ready once CI is green and the review is done:
+
+```bash
+gh pr checks --watch
+gh pr ready
+```
+
+### PR body
+
+State the root cause, not just the change. A useful body answers: what was broken, why, what the fix does, and how it was verified.
 
 ```
+Root cause: the chat token is minted per theme render, so switching themes
+invalidated the token the open page was still holding.
+
+Fix: mint the token per session instead of per render, and validate it
+against the session in app/auth/security.py.
+
+Verified: new test tests/test_chat_token.py::test_token_survives_theme_switch
+(fails on main), plus CI.
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-Example:
+End every PR body you write with that trailer line.
 
-```bash
-gh pr create --base main \
-  --title "fix(chat): downgrade non-actionable provider noise" \
-  --body "$(cat <<'EOF'
-Reclassify GapGPT 4xx responses as warnings, not exceptions.
+**Visuals in the body.** When the description has to explain a *shape* (a call path that moved, a file that split, a state machine that gained a branch), a sketch is shorter than the paragraph it replaces. The `show-me` skill owns the form, and a `diff` block showing a call tree before and after is the usual fit. GitHub renders `diff`, `text`, and `mermaid` blocks in a PR body. At most one per PR, and it replaces prose rather than adding to it.
 
-Root cause: invalid_request errors were logged as hard failures,
-masking genuine outages.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-```
-
-## Step 6 — Next root cause
+## Step 6: next root cause
 
 Return to Step 2 from a fresh `main`-based branch. Never continue an independent fix on the previous fix's branch.
 
 ## Sizing budget
 
-Soft, not a gate: if a PR exceeds ~400 lines or more than one root cause, justify it in the description or split it. Treat "can this be split?" as a normal question, not a failure.
+Soft, not a gate. If a PR passes roughly 400 lines or more than one root cause, justify it in the description or split it. Treat "can this be split?" as a normal question, not a failure.

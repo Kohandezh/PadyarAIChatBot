@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, main-noor]
+    branches: [main]
   pull_request:
   # Manual trigger: "Run workflow" button (Actions tab) or
   # `gh workflow run CI --ref main`. Same gates, same deploy — the only way
@@ -121,10 +121,11 @@ jobs:
         run: pytest tests/postgres -q
 
   # Reporting, NOT blocking. An advisory can name a fix version that has not
-  # been published yet (see docs/engineering/DEPENDENCY_AUDIT.md — that is the
-  # live situation for `cryptography` right now), and a build that hard-fails
-  # on an unfixable finding is a build nobody can ship. A human reads this and
-  # decides whether the finding is reachable.
+  # been published yet, and a build that hard-fails on an unfixable finding is
+  # a build nobody can ship. A human reads this and decides whether the finding
+  # is reachable. See docs/engineering/DEPENDENCY_AUDIT.md for the method and
+  # the history. The `cryptography` case that motivated this policy is CLOSED:
+  # the fix shipped in 50.0.0 and requirements.txt now resolves clean.
   dependency-audit:
     runs-on: ubuntu-latest
     continue-on-error: true

@@ -43,7 +43,12 @@ The chatbot answers through a **tiered pipeline**. Cheap local tiers run first, 
 1. **Local knowledge base:** matches the query against the customer's curated dataset with BM25 plus local model2vec embeddings, fused by a feature reranker. Returns the best-matching video response.
 2. **AI fallback:** when local confidence is low, routes to the configured models via the Padyar AI Wrapper. The model picks record ids and our renderer writes the facts back out of the database.
 
-See "Tiered Intelligence Pipeline" below for every tier and its threshold. That diagram is the authoritative version.
+See "Tiered Intelligence Pipeline" below for the shape of the pipeline.
+
+**That diagram is a sketch, not a complete list.** `app/routers/chat.py` carries more
+deterministic local tiers than it shows (company field, company list, guide, booth,
+category overview, decline, affirm, gibberish), each added after a specific production
+misanswer. When the exact order matters, read the router, not the diagram.
 
 ### CMS Model
 
@@ -253,21 +258,16 @@ PadyarAIChatbot/
     companion/                   # On-page companion UI (companion.js, companion-ui.js,
                                  #   registration.js, button/ art)
     vendor/                      # Third-party: Tabler, Bootstrap, Chart.js, FontAwesome,
-                                 #   Vazirmatn, marked.js, liquid-glass background/switcher
+                                 #   Vazirmatn, marked.js
 
   themes/                        # Pluggable chat UI themes (WordPress-style partials)
     base/                        # Base theme — default partials all themes inherit
-      partials/                  # index.html, head.html, header.html, messages.html, video.html, input.html, footer.html
-    inotex/                      # Default theme — official event palette, modular brick layout
+      partials/                  # index, head, header, menu, messages, suggestions, video, input, footer (9)
+    inotex/                      # The only selectable theme — palette comes from Branding
       partials/                  # Overrides: header, messages, video, input, footer
-    liquid-glass/                # Apple-inspired frosted glass
-      partials/                  # Overrides: header (switcher), messages (glass bubbles), input (glass wrapper), footer (JS overrides)
-    minimal/                     # Minimal clean theme
-      partials/                  # Override: footer only (uses all base defaults)
-    haj/                         # Hajj & Ziyarat Organization — calm blue, large type, light/dark toggle
-      partials/                  # Overrides all 7 base partials, plus 3 own: pattern, chips, security
-      static/                    # style.css + hero/logo art and the companion sprite atlas
     (each theme has: theme.json, partials/ (optional overrides), static/style.css, screenshot.png)
+    # `liquid-glass`, `minimal` and `haj` were DELETED in commit d668911
+    # ("inotex-only themes with branding-editable palette"). Only base and inotex exist.
 
   data/                          # Runtime data files
     visit-taxonomy.json          # Jobs/interests/flags/sections for registration + planner
@@ -530,13 +530,29 @@ Core `app` tables:
 
 - **Chat tokens:** HMAC-signed tokens injected into HTML, validated on every `/chat` request
 - **Origin validation:** Checks `Origin`/`Referer` against allowlist
-- **Rate limiting:** `CHAT_RATE_LIMIT` requests per `CHAT_RATE_WINDOW` seconds per IP (default 20 per 60s — a whole exhibition hall can share one NAT'd address)
-- **Admin auth:** SHA-256 + salt password hashing, session cookies, brute-force protection (5 attempts → 5 min block, counted in the `login_attempts` table so a restart or a second worker does not reset it)
+- **Rate limiting:** two-tier and table-backed, not per-IP alone. The primary store is the
+  `rate_limit_hits` table (`migrations/0007_security_hardening.sql`). A tight bucket is keyed
+  on the signed chat token's nonce, so one abuser behind the hall's NAT burns only their own
+  budget, plus a loose per-IP backstop `CHAT_IP_RATE_LIMIT` (5x `CHAT_RATE_LIMIT`, which
+  defaults to 20 per 60s). The in-memory dict is only the fail-open path when the store is down.
+- **CSRF:** `csrf_protection` middleware (`app/main.py` over `app/auth/csrf.py`), opt-OUT not
+  opt-in, gated on `PROTECTED_PREFIXES = ("/admin/", "/secure-panel-admin", "/api/synonyms")`.
+  `tests/test_csrf.py` fails the build if a `verify_admin`-protected mutation is mounted outside
+  them, so a new admin router on a new prefix must be added there.
+- **Admin auth:** **bcrypt** (`hash_password`, `BCRYPT_ROUNDS` default 12), with a legacy
+  salted-SHA-256 verify path that upgrades the stored row on the next successful login. Login
+  needs a **second factor**, a security answer (`hash_security_answer` / `verify_security_answer`),
+  and `timing_equalize()` spends two bcrypts so a wrong username costs the same as a wrong
+  password. Brute-force protection is 5 attempts then a 5 min block, counted in the
+  `login_attempts` table so a restart or a second worker does not reset it.
 - **Sliding sessions:** 1-hour admin sessions, extended on activity
+- **Client IP:** `client_ip()` ignores forwarding headers unless `TRUST_CLOUDFLARE` or
+  `TRUSTED_PROXY_HOPS` is set, and counts `X-Forwarded-For` from the RIGHT. Reading it left to
+  right reads the entry the client controls.
 
 ### Theme System
 
-Themes use a WordPress-style partial template system with Jinja2. The `themes/base/` directory provides default partials (header, messages, video, input, footer, head). Each theme overrides specific partials by placing files with the same name in its own `partials/` directory. Jinja2's `FileSystemLoader` resolves overrides automatically — child theme first, then base.
+Themes use a WordPress-style partial template system with Jinja2. The `themes/base/` directory provides 9 default partials (index, head, header, menu, messages, suggestions, video, input, footer). Each theme overrides specific partials by placing files with the same name in its own `partials/` directory. Jinja2's `FileSystemLoader` resolves overrides automatically — child theme first, then base.
 
 **Shared assets:**
 
@@ -551,15 +567,16 @@ Themes use a WordPress-style partial template system with Jinja2. The `themes/ba
 | `header.html` | Tab switcher, accessibility controls (no logo — inotex/base moved the logo into `menu.html`, see below) |
 | `menu.html` | Hamburger drawer. Below 992px: a fixed overlay opened by the header's hamburger button. At 992px and up: a persistent sidebar next to the chat, collapsible to a 76px icon rail via `#menu-sidebar-toggle` (`static/chat/base.css`) |
 | `messages.html` | Text chat view, welcome message, loading bubble |
+| `suggestions.html` | The tappable follow-up chips under an answer (`app/services/suggestions.py` builds them, no AI call) |
 | `video.html` | Video view, avatar container, action buttons |
 | `input.html` | Textarea, mic button, send button |
 | `footer.html` | Loads core.js, theme-specific JS overrides, calls `initChat()` |
 
-Active theme is stored in the `settings` table (key `active_theme`) and switchable via admin panel. Selectable themes: `inotex` (default), `liquid-glass`, `minimal`, `haj`; `base` is marked `"selectable": false` and exists only to supply the default partials. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
+Active theme is stored in the `settings` table (key `active_theme`) and switchable via admin panel. There is exactly one selectable theme, `inotex`; `base` is marked `"selectable": false` and exists only to supply the default partials. `liquid-glass`, `minimal` and `haj` were removed in commit d668911, because a branding-editable palette replaced the need for separate colour themes. Theme inheritance: if `theme.json` has a `"parent"` field, the parent's partials are searched before base.
 
-**`menu.html`'s sidebar header — logo placement differs by theme.** The base shell (`static/chat/base.css`) assumes two separate elements: `.menu-sidebar-logo` (a small logo next to the title, shown only when the sidebar is expanded) and `.menu-sidebar-toggle-btn` (a compact stand-in logo used only on the collapsed rail, swapping to the collapse icon on hover). `base`, `minimal`, and `liquid-glass` all follow this two-element pattern.
+**`menu.html`'s sidebar header — logo placement differs by theme.** The base shell (`static/chat/base.css`) assumes two separate elements: `.menu-sidebar-logo` (a small logo next to the title, shown only when the sidebar is expanded) and `.menu-sidebar-toggle-btn` (a compact stand-in logo used only on the collapsed rail, swapping to the collapse icon on hover). The base shell follows this two-element pattern.
 
-`inotex` does not. It has no `.menu-sidebar-logo`. Instead, the full 38px brand mark lives inside `.menu-sidebar-toggle-btn` (`.menu-sidebar-toggle-logo`, a `<div>`) at all times — expanded or collapsed — and `themes/inotex/static/style.css` overrides the base shell so that element stays visible in the expanded state too (base.css hides it there by default). `.logo-container` in inotex holds only the two-line title (`.the-slogan`), which hides on collapse (`.menu-drawer.collapsed .menu-sidebar-header .logo-container .the-slogan { display: none; }`) instead of the whole container. If another theme wants this "logo lives in the toggle button" look, add the override in that theme's own `style.css` — do not change `base.css`, since `base`/`minimal`/`liquid-glass` still rely on the two-element layout.
+`inotex` does not. It has no `.menu-sidebar-logo`. Instead, the full 38px brand mark lives inside `.menu-sidebar-toggle-btn` (`.menu-sidebar-toggle-logo`, a `<div>`) at all times — expanded or collapsed — and `themes/inotex/static/style.css` overrides the base shell so that element stays visible in the expanded state too (base.css hides it there by default). `.logo-container` in inotex holds only the two-line title (`.the-slogan`), which hides on collapse (`.menu-drawer.collapsed .menu-sidebar-header .logo-container .the-slogan { display: none; }`) instead of the whole container. If a new theme wants this "logo lives in the toggle button" look, add the override in that theme's own `style.css` — do not change `base.css`, since the base shell still assumes the two-element layout.
 
 ---
 
@@ -728,7 +745,7 @@ job — blocking, a `postgres:16` service container runs `tests/postgres`) on
 every push and every PR — that run is the pass/fail signal, not a local one.
 A separate `release.yml` runs
 the suite again on `v*` tags and cuts the GitHub Release (see
-`docs/engineering/RELEASING.md`). This machine has 15 tests that always fail here and
+`docs/features/release-process/SPEC.md`). This machine has 15 tests that always fail here and
 always pass on CI (env/network-only, see below) — a local `pytest` run is not
 a trustworthy gate on this box, so don't run the full suite locally before
 committing.
@@ -784,7 +801,7 @@ gate. The project uses **pytest**. Test-only dependencies (`pytest`, `pytest-asy
 .venv/bin/python -m playwright install chromium   # only needed for browser e2e tests
 ```
 
-Tests live under `tests/` (config in `pytest.ini`, asyncio auto-mode) — **2669 tests collected as of 2026-09-14** (`.venv/bin/python -m pytest --collect-only -q | tail -2`; that is 2222 test functions, the rest is parametrization), of which 114 are the `tests/postgres/` suite that CI runs blocking. The 15 remaining local failures all need a live PostgreSQL or network and fail the same way on a clean checkout: `test_company_profiles` (4), `test_leads_company_tools` (3), `test_leads_contacts_admin` (4), `test_leads_sms_channel` (1), `test_sms_production_guard` (3). The suite is growing, so treat those numbers as a snapshot and let the command be the source of truth:
+Tests live under `tests/` (config in `pytest.ini`, asyncio auto-mode) — **2630 tests collected as of 2026-09-19** (`.venv/bin/python -m pytest --collect-only -q | tail -2`), of which 122 are the `tests/postgres/` suite that CI runs blocking. The 15 remaining local failures all need a live PostgreSQL or network and fail the same way on a clean checkout: `test_company_profiles` (4), `test_leads_company_tools` (3), `test_leads_contacts_admin` (4), `test_leads_sms_channel` (1), `test_sms_production_guard` (3). The suite is growing, so treat those numbers as a snapshot and let the command be the source of truth:
 
 ```bash
 .venv/bin/python -m pytest --collect-only -q | tail -2
@@ -849,7 +866,7 @@ The `docs/` folder is the project's knowledge base. Keep it current.
 | App structure or setup changes | the Setup + Project Structure here, and `README.md` |
 | Feature status changes         | `docs/features/INDEX.md`                |
 | An architectural decision      | `docs/engineering/DECISIONS.md`         |
-| Cutting a release              | `docs/engineering/RELEASING.md` + `CHANGELOG.md` |
+| Cutting a release              | `docs/features/release-process/SPEC.md` + `CHANGELOG.md` |
 | AI-assisted work in a session  | `docs/engineering/AI_ASSISTANCE_LOG.md` |
 
 One feature, one folder in `docs/features/{slug}/`.

@@ -1,150 +1,188 @@
-# Running Custom Playwright Code (`sync_playwright`)
+# Running Custom Playwright Code from the CLI
 
-For scripted exploration or one-off automation outside of pytest, drive a browser with a
-standalone Python script using `sync_playwright()`. Run it with the project interpreter:
+`run-code` executes arbitrary Playwright code for scenarios the plain CLI commands do not
+cover.
+
+**It takes JavaScript.** The code runs inside `playwright-cli`'s own driver process, so
+that is the language of this command, not a sign that the repo uses node. Your tests stay
+Python. Each section below gives the Python equivalent where you would need one in a
+test.
+
+## Syntax
 
 ```bash
-.venv/bin/python scratch_explore.py
+playwright-cli run-code "async page => {
+  // Playwright code here. page.context() reaches the browser context.
+}"
 ```
 
-## Skeleton
+Or from a file:
+
+```bash
+playwright-cli run-code --filename=./my-script.js
+```
+
+The code must be a single function expression. It is wrapped in `(...)` and evaluated.
+`import`, `export` and `require` are not supported.
+
+## Colour scheme, for light/dark work
+
+```bash
+playwright-cli run-code "async page => { await page.emulateMedia({ colorScheme: 'light' }); }"
+playwright-cli run-code "async page => { await page.emulateMedia({ colorScheme: 'dark' }); }"
+playwright-cli run-code "async page => { await page.emulateMedia({ reducedMotion: 'reduce' }); }"
+playwright-cli run-code "async page => { await page.emulateMedia({ media: 'print' }); }"
+```
+
+This matters here. The chat boot script in `themes/base/partials/index.html` reads
+`prefers-color-scheme` when nothing is stored in `localStorage`. See the `dark-mode`
+skill.
+
+Python:
 
 ```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)   # headless=True for CI
-    context = browser.new_context()
-    page = context.new_page()
-
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    # ... your code ...
-
-    context.close()
-    browser.close()
+await page.emulate_media(color_scheme="light")
+# or set it when the context is created, before the first paint:
+context = await browser.new_context(color_scheme="light")
 ```
 
-The same `page` API used in tests is available here. Below are common scenarios, adapted
-to the Python sync API.
+The context form is the one you usually want, because the boot script runs on first paint
+and an emulate call after `goto` is too late.
 
-## Geolocation
+## Viewport and device
+
+```bash
+playwright-cli resize 390 844          # plain CLI command, no run-code needed
+```
+
+Python:
 
 ```python
-context = browser.new_context(
-    geolocation={"latitude": 35.6892, "longitude": 51.3890},  # Tehran
-    permissions=["geolocation"],
-)
+context = await browser.new_context(viewport={"width": 390, "height": 844})
 ```
+
+Check narrow width. The drawer stops being an overlay at 992px and becomes a sidebar
+(`static/chat/base.css`), so the layout is genuinely different above and below it.
 
 ## Permissions
 
-```python
-context.grant_permissions(["clipboard-read", "clipboard-write"])
-context.grant_permissions(["geolocation"], origin="http://127.0.0.1:8000")
-context.clear_permissions()
+The chat has a microphone button (`#mic-btn`) that posts to `/api/transcribe`.
+
+```bash
+playwright-cli run-code "async page => {
+  await page.context().grantPermissions(['microphone']);
+}"
 ```
 
-## Media emulation
+Python:
 
 ```python
-page.emulate_media(color_scheme="dark")      # also "light"
-page.emulate_media(reduced_motion="reduce")
-page.emulate_media(media="print")
+context = await browser.new_context(permissions=["microphone"])
+# or later:
+await context.grant_permissions(["microphone"])
 ```
 
 ## Wait strategies
 
-```python
-page.wait_for_load_state("networkidle")
-page.locator(".loading").wait_for(state="hidden")
-page.wait_for_function("() => window.appReady === true")
-page.locator(".result").wait_for(timeout=10000)
-page.wait_for_url("**/secure-panel-admin**")
+```bash
+playwright-cli run-code "async page => { await page.waitForLoadState('networkidle'); }"
+playwright-cli run-code "async page => { await page.locator('#loading-bubble').waitFor({ state: 'hidden' }); }"
+playwright-cli run-code "async page => { await page.waitForFunction(() => typeof initChat === 'function'); }"
 ```
 
-## Frames / iframes
+Python:
 
 ```python
-frame = page.frame_locator("iframe#my-iframe")
-frame.locator("button").click()
-
-for f in page.frames:
-    print(f.url)
+await page.wait_for_load_state("networkidle")
+await page.locator("#loading-bubble").wait_for(state="hidden")
+await page.wait_for_function("typeof renderOptions === 'function'")
 ```
 
-## File downloads (e.g. admin backup / export)
-
-```python
-with page.expect_download() as dl_info:
-    page.get_by_role("link", name="دانلود پشتیبان").click()
-download = dl_info.value
-download.save_as("./backup.db")
-print(download.suggested_filename)
-```
-
-## Clipboard
-
-```python
-context.grant_permissions(["clipboard-read"])
-text = page.evaluate("() => navigator.clipboard.readText()")
-
-page.evaluate("t => navigator.clipboard.writeText(t)", "سلام کلیپ‌بورد")
-```
+Wait on a condition, never on a sleep.
 
 ## Page information
 
-```python
-print(page.title())
-print(page.url)
-html = page.content()
-print(page.viewport_size)
+```bash
+playwright-cli run-code "async page => { return await page.title(); }"
+playwright-cli run-code "async page => { return page.url(); }"
+playwright-cli run-code "async page => { return await page.content(); }"
+playwright-cli run-code "async page => { return page.viewportSize(); }"
 ```
 
-## Evaluate JavaScript and pass args
+Python: `await page.title()`, `page.url`, `await page.content()`, `page.viewport_size`.
+
+## Reading state out of the page
+
+```bash
+playwright-cli run-code "async page => {
+  return await page.evaluate(() => ({
+    lang: document.documentElement.lang,
+    dir: document.documentElement.dir,
+    bodyClass: document.body.className,
+    bubbles: document.querySelectorAll('.message.bot .bubble').length,
+    light: localStorage.getItem('inotex-light-mode'),
+  }));
+}"
+```
+
+Python: the same string, through `await page.evaluate(...)`.
+
+## Frames and downloads
+
+```bash
+playwright-cli run-code "async page => {
+  const frame = page.locator('iframe#my-iframe').contentFrame();
+  await frame.locator('button').click();
+}"
+
+playwright-cli run-code "async page => {
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download' }).click();
+  const download = await downloadPromise;
+  await download.saveAs('./downloaded-file.csv');
+  return download.suggestedFilename();
+}"
+```
+
+Downloads are worth exercising in the admin panel. Several admin screens export CSV or a
+database dump.
+
+Python:
 
 ```python
-info = page.evaluate("""() => ({
-  userAgent: navigator.userAgent,
-  language: navigator.language,
-})""")
-
-multiplier = 5
-count = page.evaluate("m => document.querySelectorAll('li').length * m", multiplier)
+async with page.expect_download() as info:
+    await page.click("#export-btn")
+download = await info.value
+await download.save_as("/tmp/export.csv")
 ```
 
 ## Error handling
 
-```python
-from playwright.sync_api import TimeoutError as PWTimeout
-
-try:
-    page.get_by_role("button", name="ارسال").click(timeout=1000)
-    result = "clicked"
-except PWTimeout:
-    result = "element not found"
+```bash
+playwright-cli run-code "async page => {
+  try {
+    await page.getByRole('button', { name: 'ارسال' }).click({ timeout: 1000 });
+    return 'clicked';
+  } catch (e) {
+    return 'element not found';
+  }
+}"
 ```
 
-## Complex workflow: log in once and save state
+## A full flow: admin login
 
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch()
-    context = browser.new_context()
-    page = context.new_page()
-
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")
-    page.locator("#password").fill("admin")
-    page.locator("#sec-answer").fill("آبی")
-    page.get_by_role("button", name="ورود به سیستم").click()
-    page.wait_for_url("**/secure-panel-admin**")
-
-    context.storage_state(path="tests/e2e/.auth/admin.json")
-    context.close()
-    browser.close()
+```bash
+playwright-cli run-code "async page => {
+  await page.goto('http://127.0.0.1:8000/secure-panel-admin/login');
+  await page.locator('#username').fill('admin');
+  await page.locator('#password').fill('...');
+  await page.locator('#sec-answer').fill('...');   // the form's third field
+  await page.getByRole('button', { name: 'ورود به سیستم' }).click();
+  await page.waitForURL('**/secure-panel-admin');
+  await page.context().storageState({ path: 'admin-auth.json' });
+  return 'ok';
+}"
 ```
 
-Reuse that state later via `browser.new_context(storage_state="tests/e2e/.auth/admin.json")`
-(see [storage-state.md](storage-state.md)).
+Never put a real password in a committed file or a saved storage-state file. See
+`references/storage-state.md`.

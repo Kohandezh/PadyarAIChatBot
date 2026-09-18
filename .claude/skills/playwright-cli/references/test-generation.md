@@ -1,88 +1,127 @@
-# Test Generation (from `playwright codegen`)
+# Turning a CLI Session into a Python Test
 
-Generate Playwright **Python** test code by recording your interactions, then clean it up
-into a pytest test.
+`playwright-cli` prints Playwright **TypeScript** after every action. This repo is
+Python. You translate. The CLI output is a record of what you did, not code you paste.
 
-## How it works
-
-`playwright codegen` opens a real browser and transcribes everything you do into Python
-`page.*` calls, preferring role/label/placeholder locators.
+## Workflow
 
 ```bash
-.venv/bin/playwright codegen http://127.0.0.1:8000/secure-panel-admin/login \
-  --target python --output tests/e2e/_capture.py
+python main.py &
+playwright-cli open http://127.0.0.1:8000
+playwright-cli snapshot
+# snapshot shows: e1 [textbox], e2 [button "ارسال"] ...
+
+playwright-cli fill e1 "ساعت کاری نمایشگاه چیست؟"
+# Ran Playwright code:
+# await page.getByRole('textbox').fill('ساعت کاری نمایشگاه چیست؟');
+
+playwright-cli click e2
+# Ran Playwright code:
+# await page.getByRole('button', { name: 'ارسال' }).click();
 ```
 
-`--target python` emits the sync API. `--output` writes to a file; omit it to print to the
-Inspector window where you can copy from.
+Then write the Python by hand.
 
-## Example session output
+## Translation table
 
-After typing into the login form, codegen produces something like:
+| TypeScript (CLI output) | Python (what you write) |
+|---|---|
+| `page.getByRole('button', { name: 'X' })` | `page.get_by_role("button", name="X")` |
+| `page.getByText('X')` | `page.get_by_text("X")` |
+| `page.getByLabel('X')` | `page.get_by_label("X")` |
+| `page.locator('#send-btn')` | `page.locator("#send-btn")` |
+| `await page.goto(url)` | `await page.goto(url)` |
+| `.fill('x')` | `.fill("x")` |
+| `.click()` | `.click()` |
+| `await page.waitForFunction(...)` | `await page.wait_for_function(...)` |
+| `await page.waitForURL(...)` | `await page.wait_for_url(...)` |
+| `await expect(x).toBeVisible()` | `assert await x.is_visible()` |
+| `await expect(x).toHaveText('y')` | `assert (await x.text_content()).strip() == "y"` |
+| `await expect(x).toHaveValue('y')` | `assert await x.input_value() == "y"` |
+| `await expect(x).toBeChecked()` | `assert await x.is_checked()` |
+| `page.context().storageState(...)` | `await page.context.storage_state(...)` |
+| `route.fulfill({ status: 200, body: b })` | `await route.fulfill(status=200, body=b)` |
+
+Rules of thumb: camelCase becomes snake_case, an options object becomes keyword
+arguments, and `page.context()` becomes the property `page.context`.
+
+`expect` from `@playwright/test` does not exist in the Python sync-free style this repo
+uses. There is a `playwright.async_api.expect`, but the existing tests assert with plain
+`assert` and explicit waits, so match that.
+
+## The result
 
 ```python
-page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-page.get_by_placeholder("نام کاربری").fill("admin")
-page.get_by_placeholder("رمز عبور").fill("admin")
-page.get_by_placeholder("رنگ مورد علاوه؟").fill("آبی")
-page.get_by_role("button", name="ورود به سیستم").click()
+async def test_the_bot_answers_a_question(chat_page):
+    await chat_page.fill("#user-input", "ساعت کاری نمایشگاه چیست؟")
+    await chat_page.click("#send-btn")
+    await chat_page.wait_for_function(
+        "document.querySelectorAll('.message.bot .bubble').length > 1")
+
+    bubbles = await chat_page.evaluate(
+        "() => Array.from(document.querySelectorAll('.message.bot .bubble'))"
+        "        .map(b => b.textContent)")
+    assert any("۹" in b or "9" in b for b in bubbles)
 ```
 
-## Turn it into a test
+See `references/page-objects.md` for the `chat_page` fixture. It is not optional: the test
+must define its own **async** browser fixture. Never request `page`, `browser` or
+`context` from pytest-playwright.
 
-Wrap the body in a `def test_*(page)` function and add assertions (codegen records
-actions, not checks):
+## Picking locators in this app
+
+There are **no `data-testid` attributes**, so `getByTestId` finds nothing. In order of
+preference:
+
+1. **A stable id.** `#user-input`, `#send-btn`, `#mic-btn`, `#new-chat-btn`,
+   `#menu-toggle`, `#theme-btn`, `#lang-btn`, `#chat-view-content`, `#loading-bubble`,
+   `#welcome-message`, `#avatar-video`, `#text-view`, `#video-view`, `#menu-history`.
+2. **`data-i18n` / `data-i18n-title`.** Use these for anything that must survive a
+   language switch, because the visible text changes and the attribute does not.
+3. **Role plus accessible name.** The name is Persian by default.
+4. **A structural class** from `static/chat/base.css`. Last resort, since a theme can
+   restyle it.
+
+Get a stable locator for a ref straight from the CLI:
+
+```bash
+playwright-cli --raw generate-locator e5
+```
+
+## Capturing expected values
+
+Read them out of the live page instead of guessing, especially for Persian strings:
+
+```bash
+playwright-cli --raw eval "el => el.textContent" e5
+playwright-cli --raw eval "el => el.value" e5
+playwright-cli --raw eval "el => el.getAttribute('aria-label')" e5
+playwright-cli --raw eval "document.documentElement.lang"
+playwright-cli --raw snapshot            # accessibility tree, whole page
+playwright-cli --raw snapshot e5         # scoped to one element
+```
+
+Copy the exact characters into the test. A Persian `ی` and an Arabic `ي` look the same
+and are different code points.
+
+## Wait on conditions, never on time
+
+`asyncio.sleep` in a browser test is a flake waiting to happen. Wait for the thing you
+actually mean:
 
 ```python
-import re
-from playwright.sync_api import Page, expect
-
-
-def test_admin_login(page: Page):
-    page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    page.locator("#username").fill("admin")          # stabilized from placeholder
-    page.locator("#password").fill("admin")
-    page.locator("#sec-answer").fill("آبی")
-    page.get_by_role("button", name="ورود به سیستم").click()
-
-    # assertions added by hand:
-    expect(page).to_have_url(re.compile(r"/secure-panel-admin"))
-    expect(page.get_by_text("داشبورد")).to_be_visible()
+await page.wait_for_function("document.documentElement.lang === 'en'")
+await page.wait_for_function("typeof renderOptions === 'function'")
+await page.locator("#loading-bubble").wait_for(state="hidden")
+await page.wait_for_url("**/secure-panel-admin")
 ```
 
-Delete the throwaway `_capture.py` afterward.
+## What a good browser test in this repo looks like
 
-## Best practices
-
-### 1. Prefer stable locators
-
-This app exposes ids on the login form (`#username`, `#password`, `#sec-answer`) — prefer
-those over Persian placeholder text, which is UI copy that can change. For other pages,
-role + accessible name (`get_by_role("button", name=...)`) is usually fine; avoid CSS
-class chains and locating by long body text.
-
-### 2. Explore before recording
-
-Take a quick look at the page (codegen, or `page.content()` in a `sync_playwright`
-script) to learn the structure before committing to selectors.
-
-### 3. Add assertions by hand
-
-`expect()` auto-waits and retries. Useful matchers:
-
-- `expect(locator).to_be_visible()`
-- `expect(locator).to_have_text("…")`  /  `to_contain_text("…")`
-- `expect(locator).to_have_value("…")`  /  `to_be_empty()`
-- `expect(locator).to_be_checked()`
-- `expect(page).to_have_url(re.compile(r"…"))`
-- `expect(page).to_have_title("…")`
-
-For text assertions, locate by id/role/test-id rather than by the text itself, so the
-locator and the asserted text don't reference the same string. When the locator *is*
-text-based, prefer `to_be_visible()`.
-
-```python
-expect(page.get_by_role("alert")).to_be_visible()
-expect(page.locator("#dashboard-title")).to_have_text("داشبورد")
-expect(page.locator("#username")).to_have_value("admin")
-```
+- It has a docstring naming the defect it holds down, in plain words. Read the headers of
+  `tests/e2e/test_chat_localisation.py` and `tests/test_kiosk_privacy.py`. Every one of
+  them describes a bug that a source-string assertion could not see. That is the bar for
+  adding a browser test at all: if a plain unit test can catch it, write the unit test.
+- It asserts from outside the module, the way a visitor drives the page.
+- It runs in the default `pytest` run. Do not mark it skip or move it out of `tests/e2e/`.
+- It uses a fresh browser context, so nothing leaks into the next test.

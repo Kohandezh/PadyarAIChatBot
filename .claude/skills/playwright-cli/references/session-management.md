@@ -1,109 +1,150 @@
-# Browser & Context Isolation
+# Browser Session Management
 
-In Python Playwright, isolation is done with **browser contexts** — each context is an
-independent "incognito" session with its own cookies, storage, and cache. Use separate
-contexts to run isolated flows (e.g. one authenticated admin, one anonymous chat user)
-in the same script or test run.
+Run several isolated browsers at once, each with its own cookies and storage. This is a
+`playwright-cli` feature for exploring by hand. In a Python test the equivalent is
+`await browser.new_context()`.
 
-## Multiple isolated contexts
+## Named sessions
 
-```python
-from playwright.sync_api import sync_playwright
+```bash
+playwright-cli -s=visitor open http://127.0.0.1:8000
+playwright-cli -s=admin   open http://127.0.0.1:8000/secure-panel-admin/login
 
-with sync_playwright() as p:
-    browser = p.chromium.launch()
-
-    # Context 1: authenticated admin
-    admin = browser.new_context()
-    admin_page = admin.new_page()
-    admin_page.goto("http://127.0.0.1:8000/secure-panel-admin/login")
-    # ... log in ...
-
-    # Context 2: anonymous public chat user (separate cookies/storage)
-    public = browser.new_context()
-    public_page = public.new_page()
-    public_page.goto("http://127.0.0.1:8000/")
-
-    admin.close()
-    public.close()
-    browser.close()
+playwright-cli -s=visitor fill "#user-input" "سلام"
+playwright-cli -s=admin   snapshot
 ```
 
-Each context has independent: cookies, localStorage/sessionStorage, IndexedDB, cache,
-and history. New pages in the same context share that state.
+Each session has independent cookies, localStorage, sessionStorage, IndexedDB, cache,
+history and tabs.
 
-## In pytest-playwright
+## Why this matters here
 
-The `page`, `context`, and `browser` fixtures are provided automatically. To get a fresh
-isolated context inside a test, create one from `browser`:
+Three uses that come up constantly in this repo:
 
-```python
-def test_two_users(browser):
-    ctx_a = browser.new_context()
-    ctx_b = browser.new_context()
-    page_a, page_b = ctx_a.new_page(), ctx_b.new_page()
-    # ... drive each independently ...
-    ctx_a.close()
-    ctx_b.close()
+**1. The kiosk threat model.** One session is the previous visitor, another is the next
+one. Confirm that nothing from the first reaches the second.
+
+```bash
+playwright-cli -s=first open http://127.0.0.1:8000
+playwright-cli -s=first fill "#user-input" "شماره من ۰۹۱۲..."
+playwright-cli -s=first click "#send-btn"
+
+playwright-cli -s=second open http://127.0.0.1:8000
+playwright-cli -s=second --raw eval "document.body.innerText"   # must not contain it
 ```
 
-Customize the per-test context via the `browser_context_args` fixture:
+**2. Visitor and admin at the same time.** Change a branding colour or a dataset entry in
+the admin session, reload the visitor session, see the effect. That is the real loop for
+white-label work.
 
-```python
-import pytest
+**3. The leads module's three doors.** `/v/{code}` (field visitor), `/edit/{token}`
+(company contact), and the admin queue each have their own credential and no shared
+session. Open one per browser session and check that none of them can reach another's
+page.
 
-@pytest.fixture(scope="session")
-def browser_context_args(browser_context_args):
-    return {**browser_context_args,
-            "base_url": "http://127.0.0.1:8000",
-            "locale": "fa-IR",
-            "viewport": {"width": 1280, "height": 800}}
+## Session commands
+
+```bash
+playwright-cli list                       # all sessions
+playwright-cli close                      # close the default browser
+playwright-cli -s=visitor close           # close a named browser
+playwright-cli close-all
+playwright-cli kill-all                   # force-kill stale daemons
+playwright-cli delete-data                # delete the default profile directory
+playwright-cli -s=visitor delete-data
 ```
 
-## Pre-authenticated contexts
+Set a default session name for a whole shell:
 
-Reuse a saved login by passing `storage_state` when creating the context
-(see [storage-state.md](storage-state.md)):
-
-```python
-ctx = browser.new_context(storage_state="tests/e2e/.auth/admin.json")
+```bash
+export PLAYWRIGHT_CLI_SESSION="visitor"
+playwright-cli open http://127.0.0.1:8000
 ```
 
-## Headed / channel options
+## Persistent profiles
 
-```python
-browser = p.chromium.launch(headless=False, slow_mo=300)     # watch it run
-browser = p.chromium.launch(channel="chrome")                # use installed Chrome
-browser = p.firefox.launch()                                 # or p.webkit.launch()
+By default a profile lives in memory only. `--persistent` writes it to disk.
+
+```bash
+playwright-cli open http://127.0.0.1:8000 --persistent
+playwright-cli open http://127.0.0.1:8000 --profile=/tmp/padyar-profile
 ```
 
-## Persistent profile (on-disk state)
+In-memory is the safer default for anything touching an admin session.
 
-When you need a profile that survives across runs (cookies, cache on disk), launch a
-persistent context instead of a transient one:
+## Session configuration
 
-```python
-context = p.chromium.launch_persistent_context(
-    user_data_dir="./.pw-profile",
-    headless=False,
-)
-page = context.new_page()
-# ...
-context.close()
+```bash
+playwright-cli open http://127.0.0.1:8000 --browser=firefox
+playwright-cli open http://127.0.0.1:8000 --headed
+playwright-cli open http://127.0.0.1:8000 --config=.playwright/my-cli.json
 ```
 
-## Connecting to an already-running browser (CDP)
+The tests use Chromium. Check another engine only when chasing a browser-specific bug.
 
-If you started Chrome with `--remote-debugging-port=9222`, attach instead of launching:
+## Attaching to a running browser
 
-```python
-browser = p.chromium.connect_over_cdp("http://localhost:9222")
-context = browser.contexts[0]
-page = context.pages[0]
+Connect to a browser that is already open instead of launching one.
+
+By channel. The browser needs remote debugging on: open `chrome://inspect/#remote-debugging`
+there and tick "Allow remote debugging for this browser instance".
+
+```bash
+playwright-cli attach --cdp=chrome
+playwright-cli attach --cdp=chrome-canary
+playwright-cli attach --cdp=msedge
 ```
 
-## Cleanup
+Supported channels: `chrome`, `chrome-beta`, `chrome-dev`, `chrome-canary`, `msedge`,
+`msedge-beta`, `msedge-dev`, `msedge-canary`.
 
-Always close contexts and the browser when done (or rely on the `with sync_playwright()`
-block / pytest fixtures to tear them down). In pytest-playwright, fixture-managed
-contexts are closed automatically after each test.
+With no `--session`, the session is named after the channel, so parallel attaches do not
+collide on `default`. Pass `--session=<name>` to override.
+
+By CDP endpoint:
+
+```bash
+playwright-cli attach --cdp=http://localhost:9222
+```
+
+Via the browser extension:
+
+```bash
+playwright-cli attach --extension
+```
+
+Detach without closing the external browser:
+
+```bash
+playwright-cli detach
+playwright-cli -s=msedge detach
+```
+
+`detach` works only on sessions made with `attach`. For sessions made with `open`, use
+`close`.
+
+## Practice
+
+Name sessions after the role they play, so a half-finished investigation still reads:
+
+```bash
+# good
+playwright-cli -s=visitor open http://127.0.0.1:8000
+playwright-cli -s=admin open http://127.0.0.1:8000/secure-panel-admin
+playwright-cli -s=next-visitor open http://127.0.0.1:8000
+
+# avoid
+playwright-cli -s=s1 open http://127.0.0.1:8000
+```
+
+Close what you opened. `close-all` when finished, `kill-all` if a daemon goes stale.
+
+## The equivalent in a test
+
+```python
+visitor = await browser.new_context()
+next_visitor = await browser.new_context()
+```
+
+Two contexts from one browser is cheaper than two browsers and gives the same isolation.
+Always close them in the fixture teardown.

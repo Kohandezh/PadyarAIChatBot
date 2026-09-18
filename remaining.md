@@ -29,7 +29,7 @@
 >    `tests/test_backup_offsite.py`) ادغام شد؛ مقصد `OFFSITE_BACKUP_TARGET`
 >    باید برای هر نصب پیکربندی شود.
 > 4. **فرایند انتشار نسخه** → `VERSION`/`CHANGELOG.md`/`release.yml` آماده‌اند؛
->    **هنوز هیچ تگی بریده نشده** (`docs/engineering/RELEASING.md`).
+>    **هنوز هیچ تگی بریده نشده** (`docs/features/release-process/SPEC.md`).
 > 5. **تست PostgreSQL در CI** → job مسدودکنندهٔ `postgres-tests` (سرویس
 >    postgres:16) + گزارش پوشش گزارشی pytest-cov.
 > 6. **تازگی محتوا** → در ۲۰۲۶-۰۹-۱۴ تایمر هفتگی systemd + workflow گزارشی

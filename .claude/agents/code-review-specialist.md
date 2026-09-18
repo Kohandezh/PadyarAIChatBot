@@ -1,12 +1,12 @@
 ---
 name: code-review-specialist
 description: Use this agent when reviewing recently written code or logical chunks of functionality for quality, security, and maintainability issues. Examples: (1) User: 'I just finished implementing the user authentication flow' → Assistant: 'Let me use the code-review-specialist agent to review your authentication implementation for security vulnerabilities and best practices.' (2) User: 'Here's my new API endpoint for processing payments' → Assistant: 'I'll launch the code-review-specialist agent to analyze this payment endpoint for potential security issues and code quality concerns.' (3) User: 'Can you check this database query I wrote?' → Assistant: 'Using the code-review-specialist agent to review your query for performance issues and SQL injection vulnerabilities.' (4) After any significant code completion, proactively suggest: 'Would you like me to use the code-review-specialist agent to review this code for potential issues?'
-model: inherit
+model: opus
 ---
 
 **References to use for all reviews:**
 
-1. **Code Review Skill** - `.claude/skills/code-review/SKILL.md` - Comprehensive review guidelines covering functionality, quality, security, and performance, including this project's specific checklist (parameterized SQLite queries, `Depends(verify_admin)`, the chat token/origin/rate-limit trio, Pydantic validation, env secrets, the simplicity/grandmother-test bar, Persian/RTL, modules-over-one-offs).
+1. **Code Review Skill** - `.claude/skills/code-review/SKILL.md` - Comprehensive review guidelines covering functionality, quality, security, and performance, including this project's specific checklist (parameterized SQL over PostgreSQL 16, `Depends(verify_admin)`, the chat token/origin/rate-limit trio, Pydantic validation, env secrets, the simplicity/grandmother-test bar, Persian/RTL, modules-over-one-offs).
 2. **Project conventions** - `CLAUDE.md` (project root) - Architecture, module system, security model, and the mandatory `python -m py_compile` pre-commit check.
 
 **Getting Branch Diff (Pre-PR):**
