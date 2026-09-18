@@ -59,7 +59,7 @@ def test_short_overlap_no_longer_inflates_confidence(tmp_path, monkeypatch):
 
     Query "لیزیک چشم درد" shares 2 tokens with title "لیزیک چشم" (Jaccard 0.67).
     The old code boosted any overlap >= 0.6 to >= 0.95; with the >= 3 shared-token
-    gate it now falls back to the genuine (lower) TF-IDF score.
+    gate it now falls back to the genuine (lower) lexical score.
     """
     import app.config as cfg
     import app.db.connection as dbc
@@ -70,7 +70,7 @@ def test_short_overlap_no_longer_inflates_confidence(tmp_path, monkeypatch):
     dbc.init_db()
 
     conn = dbc.get_db_connection()
-    # Isolate the corpus. The second row puts "درد" in the TF-IDF vocabulary so
+    # Isolate the corpus. The second row puts "درد" in the lexical index so
     # the query's extra token isn't silently dropped (which would force cosine=1).
     # Clear synonyms so expansion can't inflate the shared-token count and mask
     # the guard (e.g. "لیزیک" -> "لیزر لیزیک" would turn 2 shared tokens into 3).
@@ -98,7 +98,8 @@ def test_short_overlap_no_longer_inflates_confidence(tmp_path, monkeypatch):
 
 def test_branch_address_synonym_disambiguates(tmp_path, monkeypatch):
     """Branch addresses are disambiguated only by a location word. Users type it
-    joined ("شهرری") while the title has it spaced ("شهر ری") — to TF-IDF those
+    joined ("شهرری") while the title has it spaced ("شهر ری") — to the lexical
+    retriever those
     are unrelated tokens, so the query used to collide with another branch on the
     generic words (آدرس/کلینیک/نور) and return the wrong clinic.
 

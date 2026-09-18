@@ -71,7 +71,6 @@ def client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
-        set_setting("search_backend", "tfidf")
 
         from app.auth.security import generate_chat_token
         c.headers.update({"Origin": "http://localhost",

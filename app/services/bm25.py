@@ -1,11 +1,8 @@
 """Okapi BM25 lexical retriever — pure Python, no new dependency.
 
-Why BM25 is the lexical retriever (TF-IDF cosine held this job until its
-removal on 2026-08-28): TF-IDF cosine normalizes document length away
-entirely, which on this corpus lets a long answer body outrank a short,
-exactly-on-topic entry. BM25's saturation (k1) and length normalization (b)
-are what make a rare Persian term like «غرفه» decisive without a long
-document drowning it.
+BM25's saturation (k1) and length normalization (b) are what make a rare
+Persian term like «غرفه» decisive without a long answer body drowning a
+short, exactly-on-topic entry.
 
 The corpus is small (tens of documents, hundreds of questions), so a plain
 dict-based index is both simpler and faster than a sparse matrix here, and it

@@ -102,7 +102,6 @@ def client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
-        set_setting("search_backend", "tfidf")
         set_setting("assistant_knowledge", KNOWLEDGE)
         set_setting("assistant_phone", PHONE)
         set_setting("assistant_website", WEBSITE)

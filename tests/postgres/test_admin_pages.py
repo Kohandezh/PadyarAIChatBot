@@ -101,7 +101,7 @@ def test_saving_ai_connection_persists_to_postgres(client, conn):
         "api_key": "sk-sentinel-saved-through-api-0004",
         "model_stt": "whisper-1",
         "feature_tts": False, "feature_stt": True,
-        "search_backend": "tfidf", "default_lang": "fa",
+        "default_lang": "fa",
     })
     assert res.status_code == 200, res.text[:400]
     row = conn.execute("SELECT value FROM settings WHERE key = ?",
@@ -120,7 +120,7 @@ def test_the_settings_upsert_survives_being_written_twice(client, conn):
     for lang in ("fa", "en", "fa"):
         res = _post(client, "/admin/api/ai-connection",
                     {"api_base": "", "api_key": "", "model_stt": "whisper-1",
-                     "default_lang": lang, "search_backend": "tfidf"})
+                     "default_lang": lang})
         assert res.status_code == 200, res.text[:400]
     n = conn.execute("SELECT count(*) AS n FROM settings WHERE key = ?",
                      ("ai_model_stt",)).fetchone()["n"]

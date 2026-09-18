@@ -37,7 +37,7 @@ The chatbot answers through a **tiered pipeline**, not two tiers. Cheap local ti
 - **Database:** PostgreSQL 16 (production). SQLite is the test backend and a rollback artifact only.
 - **Frontend:** Vanilla HTML/CSS/JS (chat) + Tabler UI (Bootstrap 5, RTL) for admin
 - **AI:** the Padyar AI Control Plane, 11 provider types behind the Padyar AI Wrapper. Models are set per route in Admin -> AI -> Routing. Whisper-1 for voice (STT sits outside the wrapper).
-- **Search:** pure-Python BM25 (`app/services/bm25.py`) + local model2vec embeddings (`app/services/embeddings.py`), fused by a feature reranker (`app/services/rerank.py`). **No TF-IDF and no `search_backend` setting** — both were removed on 2026-08-28. scikit-learn is still a dependency, but only for the logistic-regression intent head in `app/services/intent.py`.
+- **Search:** pure-Python BM25 (`app/services/bm25.py`) + local model2vec embeddings (`app/services/embeddings.py`), fused by a feature reranker (`app/services/rerank.py`). scikit-learn is a dependency, but only for the logistic-regression intent head in `app/services/intent.py`.
 - **Font:** Vazirmatn (Persian)
 
 ## Prerequisites
@@ -226,7 +226,7 @@ The tier gates live in `app/routers/chat.py`. **`CLAUDE.md` under "Tiered Intell
 
 1. **Pick tier (no AI call):** a bare number, an ordinal word, or an offered title, resolved against the record ids stored on the last turn. "more" pages the same list.
 2. **Tier 0 — Curated questions (exact):** Jaccard-only match against the hand-mapped question index. Serves at ≥ 0.9.
-3. **Tier 1 — Local retrieval:** Persian normalization → synonym expansion → BM25 + local model2vec embeddings → feature reranker. Trusted at `TRUSTED_MATCH_THRESHOLD` = **0.70**. There is no TF-IDF backend.
+3. **Tier 1 — Local retrieval:** Persian normalization → synonym expansion → BM25 + local model2vec embeddings → feature reranker. Trusted at `TRUSTED_MATCH_THRESHOLD` = **0.70**.
 4. **Tier 1.5 — Per-install intent classifier:** logistic regression over local embeddings, retrained on every reindex. Serves at `INTENT_TRUST_THRESHOLD` = **0.6**.
 5. **Tier 2 — Selection (`app/services/answer.py`):** the model sees the top `ANSWER_TOPK` records plus the last turns and returns JSON naming record **ids** — `answer`, `options`, or `none`. The model chooses; our renderer writes every fact string back out of the database.
 6. **Tier 2 legacy:** classify intent → entry, else a written answer, verified before it is served.
@@ -450,9 +450,9 @@ All config in `app/config.py`:
 ## Use the Tooling That Ships With This Repo
 
 Load the skill BEFORE you write the code. A skill read afterwards changes
-nothing, and a stale skill writes stale code. On 2026-08-29 three skills still
-claimed the main branch was `main-noor`, that retrieval used TF-IDF, and that
-the database was SQLite. All three were false.
+nothing, and a stale skill writes stale code. On 2026-08-29 skills in this
+repo still claimed the main branch was `main-noor` and that the database was
+SQLite. Both were false.
 
 Three sources, and which one wins when they overlap:
 

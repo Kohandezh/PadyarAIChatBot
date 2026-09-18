@@ -91,7 +91,7 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
 ## عیب‌یابی سریع
 | علامت | اقدام |
 |---|---|
-| /api/ready → 503 | لاگ «Embedding backend init failed» را ببین؛ fallback خودکار TF-IDF فعال است؛ model2vec و data/models را بررسی کن |
+| /api/ready → 503 | لاگ «Embedding backend init failed» را ببین؛ بازیابی به BM25 واژگانی برمی‌گردد؛ model2vec و data/models را بررسی کن |
 | 503 از /chat | سرویس خارجی AI در دسترس نیست و تطبیق محلی قوی وجود ندارد — کلید/base را در پنل ادمین بررسی کن |
 | پاسخ‌های قدیمی پس از تغییر تم/CSS | cache-buster خودکار است؛ hard-refresh مرورگر |
 | قفل «database is locked» | WAL فعال است؛ اگر تکرار شد پروسه‌های موازی نویسنده را بررسی کن |

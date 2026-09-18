@@ -83,7 +83,7 @@ User query
     / QUESTIONS_FALLBACK_THRESHOLD (0.60), else ask the visitor to rephrase
 ```
 
-There is **no TF-IDF vectorizer** and **no `search_backend` setting**; both were removed. Keep the local tiers cheap; only fall through to the paid model tiers when local confidence is low. All thresholds live in `app/config.py`.
+Keep the local tiers cheap; only fall through to the paid model tiers when local confidence is low. All thresholds live in `app/config.py`.
 
 ## Module System
 

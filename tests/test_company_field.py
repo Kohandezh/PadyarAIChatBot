@@ -159,9 +159,6 @@ def client(tmp_path, monkeypatch):
     with TestClient(app) as c:
         from app.db.queries import set_setting
         set_setting("openai_enabled", "true")
-        # TF-IDF backend: no embedding model, no trained intent classifier —
-        # deterministic and offline.
-        set_setting("search_backend", "tfidf")
 
         from app.auth.security import generate_chat_token
         c.headers.update({"Origin": "http://localhost",
@@ -444,7 +441,8 @@ def test_a_trusted_dataset_match_on_the_named_company_still_yields_the_field(cli
     the visitor named leaves nothing for the anchor to override, so that branch
     has to consult the field tier too.
 
-    find_best_match is stubbed because TF-IDF over these long descriptions
+    find_best_match is stubbed because lexical scoring over these long
+    descriptions
     tops out near 0.33 on this small corpus and never clears the 0.70 trust
     bar. The branch CONDITION is what is under test, not the retriever."""
     _seed()

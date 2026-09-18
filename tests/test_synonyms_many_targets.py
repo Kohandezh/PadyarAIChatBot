@@ -170,7 +170,7 @@ def test_expansion_picks_up_every_synonym_of_a_word(client):
 
 
 def test_expansion_does_not_repeat_a_word_across_targets(client):
-    """Repeating a token raises its term frequency for TF-IDF and BM25 without
+    """Repeating a token raises its term frequency for BM25 without
     adding meaning, which skews the scores expansion is meant to help."""
     from app.utils.normalizer import load_synonyms_from_db, normalize_persian
 
