@@ -184,9 +184,37 @@ flowchart TB
 | `DB_BACKEND` | `postgres` | `DB_BACKEND` | انتخاب backend دیتابیس |
 | `METRICS_TOKEN` | خالی | `METRICS_TOKEN` | توکن Bearer برای `GET /metrics` |
 
-`ANSWER_TOPK = 8` از اندازه‌گیری آمده، نه از حدس: روی golden set بازنشسته
-(2026-08-28) recall@1=0.786، @3=0.857، @5=0.929، @8=0.952، @13=0.952 بود. منحنی
-بعد از ۸ صاف می‌شود.
+`ANSWER_TOPK = 8` از اندازه‌گیری آمده، نه از حدس — اما آن اندازه‌گیری
+**تاریخچهٔ بازتولیدناپذیر** است و دیگر عدد جاری نیست: روی golden set رویدادِ
+بازنشسته (2026-08-28) recall@1=0.786، @3=0.857، @5=0.929، @8=0.952،
+@13=0.952 بود و آن مجموعه در کامیت `4c4303f` همراه با نصبِ رویداد حذف شد.
+عدد ۸ از همان منحنی مانده است.
+
+**اندازه‌گیری جاری (2026-09-20)** روی پیکرهٔ ساختگی و committed
+`data/eval/corpus.json` (۲۵ رکورد، ۵۰ پرسش curated، دوزبانه) با golden set
+`data/eval/golden.json` (۶۷ پرسش، ۴۸ پاسخ‌پذیر، فارسی + انگلیسی):
+
+| K | recall@K |
+|---|----------|
+| 1 | 0.854 |
+| 3 | 0.979 |
+| 5 | 0.979 |
+| 8 | 0.979 |
+| 13 | 0.979 |
+
+MRR=0.903، p50=0.3ms، p95=0.5ms. هیچ پاسخ اشتباهِ مطمئنی روی سه دستهٔ
+تخاصمی (`unsupported`، `prompt_injection`، `legacy_contamination`) نبود و
+هیچ نشانهٔ مخفی لو نرفت. این پیکره از مجموعهٔ بازنشسته کوچک‌تر است و
+منحنی‌اش بعد از ۳ صاف می‌شود، پس `ANSWER_TOPK = 8` را دوباره **اثبات
+نمی‌کند** (نقض هم نمی‌کند). بازتولید:
+
+```bash
+OPENAI_API_KEY= python scripts/run_eval.py \
+  --golden data/eval/golden.json --recall-k 1,3,5,8,13
+```
+
+job بلاک‌کنندهٔ `evaluation` در `.github/workflows/ci.yml` همین دستور را روی
+هر push و هر PR اجرا می‌کند و گزارش JSON را به‌عنوان artifact بالا می‌دهد.
 
 چند تصمیم دیگر به‌جای env در جدول `settings` می‌نشینند تا مشتری بدون deploy
 عوضشان کند: `options_shown`، `collection_noun_fa`/`_en`، `assistant_domain`/`_en`،

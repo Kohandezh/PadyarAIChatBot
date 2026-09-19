@@ -24,10 +24,20 @@ proprietary local layer, and CI must not depend on external providers.
 It always runs on SQLite, whatever backend the install uses at runtime, and
 pins DB_BACKEND itself so no caller has to remember (see below).
 
+A golden file NAMES ITS CORPUS (`"corpus": "corpus.json"`, resolved next to
+the golden file) and the harness seeds that corpus into a THROWAWAY SQLite
+database of its own. It never reads or writes the install's database — the
+numbers must not depend on which machine ran them, and seeding replaces the
+dataset/questions/synonyms tables wholesale, which against a real install
+would be a knowledge-base wipe.
+
 USAGE (from the project root):
     .venv/bin/python scripts/run_eval.py --golden data/eval/golden.json
     .venv/bin/python scripts/run_eval.py --golden data/eval/golden.json --out results.json
     .venv/bin/python scripts/run_eval.py --conversations data/eval/conversations.json
+
+The report goes to a temp file unless --out says otherwise: it is a run
+artifact, not a fixture, and it must not land in the tracked data/eval/ tree.
 
 Exit code 1 when a hard gate fails (contamination > 0 or secret leak), or
 when any --conversations scenario fails one of its steps.
@@ -73,9 +83,21 @@ if _requested_backend and _requested_backend != "sqlite":
              f"or set it to 'sqlite'.")
 os.environ["DB_BACKEND"] = "sqlite"
 
-DEFAULT_OUT = ROOT / "data" / "eval" / "retrieval-eval.json"
+# The default report lands OUTSIDE the repository. It used to default to
+# data/eval/retrieval-eval.json, which drops an untracked file into a tracked
+# fixture directory on every single run: `git status` is dirty after a
+# measurement, and one `git add data/eval` commits a machine-specific result
+# as if it were a fixture. A report is a run artifact, not source. CI passes
+# --out explicitly and uploads that file.
+DEFAULT_OUT = Path(tempfile.gettempdir()) / "padyar-eval" / "retrieval-eval.json"
 CONVERSATIONS_FIXTURE = ROOT / "data" / "eval" / "conversations.json"
 
+# Defaults only. A golden file declares its own `legacy_tokens` /
+# `secret_markers` when its corpus has different ones — which token counts as
+# "contamination" is a property of the knowledge base under test, not of this
+# script. The lists below stay as the fallback for a golden file that declares
+# neither, and they are why .github/workflows/ci.yml allowlists this file in
+# the retired-brand guard.
 LEGACY_TOKENS = ["الکامپ", "elecomp", "نورا", "noorvision"]
 SECRET_MARKERS = ["OPENAI_API_KEY", "SECRET_KEY", "sk-", "api.gapgpt"]
 TRUST = 0.70  # mirrors TRUSTED_MATCH_THRESHOLD in app/config.py
@@ -162,7 +184,12 @@ def diagnose_query(q, search, hybrid):
     def ids(hits):
         return [[search.dataset[i]["id"], round(float(s), 4)] for i, s in hits[:5]]
 
-    out = {"q": q, "normalized": nq, "coverage_query": cov_q}
+    out = {"q": q, "normalized": nq, "coverage_query": cov_q,
+           # The tokens the WHOLE corpus has nothing on. Non-empty means the
+           # router's unknown-entity gate would null every local tier for
+           # this query — the evidence a deny-case needs to show WHY it was
+           # refused (see the gate in app/services/search.py).
+           "unknown_tokens": search.unknown_salient_tokens(mq)}
     e0, s0 = search.find_similar_question(mq, exact_only=True)
     out["t0_exact"] = {"entry": e0["id"] if e0 else None, "score": round(s0, 4)}
     if hybrid:
@@ -372,6 +399,119 @@ def run_conversations(spec_path: str) -> int:
     return 1 if failed else 0
 
 
+def load_corpus(golden_path: Path, golden: dict):
+    """Read and validate the corpus fixture the golden file names.
+
+    WHY THE GOLDEN FILE CARRIES ITS CORPUS. Until this existed, the golden
+    mode measured whatever happened to be in the install's own database.
+    On the machine that published `recall@1 = 0.786` that was a live event
+    knowledge base; on a clean checkout it is nothing at all, because
+    app/default_content.py ships empty on purpose. Same command, same golden
+    file, a different number on every machine — and no third party could
+    reproduce any of it. A golden set is only a measurement when the corpus
+    it was written against travels with it, so `corpus` is required rather
+    than optional: a golden file without one cannot be reproduced and this
+    script refuses to pretend otherwise.
+
+    The path is resolved relative to the golden file, so the pair moves
+    together.
+    """
+    name = golden.get("corpus")
+    if not name:
+        sys.exit(f"{golden_path} has no 'corpus' key. A golden set must name "
+                 f"the corpus fixture it was written against, e.g. "
+                 f'"corpus": "corpus.json" (resolved next to the golden file).')
+    path = Path(name)
+    if not path.is_absolute():
+        path = golden_path.parent / path
+    if not path.is_file():
+        sys.exit(f"corpus fixture not found: {path} (named by {golden_path})")
+
+    corpus = json.loads(path.read_text(encoding="utf-8"))
+    entries = corpus.get("entries")
+    if not isinstance(entries, list) or not entries:
+        sys.exit(f"{path}: 'entries' must be a non-empty list")
+    seen = set()
+    for i, row in enumerate(entries, 1):
+        for key in ("id", "title", "text"):
+            if not row.get(key):
+                sys.exit(f"{path}: entry {i} is missing a non-empty {key!r}")
+        if row["id"] in seen:
+            sys.exit(f"{path}: duplicate entry id {row['id']!r}")
+        seen.add(row["id"])
+        if not isinstance(row.get("questions", []), list):
+            sys.exit(f"{path}: entry {row['id']!r} has a non-list 'questions'")
+    for pair in corpus.get("synonyms", []):
+        if not (isinstance(pair, list) and len(pair) == 2 and all(pair)):
+            sys.exit(f"{path}: every synonym must be a [source, target] pair")
+
+    declared = corpus.get("corpus_version")
+    wanted = golden.get("knowledge_version")
+    if declared and wanted and declared != wanted:
+        # A golden set scored against a corpus it was not written for is a
+        # silently wrong number, which is worse than no number.
+        sys.exit(f"{golden_path} expects knowledge_version {wanted!r} but "
+                 f"{path} declares corpus_version {declared!r}")
+    return path, corpus
+
+
+def seed_corpus(corpus: dict) -> None:
+    """Write the corpus into the throwaway harness database.
+
+    Plain SQL rather than app.db.queries.save_dataset: that writer does not
+    carry title_en/text_en (only the admin dataset router does, inline), and
+    the English fields are the whole reason the corpus is bilingual — without
+    them the corpus vocabulary has no English in it and every English query
+    reads as a query full of unknown tokens. Adding a writer to app/ is out
+    of this change's scope, so the columns are named here instead.
+    """
+    from app.db.connection import get_db_connection
+
+    entries = corpus["entries"]
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM questions")
+        conn.execute("DELETE FROM dataset")
+        conn.execute("DELETE FROM synonyms")
+        conn.executemany(
+            "INSERT INTO dataset (id, title, text, video_url, title_en,"
+            " text_en, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(row["id"], row["title"], row["text"], "",
+              row.get("title_en", ""), row.get("text_en", ""), (i + 1) * 10)
+             for i, row in enumerate(entries)])
+        conn.executemany(
+            "INSERT INTO questions (question, dataset_id, video_url)"
+            " VALUES (?, ?, '')",
+            [(q, row["id"]) for row in entries
+             for q in row.get("questions", [])])
+        conn.executemany(
+            "INSERT INTO synonyms (source, target) VALUES (?, ?)",
+            [(src, dst) for src, dst in corpus.get("synonyms", [])])
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _isolate_database() -> str:
+    """Point the app at a throwaway SQLite database, before any app import.
+
+    app/config.py resolves DB_PATH and LOGS_DB_PATH once, at import time, so
+    this has to run first — the same rule --conversations already follows.
+
+    It is not only about reproducibility. seed_corpus() replaces the dataset,
+    questions and synonyms tables wholesale; against the install's real
+    database that command would delete a customer's knowledge base. The
+    benchmark must never be able to do that.
+    """
+    if "app.config" in sys.modules:
+        sys.exit("run_eval.py configures its own database before any app "
+                 "import; run it as its own command")
+    tmp = tempfile.mkdtemp(prefix="padyar-eval-")
+    os.environ["DB_PATH"] = os.path.join(tmp, "eval.db")
+    os.environ["LOGS_DB_PATH"] = os.path.join(tmp, "application_logs.db")
+    return tmp
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the retrieval benchmark.")
     p.add_argument("--golden", required=True,
@@ -412,6 +552,16 @@ def main() -> int:
     if not recall_ks or any(k < 1 for k in recall_ks):
         sys.exit("--recall-k needs at least one K of 1 or more")
 
+    # Read the golden file and its corpus FIRST, then isolate the database —
+    # both before the first app import below, because app/config.py resolves
+    # DB_PATH once at import time.
+    golden_path = Path(args.golden)
+    if not golden_path.is_file():
+        sys.exit(f"golden set not found: {golden_path}")
+    golden = json.loads(golden_path.read_text(encoding="utf-8"))
+    corpus_path, corpus = load_corpus(golden_path, golden)
+    tmp_db_dir = _isolate_database()
+
     # Experiment overrides: applied to the MODULE GLOBALS the services read at
     # call time. The embedding matrix is prebuilt and calibration happens on
     # the query side, so a floor change needs no rebuild — and nothing is
@@ -441,7 +591,13 @@ def main() -> int:
 
     from app.config import RERANK_ENABLED
     from app.services import search
+    seed_corpus(corpus)
     search.load_dataset_internal()
+    if not search.dataset:
+        sys.exit(f"the corpus at {corpus_path} produced an empty index — "
+                 f"nothing to measure")
+    print(f"corpus={corpus_path}  entries={len(search.dataset)}  "
+          f"questions={len(search.questions_data)}  db={tmp_db_dir}")
 
     # The hybrid path is what the product runs by default. With RETRIEVAL_RERANK
     # off the measurement stays single-retriever on purpose.
@@ -454,9 +610,15 @@ def main() -> int:
         "(what the pipeline does when RETRIEVAL_RERANK is off); no reranking"
     )
 
-    golden_path = Path(args.golden)
-    golden = json.loads(golden_path.read_text(encoding="utf-8"))
     queries = golden["queries"]
+    if not queries:
+        sys.exit(f"{golden_path} has no queries")
+
+    # Which tokens count as leaked identity is a property of the corpus under
+    # test, so the golden file may declare its own; the module defaults stay
+    # for a golden file that declares neither.
+    legacy_tokens = golden.get("legacy_tokens") or LEGACY_TOKENS
+    secret_markers = golden.get("secret_markers") or SECRET_MARKERS
 
     ranks, latencies = [], []
     diagnostics = []
@@ -469,27 +631,43 @@ def main() -> int:
     per_category = {}
     failures = []
 
-    for item in queries:
+    for n, item in enumerate(queries, 1):
+        for key in ("q", "expect", "cat"):
+            if key not in item:
+                sys.exit(f"{golden_path}: query {n} is missing {key!r}")
         q, expect, cat = item["q"], item["expect"], item["cat"]
         t0 = time.perf_counter()
         # Mirrors the /chat tier order (app/routers/chat.py).
-        xe, xs = search.find_similar_question(q, exact_only=True)
-        tier = "T0"
-        if xe and xs >= 0.9:
-            entry, score = xe, xs
+        #
+        # The unknown-entity gate comes first, exactly as it does in the
+        # router (app/routers/chat.py, "if unknown_tokens:"): a query naming
+        # something the WHOLE corpus knows nothing about nulls every local
+        # candidate, because the lexical retrievers silently DROP the unknown
+        # word and the query then matches strongly on its remaining common
+        # words. Without mirroring it here the harness scored a pipeline the
+        # product does not run, and could not say WHY an unsupported query
+        # was refused — the one thing an adversarial category has to prove.
+        unknown = search.unknown_salient_tokens(q)
+        if unknown:
+            entry, score, tier = None, 0.0, "unknown-gate"
         else:
-            entry, score = search.find_best_match(q)
-            tier = "T1"
-            if (not entry) or score < TRUST:
-                qe, qs = search.find_similar_question(q)
-                if qe and qs >= TRUST:
-                    entry, score = qe, qs
-                    tier = "T1-questions"
-            if (not entry) or score < TRUST:
-                ie, ip = search.classify_intent_local(q)
-                if ie and ip >= 0.6:
-                    entry, score = ie, ip
-                    tier = "T1.5"
+            xe, xs = search.find_similar_question(q, exact_only=True)
+            tier = "T0"
+            if xe and xs >= 0.9:
+                entry, score = xe, xs
+            else:
+                entry, score = search.find_best_match(q)
+                tier = "T1"
+                if (not entry) or score < TRUST:
+                    qe, qs = search.find_similar_question(q)
+                    if qe and qs >= TRUST:
+                        entry, score = qe, qs
+                        tier = "T1-questions"
+                if (not entry) or score < TRUST:
+                    ie, ip = search.classify_intent_local(q)
+                    if ie and ip >= 0.6:
+                        entry, score = ie, ip
+                        tier = "T1.5"
         latencies.append((time.perf_counter() - t0) * 1000)
 
         served = entry if (entry and score >= 0.6) else None
@@ -500,6 +678,8 @@ def main() -> int:
                 "expected": expect,
                 "served": served["id"] if served else None,
                 "served_tier": tier if served else "none",
+                "refused_by": None if served else (
+                    "unknown_token_gate" if unknown else "below_trust_bar"),
                 "served_score": round(score, 4),
                 "correct": bool(served and expect and served["id"] in
                                 (expect if isinstance(expect, list) else [expect])),
@@ -542,13 +722,28 @@ def main() -> int:
                 if rank and rank <= k:
                     hits_at_k[k] += 1
         else:
+            # WHY a deny-case has to be refused for the RIGHT reason: a
+            # refusal that comes from an empty or unbuilt index is not the
+            # pipeline working, it is the pipeline missing. So record which
+            # mechanism refused, and whether retrieval had any candidate at
+            # all when it did — an accidental pass is visible in the report
+            # instead of hiding inside a zero.
+            if full_ranking(q, search, hybrid):
+                cstat["queries_with_candidates"] = cstat.get(
+                    "queries_with_candidates", 0) + 1
+            if not (served and score >= TRUST):
+                reason = ("unknown_token_gate" if unknown
+                          else "below_trust_bar")
+                cstat[f"refused_by_{reason}"] = cstat.get(
+                    f"refused_by_{reason}", 0) + 1
+
             has_contamination = False
-            for tok in LEGACY_TOKENS:
+            for tok in legacy_tokens:
                 if tok.lower() in answer_text.lower():
                     contaminated += 1
                     has_contamination = True
                     failures.append({"q": q, "issue": f"legacy token {tok!r} in answer"})
-            for tok in SECRET_MARKERS:
+            for tok in secret_markers:
                 if tok in answer_text:
                     secret_leaks += 1
                     failures.append({"q": q, "issue": f"secret marker {tok!r} in answer"})
@@ -574,6 +769,15 @@ def main() -> int:
     report = {
         "dataset_version": golden["dataset_version"],
         "knowledge_version": golden["knowledge_version"],
+        # Provenance: which corpus these numbers were measured against. A
+        # recall figure without its corpus size is not reproducible — that is
+        # how the repo ended up publishing a number nobody could reproduce.
+        "corpus": {
+            "path": str(corpus_path),
+            "version": corpus.get("corpus_version", ""),
+            "entries": len(search.dataset),
+            "questions": len(search.questions_data),
+        },
         "rerank_enabled": RERANK_ENABLED,
         "ranking_method": ranking_method,
         "ran_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
