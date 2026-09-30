@@ -193,8 +193,10 @@ flowchart TB
 [`docs/features/eval-benchmark/RESULTS.md`](../features/eval-benchmark/RESULTS.md)
 است: پیکرهٔ ساختگی `data/eval/corpus.json`، golden set `data/eval/golden.json`،
 پنج حالت (`bm25`، `dense`، `hybrid`، `full`، `full_no_intent`) و دستور
-بازتولید هر کدام. در حالت `full` روی این پیکره recall@8 برابر 0.979 است و
-منحنی بعد از ۳ صاف می‌شود. این پیکره کوچک‌تر از پیکرهٔ رویداد است، پس
+بازتولید هر کدام. در حالت `full` روی این پیکره منحنی recall@K این است:
+@1=0.854، @3=0.979، @5=0.979، @8=0.979، @13=1.0 (جزئیات در RESULTS.md). بین ۳
+و ۸ صاف است و بعد از ۸ هنوز یک پرسش دیگر اضافه می‌شود. این پیکره کوچک‌تر از
+پیکرهٔ رویداد است، پس
 `ANSWER_TOPK = 8` را دوباره **اثبات نمی‌کند** و نقض هم نمی‌کند. تعریف
 متریک‌ها در [`docs/features/eval-benchmark/SPEC.md`](../features/eval-benchmark/SPEC.md)
 است.

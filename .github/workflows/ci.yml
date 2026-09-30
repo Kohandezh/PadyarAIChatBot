@@ -209,9 +209,10 @@ jobs:
   # docs/engineering/ was therefore unreproducible.
   #
   # It runs OFFLINE against the committed fixtures in data/eval/: no AI
-  # provider, no customer data, no install database. It exits non-zero when the
-  # contamination or secret-leak gate trips, which is what makes it a gate
-  # rather than a report.
+  # provider, no customer data, no install database. It exits non-zero when a
+  # mode drops below one of its measured floors in data/eval/floors.json (or
+  # breaks an enforced control), and when the contamination or secret-leak
+  # gate trips. That is what makes it a gate rather than a report.
   evaluation:
     runs-on: ubuntu-latest
     env:
