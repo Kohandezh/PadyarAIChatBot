@@ -18,7 +18,9 @@ from app.config import (
 from app.auth.security import verify_admin
 from app.db import dberrors
 from app.db.connection import get_db_connection
-from app.db.queries import save_dataset, save_questions
+from app.db.queries import (
+    insert_dataset_entry, insert_question, save_dataset, save_questions,
+)
 
 
 router = APIRouter()
@@ -172,20 +174,10 @@ async def create_dataset_item(item: dict):
     # into an unhandled IntegrityError (500); catching it here is atomic.
     try:
         with closing(get_db_connection()) as conn:
-            # A new entry goes to the END of the public display order. Leaving
-            # `position` NULL would also sort it last, but only by the
-            # COALESCE fallback in the read query — every unpositioned row
-            # would then share one sort key and be ordered by id among
-            # themselves. An explicit position keeps the order stable and lets
-            # an operator reorder later.
-            nxt = conn.execute(
-                "SELECT COALESCE(MAX(position), 0) + 10 FROM dataset").fetchone()[0]
-            conn.execute(
-                'INSERT INTO dataset (id, title, text, video_url, title_en, text_en, position)'
-                ' VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (item_id, item.get("title", ""), item.get("text", ""), item.get("video_url", ""),
-                 item.get("title_en", ""), item.get("text_en", ""), nxt),
-            )
+            insert_dataset_entry(
+                conn, item_id, item.get("title", ""), item.get("text", ""),
+                item.get("video_url", ""), item.get("title_en", ""),
+                item.get("text_en", ""))
             conn.commit()
     except Exception as exc:  # noqa: BLE001 — narrowed immediately below
         # Backend-neutral. This used to catch `sqlite3.IntegrityError`, which
@@ -233,16 +225,10 @@ async def bulk_delete_dataset_items(payload: dict):
 
 
 # --- Questions CRUD ---
-
-def _insert_question(conn, question: str, dataset_id: str, video_url: str = "") -> int:
-    """The one INSERT behind every question creation. The single-create
-    endpoint and the AI-assist bulk apply share it, so validation and write
-    shape stay single-source (ADR-017)."""
-    cursor = conn.execute(
-        'INSERT INTO questions (question, dataset_id, video_url) VALUES (?, ?, ?)',
-        (question, dataset_id, video_url))
-    return cursor.lastrowid
-
+#
+# Every question creation goes through queries.insert_question. The
+# single-create endpoint, the AI-assist bulk apply and the ingest approval
+# share it, so the write shape stays single-source (ADR-017).
 
 @router.get("/admin/api/questions", dependencies=[Depends(verify_admin)])
 async def list_questions(dataset_id: Optional[str] = None):
@@ -264,7 +250,7 @@ async def create_question(q: dict):
     if not q.get("question") or not q.get("dataset_id"):
         raise HTTPException(status_code=400, detail="question and dataset_id are required")
     with closing(get_db_connection()) as conn:
-        new_id = _insert_question(
+        new_id = insert_question(
             conn, q.get('question', ''), q.get('dataset_id', ''),
             q.get('video_url', ''))
         conn.commit()
@@ -319,7 +305,7 @@ async def bulk_delete_questions(payload: dict):
 #
 # One button in the entry edit modal. Suggest calls the model through the
 # Padyar AI wrapper and returns validated paraphrases WITHOUT saving; apply
-# inserts the admin's selection through _insert_question (the same path as
+# inserts the admin's selection through insert_question (the same path as
 # the single question-create endpoint) with ONE reindex for the batch.
 
 @router.post("/admin/api/dataset/{item_id}/suggest-questions",
@@ -353,7 +339,7 @@ async def apply_dataset_questions(item_id: str, payload: dict):
         if conn.execute('SELECT 1 FROM dataset WHERE id = ?',
                         (item_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Item not found")
-        new_ids = [_insert_question(conn, q.strip(), item_id)
+        new_ids = [insert_question(conn, q.strip(), item_id)
                    for q in questions]
         conn.commit()
     _trigger_reindex()

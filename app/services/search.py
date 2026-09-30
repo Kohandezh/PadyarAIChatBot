@@ -337,12 +337,17 @@ def bump_index_version() -> None:
     set_setting(INDEX_VERSION_KEY, str(_index_version))
 
 
-def _rebuild(publish: bool, version_floor: int = 0) -> None:
+def _rebuild(publish: bool, version_floor: int = 0) -> bool:
     """Single rebuild path. Never blocks: a rebuild already in progress wins
-    and the caller simply returns."""
+    and the caller simply returns.
+
+    True only when a full rebuild ran here (and published, if asked). False
+    when another rebuild held the lock or the load raised: in both cases
+    nothing new was indexed or published. Most callers ignore it;
+    reindex_and_publish_until_done cannot."""
     global _index_version
     if not _rebuild_lock.acquire(blocking=False):
-        return
+        return False
     try:
         try:
             started = time.monotonic()
@@ -355,9 +360,11 @@ def _rebuild(publish: bool, version_floor: int = 0) -> None:
                 _index_version = max(version_floor, _index_version)
             report_reindex(len(dataset), len(questions_data),
                            int((time.monotonic() - started) * 1000))
+            return True
         except Exception:  # noqa: BLE001 — a failed rebuild must retry on the next poll
             logger.exception("[search] index rebuild failed")
             _index_version = 0
+            return False
     finally:
         _rebuild_lock.release()
 
@@ -366,6 +373,46 @@ def reindex_and_publish() -> None:
     """Rebuild after THIS worker changed content, and stamp a new version so
     every other worker picks the change up within INDEX_REFRESH_SECONDS."""
     _rebuild(publish=True)
+
+
+PUBLISH_RETRY_SECONDS = 0.5
+
+
+def reindex_and_publish_until_done(timeout_s: float = 120.0) -> bool:
+    """reindex_and_publish that does not give up on a busy lock. Call it
+    after the write has committed.
+
+    reindex_and_publish returns silently when another rebuild holds the
+    lock. That rebuild may have read the tables before the caller's commit,
+    so the new rows would reach neither this worker's index nor, with no new
+    version published, any other worker (knowledge-ingestion SPEC, REQ-064).
+    Here every attempt starts after the call, so the first one that runs to
+    the end has read the committed rows.
+
+    Blocking and synchronous: run it from BackgroundTasks, never on the event
+    loop or in a response path. On timeout it still publishes a version so
+    the other workers rebuild; this worker's own poll will not, because
+    bump_index_version advances the local version too."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if _rebuild(publish=True):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(PUBLISH_RETRY_SECONDS, remaining))
+    bump_index_version()
+    from app.services import applog
+    applog.error("retrieval", "retrieval.publish_timeout",
+                 "بازسازی نمایه در زمان مقرر انجام نشد؛ فقط نسخهٔ تازه منتشر شد",
+                 outcome="timeout", duration_ms=int(timeout_s * 1000))
+    return False
+
+
+def published_index_version() -> int:
+    """The version the last publish stored in `settings`, read fresh. Not
+    this worker's `_index_version`, which a non-publishing rebuild moves."""
+    return _read_index_version()
 
 
 def _maybe_refresh() -> None:

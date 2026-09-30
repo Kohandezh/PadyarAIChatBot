@@ -279,6 +279,46 @@ def set_setting(key, value):
     _settings_cache.pop(key, None)
 
 
+# --- Content writes -------------------------------------------------------
+# The one INSERT behind each content table. Each runs on the caller's
+# connection and never commits, reindexes or reloads synonyms: the admin
+# routers commit one write and reindex, while the ingest approval puts all
+# three in one transaction and publishes the index once for the whole batch.
+
+def insert_dataset_entry(conn, item_id, title, text, video_url="", title_en="",
+                         text_en="") -> None:
+    # A new entry goes to the END of the public display order. Leaving
+    # `position` NULL would also sort it last, but only by the COALESCE
+    # fallback in the read query. Every unpositioned row would then share
+    # one sort key and be ordered by id among themselves. An explicit
+    # position keeps the order stable and lets an operator reorder later.
+    nxt = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 10 FROM dataset").fetchone()[0]
+    conn.execute(
+        'INSERT INTO dataset (id, title, text, video_url, title_en, text_en, position)'
+        ' VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (item_id, title, text, video_url, title_en, text_en, nxt),
+    )
+
+
+def insert_question(conn, question, dataset_id, video_url="") -> int:
+    cursor = conn.execute(
+        'INSERT INTO questions (question, dataset_id, video_url) VALUES (?, ?, ?)',
+        (question, dataset_id, video_url))
+    return cursor.lastrowid
+
+
+def insert_synonym_pairs(conn, pairs) -> int:
+    inserted = 0
+    # Both columns are the primary key, so there is nothing to update:
+    # saving the same pair twice is a no-op instead of a duplicate row.
+    for source, target in pairs:
+        cur = conn.execute('INSERT OR IGNORE INTO synonyms (source, target)'
+                           ' VALUES (?, ?)', (source, target))
+        inserted += cur.rowcount
+    return inserted
+
+
 def save_dataset(dataset: list):
     """Write dataset to SQLite — the single source of truth.
 

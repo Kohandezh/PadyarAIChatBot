@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from app.models import SynonymRequest
 from app.auth.security import verify_admin
 from app.db.connection import get_db_connection
+from app.db.queries import insert_synonym_pairs
 from app.utils.normalizer import load_synonyms_from_db
 
 
@@ -19,20 +20,16 @@ MAX_APPLY_PAIRS = 50
 def _insert_synonym_pairs(pairs) -> int:
     """Insert (source, target) rows, then reload + bump the index ONCE.
 
-    The single write path for the synonyms table: the manual add form, the
-    suggestion apply, any future bulk writer. `load_synonyms_from_db()` and
+    The router write path for the synonyms table: the manual add form and
+    the suggestion apply. The INSERT itself is queries.insert_synonym_pairs,
+    which the ingest approval calls inside its own transaction before it
+    reloads and publishes once for the batch. `load_synonyms_from_db()` and
     `bump_index_version()` live HERE so no new writer can forget them
     (ADR-017 — one place reindexes, every path reindexes).
     """
     conn = get_db_connection()
     try:
-        inserted = 0
-        # Both columns are the primary key, so there is nothing to update:
-        # saving the same pair twice is a no-op instead of a duplicate row.
-        for source, target in pairs:
-            cur = conn.execute('INSERT OR IGNORE INTO synonyms (source, target)'
-                               ' VALUES (?, ?)', (source, target))
-            inserted += cur.rowcount
+        inserted = insert_synonym_pairs(conn, pairs)
         conn.commit()
     finally:
         conn.close()
