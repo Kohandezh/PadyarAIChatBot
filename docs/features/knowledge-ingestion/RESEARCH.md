@@ -80,7 +80,7 @@
 - **امنیت:** فقط مدیر (`verify_admin`). جهش‌ها زیر پیشوندهای CSRF
   (`app/auth/csrf.py:55`) و تست انطباق `tests/test_csrf.py:216`.
 - **Migration:** فایل تازهٔ شماره‌دار، هرگز ویرایش یک migration اجراشده. بالاترین
-  شمارهٔ فعلی `migrations/0029_drop_search_backend_setting.sql` است.
+  شمارهٔ فعلی در `migrations/` برابر 0029 است.
 
 ## 4. Investigation
 
