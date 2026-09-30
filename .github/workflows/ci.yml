@@ -32,6 +32,12 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
+      # pdftotext reads uploaded PDFs in the ingest module. Without it the PDF
+      # tests in tests/test_ingest_extract.py skip, and CI would report a pass
+      # it did not earn.
+      - name: Install poppler-utils for the PDF tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
       # The browser tests skip themselves when chromium is missing, so without
       # this step CI reports a pass it did not earn. They are the only check
       # that sees a DOM defect: the "New chat" button once wiped #loading-bubble
@@ -106,6 +112,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+
+      # Same system package as the test job (knowledge-ingestion SPEC, REQ-015),
+      # so a PostgreSQL test that reads a PDF runs instead of skipping.
+      - name: Install poppler-utils for the PDF tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
 
       # The service container starts empty, but the suite assumes a
       # dev-machine-shaped database: test_isolation.py probes the LIVE

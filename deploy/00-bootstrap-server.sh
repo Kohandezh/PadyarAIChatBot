@@ -38,7 +38,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential pkg-config unzip zip rsync jq htop tmux vim \
   python3 python3-venv python3-pip python3-dev \
   postgresql postgresql-contrib postgresql-client libpq-dev \
-  nginx ffmpeg certbot python3-certbot-nginx python3-certbot-dns-cloudflare \
+  nginx ffmpeg poppler-utils certbot python3-certbot-nginx python3-certbot-dns-cloudflare \
   ufw fail2ban unattended-upgrades
 
 log "Verifying PostgreSQL is 16.x"
