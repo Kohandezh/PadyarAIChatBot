@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The retrieval benchmark (`scripts/run_eval.py`) now fails CI when a metric drops below its measured floor (`data/eval/floors.json`), reports answered queries separately from ranking, and runs five ablation modes (`bm25`, `dense`, `hybrid`, `full`, `full_no_intent`). Results: `docs/features/eval-benchmark/RESULTS.md`.
+
 ## [0.1.0] - 2026-09-14
 
 First tagged release: the product as it serves live event installs
