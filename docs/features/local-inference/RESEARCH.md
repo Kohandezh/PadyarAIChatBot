@@ -96,7 +96,7 @@ one built from recollection. The repository agrees with it:
 | Fact | Value | Evidence | Label |
 |---|---|---|---|
 | Host | `gpu@192.168.100.6` — the existing box, not a new one | `deploy/README.md:3` | measured-from-repo |
-| CPU | 40 vCPU | `deploy/README.md:3` | measured-from-repo |
+| CPU | 40 vCPU per the repository; **36** per `nproc` on the host (box below) | `deploy/README.md:3` | measured-from-repo (40); measured 2026-09-30 on the host (36) |
 | RAM | **27 GB** | `deploy/README.md:3` | measured-from-repo |
 | GPUs | 2× Tesla P40, 24576 MB each | `deploy/README.md:3`, `docs/engineering/DECISIONS.md:94-95` | measured-from-repo |
 | Compute capability | 6.1 (Pascal GP102) | see §4.1 | — |
@@ -107,6 +107,41 @@ reports and therefore what any process on it can actually allocate; 32 GB
 would be the figure before the hypervisor's reservation. The whole budget in
 §4.6 is computed against 27 GB. Budgeting against 32 GB would hand back about
 5 GB that does not exist, and RAM — not VRAM — is the binding constraint here.
+
+> **Host facts measured after this spike.** Every figure in this box is
+> **measured 2026-09-30 on the host**, by an AI-assisted session working for
+> the owner, with read-only commands over SSH. Nothing was installed or
+> changed. Every other number in this document keeps its own label.
+>
+> | Fact | Value |
+> |---|---|
+> | CPU | **36** vCPU from `nproc` (the repository says 40) |
+> | Root filesystem `/` | 195G total, 111G free |
+> | RAM | 27G total, about 14G available, from `free -g` |
+> | NVIDIA driver | 580.173.02 |
+> | Build tools | no `nvcc` and no `cmake` installed |
+> | GPU memory, TTS at rest | GPU0 4311 MiB, GPU1 3283 MiB used, of 24576 each |
+> | `https://developer.download.nvidia.com/...` | HTTP 403 from the host (sanctions) |
+> | PyPI, Docker Hub, huggingface.co, github.com | reachable; `nvidia-cuda-nvcc-cu12==12.9.86` downloads from PyPI |
+>
+> What changes because of them:
+>
+> - **The TTS instances are on the GPUs** (U3 settled). The at-rest figures are
+>   exactly ADR-012's after-load figures (3283 and 4311 MB). The capacity
+>   measure is still the post-generation figure (§3.3), which this box does
+>   not contain, so U2 stays open.
+> - **The CUDA toolkit cannot come from NVIDIA's own servers.** The runfile and
+>   the apt repository are behind the 403. An installer has to take `nvcc` from
+>   PyPI or build inside a container image from Docker Hub. Whether the PyPI
+>   wheels alone are enough to build llama.cpp (it also needs the CUDA runtime
+>   headers and cuBLAS) is not checked here (U19).
+> - **The CPU count is 36, not 40.** §4.9.5 and §6.3 now use 36.
+> - **The weights can be downloaded:** huggingface.co is reachable (U18). The
+>   ≈16 GiB GGUF fits in 111G free.
+>
+> **The model bench is being run separately.** Its results will be in
+> `docs/features/local-inference/BENCH.md`. This spike contains no bench numbers,
+> and none of the estimates in §4.5 or §4.7 has been replaced by a measurement.
 
 ### 3.2 A prerequisite the original request did not mention
 
@@ -174,8 +209,8 @@ not write") makes the model a **chooser**. It sees up to `ANSWER_TOPK` records
 and the last few turns and returns one JSON object naming record ids. Every
 fact string the visitor reads is re-read from the database.
 
-The model's only free text is a single lead sentence, and
-`app/services/answer.py:446-475` gates it behind six checks. Check E is the
+On the **list path**, the model's only free text is a single lead sentence,
+and `app/services/answer.py:446-475` gates it behind six checks. Check E is the
 one that settles the feasibility question: **every content token in the lead
 must already appear in the visitor's question, in the frame we wrote, or in
 `FRAME_VOCAB`** — a fixed list of 74 Persian connector words
@@ -185,11 +220,25 @@ record's name outright.
 When the lead fails, `app/services/answer.py:735-742` keeps the deterministic
 frame, renders the list anyway, and logs `answer.frame.rejected`.
 
-**So a weaker model cannot degrade the Persian the visitor reads.** It can
-only fail the check and lose one introductory sentence. What it must do well
-is narrower than "speak good Persian": emit a JSON object, and pick correct
-ids from eight candidates. That is the bar a local model has to clear, and it
-is a much lower bar than open Persian generation.
+**On the list path, a weaker model cannot degrade the Persian the visitor
+reads.** It can only fail the check and lose one introductory sentence.
+
+**But the list path is not the only path, and an earlier draft of this spike
+missed that.** Two paths send model-written Persian to the visitor with **no
+vocabulary check**:
+
+| Path | What the visitor reads | Its only guards |
+|---|---|---|
+| **Converse reply** (tier `ai_converse`): greetings, small talk, self-introductions. All small talk goes to the model (`app/routers/chat.py:716-723`), and at a booth that is a large share of traffic (§4.7.3) | the model's `lead`, returned as the whole answer (`app/routers/chat.py:1190-1193`) | not empty, at most 200 characters (`_CONVERSE_LEAD_MAX_CHARS`, `app/services/answer.py:113`), no digit (`app/services/answer.py:1040-1047`) |
+| **Written answer** on the third call (§4.7.5): out-of-scope questions. The code calls it "the ONE place the model still writes what a visitor reads" (`app/routers/chat.py:1215-1217`) | up to 555 tokens of prose from `get_openai_response` (`app/routers/chat.py:1218`, `app/services/openai.py:346`) | `generated_prose_is_grounded` (`app/routers/chat.py:1219`), which by its own docstring runs "Only the digit and shape checks ... a whole paragraph would fail the vocabulary subset check" (`app/services/answer.py:526-534`) |
+
+So the bar for a local model has **two parts**. The first is the chooser bar:
+emit a JSON object and pick correct ids from eight candidates. The second is a
+writing bar: short, natural Persian for a greeting, and a readable Persian
+paragraph for an out-of-scope question. A weaker model **can** degrade both of
+those, and a visitor sees the greeting on their first message. The fact
+guards still hold on both paths (no invented digits, bounded length), so the
+risk is poor Persian, not invented facts. §9.2 Step 5b gates on it.
 
 ### 3.5 How often the external tier is reached
 
@@ -932,7 +981,9 @@ carries** — the deploy kit is per-slug and the repository does not record the
 live set. Gate 2 settles it.
 
 Free, therefore: roughly **12–16 GB** — wide, because it is an estimate stacked
-on an unknown install count.
+on an unknown install count. The host later reported about 14G available
+(`free -g`, measured 2026-09-30 on the host, §3.1), inside this range. The
+per-consumer lines above are still estimates.
 
 #### 4.6.3 The finding that actually matters
 
@@ -1175,11 +1226,15 @@ both assumptions are stated so they can be rejected.
 
 **Which §6.2 candidates still clear a per-turn budget.** Only candidate #1
 stays well inside 120 s in the worst case (≈25 s). Candidates #2 and #3 fit
-(≈72–74 s), but a visitor waits more than a minute. Candidate #4 (≈94 s) is
-close enough that measurement error could push it past. And one per-call limit
+(≈72–74 s), but a visitor waits more than a minute. And one per-call limit
 bites first: the prose call alone, contended, is ≈40 s for the 12B models
-(2 × 555 ÷ 28), against a 45 s timeout. Gate 3 therefore measures the
-**three-call turn**, not only the selection call (§9.2).
+(2 × 555 ÷ 28), against a 45 s timeout. **For candidate #4, `Qwen3-14B`, the
+contended prose call alone is ≈48 s (2 × 555 ÷ 23), over the 45 s limit**
+(`app/services/ai/engine.py:46`, `app/services/openai.py:348`). So #4 is
+expected to fail the latency check (§9.2 Step 6) unless measurement beats the
+estimate, and its ≈94 s "worst turn" row counts a call that would time out.
+Step 6 therefore measures the **three-call turn**, not only the selection call
+(§9.2).
 
 **The visitor sees nothing until the whole reply arrives.**
 `app/services/ai/adapters/openai_compatible.py:117` sends `"stream": False`.
@@ -1567,12 +1622,13 @@ ggml bump could silently drop the int8 path to BLAS. §9.2 asserts it.
 int8 transcribes 13 minutes of audio in 1m42s ≈ **7.6× realtime**, and with
 `batch_size=8` in 51s ≈ **15× realtime**, using 1,477 MB of RAM.
 
-This host has **40 vCPU** (`deploy/README.md:3`). A CPU-only STT deployment would
+The repository says 40 vCPU (`deploy/README.md:3`); `nproc` on the host reports
+**36** (measured 2026-09-30 on the host, §3.1). A CPU-only STT deployment would
 be plausibly fast enough for short kiosk utterances, uses one env var
 (`WHISPER__INFERENCE_DEVICE=cpu`), and **removes GPU contention with TTS
 entirely** — which §4.7 identifies as the real constraint. It should be
 benchmarked as a primary option, not filed as a consolation. One condition the
-repository cannot confirm: the 40 vCPU are what the guest sees, not
+measurement cannot settle: the 36 vCPU are what the guest sees, not
 necessarily cores reserved for it. If the hypervisor oversubscribes them, this
 option is weaker than it reads (U17 in §8).
 
@@ -1870,7 +1926,8 @@ quantization and thinking-control knobs. That is a legitimate second choice, not
 wrong one.
 
 **Pin, and write the pin down:** CUDA 12.8.1 or 12.9, `nvidia-driver-580-server`
-(already pinned at `deploy/20-gpu-driver.sh:28-33`), and
+(already pinned at `deploy/20-gpu-driver.sh:28-33`; the host runs 580.173.02,
+§3.1), and
 `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61`. Do **not** set
 `GGML_CUDA_FORCE_MMQ` (a no-op — MMQ is already unconditional at cc 610) and never
 `GGML_CUDA_FORCE_CUBLAS` or `FORCE_DMMV` (the only ways to lose the DP4A path).
@@ -1886,7 +1943,7 @@ different weights.**
 | 1 | `google/gemma-4-26B-A4B-it` | UD-Q4_K_M, `unsloth/gemma-4-26B-A4B-it-GGUF`, 15.78 GiB | **one card**, 16.13 of 16.43 GiB | ~2.8 s (~5.7 s) | The only strong candidate that fits one card at 16k context, so the second card's TTS instance is untouched. 3.8B active parameters put it inside the latency budget with margin. Apache-2.0, ungated. Smallest KV cache on the table (0.35 GiB) |
 | 2 | `google/gemma-4-12b-it` | Q4_K_M, 6.63 GiB | one card, 8.04 GiB | ~8.4 s (~16.8 s) | Apache-2.0, ungated, plain dense, large headroom. **But no Persian benchmark number was found for it at all** — it is the de-risked *engineering* choice and an unknown *quality* choice |
 | 3 | `google/gemma-3-12b-it` | Q4_K_M, 6.80 GiB | one card, 8.46 GiB | ~8.6 s (~17.1 s) | The best-**evidenced** model that fits: reproducible BF16 + sha rows on both leaderboards, MIZAN 0.6008. Cost: gated repo and the Gemma licence, not Apache — the same class of problem as `deploy/README.md:242-244` |
-| 4 | `Qwen/Qwen3-14B` | Q4_K_M, 8.38 GiB | one card, 10.88 GiB | ~11.3 s (~22.6 s) | Plain dense Qwen3 — the architecture class with the most published Pascal experience. Apache-2.0. Cost: its tokenizer costs 34% more tokens per Persian word (§4.4), which is why it is slower here despite being smaller than #1 |
+| 4 | `Qwen/Qwen3-14B` | Q4_K_M, 8.38 GiB | one card, 10.88 GiB | ~11.3 s (~22.6 s) | Plain dense Qwen3 — the architecture class with the most published Pascal experience. Apache-2.0. Cost: its tokenizer costs 34% more tokens per Persian word (§4.4), which is why it is slower here despite being smaller than #1. **Expected to fail the latency check:** its contended prose call alone is ≈48 s estimated, over the 45 s per-call limit (§4.7.5). Kept on the list only so a measurement can overturn the estimate |
 
 **Rejected for the visitor path, on latency:** every dense model of 27B or more,
 including `google/gemma-4-31B-it` (the best Persian scores in the evidence),
@@ -1928,7 +1985,7 @@ stale and the option we depend on carries a `# TODO` questioning its own existen
 (§4.9.4). If that is unacceptable, `WhisperLive` is healthy and auto-detects Pascal
 correctly, at the cost of float32 instead of int8.
 
-**Also benchmark CPU-only** (`WHISPER__INFERENCE_DEVICE=cpu`). With 40 vCPU and a
+**Also benchmark CPU-only** (`WHISPER__INFERENCE_DEVICE=cpu`). With 36 vCPU (§3.1) and a
 measured 7.6× realtime upstream for int8 `small`, it may be fast enough for short
 kiosk questions, and it removes GPU contention with TTS entirely — which §4.7
 identifies as the real constraint. This is a genuine candidate, not a fallback.
@@ -1955,23 +2012,27 @@ flowchart TB
 
     RT --> BL["MODEL — NOT SETTLED.<br/>Bench in this order (§6.2):<br/>1 gemma-4-26B-A4B UD-Q4_K_M<br/>2 gemma-4-12b-it Q4_K_M<br/>3 gemma-3-12b-it Q4_K_M<br/>4 Qwen3-14B Q4_K_M"]
 
-    BL --> V{"VRAM: fits ONE card with<br/>at least 1,024 MB still free?<br/>~16.43 GiB left after TTS<br/>post-generation, ADR-012"}
-    V -->|yes| L
-    V -->|no| TWO["Two cards: capacity only.<br/>Layer split is pipelined, so no<br/>extra throughput, and it contends<br/>with BOTH TTS instances"]
-    TWO --> L
+    BL --> V{"Gate 3: fits ONE card, every layer<br/>on the GPU, and at least 1,024 MB<br/>still free after TTS has generated?"}
+    V -->|yes| J
+    J{"Gate 4: admin test-json<br/>probe says ok?"}
+    J -->|yes| QA
+    QA{"Step 5: smoke_options.py gives<br/>the cloud model's result, 20/20?<br/>Step 5b: a Persian speaker finds<br/>0 broken, at most 3 of 15 worse?"}
+    QA -->|yes| L
+    L{"Step 6, contended: each call under<br/>45 s, each whole turn (up to<br/>3 calls) under 120 s?"}
+    L -->|yes| ADOPT["ADOPT. Local at route priority 1,<br/>cloud KEPT at priority 2"]
 
-    L{"LATENCY, contended: each call under<br/>45 s, the whole turn (up to 3 calls)<br/>under 120 s? §9.2 Step 6, §4.7.5"}
-    L -->|"no — every dense 27B+"| LF["REJECT for the visitor path.<br/>Circuit opens, traffic silently<br/>returns to the paid provider,<br/>the saving stops"]
-    L -->|yes| QA
-
-    QA{"QUALITY: does smoke_options.py<br/>match the cloud provider, 20/20?<br/>§9.2 Step 5"}
-    QA -->|no| QF["REJECT this model and write the<br/>numbers down. Precedent:<br/>docs/features/chat-training"]
-    QA -->|yes| ADOPT["ADOPT. Local at route priority 1,<br/>cloud KEPT at priority 2"]
-
-    LF -.->|try the next model down| BL
-    QF -.->|try the next model down| BL
-    LF -.-> ADM["A big model is still fine for the<br/>3 admin-only features, but that<br/>needs a new task name:<br/>a separate decision, §4.7.6"]
+    V -->|no| NX
+    J -->|no| NX
+    QA -->|no| NX
+    L -->|no| NX
+    NX["REJECT this candidate.<br/>Write the numbers down<br/>(precedent: docs/features/chat-training)"]
+    NX -.->|try the next candidate| BL
+    BL -->|"list exhausted"| DN["DO NOTHING. The cloud provider<br/>stays; record why (§7)"]
 ```
+
+Every failed check sends the candidate to "REJECT", which loops back to the
+bench list; the checks are the model gate in §9.2, in the same order. Rendered
+with `@mermaid-js/mermaid-cli` 11 on 2026-09-30 and checked by eye.
 
 ## 7. Alternatives Considered
 
@@ -1990,7 +2051,7 @@ flowchart TB
 | **Splitting across both cards by default** | Layer split is pipelined, so it buys capacity and not speed, and doubles TTS contention (§4.5.4) |
 | **Removing the cloud provider entirely** | Achievable but a worse product: the GPU host becomes a new single point of failure on the visitor path. A separate, customer-level decision (§8) |
 | **Whisper via `openai-whisper` / WhisperX** | Both default to fp16 on CUDA and never warn — a silent 64× penalty on this card (§4.9.2) |
-| **Doing nothing** | At its strongest: zero new moving parts, zero new operator work, cloud answer quality kept, and a cost that may be small (it was not sized, §4.10.5). It still leaves the evaluator's finding unanswered and the kiosk dependent on the venue's internet, and those, not cost, are the driver. Rejected, but it is the correct outcome if Gate 4 fails on every model in §6.2 |
+| **Doing nothing** | At its strongest: zero new moving parts, zero new operator work, cloud answer quality kept, and a cost that may be small (it was not sized, §4.10.5). It still leaves the evaluator's finding unanswered and the kiosk dependent on the venue's internet, and those, not cost, are the driver. Rejected, but it is the correct outcome if no model in §6.2 passes the model gate (§9.2) |
 
 ## 8. Remaining Risks / Unknowns
 
@@ -2001,7 +2062,7 @@ allowed to become a requirement.
 |---|---|---|---|
 | U1 | Tokens/second and prefill latency for any model on a P40 | **unverified** — no primary benchmark for Pascal was found; borrowing a modern-GPU figure is exactly the trap `deploy/README.md:253-257` warns about | Gate 3 + Step 6 of the checklist |
 | U2 | How much VRAM each card really has free after TTS has generated | **unverified** this session — ADR-012's figures are measured but were taken for a different purpose and possibly a different model revision | Gate 2 |
-| U3 | Whether TTS is currently on GPU or CPU | **unverified** — `deploy/systemd/padyar-tts.service:39` reads `/etc/default/padyar-tts`, which is not in the repository | Gate 2 |
+| U3 | Whether TTS is currently on GPU or CPU | **settled: on the GPUs** (measured 2026-09-30 on the host, §3.1: 4311 and 3283 MiB used at rest). The repository alone could not tell, because `deploy/systemd/padyar-tts.service:39` reads `/etc/default/padyar-tts` | settled |
 | U4 | How many installs share the 27 GB | **unverified** — the deploy kit is per-slug; the repository does not record the live set | Gate 2 |
 | U5 | What share of turns actually reach the external tier | **unverified** — no production tier histogram was available | Step 8, `chat_tier_served_total` |
 | U6 | RSS of one uvicorn worker | **unverified** — no measured figure exists anywhere in the repository (searched `docs/`, `deploy/`) | Gate 2 |
@@ -2015,8 +2076,9 @@ allowed to become a requirement.
 | U14 | The `llama-server` slot count (`--parallel`). Up to 48 calls can be in flight per install (§4.7.3); the right `-np` for one P40 is unknown | **unverified** | Gate 3 starts at `-c 16384 -np 4`; Step 6 reads the queue it produces |
 | U15 | Whether one `llama-server` serves both installs on the host. TTS already does ("Both chatbot installs call it", `deploy/tts/server.py:4`). If the LLM follows that pattern, a bulk admin job on one install (all four call sites share `task="chat"`, §4.7.6) queues visitors on the other | **unverified** — the live install count is U4 | Decide in the SPEC: one server per install, or one shared server with the blast radius stated |
 | U16 | Power and heat. Two 250 W cards (§4.1) in a passthrough VM; the LLM adds SM load to cards that already carry TTS, not a third card. Thermal throttling would lower every latency figure in §4.7 | **unverified** — no power or temperature reading in the repository | Step 6: `nvidia-smi -q -d POWER,TEMPERATURE,PERFORMANCE` during the combined stress run |
-| U17 | Whether the 40 vCPU (`deploy/README.md:3`) are reserved for this guest or shared by the hypervisor. The CPU-only STT option (§4.9.5) leans on that count | **unverified** | Ask the VM owner; `mpstat` steal time during the Step 9 benchmark |
-| U18 | Where the GGUF weights come from at install time. A ≈16 GiB download from Hugging Face; whether this host can reach it is unknown. The repo already treats this as real: `app/services/embeddings.py:75-77` restricts its download because "an offline exhibition box would raise", and `deploy/25-install-tts.sh:80` refuses to download without an `HF_TOKEN` | **unverified** | Copy the TTS installer's pattern: it takes a local copy through `TTS_MODEL_SRC` when "this server cannot reach huggingface.co" (`deploy/25-install-tts.sh:91-92`). The SPEC names the LLM equivalent |
+| U17 | Whether the 36 vCPU the guest reports (`nproc`, §3.1; the repository says 40, `deploy/README.md:3`) are reserved for this guest or shared by the hypervisor. The CPU-only STT option (§4.9.5) leans on that count | **unverified** | Ask the VM owner; `mpstat` steal time during the Step 9 benchmark |
+| U18 | Where the GGUF weights come from at install time. A ≈16 GiB download from Hugging Face. huggingface.co is reachable from the host and 111G is free (measured 2026-09-30 on the host, §3.1); whether a token or a gated repository gets in the way depends on the model. The repo already treats this as real: `app/services/embeddings.py:75-77` restricts its download because "an offline exhibition box would raise", and `deploy/25-install-tts.sh:80` refuses to download without an `HF_TOKEN` | **unverified** | Copy the TTS installer's pattern: it takes a local copy through `TTS_MODEL_SRC` when "this server cannot reach huggingface.co" (`deploy/25-install-tts.sh:91-92`). The SPEC names the LLM equivalent |
+| U19 | How the installer gets a CUDA 12.9 toolchain. The host has no `nvcc` or `cmake`, and NVIDIA's download server answers 403 (§3.1). `nvidia-cuda-nvcc-cu12==12.9.86` downloads from PyPI, but whether the PyPI wheels also give the runtime headers and cuBLAS that a llama.cpp CUDA build needs is not checked | **unverified** | The separate bench build (`docs/features/local-inference/BENCH.md`) shows which route works: PyPI wheels, or a build inside a Docker Hub image |
 
 
 ### 8.1 Risks specific to the recommendation
@@ -2064,9 +2126,14 @@ No new trust boundary is created, and one existing weakness is surfaced.
 Stated plainly. None of these is a reason not to proceed; all of them are
 reasons to run §9.2 before believing the plan.
 
-**1. Answer quality will probably drop, and the drop lands in one specific
-place.** §3.4 shows the model only picks ids and writes one heavily-gated
-sentence, so it cannot degrade the *Persian* the visitor reads. What it can
+**1. Answer quality will probably drop, and it drops in two places.** §3.4
+shows that on the list path the model only picks ids and writes one
+heavily-gated sentence, so there it cannot degrade the *Persian* the visitor
+reads. It can still degrade the Persian on the two free-text paths in §3.4:
+the converse reply (guarded only by empty, length and digit checks,
+`app/services/answer.py:1040-1047`) and the written answer (digit and shape
+checks only, `app/services/answer.py:526-534`). Poor Persian there is a
+visible regression with no error behind it. On the list path, what it can
 degrade is **which record gets picked from eight candidates**, and that is the
 whole value of the tier. The already-recorded production failure mode
 (`app/services/answer.py:1009-1013`) is a model answering
@@ -2079,7 +2146,11 @@ This is the exact shape of regression this team has rejected before.
 `docs/features/chat-training/RESEARCH.md:32-55`: a model trained on these same
 cards was thrown away because hit@1 fell from 0.9333 to 0.8750, on the grounds
 that "a confident worse retriever is a regression, not a feature." **The same
-bar must be applied here, using `scripts/smoke_options.py` as the instrument.**
+bar must be applied here, using `scripts/smoke_options.py` as the instrument
+for the record choice.** That script checks the tier only: it exits 0 "when
+every query landed on its expected shape" (`scripts/smoke_options.py:17`). It
+reads no reply text, so it cannot see poor Persian. The prose check is a
+separate gate, §9.2 Step 5b.
 
 **2. It does not remove the external dependency unless the cloud fallback is
 also removed — and removing it is a worse product.** §4.10 recommends
@@ -2149,6 +2220,13 @@ model server at all. After every deploy restart, the only signal is
 `ai_calls_total{outcome="failed"}` (§8.3 item 2). Gate 3 therefore times the
 load and requires a warm-up call before any traffic is routed.
 
+**The toolchain has to come from somewhere the host can reach.** The host has
+no `nvcc` and no `cmake`, and NVIDIA's download server answers 403 (§3.1). So
+the installer cannot use the CUDA runfile or NVIDIA's apt repository. The two
+routes left are `nvcc` and friends from PyPI (`nvidia-cuda-nvcc-cu12==12.9.86`
+downloads) or a build inside a container image pulled from Docker Hub. Which
+one works is U19.
+
 **Explicitly NOT production work from this spike:**
 
 - **No application code change.** Every integration point already exists
@@ -2162,6 +2240,20 @@ load and requires a warm-up call before any traffic is routed.
 
 Nothing below was run. Steps 1–4 are **gates**: a failure stops the rollout rather
 than being worked around.
+
+**The model gate.** Gates 1 and 2 check the host once. Every §6.2 candidate must
+then pass all six checks below, in this order. A failed check moves the bench to
+the next candidate. If no candidate passes, the outcome is "do nothing" (§7).
+ADR-022 lists the same six checks under the same names.
+
+| Check | Pass bar |
+|---|---|
+| **Gate 3, VRAM floor** | at least 1,024 MB free on the LLM's card, read by `nvidia-smi` after a TTS generation and the LLM load (§4.5.3b) |
+| **Gate 3, full offload** | every layer on the GPU, per the server's own offload line (§4.6.3) |
+| **Gate 4, JSON** | the admin `test-json` probe records `outcome="ok"` (§4.8.4) |
+| **Step 5, record choice** | `scripts/smoke_options.py` gives the same result as the cloud model on all 20 queries |
+| **Step 5b, Persian prose** | zero `broken` replies and `worse` on at most 3 of 15, rated by a native Persian speaker (§3.4) |
+| **Step 6, latency** | under concurrent chat and TTS load, every call under 45 s and every whole turn (up to three calls) under the 120 s nginx window (§4.7.5) |
 
 **Gate 1 — the cards are usable from the guest**
 
@@ -2192,7 +2284,8 @@ is explicit that the post-generation figure is the capacity measure
 **Gate 3 — the runtime runs on sm_61, and every layer is on the GPU**
 
 ```bash
-# built with: -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61   (CUDA 12.8.1/12.9)
+# built with: -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61   (CUDA 12.8.1/12.9;
+#   nvcc from PyPI or a Docker Hub image, not NVIDIA's server, see §3.1 and U19)
 time_start=$(date +%s)
 llama-server -m <model>.gguf -ngl 999 --split-mode layer -fa on \
              -c 16384 -np 4 -ctk q8_0 -ctv q8_0 \
@@ -2253,6 +2346,37 @@ provider and the local one and compare.** A model that changes the tier a query
 lands on is the regression this document exists to avoid, and
 `docs/features/chat-training/RESEARCH.md:32-55` is the precedent for rejecting it
 and writing the numbers down.
+
+This step checks the **tier only**. It never reads the reply text, so it cannot
+see poor Persian (§3.4). Step 5b covers that.
+
+**Step 5b: Persian prose, judged by a person**
+
+The two free-text paths in §3.4 have no vocabulary check, so no script can
+judge them. This step uses a person.
+
+- **Inputs.** A fixed list, written down **before** the run and stored with the
+  results: 10 Persian greetings, small-talk lines and self-introductions (the
+  converse path), and 5 Persian questions outside the assistant's domain (the
+  written-answer path).
+- **Run.** Send each one through the running install, once with the local
+  model at route priority 1 and once with the cloud model, and keep the reply
+  text. The `ask()` helper in `scripts/smoke_options.py:42-58` already posts to
+  `/chat` and returns `text`, so a short loop over the list is enough.
+- **Judge.** A native Persian speaker reads each pair side by side, without
+  knowing which model wrote which. For every local reply they write down one of
+  `better`, `same`, `worse`, and flag it `broken` if it is in the wrong
+  language, ungrammatical, unreadable, or off-topic. An AI rater may pre-sort
+  the pairs, but its opinion does not count toward the result.
+- **Pass bar (a proposal; the owner confirms it when accepting the ADR).** Zero
+  `broken` local replies, and `worse` on at most 3 of the 15. Also record how
+  many converse replies the gate rejected (`app/services/answer.py:1048` logs
+  `converse lead rejected`), because a rejected greeting is a missing answer.
+- **Record.** The list, both replies, each rating, the rater's name and the date,
+  in the bench results.
+
+**Until Step 5b has passed for a candidate, that candidate is not adopted,**
+even if every other gate passes.
 
 **Step 6 — latency and contention, together**
 
@@ -2371,6 +2495,8 @@ not answer the four questions above; the owner does, when the ADR is accepted.
 
 - **PRD:** none.
 - **Spec:** none yet — `docs/features/local-inference/SPEC.md` follows the ADR.
+- **Bench results:** `docs/features/local-inference/BENCH.md`, from a bench run
+  separately from this spike. It does not exist yet at this commit.
 - **ADR:** ADR-022 (`docs/engineering/DECISIONS.md`), Proposed, drafted from
   this spike (§9.4). Existing ADRs this rests on:
   - **ADR-007** (`docs/engineering/DECISIONS.md:39-44`) — OpenAI-compatibility as
