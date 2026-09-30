@@ -6,6 +6,10 @@ openai
 python-multipart
 numpy
 httpx
+# Installed with httpx, but declared because app/services/ingest_fetch.py
+# imports it directly for the network backend that holds the fetch deadline.
+# An undeclared direct import breaks the day httpx stops depending on it.
+httpcore
 # Already installed transitively by FastAPI/Starlette and httpx, but declared
 # because app/services/ai/adapters/base.py imports it directly to run the
 # blocking DNS resolution off the event loop. An undeclared direct import

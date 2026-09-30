@@ -161,8 +161,18 @@ class _DeadlineTransport(httpx.HTTPTransport):
         ssl_context = httpx.create_ssl_context(trust_env=False)
         super().__init__(verify=ssl_context, trust_env=False)
         # HTTPTransport takes no network backend, so the pool it built is
-        # replaced by one that has ours. `_pool` is what its handle_request
-        # uses (httpx 0.28). The loopback tests fail if that ever changes.
+        # replaced by one that has ours. `_pool` is private to httpx (0.28 uses
+        # it in handle_request) and httpx is not pinned. If a later version
+        # stops building one, setting it here would change nothing and every
+        # fetch would run with no deadline at all. So the transport refuses to
+        # exist instead. This checks the pool httpx itself built, before ours
+        # replaces it. A version that keeps `_pool` but stops using it is
+        # caught by the loopback tests.
+        if not isinstance(getattr(self, "_pool", None), httpcore.ConnectionPool):
+            raise RuntimeError(
+                "httpx.HTTPTransport no longer keeps an httpcore.ConnectionPool in "
+                "_pool, so ingest_fetch cannot apply its fetch deadline. Update "
+                "_DeadlineTransport for this httpx version.")
         self._pool = httpcore.ConnectionPool(
             ssl_context=ssl_context,
             network_backend=_DeadlineBackend(),

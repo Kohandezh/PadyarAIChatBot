@@ -754,6 +754,33 @@ def test_a_slow_server_is_cut_off_when_the_budget_runs_out(loopback, mode):
     assert time.monotonic() - started < BUDGET_S + MARGIN_S
 
 
+def test_the_real_client_builds_on_this_httpx():
+    with REAL_CLIENT() as client:
+        assert client.trust_env is False
+
+
+@pytest.mark.parametrize("change", ["missing", "other_kind"])
+def test_a_fetch_is_refused_loudly_when_httpx_hides_the_pool(monkeypatch, dns, web, change):
+    """The deadline replaces httpx's private `_pool`. On an httpx without one,
+    a quiet fallback would fetch with no deadline, so the build must fail."""
+    real_init = httpx.HTTPTransport.__init__
+
+    def init_like_a_future_httpx(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        if change == "missing":
+            del self._pool
+        else:
+            self._pool = object()
+
+    monkeypatch.setattr(httpx.HTTPTransport, "__init__", init_like_a_future_httpx)
+    monkeypatch.setattr(ingest_fetch, "_client", REAL_CLIENT)
+    dns.answer("example.com", PUBLIC_V4)
+
+    with pytest.raises(RuntimeError, match="fetch deadline"):
+        ingest_fetch.fetch_url("https://example.com/")
+    assert dns.calls == [] and web.requests == []
+
+
 async def test_the_budget_holds_when_called_inside_a_running_event_loop(loopback):
     """The deadline needs no event loop of its own, so it works the same from
     a worker thread (how S3 calls it) or from inside a running loop."""
