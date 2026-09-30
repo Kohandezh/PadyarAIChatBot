@@ -31,6 +31,13 @@ DATABASE_URL = os.getenv(
     "postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar")
 VIDEO_DIR = os.path.join(BASE_DIR, "media", "videos")
 UPLOAD_DIR = os.path.join(BASE_DIR, "media", "uploads")
+# Where this install keeps its trained intent model: .npz weights, a JSON
+# sidecar, a version history (app/services/intent.py, ADR-022). Per-install
+# data (a customer's own weights), so the directory is gitignored and
+# env-overridable for a deployment that keeps state off the code volume.
+# Empty = never record, even in the serving app.
+INTENT_MODEL_DIR = os.getenv(
+    "INTENT_MODEL_DIR", os.path.join(BASE_DIR, "data", "intent-model"))
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 # --- Similarity thresholds ---

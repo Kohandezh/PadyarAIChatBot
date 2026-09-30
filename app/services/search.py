@@ -420,6 +420,7 @@ def load_dataset_internal():
 
     _questions_data = []
     _normalized_questions = []
+    _questions_read = False
 
     try:
         conn = get_db_connection()
@@ -486,6 +487,7 @@ def load_dataset_internal():
         _questions_data = [dict(r) for r in rows]
         for q in _questions_data:
             _normalized_questions.append(normalize_persian(q.get("question", "")))
+        _questions_read = True
         logger.info(f"Loaded {len(_questions_data)} questions from database")
     except Exception as e:
         logger.error(f"Error loading questions: {e}")
@@ -495,6 +497,7 @@ def load_dataset_internal():
     _dataset_emb = None
     _questions_emb = None
     _intent = None
+    _intent_refused = False
     try:
         from app.db.queries import get_setting
         if embeddings.available():
@@ -506,11 +509,39 @@ def load_dataset_internal():
                 # Companies are NOT intent classes. See _intent_training_set.
                 vecs, labels = _intent_training_set(
                     _questions_emb.matrix, _questions_data)
-                _intent = intent.train(vecs, labels, model)
+                # The stored model when it is provably the model for this
+                # data (training fingerprint + weights sha256), else a fresh
+                # fit. See intent.load_or_train and ADR-022.
+                _intent = intent.load_or_train(
+                    vecs, _normalized_questions, labels, model)
+                _intent_refused = _intent is None
         else:
             logger.warning("model2vec is not installed; retrieval runs on BM25 alone")
     except Exception as e:
         logger.error(f"Embedding index build failed, retrieval runs on BM25: {e}")
+
+    # The run's durable record: the stored model files and the gauges.
+    # Outside the try above on purpose, so it runs on EVERY path, including
+    # the ones that end with no classifier, where its job is to clear an
+    # earlier run's files rather than leave a record claiming a model this
+    # install no longer has. The call cannot raise, so a full or read-only
+    # disk costs the install its record, never its answers.
+    #
+    # It writes nothing unless recording was turned on (the app lifespan in
+    # app/main.py, or the training CLI). That is how a plain out-of-band
+    # reindex (the debug script, a test) keeps its hands off the install's
+    # model.
+    #
+    # "No classifier" has two causes and only one may delete the record:
+    # training refused this data (or the data is below the floor, which needs
+    # no embedder to know), versus a passing fault (no embeddings this boot,
+    # the questions read failed). Deleting on the second would destroy a good
+    # model and re-record the same data as a new version on the next boot.
+    from app.services import intent
+    no_model_for_this_data = _intent_refused or (
+        _questions_read and intent.below_training_floor(
+            [q.get('dataset_id', '') for q in _questions_data]))
+    intent.record_artifact(_intent, no_model_for_this_data)
 
     # --- Unknown-entity vocabulary ------------------------------------
     # Every token any retriever could legitimately match against: normalized

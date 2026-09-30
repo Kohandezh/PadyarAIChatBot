@@ -49,7 +49,7 @@ looked at.
 
 ## Metric list
 
-All eight are defined in `app/services/metrics.py:37-75`.
+All ten are defined in `app/services/metrics.py`. The two `intent_*` gauges are the newest.
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
@@ -61,6 +61,8 @@ All eight are defined in `app/services/metrics.py:37-75`.
 | `ai_circuit_state` | gauge | `instance` | Circuit breaker per provider instance: `0` closed, `1` half_open, `2` open | `app/services/ai/circuit.py:83-92` (`_metrics_state`) |
 | `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts, `success` or `failed` | `app/services/pg_backup.py:174` and `:203` |
 | `health_score` | gauge | none | The 0 to 100 system health score | `app/services/health.py:339` |
+| `intent_holdout_accuracy` | gauge | none | Holdout accuracy (0 to 1) of the intent model this install serves. NaN when there is no measurement | `app/services/intent.py:581` (`_publish_gauges`, called by `record_artifact` on every reindex) |
+| `intent_model_version` | gauge | none | Version of the served intent model. Rises by one per newly trained model; a model loaded unchanged keeps its number. NaN when no recorded model is served | `app/services/intent.py:583` (same function) |
 
 Two hook points are worth knowing about, because they are why the numbers are
 trustworthy:
@@ -71,6 +73,12 @@ trustworthy:
 - **`_record_usage`** fires once per completed AI request. Retries and
   failovers are counted inside that request as attempts, not as extra rows, so
   `ai_calls_total` counts requests, not attempts.
+
+The two `intent_*` gauges start at NaN, not 0. A 0 would read as "0% accurate"
+or "version 0", and an alert rule cannot tell that from a real bad model. To
+alert on "no model" use `intent_holdout_accuracy != intent_holdout_accuracy`
+(true only for NaN). The model and its files are described in
+`docs/features/intent-model/MODEL_CARD.md`.
 
 `ai_circuit_state` is a number, not a label, on purpose. One series per
 provider instance means "alert when open" is a single PromQL comparison

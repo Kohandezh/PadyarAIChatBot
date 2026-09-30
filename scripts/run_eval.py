@@ -309,6 +309,7 @@ def run_conversations(spec_path: str) -> int:
     tmp = tempfile.mkdtemp(prefix="padyar-conversations-")
     os.environ["DB_PATH"] = os.path.join(tmp, "conversations.db")
     os.environ["LOGS_DB_PATH"] = os.path.join(tmp, "application_logs.db")
+    os.environ["INTENT_MODEL_DIR"] = os.path.join(tmp, "intent-model")
 
     spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
     _validate_conversation_spec(spec)

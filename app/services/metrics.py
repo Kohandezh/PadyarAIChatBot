@@ -74,6 +74,25 @@ health_score = Gauge(
     "The system health score computed by app/services/health.py (0-100).",
     registry=registry)
 
+intent_holdout_accuracy = Gauge(
+    "intent_holdout_accuracy",
+    "Holdout accuracy (0-1) of the intent classifier this install trained at "
+    "the last reindex. NaN when there is no measurement.",
+    registry=registry)
+# NaN until a training run says otherwise. The default Gauge value is 0.0, and
+# 0.0 here would read as "this install's classifier is 0% accurate" — a false
+# statement, and one an alert rule would act on. See intent._publish_gauges.
+intent_holdout_accuracy.set(float("nan"))
+
+intent_model_version = Gauge(
+    "intent_model_version",
+    "Version number of the intent classifier this install serves. Rises by one "
+    "with every newly trained model; a model loaded unchanged keeps its number. "
+    "NaN when no recorded model is served.",
+    registry=registry)
+# NaN for the same reason: 0.0 would read as a real version.
+intent_model_version.set(float("nan"))
+
 # Same set as _NO_VISITOR_PREFIXES in app/main.py: every path served by a
 # static MOUNT. A mount never puts a route template in the scope, and the
 # file part of the path must not become a label, so the prefix is the label.
