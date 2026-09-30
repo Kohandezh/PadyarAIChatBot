@@ -202,10 +202,65 @@ def test_symlink_out_of_repo_is_a_problem(repo, tmp_path_factory):
     assert len(problems) == 1
 
 
-def test_any_missing_path_fails_even_next_to_a_real_one(repo):
+def test_missing_extra_path_next_to_a_real_one_is_fine(repo):
     design = "docs/features/demo/SPEC.md and docs/features/gone/SPEC.md"
+    assert gov.check(body(design=design), IN_SCOPE, str(repo)) == []
+
+
+def test_missing_path_next_to_a_valid_reason_is_fine(repo):
+    design = "docs/features/gone/SPEC.md\nNo design needed: one-line typo fix in a log message"
+    assert gov.check(body(design=design), IN_SCOPE, str(repo)) == []
+
+
+def test_dotdot_path_next_to_a_real_one_is_fine(repo):
+    # A '..' path never counts as valid, but it does not cancel a valid one.
+    design = "docs/features/demo/SPEC.md and ../docs/features/demo/SPEC.md"
+    assert gov.check(body(design=design), IN_SCOPE, str(repo)) == []
+
+
+def test_only_missing_paths_are_all_named(repo):
+    design = "docs/features/gone/SPEC.md and docs/features/lost/SPEC.md"
     problems = gov.check(body(design=design), IN_SCOPE, str(repo))
-    assert len(problems) == 1 and "gone" in problems[0]
+    assert any("gone" in p for p in problems)
+    assert any("lost" in p for p in problems)
+    assert all("Design doc" in p for p in problems)
+
+
+def test_path_in_persian_quotes_passes(repo):
+    design = "سند طراحی: «docs/features/demo/SPEC.md»"
+    assert gov.check(body(design=design), IN_SCOPE, str(repo)) == []
+
+
+def test_path_followed_by_persian_comma_passes(repo):
+    design = "سند: docs/features/demo/SPEC.md، بخش ۵"
+    assert gov.check(body(design=design), IN_SCOPE, str(repo)) == []
+
+
+def test_path_followed_by_persian_semicolon_passes(repo):
+    design = "docs/features/demo/SPEC.md؛ و ADR-022"
+    assert gov.check(body(design=design), IN_SCOPE, str(repo)) == []
+
+
+# --- unclosed HTML comment (REQ-004) -----------------------------------------
+
+def test_unclosed_comment_is_reported(repo):
+    # A comment opened after Tests hides Security and AI assistance, the same
+    # way GitHub renders it. A dedicated line tells the author why.
+    text = (body(Security=None, AI_assistance=None, Human_review=None)
+            + "<!-- forgot to close\n## Security\nfine\n## AI assistance\nfine\n")
+    problems = gov.check(text, IN_SCOPE, str(repo))
+    assert any("Unclosed HTML comment" in p for p in problems)
+    assert any("Security" in p and "Missing" in p for p in problems)
+    assert any("AI assistance" in p and "Missing" in p for p in problems)
+
+
+def test_closed_comments_do_not_report_unclosed(repo):
+    text = body() + "\n<!-- a -->\n<!--\nb\n-->\n"
+    assert gov.check(text, IN_SCOPE, str(repo)) == []
+
+
+def test_unclosed_comment_out_of_scope_is_ignored(repo):
+    assert gov.check("<!-- open", ["docs/x.md"], str(repo)) == []
 
 
 @pytest.mark.parametrize("design", [
@@ -324,11 +379,28 @@ def test_template_has_six_headings_in_order():
     assert headings == list(REQUIRED) + ["Human review"]
 
 
-def test_template_passes_its_own_check_only_when_filled(repo):
+def test_template_passes_its_own_check_only_when_filled():
     # The raw template is guidance in comments: an agent that submits it
     # unfilled for an app/ change gets all five problems.
     text = TEMPLATE.read_text(encoding="utf-8")
-    assert len(gov.check(text, IN_SCOPE, str(repo))) == len(REQUIRED)
+    assert len(gov.check(text, IN_SCOPE, str(REPO_ROOT))) == len(REQUIRED)
+
+    # The same real template, with every required section filled under its
+    # guidance comment and a design doc that exists in this repo, passes.
+    fills = {
+        "Root cause": "The token was minted per render.",
+        "Design doc": "docs/features/review-governance/SPEC.md",
+        "Tests": "tests/test_pr_governance_check.py",
+        "Security": "No new endpoint.",
+        "AI assistance": "An agent wrote it and ran the tests.",
+    }
+    filled = text
+    for name, fill in fills.items():
+        head = f"## {name}\n"
+        start = filled.index(head)
+        end = filled.index("-->\n", start) + len("-->\n")
+        filled = filled[:end] + fill + "\n" + filled[end:]
+    assert gov.check(filled, IN_SCOPE, str(REPO_ROOT)) == []
 
 
 def test_codeowners_names_only_the_two_accounts():
@@ -336,3 +408,61 @@ def test_codeowners_names_only_the_two_accounts():
     handles = set(re.findall(r"@[\w-]+", text))
     assert handles == {"@Kohandezh", "@sinashamsizadeh"}
     assert re.search(r"^\*\s+@Kohandezh\s+@sinashamsizadeh\s*$", text, re.MULTILINE)
+
+
+# --- the changed-files list (F1: renames and non-ASCII paths) ---------------
+
+# The exact command the workflow runs. Without --no-renames a moved file shows
+# only its NEW path, and without core.quotePath=false git prints a Persian
+# file name as a quoted octal string. Both make an app/ change look out of
+# scope.
+CHANGED_FILES_CMD = ["git", "-c", "core.quotePath=false", "diff", "--no-renames",
+                     "--name-only"]
+
+
+def _git(repo_dir, *args):
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+         "-c", "commit.gpgsign=false", *args],
+        cwd=repo_dir, check=True, capture_output=True, text=True, timeout=30,
+    ).stdout
+
+
+def test_changed_files_command_sees_renames_and_persian_names(tmp_path):
+    work = tmp_path / "work"
+    (work / "app").mkdir(parents=True)
+    (work / "app" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    _git(work, "init", "-q")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "base")
+    base = _git(work, "rev-parse", "HEAD").strip()
+
+    (work / "lib").mkdir()
+    _git(work, "mv", "app/x.py", "lib/x.py")
+    (work / "app" / "پرونده.py").write_text("y = 2\n", encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "head")
+    head = _git(work, "rev-parse", "HEAD").strip()
+
+    out = subprocess.run(CHANGED_FILES_CMD + [f"{base}...{head}"], cwd=work,
+                         check=True, capture_output=True, text=True,
+                         timeout=30).stdout
+    changed = [line for line in out.splitlines() if line.strip()]
+    assert "app/x.py" in changed
+    assert "app/پرونده.py" in changed
+    assert gov.check("", changed, str(work)) != []
+
+    # Control: the default flags hide the rename's old path and quote the
+    # Persian one, which is the bug the flags fix.
+    plain = subprocess.run(
+        ["git", "-c", "core.quotePath=true", "-c", "diff.renames=true", "diff",
+         "--name-only", f"{base}...{head}"],
+        cwd=work, check=True, capture_output=True, text=True, timeout=30).stdout
+    assert "app/x.py" not in plain.splitlines()
+    assert "app/پرونده.py" not in plain.splitlines()
+
+
+def test_workflow_uses_the_rename_safe_command():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "--no-renames" in text
+    assert "core.quotePath=false" in text

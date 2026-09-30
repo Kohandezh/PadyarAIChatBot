@@ -107,7 +107,8 @@
   3. قالب PR با شش بخش، و اسکریپت `scripts/check_pr_governance.py` با workflow
      `.github/workflows/pr-governance.yml` که آن را روی هر PR اجرا می‌کند.
   4. بازنویسی `docs/engineering/CODE_OWNERSHIP.md` از روی کد امروز (۱۵ ماژول
-     رجیستری + ۸ زیرسیستم مشترک). ستون مالک خالی ماند تا Sina پر کند.
+     رجیستری + ۸ زیرسیستم مشترک). ستون مالک فقط جای خالی
+     `(تعیین توسط Sina)` را دارد و هیچ نامی در آن نوشته نشد.
   5. سندهای تازه: `docs/engineering/REVIEW_PROCESS.md` (با دستور آمادهٔ محافظت
      شاخه که اجرا **نشده**)، `docs/engineering/REVIEW_PLAN.md`،
      `docs/engineering/ARCHITECTURE_WALKTHROUGH.md`.

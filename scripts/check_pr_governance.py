@@ -2,7 +2,7 @@
 """Check that a pull request description carries the governance sections.
 
 Run by .github/workflows/pr-governance.yml on every pull request. The rules
-live in docs/features/review-governance/SPEC.md (REQ-001 to REQ-009) and the
+live in docs/features/review-governance/SPEC.md (REQ-001 to REQ-009, REQ-018) and the
 reason the check is advisory is ADR-022 in docs/engineering/DECISIONS.md.
 
 Usage:
@@ -32,13 +32,18 @@ REQUIRED_SECTIONS = ("Root cause", "Design doc", "Tests", "Security", "AI assist
 
 MIN_REASON_CHARS = 15
 
-# An unclosed comment hides the rest of the body on GitHub, so it hides the
-# rest here too.
+# Comments are stripped from the WHOLE body before it is split into
+# sections, so a heading inside a comment does not count. An unclosed comment
+# hides the rest of the body on GitHub, so it hides the rest here too, and
+# check() says so in its own problem line.
 _HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
-# A doc path stops at whitespace and at the brackets and quotes markdown puts
-# around a link, so `[spec](docs/a.md)` yields docs/a.md.
-_DOC_PATH = re.compile(r"docs/[^\s()\[\]<>`'\"]+")
-_TRAILING_PUNCTUATION = ".,;:!?"
+_CLOSED_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# A doc path stops at whitespace and at the brackets and quotes markdown (or
+# Persian text) puts around it, so `[spec](docs/a.md)` and «docs/a.md» both
+# yield docs/a.md.
+_DOC_PATH = re.compile(r"docs/[^\s()\[\]<>`'\"«»]+")
+# ASCII punctuation plus the Persian comma and semicolon.
+_TRAILING_PUNCTUATION = ".,;:!?،؛"
 _NO_DESIGN = re.compile(r"no design needed:", re.IGNORECASE)
 
 
@@ -52,10 +57,13 @@ def _in_scope(changed_files) -> bool:
     return False
 
 
+def _normalize(body) -> str:
+    return (body or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _sections(body) -> dict:
     """Map a lower-cased heading to its text, first occurrence wins."""
-    text = (body or "").replace("\r\n", "\n").replace("\r", "\n")
-    text = _HTML_COMMENT.sub("", text)
+    text = _HTML_COMMENT.sub("", _normalize(body))
     sections = {}
     current = None
     lines = []
@@ -101,12 +109,16 @@ def _doc_exists(path: str, repo_root: str) -> bool:
 
 
 def _design_doc_problems(text: str, repo_root: str) -> list:
-    problems = []
+    """Valid when at least one cited docs/...md path exists, or a
+    'No design needed:' reason is long enough. An extra path that does not
+    exist, next to a valid one, is not a problem (SPEC REQ-006, REQ-007)."""
+    invalid = []
     valid_path = False
     for path, is_relative in _doc_path_candidates(text):
         # "../docs/x.md" and "docs/../x.md" climb out of docs/ or the repo.
+        # They never count as a valid doc.
         if ".." in path.split("/"):
-            problems.append(
+            invalid.append(
                 f"Design doc: the path {path} must not contain '..' segments.")
             continue
         # "/abs/docs/x.md", a URL, or "mydocs/x.md" is not a repo doc path.
@@ -115,7 +127,7 @@ def _design_doc_problems(text: str, repo_root: str) -> list:
         if _doc_exists(path, repo_root):
             valid_path = True
         else:
-            problems.append(
+            invalid.append(
                 f"Design doc: {path} does not exist in the repository.")
 
     valid_reason = False
@@ -129,14 +141,16 @@ def _design_doc_problems(text: str, repo_root: str) -> list:
         else:
             short_reason = True
 
-    if problems:
-        return problems
     if valid_path or valid_reason:
         return []
+    # Nothing valid. Name what was wrong, so the author knows what to fix.
+    problems = list(invalid)
     if short_reason:
-        return [
+        problems.append(
             "Design doc: the 'No design needed:' reason must be at least "
-            f"{MIN_REASON_CHARS} characters long."]
+            f"{MIN_REASON_CHARS} characters long.")
+    if problems:
+        return problems
     return [
         "Design doc: give the path of a doc under docs/ (for example "
         "docs/features/<slug>/SPEC.md), or a line 'No design needed: <reason>' "
@@ -150,6 +164,10 @@ def check(body: str, changed_files: list, repo_root: str) -> list:
 
     sections = _sections(body)
     problems = []
+    if "<!--" in _CLOSED_COMMENT.sub("", _normalize(body)):
+        problems.append(
+            "Unclosed HTML comment: a '<!--' has no closing '-->', so GitHub "
+            "hides everything after it and those sections count as missing.")
     for name in REQUIRED_SECTIONS:
         key = name.lower()
         if key not in sections:

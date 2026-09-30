@@ -147,7 +147,7 @@ ADR-022. The review process: `docs/engineering/REVIEW_PROCESS.md`.
 Check the body before you open the PR:
 
 ```bash
-git diff --name-only main...HEAD > /tmp/changed.txt
+git -c core.quotePath=false diff --no-renames --name-only main...HEAD > /tmp/changed.txt
 python scripts/check_pr_governance.py --body-file /tmp/pr-body.md --changed-files /tmp/changed.txt
 ```
 
@@ -172,12 +172,14 @@ still rejected (tested).
 ## AI assistance
 An agent wrote the fix and the test, ran py_compile and the new test file.
 
-## Human review
-
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+## Human review
 ```
 
-End every PR body you write with that trailer line.
+Put the `🤖 Generated with` trailer line at the end of `## AI assistance`,
+before `## Human review`. `## Human review` is the last heading and stays
+completely empty in a body an agent writes.
 
 **Visuals in the body.** When the description has to explain a *shape* (a call path that moved, a file that split, a state machine that gained a branch), a sketch is shorter than the paragraph it replaces. The `show-me` skill owns the form, and a `diff` block showing a call tree before and after is the usual fit. GitHub renders `diff`, `text`, and `mermaid` blocks in a PR body. At most one per PR, and it replaces prose rather than adding to it.
 

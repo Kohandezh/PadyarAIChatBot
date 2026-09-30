@@ -91,7 +91,7 @@ approve.
 اجرای دستی، پیش از باز کردن PR:
 
 ```bash
-git diff --name-only main...HEAD > /tmp/changed.txt
+git -c core.quotePath=false diff --no-renames --name-only main...HEAD > /tmp/changed.txt
 python scripts/check_pr_governance.py --body-file /tmp/pr-body.md --changed-files /tmp/changed.txt
 ```
 
