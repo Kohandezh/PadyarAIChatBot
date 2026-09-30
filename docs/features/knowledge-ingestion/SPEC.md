@@ -193,13 +193,22 @@ sequenceDiagram
   - `pdf_available() -> bool` (آیا `pdftotext` روی PATH هست).
   - `detect_format(data: bytes, filename: str) -> str`: فقط قاعدهٔ نوع REQ-002، بدون
     استخراج. یکی از `pdf`، `docx`، `xlsx`، `csv`، `txt`، `md` را برمی‌گرداند یا
-    `IngestRejected("bad_type", ...)` می‌دهد. فقط پسوند، ۸ بایت اول، و برای zip فقط
-    central directory را می‌خواند (`zipfile.ZipFile(BytesIO(data)).namelist()`)؛ هیچ
-    عضوی باز (inflate) نمی‌شود، هیچ XML تجزیه نمی‌شود، و قاعدهٔ decode اجرا نمی‌شود.
-    برای CSV/TXT/MD فقط چک می‌کند که داده خالی نیست و امضای PDF یا zip ندارد. این تنها
-    تابعی است که route آپلود **درون درخواست** صدا می‌زند (REQ-025)؛ خواندن central
-    directory یک zip ناشناس در worker وب، ریسکی پذیرفته‌شده و محدود است، چون اندازهٔ
-    کل داده پیش از آن به ۲۰ MiB بسته شده است.
+    `IngestRejected("bad_type", ...)` یا `IngestRejected("zip_too_big", ...)` می‌دهد.
+    فقط پسوند، ۸ بایت اول، و برای zip فقط ساختار فهرست را می‌خواند؛ هیچ عضوی باز
+    (inflate) نمی‌شود، هیچ XML تجزیه نمی‌شود، و قاعدهٔ decode اجرا نمی‌شود. برای zip،
+    **پیش از** `zipfile.ZipFile(BytesIO(data)).namelist()`، رکورد End of Central
+    Directory (امضای `PK\x05\x06` در ۶۵٬۵۵۷ بایت آخر: ۲۲ بایت رکورد به‌علاوهٔ حداکثر
+    ۶۵٬۵۳۵ بایت توضیح) خوانده می‌شود: تعداد کل اعضا (دو بایت در offset ۱۰) بیش از
+    ۲٬۰۰۰، یا اندازهٔ central directory (چهار بایت در offset ۱۲) بیش از ۴ MiB، یا
+    نشانهٔ zip64 (`0xFFFF` یا `0xFFFFFFFF` در این دو فیلد) ← `zip_too_big`؛ نبودن
+    رکورد ← `bad_type`. پس `namelist()` حداکثر روی ۲٬۰۰۰ عضو و ۴ MiB فهرست اجرا
+    می‌شود. دلیل: بازبینی یک zip ذخیره‌شدهٔ ۱۸.۷ MiB با ۲۳۰٬۰۰۰ عضو خالی را اندازه
+    گرفت که `namelist` آن ۴.۰۴ ثانیه و ۱۰۲ MiB حافظه خرج کرد (اندازه‌گیری منتقد، نه این
+    سند)، و این روی event loop worker وب، چت بازدیدکننده را هم نگه می‌داشت. برای
+    CSV/TXT/MD فقط چک می‌کند که داده خالی نیست و امضای PDF یا zip ندارد؛ نوع از پسوند
+    می‌آید. این تنها تابعی است که route آپلود **درون درخواست** صدا می‌زند (REQ-025).
+    خواندن فهرست یک zip ناشناس در worker وب ریسکی پذیرفته‌شده است که با این دو سقف و
+    سقف ۲۰ MiB کل داده بسته شده است.
   - `Extracted` یک dataclass است: `format: str` (`pdf`، `docx`، `xlsx`، `csv`،
     `txt`، `md`، `html`)، `blocks: list[Block]`، `encoding_note: str` (خالی یا
     `"utf-16"`/`"cp1256"`).
@@ -213,7 +222,10 @@ sequenceDiagram
   - PDF: پنج بایت اول `%PDF-`.
   - DOCX: `PK\x03\x04` و وجود عضو `[Content_Types].xml` و `word/document.xml`.
   - XLSX: `PK\x03\x04` و وجود `[Content_Types].xml` و `xl/workbook.xml`.
-  - CSV/TXT/MD: نبودِ هیچ‌کدام از امضاهای بالا و گذشتن از قاعدهٔ decode (REQ-004).
+  - CSV/TXT/MD: نبودِ هیچ‌کدام از امضاهای بالا، و داده‌ای غیرخالی؛ نوع از پسوند.
+    قاعدهٔ decode (REQ-004) بخشی از **تشخیص نوع نیست**؛ بعداً درون استخراج اجرا می‌شود
+    و شکستش job را با `bad_encoding` به `failed` می‌برد (فیکسچرهای H7 و H8)، نه یک ۴۱۵
+    در درخواست.
 - **REQ-003** دروازهٔ zip برای DOCX و XLSX، **پیش از** هر پارسر:
   - حداکثر ۲٬۰۰۰ عضو، وگرنه `zip_too_big`.
   - هر عضو با پرچم رمز (`flag_bits & 0x1`) ← `encrypted`.
@@ -414,17 +426,27 @@ sequenceDiagram
   خورد، job در `extracted` می‌ماند. SELECT پیش از UPDATE به‌عنوان کنترل استفاده
   نمی‌شود، چون سه worker هم‌زمان کار می‌کنند
   (`deploy/env/instance.env.template:35`).
-- **REQ-038** `ingest.resume_waiting()`: اگر هیچ job در `proposing` یا `cancelling` نیست و یک job در
-  `extracted` هست، قدیمی‌ترین را با `BackgroundTasks` به مرحلهٔ مدل می‌فرستد. در
-  پایان مرحلهٔ مدل هر job و در `GET /admin/api/ingest/jobs` صدا زده می‌شود. اجرای
-  دوبارهٔ هم‌زمان بی‌خطر است، چون فقط یکی جای REQ-037 را می‌گیرد.
+- **REQ-038** ادامهٔ کار صف‌شده، از دو جا و با دو سازوکار:
+  - **از یک درخواست:** `GET /admin/api/ingest/jobs` تابع
+    `ingest.resume_waiting(background: BackgroundTasks)` را صدا می‌زند: اگر هیچ job در
+    `proposing` یا `cancelling` نیست و یک job در `extracted` هست، `run_model_loop` را با
+    همان `BackgroundTasks` درخواست زمان‌بندی می‌کند.
+  - **از درون یک کار پس‌زمینه** (پایان مرحلهٔ مدل یک job، یا خروج حلقهٔ `cancelling`،
+    REQ-039): آنجا `BackgroundTasks` درخواستی وجود ندارد، پس **همان coroutine ادامه
+    می‌دهد**: `ingest.run_model_loop()` بعد از تمام کردن یک job، قدیمی‌ترین job در
+    `extracted` را با UPDATE شرطی REQ-037 claim می‌کند و مرحلهٔ مدل آن را در همان حلقه
+    اجرا می‌کند، تا وقتی claim ناموفق شود (هیچ job در `extracted` نیست، یا جا را کس
+    دیگری گرفته). `asyncio.create_task` استفاده نمی‌شود، چون taskی که کسی به آن ارجاع
+    ندارد ممکن است بی‌صدا گم شود و خطایش دیده نشود.
+  - اجرای هم‌زمان دو حلقه بی‌خطر است، چون فقط یکی جای REQ-037 را می‌گیرد و دیگری با
+    claim ناموفق خارج می‌شود.
 - **REQ-039** لغو: `POST /admin/api/ingest/jobs/{id}/cancel`.
   - job در `queued`، `extracting` یا `extracted`: مستقیم `cancelled`.
   - job در `proposing`: `cancelling`، نه `cancelled`، چون ممکن است یک تماس مدل (تا دو
     تلاش ۴۵ ثانیه‌ای) در جریان باشد. جای «مرحلهٔ مدل» (REQ-037) تا خروج حلقه گرفته
     می‌ماند، پس job بعدی هم‌زمان تماس نمی‌زند. حلقه پیش از هر تکه و بعد از هر تماس
     وضعیت را می‌خواند؛ با `cancelling` نتیجهٔ تماس جاری را دور می‌ریزد، وضعیت را
-    `cancelled` می‌کند، و `resume_waiting()` را صدا می‌زند.
+    `cancelled` می‌کند، و همان حلقه (REQ-038) job بعدی را claim می‌کند.
   - در هر دو حالت: فایل موقت پاک و همهٔ پیشنهادهای `pending` آن `rejected` با
     `reject_reason='cancelled'` می‌شوند (همان لحظه، نه بعد از خروج حلقه).
   - job در `ready`، `done`، `failed`، `cancelling` یا `cancelled` ← ۴۰۹.
@@ -561,7 +583,8 @@ stateDiagram-v2
   است. کران پاسخ، **برآورد و اندازه‌گیری‌نشده:** کمتر از ۱ ثانیه برای یک تأیید و کمتر
   از ۵ ثانیه برای ۵۰ تأیید در یک `approve-seen`، چون هر تأیید یک تراکنش با حداکثر ۱۱
   INSERT و دو SELECT حذف تکراری است و هیچ کار سنگینی در مسیر پاسخ نیست. چیزی که
-  قطعی و تست‌شدنی است: زمان پاسخ به قفل بازسازی بستگی ندارد (SC-028). شکست قدم ۱ یا
+  قطعی و تست‌شدنی است: بازسازی فقط زمان‌بندی می‌شود و در مسیر پاسخ اجرا نمی‌شود
+  (SC-028). شکست قدم ۱ یا
   ۲ ردیف‌ها را برنمی‌گرداند؛ با `applog` در سطح error ثبت می‌شود.
 - **REQ-060** رد: `POST /admin/api/ingest/proposals/{id}/reject` با `reason` اختیاری
   (حداکثر ۲۰۰ نویسه). فقط `pending`، با UPDATE شرطی؛ وگرنه ۴۰۹.
@@ -681,7 +704,7 @@ stateDiagram-v2
 
 | متد و مسیر | بدنه | موفق | خطاها |
 |------------|------|------|-------|
-| `POST /admin/api/ingest/jobs/upload` | multipart `file` | ۲۰۲ `{job}`؛ ۲۰۰ `{job, "existing": true}` | ۴۰۱، ۴۰۳ (CSRF)، ۴۱۳، ۴۱۵ (`bad_type`)، ۴۲۲ (نام خالی)، ۴۲۹ |
+| `POST /admin/api/ingest/jobs/upload` | multipart `file` | ۲۰۲ `{job}`؛ ۲۰۰ `{job, "existing": true}` | ۴۰۱، ۴۰۳ (CSRF)، ۴۱۳ (`too_large` یا `zip_too_big` از `detect_format`)، ۴۱۵ (`bad_type`)، ۴۲۲ (نام خالی)، ۴۲۹ |
 | `POST /admin/api/ingest/jobs/url` | `{"url": str}` | ۲۰۲ یا ۲۰۰ مثل بالا | ۴۰۱، ۴۰۳، ۴۲۲ (کدهای `FetchRejected`)، ۴۲۹، ۵۰۴ (`timeout`) |
 | `GET /admin/api/ingest/jobs` | `limit`، `offset` | ۲۰۰ `{items: [job], total}` | ۴۰۱ |
 | `GET /admin/api/ingest/jobs/{id}` | | ۲۰۰ `{job, counts}` | ۴۰۱، ۴۰۴ |
@@ -853,7 +876,7 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 | `too_large` | آپلود، واکشی | ۴۱۳ / ۴۲۲ | «این فایل بزرگ‌تر از ۲۰ مگابایت است. آن را به چند فایل کوچک‌تر تقسیم کنید.» (برای نشانی: «این صفحه بیش از اندازه بزرگ است.») |
 | `bad_type` | آپلود | ۴۱۵ | «این نوع فایل پشتیبانی نمی‌شود. فایل Word، PDF، Excel، CSV یا متن بفرستید.» |
 | `bad_zip` | استخراج | failed | «این فایل خراب است یا قالبش شناخته نشد.» |
-| `zip_too_big` | استخراج | failed | «محتوای این فایل بیش از اندازه بزرگ است.» |
+| `zip_too_big` | آپلود (`detect_format`، REQ-001)، استخراج | ۴۱۳ / failed | «محتوای این فایل بیش از اندازه بزرگ است.» |
 | `encrypted` | استخراج | failed | «این فایل رمز دارد. نسخهٔ بدون رمز را بفرستید.» |
 | `dtd_forbidden` | استخراج | failed | «این فایل ساختار غیرعادی دارد و خوانده نشد.» |
 | `bad_encoding` | استخراج | failed | «حروف این فایل خوانده نشد. آن را با رمزگذاری UTF-8 ذخیره کنید.» |
@@ -1098,10 +1121,17 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
   موجود برابر است، `similar_kind='duplicate'` می‌گیرد، در `approve-seen` رد می‌شود، و
   تأیید یکی‌اش ۴۰۹ با `duplicate_of` می‌دهد؛ اما پیشنهادی که فقط **عنوانش** با یک ردیف
   موجود برابر است (متن متفاوت)، `same_title_as` می‌گیرد و تأیید می‌شود (REQ-032).
-- [ ] **SC-028** وقتی تست `_rebuild_lock` را نگه داشته، `POST .../approve` در کمتر از ۲
-  ثانیه ۲۰۰ برمی‌گرداند، ردیف در `dataset` هست، و پاسخ `index_version_before` دارد؛
-  بعد از آزاد کردن قفل، `GET /admin/api/ingest/index-status` در کمتر از ۱۰ ثانیه نسخهٔ
-  بزرگ‌تری برمی‌گرداند (REQ-059، REQ-081).
+- [ ] **SC-028** (S3، TestClient) با `search.reindex_and_publish_until_done` که در تست
+  با یک ضبط‌کننده جایگزین شده (در ماژولی که آن را import می‌کند): `POST .../approve`
+  ۲۰۰ برمی‌گرداند، ردیف در `dataset` commit شده است، پاسخ `index_version_before` دارد، و
+  ضبط‌کننده **دقیقاً یک بار** و بعد از commit زمان‌بندی شده است؛ برای یک
+  `approve-seen` با چند تأیید هم دقیقاً یک بار برای کل دسته. `GET .../index-status`
+  همان مقدار `search.published_index_version()` را برمی‌گرداند (REQ-059، REQ-081).
+  رفتار قفل و انتشار واقعی را SC-015 در S3a پوشش می‌دهد. زمان پاسخ اینجا تست نمی‌شود،
+  چون TestClient و `ASGITransport` تا پایان `BackgroundTasks` صبر می‌کنند (اندازه‌گیری
+  منتقد: route با کار پس‌زمینهٔ ۳ ثانیه‌ای، `TestClient.post` ← `200 3.23s`)؛ در تولید
+  uvicorn پاسخ را پیش از اجرای کارهای پس‌زمینه می‌فرستد. کران زمان پاسخ در REQ-059
+  برآورد می‌ماند.
 - [ ] **SC-029** لغو job در `proposing` وضعیت را `cancelling` می‌کند و همهٔ `pending`ها
   را همان لحظه `rejected`؛ تا وقتی تماس مدل جعلیِ در جریان تمام نشده، job دوم نمی‌تواند
   `proposing` شود؛ بعد از آن job اول `cancelled` است و job دوم شروع می‌شود (REQ-037،
