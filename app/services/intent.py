@@ -49,6 +49,7 @@ import os
 import stat
 import tempfile
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
@@ -120,7 +121,9 @@ class IntentClassifier:
     "trained on N questions" — and `holdout_size` is the held-out slice on its
     own, so a reader of the sidecar can never mistake one for the other.
 
-    `model_version` is None until the model is recorded or loaded.
+    `model_version` and `model_sha256` are None until the model is recorded
+    or loaded. They name the record on disk this exact model matches, which is
+    what the admin panel checks the files against (read_record).
     """
 
     def __init__(self, model, labels: List[str], embedding_model_name: str,
@@ -134,6 +137,7 @@ class IntentClassifier:
         self.holdout_size = holdout_size
         self.training_fingerprint: Optional[str] = None
         self.model_version: Optional[int] = None
+        self.model_sha256: Optional[str] = None
         self.loaded_from_artifact = False
 
     def classify(self, query: str) -> Tuple[Optional[str], float]:
@@ -384,6 +388,7 @@ def _load_checked(fingerprint, embedding_model_name, n_features):
         accuracy, sample_count, holdout_size)
     classifier.training_fingerprint = fingerprint
     classifier.model_version = version
+    classifier.model_sha256 = meta.get("model_sha256")
     classifier.loaded_from_artifact = True
     logger.info(f"[intent] loaded model version {version} from {weights_path} "
                 f"(training skipped, data unchanged)")
@@ -411,27 +416,30 @@ def _check_same(meta: dict, field: str, measured) -> None:
                            f"the weights file says {measured!r}")
 
 
-def _read_regular_file(path: str) -> bytes:
-    """The file's bytes, refusing anything that is not a plain file of a
-    sane size. Opened non-blocking and checked on the open descriptor, so a
-    FIFO or a device planted at the path cannot hang the boot, and a swap
-    between the check and the read is not possible."""
+def _read_regular_file(path: str, limit: Optional[int] = None) -> bytes:
+    """The file's bytes, refusing anything that is not a plain file of at
+    most `limit` bytes (default MAX_FILE_BYTES, read at call time). Opened
+    non-blocking and checked on the open descriptor, so a FIFO or a device
+    planted at the path cannot hang the boot, and a swap between the check
+    and the read is not possible."""
+    if limit is None:
+        limit = MAX_FILE_BYTES
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise _NotLoadable(f"{os.path.basename(path)} is not a regular file")
-        if info.st_size > MAX_FILE_BYTES:
+        if info.st_size > limit:
             raise _NotLoadable(f"{os.path.basename(path)} is larger than "
-                               f"{MAX_FILE_BYTES} bytes")
+                               f"{limit} bytes")
         with os.fdopen(fd, "rb") as fh:
             fd = None
-            payload = fh.read(MAX_FILE_BYTES + 1)
+            payload = fh.read(limit + 1)
     finally:
         if fd is not None:
             os.close(fd)
-    if len(payload) > MAX_FILE_BYTES:
-        raise _NotLoadable(f"{os.path.basename(path)} is larger than {MAX_FILE_BYTES} bytes")
+    if len(payload) > limit:
+        raise _NotLoadable(f"{os.path.basename(path)} is larger than {limit} bytes")
     return payload
 
 
@@ -521,6 +529,230 @@ def _holdout_numbers(holdout, n_classes: int):
         raise _NotLoadable(f"holdout_accuracy {raw_accuracy!r} is not a fraction "
                            f"of {size} held-out questions")
     return raw_accuracy, size, count
+
+
+# ── Reading the record for people ───────────────────────────────────────
+
+# The history rows the admin card shows. The file keeps HISTORY_MAX_LINES.
+HISTORY_SHOWN = 10
+
+# Largest history file the panel reads. _append_history keeps
+# HISTORY_MAX_LINES rows of well under 1 KB each; 4 KB a row leaves room for
+# any future field, and a bigger file was not written by this code. The
+# panel reads it on every page load, so the 64 MB weights cap is far too big.
+HISTORY_MAX_BYTES = HISTORY_MAX_LINES * 4096
+
+_HISTORY_FIELDS = ("model_version", "trained_at", "holdout_accuracy",
+                   "holdout_size", "sample_count", "class_count")
+
+
+def read_record(serving: Optional[IntentClassifier]) -> dict:
+    """What the admin panel shows about this install's own model. NEVER raises.
+
+    `serving` is the classifier this process answers with
+    (search.intent_classifier). It came through the checked load path or a
+    fresh training, so it is the source of truth; the files only confirm it.
+
+    `state` is one of:
+      - "trained":    a model is serving, its sidecar says exactly what the
+                      serving model says (version, sha256, fingerprint,
+                      holdout numbers, classes, embedding model, library
+                      versions), and the weights file hashes to the serving
+                      sha256. Only `trained_at` comes from the sidecar alone;
+      - "not_saved":  INTENT_MODEL_DIR is empty, so by the operator's choice
+                      the install keeps no record. A model is serving, and
+                      its facts come from memory; there is no version, sha256
+                      or date to show, and nothing is read from disk;
+      - "none":       no model is serving and there is no sidecar;
+      - "unreadable": anything else: a sidecar edited to plausible values,
+                      other weights, a record with no serving model, a serving
+                      model that was never recorded. The chatbot still answers;
+                      the card only refuses to vouch for numbers it cannot
+                      confirm.
+
+    The weights are hashed, never parsed. Nothing is written, no lock is
+    taken, the directory is never created, nothing is trained.
+
+    The history stands apart: each row is checked alone, a row that fails is
+    skipped, and the history never changes `state`. When the model is
+    confirmed, a row newer than it, or a row for its version that disagrees
+    with it, is skipped too. `history_status` is "ok", "partial" (rows were
+    skipped) or "unreadable" (the file itself).
+
+    The result holds no path, no directory, no file name, no exception text.
+    """
+    needs = {"questions": HYPERPARAMETERS["min_samples"],
+             "topics": HYPERPARAMETERS["min_classes"]}
+    try:
+        state, model = _confirm_serving_model(serving)
+    except Exception as e:  # noqa: BLE001 — the panel must never 500 on a bad file
+        logger.warning(f"[intent] could not read the model record for the panel: "
+                       f"{type(e).__name__}")
+        state, model = "unreadable", None
+    try:
+        history, history_status = _read_history_for_display(
+            model if state == "trained" else None)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[intent] could not read the model history for the panel: "
+                       f"{type(e).__name__}")
+        history, history_status = [], "unreadable"
+    return {"state": state, "model": model, "history": history,
+            "history_status": history_status, "needs": needs}
+
+
+def _confirm_serving_model(serving: Optional[IntentClassifier]):
+    """(state, model facts or None). See read_record."""
+    if not (config.INTENT_MODEL_DIR or "").strip():
+        # Checked first: with no directory the paths below are relative, and
+        # would read whatever files sit where the app happened to start.
+        if serving is None:
+            return "none", None
+        return "not_saved", {**_describe_serving(serving, recorded=False),
+                             "trained_at": None}
+    weights_path, meta_path = artifact_paths()
+    has_sidecar = os.path.lexists(meta_path)
+    if serving is None:
+        return ("unreadable" if has_sidecar else "none"), None
+    expected = _describe_serving(serving)
+    if expected is None or not has_sidecar:
+        return "unreadable", None
+    meta = _read_sidecar(meta_path)
+    if (meta is None or meta.get("format_version") != FORMAT_VERSION
+            or not all(_same(meta.get(k), v) for k, v in expected.items())
+            or not _is_iso_time(meta.get("trained_at"))):
+        return "unreadable", None
+    try:
+        weights = _read_regular_file(weights_path)
+    except (OSError, _NotLoadable):
+        return "unreadable", None
+    if hashlib.sha256(weights).hexdigest() != expected["model_sha256"]:
+        return "unreadable", None
+    return "trained", {**expected, "trained_at": meta["trained_at"]}
+
+
+def _describe_serving(serving: IntentClassifier, recorded: bool = True) -> Optional[dict]:
+    """The sidecar fields as the serving model states them, or None for a
+    model that was never recorded (recording off, or the write failed).
+    With `recorded=False` the version and sha256 are None: a model trained
+    only in memory has neither.
+
+    The revision and the library versions are this process's own: they are
+    inside the training fingerprint, so a serving model whose fingerprint
+    matches the sidecar was trained under exactly these."""
+    version, sha = serving.model_version, serving.model_sha256
+    if not recorded:
+        version, sha = None, None
+    elif not _is_int(version) or not isinstance(sha, str) or not serving.training_fingerprint:
+        return None
+    return {
+        "model_version": version,
+        "model_sha256": sha,
+        "training_fingerprint": serving.training_fingerprint,
+        "holdout_accuracy": serving.holdout_accuracy,
+        "holdout_size": serving.holdout_size,
+        "sample_count": serving.sample_count,
+        "class_count": len(serving.labels),
+        "embedding_model_name": serving.embedding_model_name,
+        "embedding_model_revision": embeddings.DEFAULT_MODEL_REVISION,
+        "scikit_learn_version": _sklearn_version(),
+        "numpy_version": np.__version__,
+    }
+
+
+def _same(value, expected) -> bool:
+    """Equal AND the same type, so `true` is not 1 and "1" is not 1."""
+    return type(value) is type(expected) and value == expected
+
+
+def _is_iso_time(value) -> bool:
+    if not isinstance(value, str) or len(value) > 64:
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _read_history_for_display(confirmed: Optional[dict]) -> Tuple[list, str]:
+    """(the newest HISTORY_SHOWN valid rows, newest first; history_status).
+
+    `confirmed` is the model the files were just confirmed against, or None.
+    Rows are streamed into a deque, so only HISTORY_SHOWN are ever kept."""
+    if not (config.INTENT_MODEL_DIR or "").strip():
+        return [], "ok"
+    try:
+        raw = _read_regular_file(history_path(), HISTORY_MAX_BYTES)
+    except FileNotFoundError:
+        return [], "ok"
+    except (OSError, _NotLoadable):
+        return [], "unreadable"
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return [], "unreadable"
+    rows, skipped = deque(maxlen=HISTORY_SHOWN), 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if _is_history_row(row) and _agrees_with(row, confirmed):
+            rows.append({f: row[f] for f in _HISTORY_FIELDS})
+        else:
+            skipped += 1
+    return list(reversed(rows)), ("partial" if skipped else "ok")
+
+
+def _agrees_with(row: dict, confirmed: Optional[dict]) -> bool:
+    """A row cannot be newer than the confirmed model, and the row for the
+    confirmed version must say what the confirmed model says. Older rows
+    have no weights left to check, so they pass."""
+    if confirmed is None:
+        return True
+    if row["model_version"] > confirmed["model_version"]:
+        return False
+    if row["model_version"] == confirmed["model_version"]:
+        return all(_same(row[f], confirmed[f]) for f in _HISTORY_FIELDS)
+    return True
+
+
+def _is_history_row(row) -> bool:
+    """A row is shown when its format is one this code knows (any version up
+    to the current one: the file keeps its rows across a format bump) and the
+    six shown fields hold values train() could have written. The holdout
+    numbers go through _holdout_numbers, the load path's own check.
+
+    History rows describe past versions whose weights are gone, so unlike
+    the current record they cannot be cross-checked, only sanity-checked."""
+    if not isinstance(row, dict):
+        return False
+    fmt = row.get("format_version")
+    if not _is_int(fmt) or not 1 <= fmt <= FORMAT_VERSION:
+        return False
+    if any(f not in row for f in _HISTORY_FIELDS) or not _is_iso_time(row["trained_at"]):
+        return False
+    version, size, count, classes = (row["model_version"], row["holdout_size"],
+                                     row["sample_count"], row["class_count"])
+    if not all(_is_int(v) for v in (version, size, count, classes)):
+        return False
+    if version < 1 or classes < HYPERPARAMETERS["min_classes"]:
+        return False
+    accuracy = row["holdout_accuracy"]
+    # Inside the weights NaN means "not measured"; a JSON row says that with
+    # null, so a NaN here is an edit.
+    if accuracy is not None and (isinstance(accuracy, bool)
+                                 or not isinstance(accuracy, (int, float))
+                                 or not math.isfinite(accuracy)):
+        return False
+    try:
+        _holdout_numbers(np.array([np.nan if accuracy is None else accuracy, size, count],
+                                  dtype=np.float64), classes)
+    except _NotLoadable:
+        return False
+    return True
 
 
 # ── Recording ───────────────────────────────────────────────────────────
@@ -636,6 +868,7 @@ def _record_new_version(classifier: IntentClassifier) -> dict:
         # load makes. Not a new version. A record that fails any check (an
         # edited sidecar, say) is replaced, even when the weights are equal.
         classifier.model_version = current.get("model_version")
+        classifier.model_sha256 = sha
         return current
 
     version = max(_version_of(current), _last_history_version()) + 1
@@ -658,6 +891,7 @@ def _record_new_version(classifier: IntentClassifier) -> dict:
     }
     _write_pair(payload, meta)
     classifier.model_version = version
+    classifier.model_sha256 = sha
     logger.info(f"[intent] recorded model version {version} at {weights_path} "
                 f"({len(payload)} bytes, sha256 {sha[:12]})")
     try:
