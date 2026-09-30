@@ -3,6 +3,51 @@
 استفاده از کدنویسی با کمک AI پنهان نمی‌شود؛ این سند سابقهٔ آن است.
 هر مدخل: چه چیزی، با چه مدلی، و وضعیت بازبینی انسانی.
 
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): /metrics در چند worker
+
+- **مدل/ارکستراتور:** این کار با کمک AI (Claude) انجام شده و بازبینی انسانی
+  هنوز انجام نشده است. ارکستراتور Claude Opus 5.5 (claude-opus-5-5) طراحی و
+  قرارداد را داد، تناقض AC2 (`max` برای circuit) را پیدا و گزارش کرد، diff را
+  بازبینی کرد و تست‌ها را خودش دوباره اجرا کرد. تست، کد و مستندات را یک
+  ساب‌ایجنت Claude Sonnet 5.5 (claude-sonnet-5-5) نوشت، در یک git worktree جدا
+  روی شاخهٔ `fix/metrics-multiprocess`.
+- **کارهای انجام‌شده:**
+  1. اول تست نوشته شد و روی کد بدون تغییر اجرا شد (قرمز)، بعد کد نوشته شد.
+  2. `app/services/metrics.py`: حالت multiprocess با `PROMETHEUS_MULTIPROC_DIR`،
+     خطای واضح برای پوشهٔ بد یا مقدار خالی، `multiprocess_mode` برای سه gauge،
+     فیلتر هشت خانواده، `exposition()`، `mark_process_dead()`،
+     `single_process_warning()`.
+  3. `app/routers/metrics.py`: پاسخ از `metrics.exposition()` می‌آید؛ auth
+     دست‌نخورده و قبل از هر جمع‌آوری.
+  4. `app/main.py` (فقط `lifespan`): یک WARNING موقع شروع و یک hook موقع خاموشی.
+  5. `deploy/systemd/padyar-app.service.template`: `RuntimeDirectory`، حالت
+     `0700` و `Environment=PROMETHEUS_MULTIPROC_DIR`. خط‌های سخت‌گیری عوض نشدند.
+  6. `deploy/env/instance.env.template` (یک comment) و `deploy/README.md`
+     (یادداشت Day-2).
+  7. `tests/test_metrics_multiprocess.py` (۴۰ تست؛ هر حالت multiprocess در یک
+     subprocess واقعی).
+  8. مستندات: بخش فارسی جدید در `docs/engineering/MONITORING.md` و اصلاح
+     جمله‌های انگلیسی که غلط شده بودند، `ADR-022` در `DECISIONS.md`، و همین مدخل.
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی سه فایل
+  پایتونِ تغییریافته؛ اجرای قرمز روی کد قدیمی (۳۴ شکست، ۴ موفق)؛ اجرای سبز
+  `tests/test_metrics.py` و `tests/test_metrics_multiprocess.py` (۵۱ موفق)؛ هشت
+  جهش دستی در کد (مثلاً `max` به‌جای `mostrecent`، حذف فیلتر، خالی‌بودن مقدار
+  به‌عنوان «تنظیم‌نشده») که هر هشت را تست‌ها گرفتند؛ یک اجرای واقعی
+  `uvicorn --workers 3` روی ماشین محلی، با متغیر و بدون آن. ارکستراتور جدا از
+  ساب‌ایجنت: فایل تست جدید روی یک کپی تمیز از `3a4a415` (۳۴ شکست، ۴ موفق)، و
+  اجرای دوباره‌ی سبز روی worktree (۵۱ موفق).
+  بعد از بازبینی، بررسی دسترسی پوشه «خواندن» را هم خواست (پوشهٔ فقط‌نوشتنی
+  رد می‌شود). دو تست تازه: روی کد قبلی ۱ شکست و ۱ موفق، بعد از تغییر ۵۳ موفق
+  در دو فایل تست متریک.
+- **اجرا نشد:** کل مجموعهٔ pytest (طبق قرارداد، CI این کار را می‌کند)؛
+  CI روی GitHub؛ unit روی یک سرور واقعی با systemd (روی این ماشین systemd
+  نیست)؛ دستورهای rollout روی هیچ نصبی؛ scrape با یک سرور Prometheus؛ kill -9
+  روی یک worker؛ پرش counter روی Linux (روی macOS اتصال‌ها همه به یک worker
+  می‌رسند، پس رفتار قدیمی زنده بازتولید نشد).
+
+بازبینی انسانی: pending
+
 ## نشست ۱۴۰۵/۰۵/۲۳ (2026-08-14) — تبدیل به رویداد + بلوغ فنی
 
 - **مدل/ارکستراتور:** Claude (claude-fable-5) در نقش منطقی «Fable» — طراحی،

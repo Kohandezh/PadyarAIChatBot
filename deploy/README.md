@@ -269,6 +269,21 @@ curl -s localhost:8003/health | jq
 sudo bash deploy/10-install-app.sh myevent
 ```
 
+When `deploy/systemd/padyar-app.service.template` changes, the CI deploy
+(`deploy/padyar-deploy.sh`) only restarts the service. It does not re-render
+the unit. Re-render it by hand (more in `docs/engineering/MONITORING.md`):
+```bash
+TMP="$(mktemp)"
+sed "s/{{SLUG}}/myevent/g" /opt/padyar-myevent/deploy/systemd/padyar-app.service.template > "$TMP"
+if grep -qF '{{' "$TMP"; then
+  echo "STOP: unfilled placeholder. Nothing was installed."
+else
+  sudo install -m 0644 "$TMP" /etc/systemd/system/padyar-myevent.service
+  sudo systemctl daemon-reload && sudo systemctl restart padyar-myevent
+fi
+rm -f "$TMP"
+```
+
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
 
