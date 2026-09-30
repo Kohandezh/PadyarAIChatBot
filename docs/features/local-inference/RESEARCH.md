@@ -5,14 +5,15 @@
 **Prepared with:** AI assistance (Claude Code). Human review of this draft is pending.
 **Timebox:** one session, desk research only — no server access
 **Date:** 2026-09-20
-**Updated:** 2026-09-30 (review corrections; still desk research, nothing measured)
+**Updated:** 2026-09-30 (review corrections; still desk research; nothing measured except the host facts in the §3.1 box, measured 2026-09-30)
 **Base commit for every code citation:** `3a4a415`
 
 **Outcome:** → ADR, then a SPEC (§9.4).
 
 > **Read the labels.** **Nothing in this document was measured on the target
-> hardware.** The server was unreachable and reaching it was forbidden, so
-> `nvidia-smi` was never run. Every figure is tagged:
+> hardware, except the host facts in the §3.1 box, measured 2026-09-30.** When
+> the spike was written the server was unreachable and reaching it was
+> forbidden, so `nvidia-smi` was never run for it. Every figure is tagged:
 >
 > | Label | Means |
 > |---|---|
@@ -121,7 +122,7 @@ would be the figure before the hypervisor's reservation. The whole budget in
 > | NVIDIA driver | 580.173.02 |
 > | Build tools | no `nvcc` and no `cmake` installed |
 > | GPU memory, TTS at rest | GPU0 4311 MiB, GPU1 3283 MiB used, of 24576 each |
-> | `https://developer.download.nvidia.com/...` | HTTP 403 from the host (sanctions) |
+> | `https://developer.download.nvidia.com/...` | HTTP 403 from the host (likely export-control geo-blocking; inferred, not confirmed by NVIDIA) |
 > | PyPI, Docker Hub, huggingface.co, github.com | reachable; `nvidia-cuda-nvcc-cu12==12.9.86` downloads from PyPI |
 >
 > What changes because of them:
@@ -325,7 +326,8 @@ wrong:
   (§3.5, §4.6.2, §4.8.7); they are corrected. On 2026-09-30 every citation added
   or changed in the revision was re-resolved at `3a4a415` with
   `git show 3a4a415:<path> | sed -n '<a>,<b>p'`.
-- **No experiment was run and nothing was measured on the target hardware.** The
+- **No experiment was run and nothing was measured on the target hardware,
+  except the host facts in the §3.1 box, measured 2026-09-30.** The
   server was unreachable and reaching it was forbidden, as were installing
   packages and downloading weights. There is therefore **no prototype code** to
   separate from production work.
