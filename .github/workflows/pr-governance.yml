@@ -1,0 +1,65 @@
+name: PR governance
+
+# Checks that a pull request which changes app/ or migrations/ explains
+# itself: root cause, design doc (or "No design needed: <reason>"), tests,
+# security and AI assistance. Rules: docs/features/review-governance/SPEC.md.
+#
+# ADVISORY (ADR-022): a failure shows a red X so the author fixes the
+# description, but this job is not a required check. It also runs on draft
+# PRs so an agent fixes the description before anyone spends review time.
+#
+# SECURITY. The PR description is attacker-controlled text. It is read by
+# Python from the event JSON file and never placed inside a ${{ }}
+# expression in a run: block, which would be a script-injection hole.
+# The plain `pull_request` event plus a read-only token means code from a
+# fork never runs with write access or repository secrets (ADR-022 names the
+# event variant that would allow that, and why it is rejected).
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-governance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: List the changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE_SHA"..."$HEAD_SHA" > "$RUNNER_TEMP/changed-files.txt"
+          cat "$RUNNER_TEMP/changed-files.txt"
+
+      - name: Read the PR description from the event file
+        run: |
+          python - <<'PY'
+          import json, os
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event = json.load(f)
+          text = (event.get("pull_request") or {}).get("body") or ""
+          path = os.path.join(os.environ["RUNNER_TEMP"], "pr-body.md")
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(text)
+          PY
+
+      - name: Check the PR description
+        run: |
+          python scripts/check_pr_governance.py \
+            --body-file "$RUNNER_TEMP/pr-body.md" \
+            --changed-files "$RUNNER_TEMP/changed-files.txt" \
+            --repo-root .
