@@ -401,11 +401,14 @@ def reindex_and_publish_until_done(timeout_s: float = 120.0) -> bool:
         if remaining <= 0:
             break
         time.sleep(min(PUBLISH_RETRY_SECONDS, remaining))
-    bump_index_version()
     from app.services import applog
     applog.error("retrieval", "retrieval.publish_timeout",
-                 "بازسازی نمایه در زمان مقرر انجام نشد؛ فقط نسخهٔ تازه منتشر شد",
+                 "بازسازی نمایه در زمان مقرر انجام نشد",
                  outcome="timeout", duration_ms=int(timeout_s * 1000))
+    try:
+        bump_index_version()
+    except Exception:  # noqa: BLE001 (a background task: report the failure, do not raise)
+        logger.exception("[search] version bump after a publish timeout failed")
     return False
 
 

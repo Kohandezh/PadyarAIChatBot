@@ -313,6 +313,30 @@ def test_a_lock_that_never_frees_ends_in_a_bump_an_error_and_false(store_db, mon
     assert errors[0][0][0] == "retrieval"
 
 
+def test_a_bump_that_raises_on_timeout_is_still_logged_and_returns_false(store_db, monkeypatch):
+    from app.services import applog, search
+    search.init_index_version()
+
+    errors = []
+    monkeypatch.setattr(applog, "error",
+                        lambda *args, **kwargs: errors.append((args, kwargs)))
+
+    def failing_bump():
+        raise RuntimeError("settings store down")
+
+    monkeypatch.setattr(search, "bump_index_version", failing_bump)
+
+    assert search._rebuild_lock.acquire(timeout=5)
+    try:
+        published = search.reindex_and_publish_until_done(timeout_s=0.5)
+    finally:
+        search._rebuild_lock.release()
+
+    assert published is False
+    assert len(errors) == 1
+    assert errors[0][0][:2] == ("retrieval", "retrieval.publish_timeout")
+
+
 def test_a_load_that_keeps_failing_is_retried_until_the_deadline(store_db, monkeypatch):
     from app.services import applog, search
     search.init_index_version()

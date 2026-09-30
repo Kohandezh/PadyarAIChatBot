@@ -22,8 +22,7 @@ def _insert_synonym_pairs(pairs) -> int:
 
     The router write path for the synonyms table: the manual add form and
     the suggestion apply. The INSERT itself is queries.insert_synonym_pairs,
-    which the ingest approval calls inside its own transaction before it
-    reloads and publishes once for the batch. `load_synonyms_from_db()` and
+    which does not commit, reload or bump. `load_synonyms_from_db()` and
     `bump_index_version()` live HERE so no new writer can forget them
     (ADR-017 — one place reindexes, every path reindexes).
     """

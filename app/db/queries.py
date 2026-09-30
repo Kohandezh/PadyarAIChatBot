@@ -280,10 +280,9 @@ def set_setting(key, value):
 
 
 # --- Content writes -------------------------------------------------------
-# The one INSERT behind each content table. Each runs on the caller's
-# connection and never commits, reindexes or reloads synonyms: the admin
-# routers commit one write and reindex, while the ingest approval puts all
-# three in one transaction and publishes the index once for the whole batch.
+# The INSERT the admin panel uses for each content table. Each runs on the
+# caller's connection and never commits, reindexes or reloads synonyms, so a
+# caller can put several writes in one transaction and reindex once after it.
 
 def insert_dataset_entry(conn, item_id, title, text, video_url="", title_en="",
                          text_en="") -> None:

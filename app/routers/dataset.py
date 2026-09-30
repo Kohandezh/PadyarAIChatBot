@@ -226,9 +226,9 @@ async def bulk_delete_dataset_items(payload: dict):
 
 # --- Questions CRUD ---
 #
-# Every question creation goes through queries.insert_question. The
-# single-create endpoint, the AI-assist bulk apply and the ingest approval
-# share it, so the write shape stays single-source (ADR-017).
+# Every question the admin panel creates goes through queries.insert_question.
+# The single-create endpoint and the AI-assist bulk apply share it, so the
+# write shape stays single-source (ADR-017).
 
 @router.get("/admin/api/questions", dependencies=[Depends(verify_admin)])
 async def list_questions(dataset_id: Optional[str] = None):
