@@ -24,8 +24,9 @@
 | B. واکشی امن یک صفحهٔ وب | REQ-017..REQ-023 | S2 |
 | C. کار (job)، تکه‌ها، حذف تکراری | REQ-024..REQ-041 | S3 |
 | D. گام هوش مصنوعی | REQ-042..REQ-051 | S3 |
-| E. بازبینی و تأیید | REQ-052..REQ-068 | S3 |
-| F. صفحهٔ مدیر | REQ-069..REQ-080 | S4 |
+| E. بازبینی و تأیید | REQ-052..REQ-062، REQ-065..REQ-068، REQ-081 | S3 |
+| E0. نوشتن مشترک و انتشار تضمین‌شدهٔ نمایه | REQ-063، REQ-064 | S3a |
+| F. صفحهٔ مدیر | REQ-069..REQ-080، REQ-082 | S4 |
 
 ---
 
@@ -129,11 +130,40 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
 8. مدیر هر کارت را تأیید، ویرایش و تأیید، یا رد می‌کند؛ یا «تأیید همهٔ موارد
    دیده‌شده» را می‌زند.
 9. سرور برای هر تأیید: در یک تراکنش، حذف تکراری دوباره ← ساخت ردیف `dataset` و
-   پرسش‌ها و مترادف‌ها ← وضعیت پیشنهاد `approved`؛ بعد از commit: بارگذاری مترادف‌ها
-   و انتشار تضمین‌شدهٔ نسخهٔ نمایه؛ audit.
+   پرسش‌ها و مترادف‌ها ← وضعیت پیشنهاد `approved`؛ بعد از commit: بارگذاری مترادف‌ها و
+   audit، و پاسخ. انتشار تضمین‌شدهٔ نسخهٔ نمایه در پس‌زمینه ادامه می‌یابد و صفحه تا جلو
+   رفتن نسخه «در حال به‌روزرسانی» نشان می‌دهد.
 10. وقتی هیچ پیشنهاد `pending` نماند، job به `done` می‌رود.
 
+تأیید از همه بیشتر شکل دارد، چون پاسخ و انتشار نمایه از هم جدا شده‌اند (REQ-059):
+
+```mermaid
+sequenceDiagram
+    participant UI as صفحهٔ مدیر
+    participant API as app/routers/ingest.py
+    participant SVC as app/services/ingest.py
+    participant DB as PostgreSQL
+    participant BG as پس‌زمینه
+    UI->>API: POST approve
+    API->>SVC: approve(id, admin)
+    SVC->>DB: یک تراکنش: شرط pending، حذف تکراری، سه INSERT، commit
+    SVC-->>API: dataset_id، index_version_before
+    API->>BG: زمان‌بندی reindex_and_publish_until_done
+    API-->>UI: ۲۰۰ بدون انتظار بازسازی
+    BG->>DB: بازسازی و انتشار نسخهٔ تازه
+    loop هر ۲ ثانیه تا ۱۵۰ ثانیه
+        UI->>API: GET index-status
+        API-->>UI: version
+    end
+```
+
+*نمودار: هیچ‌کدام از این مسیرها امروز وجود ندارد. پاسخ ۲۰۰ پیش از بازسازی می‌رود؛
+صفحه با خواندن `index-status` می‌فهمد پاسخ کی در چت دیده می‌شود.*
+
 نمودار تصمیم کامل در RESEARCH.md، بخش ۶ است. چرخهٔ حالت‌ها در بخش ۵ همین سند است.
+`erDiagram` کشیده نشد: دو جدول تازه فقط با یک ستون `job_id` (بدون FK) به هم وصل‌اند و
+به هیچ جدول موجودی کلید ندارند؛ جدول‌های بخش ۷ همین را کامل‌تر می‌گویند. نمودار
+دنبالهٔ آپلود هم کشیده نشد، چون فهرست شماره‌دار بالا خطی است و انشعابی ندارد.
 
 ## 5. Behavior
 
@@ -161,6 +191,15 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
     (در پردازهٔ فرزند، REQ-013).
   - `extract_html(data: bytes) -> Extracted`.
   - `pdf_available() -> bool` (آیا `pdftotext` روی PATH هست).
+  - `detect_format(data: bytes, filename: str) -> str`: فقط قاعدهٔ نوع REQ-002، بدون
+    استخراج. یکی از `pdf`، `docx`، `xlsx`، `csv`، `txt`، `md` را برمی‌گرداند یا
+    `IngestRejected("bad_type", ...)` می‌دهد. فقط پسوند، ۸ بایت اول، و برای zip فقط
+    central directory را می‌خواند (`zipfile.ZipFile(BytesIO(data)).namelist()`)؛ هیچ
+    عضوی باز (inflate) نمی‌شود، هیچ XML تجزیه نمی‌شود، و قاعدهٔ decode اجرا نمی‌شود.
+    برای CSV/TXT/MD فقط چک می‌کند که داده خالی نیست و امضای PDF یا zip ندارد. این تنها
+    تابعی است که route آپلود **درون درخواست** صدا می‌زند (REQ-025)؛ خواندن central
+    directory یک zip ناشناس در worker وب، ریسکی پذیرفته‌شده و محدود است، چون اندازهٔ
+    کل داده پیش از آن به ۲۰ MiB بسته شده است.
   - `Extracted` یک dataclass است: `format: str` (`pdf`، `docx`، `xlsx`، `csv`،
     `txt`، `md`، `html`)، `blocks: list[Block]`، `encoding_note: str` (خالی یا
     `"utf-16"`/`"cp1256"`).
@@ -209,6 +248,9 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
 - **REQ-007** XLSX: `openpyxl.load_workbook(BytesIO, read_only=True, data_only=True)`،
   فقط برگهٔ اول. پیش از خواندن، `openpyxl.xml.DEFUSEDXML` باید `True` باشد، وگرنه
   `parse_failed` (یعنی نصب `defusedxml` را گم کرده؛ پاسخ به پرسش باز Q1 همین است).
+  پیش از `openpyxl`، ۴ KiB اول (بازشده) هر عضو `.xml` برای `<!DOCTYPE` بررسی می‌شود؛
+  اگر پیدا شد ← `dtd_forbidden`. این کد را برای XLSX قطعی می‌کند، به‌جای خطایی که
+  `openpyxl` خودش بسته‌بندی می‌کند.
 - **REQ-008** XLSX و CSV: ردیف اول سرستون است. ستون عنوان اولین ستونی است که نامش
   (بعد از `strip` و حروف کوچک) در `{"title","question","عنوان","سوال","سؤال","پرسش"}`
   باشد؛ ستون متن اولین ستون در `{"text","answer","پاسخ","جواب","متن","توضیح"}`. اگر
@@ -253,7 +295,9 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
   پارامتر، حروف کوچک)، `charset: str`، `data: bytes`. خطا فقط با
   `FetchRejected(code: str, message_fa: str)`.
 - **REQ-018** نشانی: فقط `https`، بدون userinfo، و پورت یا خالی یا `443`. هر پورت
-  دیگر ← `bad_port`؛ `http` ← `http_only`. (`validate` در
+  دیگر ← `bad_port`؛ `http` ← `http_only`؛ نشانی با userinfo (`user@`) یا نشانی‌ای که
+  `urllib.parse.urlsplit` نمی‌خواند یا host ندارد ← `bad_url`. این چک‌ها پیش از
+  `pin` اجرا می‌شوند. (`validate` در
   `app/services/ai/endpoint_policy.py:253-258` هر پورت ۱ تا ۶۵۵۳۵ را می‌پذیرد، پس این
   چک در `ingest_fetch` است.)
 - **REQ-019** هر گام (نشانی اول و هر redirect) با
@@ -271,8 +315,9 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
   `application/pdf`؛ وگرنه `bad_content_type`. PDF به همان مسیر فایل PDF می‌رود.
 - **REQ-023** درخواست بدون cookie و بدون هدر احراز هویت، با
   `User-Agent: PadyarIngest/1.0` و `Accept-Encoding: identity` (تا بایت‌شماری
-  REQ-021 همان بایت واقعی باشد). client با یک تابع ماژول `_client()` ساخته می‌شود تا
-  تست‌ها آن را با `httpx.MockTransport` جایگزین کنند.
+  REQ-021 همان بایت واقعی باشد)، و با `trust_env=False` تا متغیرهای `HTTPS_PROXY` و
+  مانند آن درخواست را از مسیر پروکسی نبرند. client با یک تابع ماژول `_client()`
+  ساخته می‌شود تا تست‌ها آن را با `httpx.MockTransport` جایگزین کنند.
 
 ### C. کار، تکه‌ها، حذف تکراری (برش S3)
 
@@ -282,7 +327,8 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
   `"ingest": ModuleDef(name="ingest", description="Semi-automatic knowledge ingestion from documents and web pages, with human approval", is_core=False, router_module="app.routers.ingest")`.
 - **REQ-025** ساخت job از فایل: `POST /admin/api/ingest/jobs/upload`. بدنه با
   `file.read(MAX_FILE_BYTES + 1)` خوانده می‌شود (`MAX_FILE_BYTES = 20 MiB`)؛ بیشتر ←
-  ۴۱۳. `sha256` بایت‌ها `content_hash` است.
+  ۴۱۳. بعد `ingest_extract.detect_format(data, filename)` درون همین درخواست؛
+  `bad_type` ← ۴۱۵ و هیچ job ساخته نمی‌شود. `sha256` بایت‌ها `content_hash` است.
 - **REQ-026** ساخت job از نشانی: `POST /admin/api/ingest/jobs/url` با
   `{"url": "..."}`. واکشی (REQ-017) **درون همین درخواست** و در thread انجام می‌شود،
   چون سقف ۲۰ ثانیه زیر `proxy_read_timeout 120s` nginx است
@@ -290,7 +336,7 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
   پاسخ.
 - **REQ-027** یکتایی محتوا: قید پایگاه‌داده (بخش ۷) اجازه نمی‌دهد دو job با یک
   `content_hash` هم‌زمان در وضعیت‌های `queued`، `extracting`، `extracted`،
-  `proposing`، `ready` باشند. اگر INSERT به این قید خورد
+  `proposing`، `cancelling`، `ready` باشند. اگر INSERT به این قید خورد
   (`dberrors.is_unique_violation`، `app/db/dberrors.py:45`)، پاسخ ۲۰۰ با همان job
   موجود و `"existing": true` است و job تازه‌ای ساخته نمی‌شود. SELECT پیش از INSERT
   به‌عنوان کنترل استفاده نمی‌شود.
@@ -316,15 +362,24 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
   - `source_text` = متن تکه، کلمه به کلمه.
   - `text` = همان `source_text`.
   - `heading` = عنوان بخش (یا خالی).
-  - `title`: اگر `heading` بود، همان (`title_source='heading'`)؛ وگرنه جملهٔ اول تکه،
-    بریده در آخرین فاصله پیش از ۸۰ نویسه (`title_source='local'`).
+  - `title`: اگر `heading` بود و بخش فقط یک تکه دارد، همان عنوان
+    (`title_source='heading'`). اگر بخش به k > 1 تکه تقسیم شد، تکهٔ i عنوان
+    `<heading> (بخش i از k)` با رقم فارسی می‌گیرد (`title_source='heading'`)، تا
+    ردیف‌های زندهٔ یک بخش عنوان مشترک نداشته باشند. اگر `heading` نبود، جملهٔ اول
+    تکه، بریده در آخرین فاصله پیش از ۸۰ نویسه (`title_source='local'`).
   - `questions` و `synonyms` = `[]`.
-- **REQ-032** حذف تکراری، لایهٔ ۱ و ۲ (هنگام استخراج و دوباره هنگام تأیید، REQ-058):
-  پیشنهاد «تکراری» است اگر `title` یا `text` آن، بعد از
-  `normalize_persian(..., expand_synonyms=False)`، با `title` یا `text` یک ردیف
-  موجود `dataset` برابر باشد، یا با پیشنهاد دیگری در همان job که `seq` کمتری دارد.
-  پیشنهاد تکراری `similar_kind='duplicate'` و `similar_to=<dataset id یا proposal id>`
-  می‌گیرد.
+- **REQ-032** حذف تکراری، لایهٔ ۱ و ۲ (هنگام استخراج و دوباره هنگام تأیید، REQ-058).
+  **هویت تکراری فقط `text` است، نه عنوان.** پیشنهاد «تکراری» است اگر `text` آن با
+  `text` یک ردیف موجود `dataset` برابر باشد (لایهٔ ۱: برابری دقیق؛ لایهٔ ۲: برابری
+  بعد از `normalize_persian(..., expand_synonyms=False)`)، یا با `text` پیشنهاد
+  دیگری در همان job که `seq` کمتری دارد. پیشنهاد تکراری `similar_kind='duplicate'` و
+  `similar_to=<dataset id یا proposal id>` می‌گیرد.
+  برابری **عنوان** (نرمال‌شده) با عنوان یک ردیف موجود فقط یک برچسب نرم است:
+  `same_title_as=<dataset id>`. کارت یک یادداشت خاکستری نشان می‌دهد («عنوانی برابر با
+  پاسخ X دارد؛ اگر لازم است عنوان را عوض کنید»)، و این برچسب نه تأیید یکی را می‌بندد
+  نه تأیید دسته‌ای را. دلیل: یک بخش بلند چند تکه زیر یک عنوان می‌سازد، و عنوان‌های
+  رایج («تماس با ما») در دانش موجود هم هست؛ عنوان به‌عنوان کلید تکراری، همان کار
+  دستی‌ای را برمی‌گرداند که این قابلیت برای حذفش ساخته شده است.
 - **REQ-033** لایهٔ ۳ (نزدیک): یک `EmbeddingIndex` روی `text` ردیف‌های `dataset` و
   یکی روی `text` ردیف‌های `companies` ساخته می‌شود. برای هر پیشنهاد، بالاترین
   **کسینوس خام** (نه امتیاز کالیبره، چون `_calibrate` در
@@ -341,29 +396,38 @@ brief مالک نوشته بود ADR-006 («انتشار دانش با دروا�
 - **REQ-035** وضعیت‌های job و گذارها (بخش «چرخهٔ حالت‌ها» پایین). هر گذار یک
   `UPDATE ... WHERE id = ? AND status = <قبلی>` است و اگر `rowcount` صفر بود، کار
   متوقف می‌شود (یعنی کسی دیگر وضعیت را عوض کرده، مثلاً لغو).
-- **REQ-036** ضربان و بازیابی: job در `extracting` و `proposing` دست‌کم هر ۱۵ ثانیه و
-  بعد از هر تکه `heartbeat_at` را به‌روز می‌کند. `ingest.recover_stale()` هر job در
-  `queued`، `extracting` یا `proposing` که `heartbeat_at` (یا `created_at` برای
-  `queued`) قدیمی‌تر از ۵ دقیقه دارد را با UPDATE شرطی به `failed` با
-  `error_code='interrupted'` می‌برد، فایل موقتش را پاک می‌کند، و پیشنهادهای
-  `ai_state='waiting'` آن را `ai_state='local'` می‌کند (پس قابل بازبینی می‌مانند).
+- **REQ-036** ضربان و بازیابی: در `extracting`، `heartbeat_at` درست پیش و درست بعد از
+  فراخوان `extract_file_isolated` نوشته می‌شود (خود فراخوان حداکثر ۶۰ ثانیه است،
+  REQ-013). در `proposing` و `cancelling`، بعد از هر تکه (فاصلهٔ دو ضربان حداکثر حدود
+  ۹۵ ثانیه: دو تلاش ۴۵ ثانیه‌ای و ۱ ثانیه فاصله). هر دو زیر حد ۵ دقیقه‌اند.
+  `ingest.recover_stale()` هر job در `queued`، `extracting` یا `proposing` که
+  `heartbeat_at` (یا `created_at` برای `queued`) قدیمی‌تر از ۵ دقیقه دارد را با UPDATE
+  شرطی به `failed` با `error_code='interrupted'` می‌برد، و job در `cancelling` با ضربان
+  کهنه را به `cancelled`؛ فایل موقتش را پاک می‌کند، و پیشنهادهای `ai_state='waiting'`
+  آن را `ai_state='local'` می‌کند (پس قابل بازبینی می‌مانند).
   `recover_stale()` در ابتدای `GET /admin/api/ingest/jobs` و
   `GET /admin/api/ingest/jobs/{id}` صدا زده می‌شود.
 - **REQ-037** «یک job در مرحلهٔ مدل»: قید پایگاه‌داده (بخش ۷) اجازه نمی‌دهد بیش از
-  یک job هم‌زمان `status='proposing'` باشد. گرفتن جا یعنی
+  یک job هم‌زمان در `proposing` یا `cancelling` باشد (`cancelling` هنوز یک تماس مدل در
+  جریان دارد، REQ-039). گرفتن جا یعنی
   `UPDATE ... SET status='proposing' WHERE id=? AND status='extracted'`؛ اگر به قید
   خورد، job در `extracted` می‌ماند. SELECT پیش از UPDATE به‌عنوان کنترل استفاده
   نمی‌شود، چون سه worker هم‌زمان کار می‌کنند
   (`deploy/env/instance.env.template:35`).
-- **REQ-038** `ingest.resume_waiting()`: اگر هیچ job در `proposing` نیست و یک job در
+- **REQ-038** `ingest.resume_waiting()`: اگر هیچ job در `proposing` یا `cancelling` نیست و یک job در
   `extracted` هست، قدیمی‌ترین را با `BackgroundTasks` به مرحلهٔ مدل می‌فرستد. در
   پایان مرحلهٔ مدل هر job و در `GET /admin/api/ingest/jobs` صدا زده می‌شود. اجرای
   دوبارهٔ هم‌زمان بی‌خطر است، چون فقط یکی جای REQ-037 را می‌گیرد.
-- **REQ-039** لغو: `POST /admin/api/ingest/jobs/{id}/cancel` برای job در `queued`،
-  `extracting`، `extracted` یا `proposing` وضعیت را `cancelled` می‌کند، فایل موقت را
-  پاک می‌کند، و همهٔ پیشنهادهای `pending` آن را `rejected` با `reject_reason='cancelled'`
-  می‌کند. حلقهٔ مدل پیش از هر تکه وضعیت را می‌خواند و با `cancelled` بی‌درنگ
-  متوقف می‌شود. برای job در `ready`، `done`، `failed` یا `cancelled` ← ۴۰۹.
+- **REQ-039** لغو: `POST /admin/api/ingest/jobs/{id}/cancel`.
+  - job در `queued`، `extracting` یا `extracted`: مستقیم `cancelled`.
+  - job در `proposing`: `cancelling`، نه `cancelled`، چون ممکن است یک تماس مدل (تا دو
+    تلاش ۴۵ ثانیه‌ای) در جریان باشد. جای «مرحلهٔ مدل» (REQ-037) تا خروج حلقه گرفته
+    می‌ماند، پس job بعدی هم‌زمان تماس نمی‌زند. حلقه پیش از هر تکه و بعد از هر تماس
+    وضعیت را می‌خواند؛ با `cancelling` نتیجهٔ تماس جاری را دور می‌ریزد، وضعیت را
+    `cancelled` می‌کند، و `resume_waiting()` را صدا می‌زند.
+  - در هر دو حالت: فایل موقت پاک و همهٔ پیشنهادهای `pending` آن `rejected` با
+    `reject_reason='cancelled'` می‌شوند (همان لحظه، نه بعد از خروج حلقه).
+  - job در `ready`، `done`، `failed`، `cancelling` یا `cancelled` ← ۴۰۹.
 - **REQ-040** job وقتی هیچ پیشنهاد `pending` ندارد و در `ready` است، با UPDATE شرطی به
   `done` می‌رود (بعد از هر تأیید یا رد).
 - **REQ-041** نگه‌داری (پاسخ به Q9): job در `done`، `failed` یا `cancelled` که
@@ -388,12 +452,14 @@ stateDiagram-v2
     queued --> cancelled
     extracting --> cancelled
     extracted --> cancelled
-    proposing --> cancelled
+    proposing --> cancelling: لغو
+    cancelling --> cancelled: خروج حلقهٔ مدل یا ضربان کهنه
     queued --> failed: ضربان کهنه
     proposing --> failed: ضربان کهنه
 ```
 
-*چرخهٔ `ingest_jobs.status`. همهٔ این حالت‌ها تازه‌اند. `failed` پیشنهادهای ساخته‌شده
+*چرخهٔ `ingest_jobs.status`. همهٔ این حالت‌ها تازه‌اند. جای «مرحلهٔ مدل» در
+`proposing` و `cancelling` گرفته است. `failed` پیشنهادهای ساخته‌شده
 را نگه می‌دارد و آن‌ها قابل بازبینی می‌مانند (REQ-036). چرخهٔ پیشنهاد ساده‌تر است:
 `pending` به `approved` یا `rejected`، و هیچ برگشتی ندارد.*
 
@@ -485,10 +551,18 @@ stateDiagram-v2
   6. `dataset_id` روی پیشنهاد.
   7. commit.
   خطای هر مرحله ← rollback کامل؛ هیچ ردیف نیمه‌ای نمی‌ماند.
-- **REQ-059** بعد از commit، بیرون از تراکنش: اگر مترادفی نوشته شد،
-  `load_synonyms_from_db()` (`app/utils/normalizer.py:19`)؛ بعد REQ-064؛ بعد audit
-  (REQ-066). شکست این گام‌ها ردیف‌ها را برنمی‌گرداند؛ با `applog` در سطح error ثبت
-  می‌شود و REQ-064 خودش دوباره تلاش می‌کند.
+- **REQ-059** بعد از commit، بیرون از تراکنش، به این ترتیب: (۱) اگر مترادفی نوشته شد،
+  `load_synonyms_from_db()` (`app/utils/normalizer.py:19`)؛ (۲) audit (REQ-066)؛ (۳)
+  زمان‌بندی `search.reindex_and_publish_until_done` (REQ-064) با `BackgroundTasks`.
+  **پاسخ تأیید منتظر بازسازی نمی‌ماند:** بعد از commit و قدم ۱ تا ۳ برمی‌گردد. قدم ۳
+  فقط زمان‌بندی است؛ اولین تلاش بازسازی و تلاش‌های بعدی در پس‌زمینه اجرا می‌شوند.
+  پاسخ `index_version_before` (نسخهٔ منتشرشده در لحظهٔ پاسخ، REQ-081) را دارد تا صفحه
+  بداند کی نسخه جلو رفته است (REQ-082). در `approve-seen` قدم ۳ یک بار برای کل دسته
+  است. کران پاسخ، **برآورد و اندازه‌گیری‌نشده:** کمتر از ۱ ثانیه برای یک تأیید و کمتر
+  از ۵ ثانیه برای ۵۰ تأیید در یک `approve-seen`، چون هر تأیید یک تراکنش با حداکثر ۱۱
+  INSERT و دو SELECT حذف تکراری است و هیچ کار سنگینی در مسیر پاسخ نیست. چیزی که
+  قطعی و تست‌شدنی است: زمان پاسخ به قفل بازسازی بستگی ندارد (SC-028). شکست قدم ۱ یا
+  ۲ ردیف‌ها را برنمی‌گرداند؛ با `applog` در سطح error ثبت می‌شود.
 - **REQ-060** رد: `POST /admin/api/ingest/proposals/{id}/reject` با `reason` اختیاری
   (حداکثر ۲۰۰ نویسه). فقط `pending`، با UPDATE شرطی؛ وگرنه ۴۰۹.
 - **REQ-061** تأیید دسته‌ای: `POST /admin/api/ingest/jobs/{id}/approve-seen`. سرور خودش
@@ -522,8 +596,9 @@ stateDiagram-v2
   `bump_index_version()` می‌زند تا دست‌کم workerهای دیگر بسازند، `False` برمی‌گرداند و
   با `applog` در سطح error ثبت می‌کند. برای این کار `_rebuild` باید `True`/`False`
   برگرداند (اجرا شد یا نه)؛ فراخواننده‌های موجود مقدار را نادیده می‌گیرند. این تابع
-  در executor اجرا می‌شود، نه روی event loop. `_trigger_reindex` و بقیهٔ نویسنده‌ها
-  در این سند تغییر نمی‌کنند.
+  همگام است و با `BackgroundTasks` در threadpool اجرا می‌شود، نه روی event loop و نه
+  در مسیر پاسخ (REQ-059). `_trigger_reindex` و بقیهٔ نویسنده‌ها در این سند تغییر
+  نمی‌کنند. این REQ و REQ-063 در برش جدای S3a هستند.
 - **REQ-065** برای ردیف `dataset` تازه، `title_en` و `text_en` خالی و `video_url` خالی
   است.
 - **REQ-066** audit با `applog.audit(event, message, actor, target, outcome)`
@@ -534,6 +609,11 @@ stateDiagram-v2
 - **REQ-067** برگرداندن یک سند کامل با یک دکمه در این نسخه نیست (Q8). ردیف تأییدشده
   یک ردیف معمولی `dataset` است و از صفحهٔ موجود دانش حذف می‌شود؛ `dataset_id` روی
   پیشنهاد نگه داشته می‌شود تا یک نسخهٔ بعدی بتواند این دکمه را بسازد.
+- **REQ-081** وضعیت نمایه: `GET /admin/api/ingest/index-status` ←
+  `{"version": <int>}`، نسخهٔ منتشرشدهٔ کنونی از تابع عمومی تازهٔ
+  `search.published_index_version()` (پوشش همان `_read_index_version` در
+  `app/services/search.py:311`، که کلید `search_index_version` را می‌خواند، `:304`).
+  این تابع در S3a اضافه می‌شود. با `verify_admin`.
 - **REQ-068** همهٔ endpointهای فهرست `limit` (پیش‌فرض ۲۰، سقف ۵۰؛ بیشتر به ۵۰ بریده
   می‌شود) و `offset` (≥ ۰) دارند، ترتیب قطعی دارند (`created_at DESC, id` برای job،
   `seq` برای پیشنهاد)، و `total` برمی‌گردانند.
@@ -582,6 +662,12 @@ stateDiagram-v2
   (SEC-020).
 - **REQ-079** همهٔ درخواست‌های تغییر با `fetchAuth()` از `static/admin/js/utils.js`
   فرستاده می‌شوند تا هدر `X-CSRF-Token` خودکار برود.
+- **REQ-082** بعد از هر تأیید (یکی یا دسته‌ای)، صفحه حالت «در حال به‌روزرسانی
+  پاسخ‌ها…» را روی کارت (یا نوار بالا برای دسته) نشان می‌دهد و هر ۲ ثانیه REQ-081 را
+  می‌خواند تا `version` از `index_version_before` پاسخ تأیید بزرگ‌تر شود؛ بعد «از همین
+  حالا در پاسخ‌ها است». اگر بعد از ۱۵۰ ثانیه جلو نرفت، خواندن متوقف می‌شود و متن
+  «پاسخ ذخیره شد و به‌زودی در چت دیده می‌شود.» می‌آید (این شکست تأیید نیست؛ ردیف
+  commit شده است).
 - **REQ-080** هیچ کلمهٔ فنی روی صفحه نیست: «job»، «proposal»، «chunk»، «AI»،
   «embedding» و کد خطا نشان داده نمی‌شوند. نام‌ها: «فایل»، «پیشنهاد»، «بخش»، «هوش
   مصنوعی»، و جمله‌های بخش ۸.
@@ -601,10 +687,11 @@ stateDiagram-v2
 | `GET /admin/api/ingest/jobs/{id}` | | ۲۰۰ `{job, counts}` | ۴۰۱، ۴۰۴ |
 | `GET /admin/api/ingest/jobs/{id}/proposals` | `status`، `limit`، `offset` | ۲۰۰ `{items: [proposal], total}` | ۴۰۱، ۴۰۴، ۴۲۲ |
 | `POST /admin/api/ingest/jobs/{id}/cancel` | | ۲۰۰ `{job}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹ |
-| `POST /admin/api/ingest/jobs/{id}/approve-seen` | | ۲۰۰ `{approved, skipped, remaining}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹ (job لغوشده) |
+| `POST /admin/api/ingest/jobs/{id}/approve-seen` | | ۲۰۰ `{approved, skipped, remaining, index_version_before}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹ (job لغوشده) |
 | `POST /admin/api/ingest/proposals/seen` | `{"ids": [str]}` (≤ ۵۰) | ۲۰۰ `{marked: n}` | ۴۰۱، ۴۰۳، ۴۲۲ |
 | `PUT /admin/api/ingest/proposals/{id}` | `{title?, text?, questions?, synonyms?}` | ۲۰۰ `{proposal}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹، ۴۲۲ |
-| `POST /admin/api/ingest/proposals/{id}/approve` | | ۲۰۰ `{proposal, dataset_id}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹ |
+| `POST /admin/api/ingest/proposals/{id}/approve` | | ۲۰۰ `{proposal, dataset_id, index_version_before}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹ |
+| `GET /admin/api/ingest/index-status` | | ۲۰۰ `{version}` | ۴۰۱ |
 | `POST /admin/api/ingest/proposals/{id}/reject` | `{reason?}` | ۲۰۰ `{proposal}` | ۴۰۱، ۴۰۳، ۴۰۴، ۴۰۹ |
 | `GET /secure-panel-admin/ingest` | | ۲۰۰ HTML | ۳۰۳ به `/secure-panel-admin/login` |
 
@@ -615,7 +702,7 @@ stateDiagram-v2
 
 **شکل `proposal`:** `id`، `job_id`، `seq`، `source_text`، `heading`، `title`،
 `title_source`، `text`، `questions` (آرایه)، `synonyms` (آرایهٔ `{word, suggestion}`)،
-`ai_state`، `similar_kind`، `similar_to`، `similar_title`، `status`، `edited`، `seen`
+`ai_state`، `similar_kind`، `similar_to`، `similar_title`، `same_title_as`، `status`، `edited`، `seen`
 (بولی)، `reviewed_by`، `reviewed_at`، `dataset_id`. `similar_title` ستون نیست؛ هنگام خواندن از عنوان ردیف `dataset`،
 نام شرکت، یا عنوان پیشنهاد اشاره‌شده در `similar_to` ساخته می‌شود. `seen` یعنی
 `seen_at IS NOT NULL`.
@@ -661,6 +748,7 @@ stateDiagram-v2
 | `ai_state` | TEXT NOT NULL | `waiting`، `done`، `failed`، `local` |
 | `similar_kind` | TEXT NOT NULL DEFAULT '' | ``، `duplicate`، `dataset`، `company` |
 | `similar_to` | TEXT NOT NULL DEFAULT '' | |
+| `same_title_as` | TEXT NOT NULL DEFAULT '' | برچسب نرم REQ-032؛ هیچ تأییدی را نمی‌بندد |
 | `status` | TEXT NOT NULL DEFAULT 'pending' | `pending`، `approved`، `rejected` |
 | `reject_reason` | TEXT NOT NULL DEFAULT '' | |
 | `edited` | INTEGER NOT NULL DEFAULT 0 | |
@@ -677,17 +765,65 @@ stateDiagram-v2
 - `ix_ingest_proposals_job_status` روی `(job_id, status)`.
 - `ix_ingest_jobs_created` روی `(created_at)`.
 - **`ux_ingest_jobs_active_hash`**: UNIQUE روی `(content_hash)` با
-  `WHERE status IN ('queued','extracting','extracted','proposing','ready')` (REQ-027).
-- **`ux_ingest_jobs_one_proposing`**: UNIQUE روی `((1))` با `WHERE status = 'proposing'`
-  (REQ-037).
+  `WHERE status IN ('queued','extracting','extracted','proposing','cancelling','ready')`
+  (REQ-027).
+- **`ux_ingest_jobs_one_proposing`**: UNIQUE روی `((1))` با
+  `WHERE status IN ('proposing','cancelling')` (REQ-037، REQ-039).
 
-  **اندازه‌گیری‌شده (2026-09-30، دور ریختنی):** هر دو ایندکس روی یک جدول کوچک آزموده
-  شدند، روی SQLite 3.53.3 (sqlite3 پایتون) و روی PostgreSQL 16.15 (container موقت
-  `postgres:16-alpine`، بعد حذف شد). روی هر دو: `UPDATE` دومی به `proposing` با
-  `UNIQUE constraint failed: index 'one_p'` / `duplicate key value violates unique
-  constraint "one_p"` رد شد؛ `INSERT` دوم با همان hash در وضعیت فعال رد شد؛ ردیف
-  `done` با همان hash پذیرفته شد. تست‌های `tests/postgres/test_ingest_pg.py` همین را
-  روی migration واقعی دوباره ثابت می‌کنند.
+  **اندازه‌گیری‌شده (2026-09-30، دور ریختنی، هر دو بک‌اند با یک فایل SQL):**
+
+  فایل `index_check.sql` (در scratchpad، نه در مخزن):
+
+  ```sql
+  create table j(id text primary key, status text, h text);
+  create unique index one_p on j((1)) where status in ('proposing','cancelling');
+  create unique index ah on j(h) where status in ('queued','extracting','extracted','proposing','cancelling','ready');
+  insert into j values('a','proposing','x');
+  insert into j values('b','extracted','y');
+  update j set status='proposing' where id='b' and status='extracted';
+  update j set status='cancelling' where id='a';
+  update j set status='proposing' where id='b' and status='extracted';
+  update j set status='cancelled' where id='a';
+  update j set status='proposing' where id='b' and status='extracted';
+  insert into j values('c','queued','h1');
+  insert into j values('d','ready','h1');
+  insert into j values('e','done','h1');
+  ```
+
+  SQLite: `python3` (sqlite3 پایتون، `sqlite_version 3.53.3`) هر دستور را جدا با
+  `conn.execute` اجرا کرد. خروجی (خلاصه):
+
+  ```text
+  ERROR update ... 'b' ... | UNIQUE constraint failed: index 'one_p'
+  OK    update ... 'a' -> cancelling
+  ERROR update ... 'b' ... | UNIQUE constraint failed: index 'one_p'
+  OK    update ... 'a' -> cancelled
+  OK    update ... 'b' -> proposing | rows 1
+  ERROR insert ... ('d','ready','h1') | UNIQUE constraint failed: j.h
+  OK    insert ... ('e','done','h1')
+  ```
+
+  PostgreSQL: `docker run -d --rm --name ingest-t1-res-pgcheck -e POSTGRES_PASSWORD=x postgres:16-alpine`،
+  بعد `docker exec -i ingest-t1-res-pgcheck psql -U postgres < index_check.sql`، بعد
+  `docker rm -f ingest-t1-res-pgcheck` (container حذف شد؛ به containerهای دیگر دست
+  زده نشد). `server_version` برابر `16.15`. خروجی (خلاصه):
+
+  ```text
+  ERROR:  duplicate key value violates unique constraint "one_p"
+  DETAIL:  Key ((1))=(1) already exists.
+  UPDATE 1
+  ERROR:  duplicate key value violates unique constraint "one_p"
+  UPDATE 1
+  UPDATE 1
+  ERROR:  duplicate key value violates unique constraint "ah"
+  DETAIL:  Key (h)=(h1) already exists.
+  INSERT 0 1
+  ```
+
+  نتیجه روی هر دو یکی است: جای «مرحلهٔ مدل» در `proposing` و `cancelling` گرفته
+  می‌ماند و در `cancelled` آزاد می‌شود؛ hash تکراری در وضعیت فعال رد می‌شود و در
+  `done` پذیرفته. تست‌های `tests/postgres/test_ingest_pg.py` همین را روی migration
+  واقعی دوباره ثابت می‌کنند.
 
 ### migration
 
@@ -828,8 +964,9 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 - **Loading:** بعد از انتخاب فایل یا زدن «بخوان»، دکمه غیرفعال با متن «در حال
   فرستادن…»؛ بعد کارت پیشرفت (REQ-072) با `aria-live="polite"`.
 - **Success:** job `ready`: پیام «۸۵ پیشنهاد آماده است. هرکدام را کنار متن اصلی ببینید و
-  تأیید کنید.» و فهرست کارت‌ها. بعد از هر تأیید، کارت سبز با «تأیید شد و از همین حالا در
-  پاسخ‌ها است» و جمع می‌شود.
+  تأیید کنید.» و فهرست کارت‌ها. بعد از هر تأیید، کارت سبز با «تأیید شد؛ در حال
+  به‌روزرسانی پاسخ‌ها…» و وقتی نسخهٔ نمایه جلو رفت (REQ-082)، «از همین حالا در
+  پاسخ‌ها است» و کارت جمع می‌شود.
 - **Empty:** بدون فایل قبلی: «هنوز فایلی نفرستاده‌اید.» job بدون پیشنهاد `pending`:
   «همهٔ پیشنهادهای این فایل بررسی شده‌اند.»
 - **Error:** جملهٔ بخش ۸ در یک نوار قرمز بالای کارت ورودی یا روی job، با دکمهٔ «فایل
@@ -856,11 +993,23 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
   نیست) هیچ مسیر و پیوندی نمی‌بیند. `ENABLED_MODULES` خالی یعنی همهٔ ماژول‌ها، پس
   نصب کامل آن را دارد.
 - **وزن نصب (ورودی بازبینی ۱۲):** `openpyxl` و `defusedxml` در `requirements.txt` پایه
-  می‌روند، نه در یک فایل جدا برای ماژول. دلیل: هر دو pure-Python و کوچک‌اند (۲.۷ MB و
-  ۱۲۰ KB، اندازه‌گیری‌شده در venv آزمایش)، مخزن هیچ سازوکار «وابستگی به ازای ماژول»
-  ندارد و ساختنش یک الگوی تازه است، و `ENABLED_MODULES` در زمان نصب عوض می‌شود بی‌آنکه
-  کسی دوباره `pip install` بزند. `poppler-utils` (حدود ۷۱۸ KB در Ubuntu 24.04) به
-  فهرست apt راه‌اندازی می‌رود به همین دلیل.
+  می‌روند، نه در یک فایل جدا برای ماژول. دلیل: هر دو pure-Python و کوچک‌اند، مخزن
+  هیچ سازوکار «وابستگی به ازای ماژول» ندارد و ساختنش یک الگوی تازه است، و
+  `ENABLED_MODULES` در زمان نصب عوض می‌شود بی‌آنکه کسی دوباره `pip install` بزند.
+  اندازه (اندازه‌گیری‌شده در venv آزمایش، Python 3.12، openpyxl 3.1.5، defusedxml
+  0.7.1):
+
+  ```text
+  $ du -sh venv/lib/python3.12/site-packages/openpyxl venv/lib/python3.12/site-packages/et_xmlfile venv/lib/python3.12/site-packages/defusedxml
+  2.7M	venv/lib/python3.12/site-packages/openpyxl
+   84K	venv/lib/python3.12/site-packages/et_xmlfile
+  120K	venv/lib/python3.12/site-packages/defusedxml
+  ```
+
+  `poppler-utils` به فهرست apt راه‌اندازی می‌رود به همین دلیل. اندازهٔ آن **اندازه‌گیری
+  نشد**؛ packages.ubuntu.com برای Ubuntu 24.04 (noble، amd64، نسخهٔ 24.02.0) اندازهٔ
+  نصب را ۷۱۸ KB می‌گوید (خوانده‌شده 2026-09-30)، به‌علاوهٔ کتابخانهٔ `libpoppler134` که
+  جدا حساب می‌شود.
 - **سرورهای موجود:** اسکریپت راه‌اندازی دوباره اجرا نمی‌شود، پس روی سرور فعلی یک بار
   `sudo apt-get install -y poppler-utils` لازم است. تا آن موقع PDF با
   `pdf_tool_missing` رد می‌شود و صفحه همان را می‌گوید (REQ-071). این قدم در
@@ -917,9 +1066,11 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
   `duplicate_of` می‌گیرد (REQ-058 قدم ۲).
 - [ ] **SC-014** خطای ساختگی در `insert_synonym_pairs` هنگام تأیید، هیچ ردیف `dataset`
   یا `questions` نمی‌گذارد و پیشنهاد `pending` می‌ماند (REQ-058)، روی PostgreSQL.
-- [ ] **SC-015** وقتی تست `_rebuild_lock` را نگه داشته، تأیید انجام می‌شود؛ بعد از
-  آزاد کردن قفل، نسخهٔ منتشرشده در `settings` بزرگ‌تر از پیش از تأیید است و جست‌وجوی
-  متن ردیف تازه آن را پیدا می‌کند (REQ-064).
+- [ ] **SC-015** (S3a) وقتی تست `_rebuild_lock` را نگه داشته،
+  `reindex_and_publish_until_done` تا آزاد شدن قفل برنمی‌گردد؛ بعد از آزاد کردن، `True`
+  برمی‌گرداند، نسخهٔ منتشرشده در `settings` بزرگ‌تر از پیش است، و جست‌وجوی متن یک ردیف
+  تازه (نوشته‌شده پیش از فراخوان) آن را پیدا می‌کند. با قفلی که تا timeout آزاد نشود،
+  `False` برمی‌گرداند و نسخه باز هم جلو رفته است (`bump_index_version`) (REQ-064).
 - [ ] **SC-016** هر مسیر API بخش ۶ بدون نشست ۴۰۱ و صفحه ۳۰۳ می‌دهد؛ هر مسیر تغییر
   بدون CSRF ۴۰۳ می‌دهد؛ با ماژول خاموش همه ۴۰۴ (SEC-001..SEC-003).
 - [ ] **SC-017** ۲۱مین ساخت job یک مدیر در یک ساعت ۴۲۹ می‌گیرد (SEC-018).
@@ -936,8 +1087,25 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
   می‌شود؛ همان با یک `pending` نه؛ ردیف `dataset` ساخته‌شده می‌ماند (REQ-041).
 - [ ] **SC-024** روی CI (Linux)، فرزند استخراج با `RLIMIT_AS` فعال اجرا می‌شود و تخصیص
   ۲ GiB در آن `MemoryError` یا کشته شدن می‌دهد (SEC-009).
-- [ ] **SC-025** تست‌های موجود `tests/test_csrf.py`، تست‌های dataset و synonyms بدون
-  ویرایش سبزند (REQ-063).
+- [ ] **SC-025** (S3a) تست‌های موجود `tests/test_csrf.py`، تست‌های dataset و synonyms
+  بدون ویرایش سبزند (REQ-063).
+- [ ] **SC-026** یک DOCX با یک عنوان و یک بخش ۲٬۰۰۰ نویسه‌ای (جمله‌های حدود ۱۰۰
+  نویسه‌ای، بدون خط خالی) دقیقاً ۳ پیشنهاد می‌سازد با عنوان‌های
+  `<عنوان> (بخش ۱ از ۳)` تا `(بخش ۳ از ۳)`، هیچ‌کدام `similar_kind` ندارد، و هر سه
+  یکی‌یکی و با `approve-seen` (بعد از دیده شدن) تأیید می‌شوند و سه ردیف `dataset` با
+  سه عنوان متفاوت می‌سازند (REQ-030..REQ-032).
+- [ ] **SC-027** زوج رد: پیشنهادی که `text` آن بعد از نرمال‌سازی با `text` یک ردیف
+  موجود برابر است، `similar_kind='duplicate'` می‌گیرد، در `approve-seen` رد می‌شود، و
+  تأیید یکی‌اش ۴۰۹ با `duplicate_of` می‌دهد؛ اما پیشنهادی که فقط **عنوانش** با یک ردیف
+  موجود برابر است (متن متفاوت)، `same_title_as` می‌گیرد و تأیید می‌شود (REQ-032).
+- [ ] **SC-028** وقتی تست `_rebuild_lock` را نگه داشته، `POST .../approve` در کمتر از ۲
+  ثانیه ۲۰۰ برمی‌گرداند، ردیف در `dataset` هست، و پاسخ `index_version_before` دارد؛
+  بعد از آزاد کردن قفل، `GET /admin/api/ingest/index-status` در کمتر از ۱۰ ثانیه نسخهٔ
+  بزرگ‌تری برمی‌گرداند (REQ-059، REQ-081).
+- [ ] **SC-029** لغو job در `proposing` وضعیت را `cancelling` می‌کند و همهٔ `pending`ها
+  را همان لحظه `rejected`؛ تا وقتی تماس مدل جعلیِ در جریان تمام نشده، job دوم نمی‌تواند
+  `proposing` شود؛ بعد از آن job اول `cancelled` است و job دوم شروع می‌شود (REQ-037،
+  REQ-039)، روی SQLite و PostgreSQL.
 
 ### تست‌ها
 
@@ -950,9 +1118,10 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 |------|-----|---------|
 | `tests/test_ingest_extract.py` | S1 | REQ-001..REQ-016، SC-001..SC-003، SC-024؛ هر قالب روی نمونهٔ فارسی؛ قاعدهٔ decode با پنج ورودی جدول RESEARCH.md؛ H1..H10؛ timeout فرزند با یک ورودی ساختگی کند |
 | `tests/test_ingest_fetch.py` | S2 | REQ-017..REQ-023، SC-004؛ U1..U9 با `httpx.MockTransport` و patch کردن `socket.getaddrinfo` |
+| `tests/test_search_publish.py` | S3a | REQ-063، REQ-064؛ SC-015، SC-025: قفل نگه‌داشته، timeout، و مقدار برگشتی `_rebuild` |
 | `tests/test_ingest_pipeline.py` | S3 | REQ-024..REQ-051: تکه‌ها، حذف تکراری، برچسب شرکت، گام AI، توقف مدار، AI خاموش، بازیابی، پاک‌سازی؛ SC-007..SC-010، SC-022، SC-023 |
-| `tests/test_ingest_api.py` | S3 | بخش ۶ کامل، REQ-052..REQ-068، SEC-001..SEC-003، SEC-018، SEC-019؛ SC-005 (SQLite)، SC-011..SC-013، SC-015..SC-018 |
-| `tests/postgres/test_ingest_pg.py` | S3 | SC-005، SC-006، SC-014 روی PostgreSQL واقعی (دو ایندکس جزئی، تراکنش تأیید، `is_unique_violation`) |
+| `tests/test_ingest_api.py` | S3 | بخش ۶ کامل، REQ-052..REQ-062، REQ-065..REQ-068، REQ-081، SEC-001..SEC-003، SEC-018، SEC-019؛ SC-005 (SQLite)، SC-011..SC-013، SC-016..SC-018، SC-026..SC-029 (SQLite) |
+| `tests/postgres/test_ingest_pg.py` | S3 | SC-005، SC-006، SC-014، SC-029 روی PostgreSQL واقعی (دو ایندکس جزئی، تراکنش تأیید، `is_unique_violation`) |
 | `tests/test_ingest_pages.py` | S4 | صفحه ۳۰۳ بدون نشست، ۴۰۴ با ماژول خاموش، پیوند منو فقط با ماژول روشن |
 | `tests/e2e/test_ingest_review.py` | S4 | Playwright **async** با fixture `browser` خود فایل (skill `e2e-test-gen`؛ `tests/test_suite_isolation.py` API همگام را ممنوع می‌کند): صفحهٔ واقعی رندرشده با TestClient و نشست مدیر، APIها با `page.route` جواب داده می‌شوند؛ SC-019..SC-021، کارت پیشرفت، ویرایش درون‌کارتی، کیبورد |
 
@@ -963,7 +1132,7 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 |-------|--------|--------|
 | H1 | DOCX با عضو deflate که با سقف تست (در تست به ۱ MiB patch می‌شود) واقعاً بیشتر باز می‌شود، و سرفایلش (اندازه و CRC) جعلی است؛ در زمان تست ساخته می‌شود | `zip_too_big`، پارسر صدا زده نمی‌شود |
 | H2 | DOCX با DTD نه‌سطحی billion laughs در `word/document.xml` (کامیت، چند KB) | `dtd_forbidden` |
-| H3 | XLSX با همان DTD در `xl/worksheets/sheet1.xml` (کامیت) | `parse_failed` یا خطای defusedxml، بدون گسترش |
+| H3 | XLSX با همان DTD در `xl/worksheets/sheet1.xml` (کامیت) | `dtd_forbidden` (پیش‌بررسی REQ-007)، `openpyxl` صدا زده نمی‌شود |
 | H4 | DOCX با یک عضو که پرچم رمز دارد (بایت `flag_bits` در زمان تست دست‌کاری می‌شود) | `encrypted` |
 | H5 | PDF رمزدار (کامیت، کمتر از ۵ KB) | `encrypted` |
 | H6 | بایت‌های PNG با نام `.pdf` | `bad_type` |
@@ -979,7 +1148,7 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 | U6 | چهار redirect پشت‌سرهم | `too_many_redirects` |
 | U7 | بدنهٔ stream بزرگ‌تر از ۵ MiB | `too_large`، خواندن زود قطع می‌شود |
 | U8 | `Content-Type: image/png` | `bad_content_type` |
-| U9 | `https://user@example.com/` | `bad_url` یا `blocked_address` |
+| U9 | `https://user@example.com/` | `bad_url` (REQ-018)، `pin` صدا زده نمی‌شود |
 
 نمونه‌های فارسی سالم (`fa-sample.docx`، `fa-sample.xlsx`، `fa-sample.csv`،
 `fa-sample-cp1256.txt`، `fa-sample.pdf`) از همان متن شش‌خطی RESEARCH.md (X1) ساخته و
@@ -1005,29 +1174,63 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 - فایل‌های تغییر: هیچ.
 - وابستگی: هیچ. با S1 **موازی** ساخته می‌شود (فایل‌ها جدا).
 
+**S3a. نوشتن مشترک و انتشار تضمین‌شدهٔ نمایه** (ریشه: «یک تأیید باید به یک نسخهٔ
+منتشرشدهٔ نمایه برسد»)
+- شناسه‌ها: REQ-063، REQ-064، بخش `search.published_index_version()` از REQ-081،
+  SC-015، SC-025.
+- فایل‌های تازه: `tests/test_search_publish.py`.
+- فایل‌های تغییر: `app/db/queries.py` (سه تابع نوشتن با `conn`)،
+  `app/routers/dataset.py` و `app/routers/synonyms.py` (همان توابع را صدا می‌زنند،
+  رفتار بدون تغییر)، `app/services/search.py` (مقدار برگشتی `_rebuild`،
+  `reindex_and_publish_until_done`، `published_index_version`).
+- وابستگی: هیچ. فایل‌هایش با S1 (`app/services/ingest_extract.py`، requirements،
+  deploy، CI، runbook، تست‌های خودش) و S2 (`app/services/ingest_fetch.py` و تستش)
+  **جدا** است (بررسی‌شده با فهرست فایل‌های همین بخش)، پس با آن دو موازی ساخته می‌شود.
+  فراخوان تولیدی توابع تازه در S3 است.
+
 **S3. ماژول، جدول‌ها، کار، گام AI، بازبینی و تأیید، API** (ریشه: «پیشنهاد را بساز،
 نگه دار، و فقط با تأیید انسان زنده کن»)
-- شناسه‌ها: REQ-024..REQ-068، SEC-001..SEC-004، SEC-018، SEC-019، SEC-021..SEC-024،
-  SC-005..SC-018، SC-022، SC-023، SC-025.
+- شناسه‌ها: REQ-024..REQ-062، REQ-065..REQ-068، REQ-081 (endpoint)، SEC-001..SEC-004،
+  SEC-018، SEC-019، SEC-021..SEC-024، SC-005..SC-014، SC-016..SC-018، SC-022، SC-023،
+  SC-026..SC-029.
 - فایل‌های تازه: `app/services/ingest.py`، `app/routers/ingest.py` (فقط API)،
   `migrations/0030_ingest.sql`، `tests/test_ingest_pipeline.py`،
   `tests/test_ingest_api.py`، `tests/postgres/test_ingest_pg.py`.
 - فایل‌های تغییر: `app/modules/registry.py`، `app/db/connection.py`،
-  `app/db/queries.py`، `app/routers/dataset.py`، `app/routers/synonyms.py`،
-  `app/services/search.py`، `app/services/embeddings.py`، `app/main.py`.
-- وابستگی: S1 و S2 (import می‌کند). می‌تواند پیش از merge آن دو، روی رابط‌های ثابت
-  REQ-001 و REQ-017 نوشته شود، اما بعد از آن‌ها merge می‌شود.
+  `app/services/embeddings.py` (`search_topk_raw`)، `app/main.py` (فراخوان
+  `purge_expired`).
+- وابستگی: S1، S2 و S3a (import می‌کند). می‌تواند پیش از merge آن‌ها روی رابط‌های ثابت
+  REQ-001، REQ-017، REQ-063 و REQ-064 نوشته شود، اما بعد از آن‌ها merge می‌شود.
 
 **S4. صفحهٔ مدیر** (ریشه: «مدیر غیرفنی بتواند ببیند و تأیید کند»)
-- شناسه‌ها: REQ-069..REQ-080، SEC-020، بخش پیوند منوی SEC-003 (بخش mount آن در S3)،
-  SC-019..SC-021.
+- شناسه‌ها: REQ-069..REQ-080، REQ-082، SEC-020، بخش پیوند منوی SEC-003 (بخش mount آن
+  در S3)، SC-019..SC-021.
 - فایل‌های تازه: `templates/admin/ingest.html`، `static/admin/js/ingest.js`،
   `tests/test_ingest_pages.py`، `tests/e2e/test_ingest_review.py`.
 - فایل‌های تغییر: `app/routers/ingest.py` (فقط مسیر صفحه، REQ-069)،
   `templates/admin/layout.html`.
 - وابستگی: S3.
 
-ترتیب: S1 ‖ S2 ← S3 ← S4. پیش از PR آخر، `graphify update .` اجرا می‌شود.
+ترتیب: S1 ‖ S2 ‖ S3a ← S3 ← S4. پیش از PR آخر، `graphify update .` اجرا می‌شود.
+
+**استثنای صریح از قاعدهٔ ۵ constitution.** قاعده می‌گوید: «A capability that is not
+wired to a real production caller is incomplete. Reader/writer, producer/consumer and
+route/UI pairs must close in the same change.»
+(`docs/engineering/ENGINEERING_CONSTITUTION.md:33-37`). این تقسیم آن را سه بار
+موقتاً می‌شکند: S1، S2 و بخشی از S3a تا S3 فراخوان تولیدی ندارند، و API ادمین S3 تا S4
+صفحه ندارد. طبق قاعدهٔ ۹ (`docs/engineering/ENGINEERING_CONSTITUTION.md:53-62`):
+- **آنچه هست:** چهار برش stacked که هرکدام یک ریشه دارد و جدا بازبینی می‌شود.
+- **چرا:** تیم‌های پیاده‌سازی هر کدام یک برش می‌گیرند، و یک PR با همهٔ آن‌ها (حدود
+  ۸۰ REQ) قابل بازبینی انسانی نیست؛ بازبینی انسانی خودش بخشی از شاهد برای دلیل ۵
+  ارزیاب است.
+- **هدف:** بعد از S4، هر تولیدکننده خواننده و هر مسیر صفحه دارد؛ هیچ قطعهٔ
+  بی‌فراخوان نمی‌ماند.
+- **کار تازه باید:** برش‌ها به‌صورت یک stack و به ترتیب merge می‌شوند؛ Sina آن‌ها را به
+  ترتیب merge می‌کند؛ بین merge برش S3 و S4 هیچ deploy انجام نمی‌شود. همهٔ
+  endpointهای بی‌صفحه فقط برای مدیرند و ماژول اختیاری است، پس در این فاصله هیچ
+  بازدیدکننده‌ای چیزی نمی‌بیند.
+- **migration برنامه‌ریزی‌شده:** ندارد؛ استثنا با merge برش S4 خودبه‌خود بسته می‌شود.
+- پذیرندهٔ استثنا: Sina (در بازبینی PRها).
 
 ### تصمیم‌ها و پرسش‌های باز
 
@@ -1047,6 +1250,9 @@ REQ-041 (۳۰ روز پس از پایان، بدون `pending`). فایل موق
 | I1 تعریف «دیده‌شده» | ≥ ۵۰٪ در viewport و ≥ ۱ ثانیه | REQ-074، SC-020 |
 | Q8 برگشت یک سند | در این نسخه نیست؛ `dataset_id` نگه داشته می‌شود. **تصمیم نسخهٔ بعد: Sina** | REQ-067 |
 | Q9 نگه‌داری متن | ۳۰ روز پس از پایان، بدون `pending` | REQ-041، SEC-024 |
+| H1 بازبینی SPEC: تکراری روی عنوان | هویت تکراری فقط `text`؛ عنوان برچسب نرم؛ تکه‌های یک بخش عنوان جدا | REQ-031، REQ-032، SC-026، SC-027 |
+| M2 بازبینی SPEC: انتظار پاسخ تأیید | پاسخ منتظر بازسازی نمی‌ماند؛ انتشار در پس‌زمینه؛ صفحه تا جلو رفتن نسخه «در حال به‌روزرسانی» | REQ-059، REQ-081، REQ-082، SC-028 |
+| L4 بازبینی SPEC: لغو در مرحلهٔ مدل | حالت `cancelling` که جای مرحلهٔ مدل را تا خروج حلقه نگه می‌دارد | REQ-039، بخش ۷، SC-029 |
 | Q10 تراکنش تأیید | یک تراکنش برای چهار نوشتن؛ بعد از commit بارگذاری مترادف و انتشار؛ در دسته، شکست یکی بقیه را نمی‌زند | REQ-058، REQ-059، REQ-061 |
 
 **هنوز باز (پذیرفته‌شده به‌عنوان ریسک):**

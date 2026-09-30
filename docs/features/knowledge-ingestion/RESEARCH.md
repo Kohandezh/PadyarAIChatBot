@@ -360,6 +360,25 @@ python-docx و XLSX با openpyxl ساخته شد.
 | ۴۰۹۶ بایت تصادفی | 9 | 0.404 | 0.128 | رد |
 | فایل دودویی (woff2) با پسوند `.txt` | 54 | 0.404 | 0.135 | رد |
 
+فرمان و خروجی کامل (همان venv آزمایش؛ ردیف «بایت تصادفی» در هر اجرا کمی فرق می‌کند،
+چون `os.urandom` است؛ جدول بالا اجرای اول است و این اجرای دوم):
+
+```text
+$ /opt/homebrew/bin/python3.12 decode_gate.py
+bytes(range(256)).decode('cp1256') ok: True
+persian text saved as cp1256     {'nul': 0, 'arabic_share': 0.922, 'ctrl_share': 0.0}
+english csv as cp1256            {'nul': 0, 'arabic_share': 0.0, 'ctrl_share': 0.0}
+utf-16-le without BOM            {'nul': 99, 'arabic_share': 0.164, 'ctrl_share': 0.5}
+random bytes 4096                {'nul': 19, 'arabic_share': 0.413, 'ctrl_share': 0.125}
+binary (woff2) renamed .txt      {'nul': 54, 'arabic_share': 0.404, 'ctrl_share': 0.135}
+```
+
+`decode_gate.py` برای هر ورودی `b.decode('cp1256')` می‌کند و سه عدد می‌شمارد: تعداد
+بایت `0x00`؛ سهم حرف‌های (`isalpha`) در U+0600..U+06FF؛ و سهم نویسه‌های دستهٔ `Cc`/`Cf`
+به‌جز `\t\n\r` و U+200C..U+200F. متن فارسی با `ی`→`ي`، حذف همزهٔ U+0654، و رقم فارسی→رقم
+ASCII به cp1256 ذخیره شد، چون این نویسه‌ها در cp1256 نیستند. ردیف «english csv» فقط
+برای مقایسه است؛ در عمل ASCII خالص در قدم ۲ (UTF-8) قبول می‌شود و به cp1256 نمی‌رسد.
+
 نکته: سهم حرف عربی‌نویس در بایت تصادفی و دودویی ۰.۴ است، پس این شرط به‌تنهایی
 کافی نیست؛ NUL و سهم کنترلی هستند که آن‌ها را رد می‌کنند. آستانه‌ها پیشنهادند و
 هر کدام روی یک نمونه سنجیده شده‌اند. نکتهٔ دیگر: `ی` فارسی (U+06CC) در cp1256
@@ -372,6 +391,28 @@ python-docx و XLSX با openpyxl ساخته شد.
 رد شده‌ها: pypdf (عدد وارونه، M)، pdfminer.six (ترتیب وارونه، M)، PyMuPDF (AGPL
 و 58 MB، M برای اندازه)، python-docx (به lxml نیاز دارد و حملهٔ entity را پس از
 حدود ۵ ثانیه CPU رد می‌کند، M).
+
+اندازهٔ بسته‌ها، اندازه‌گیری‌شده در همان venv آزمایش (Python 3.12؛ نسخه‌ها در جدول X1):
+
+```text
+$ SPK=venv/lib/python3.12/site-packages; du -sh $SPK/pypdf $SPK/pymupdf $SPK/fitz $SPK/pdfminer $SPK/docx $SPK/openpyxl $SPK/bs4 $SPK/defusedxml $SPK/lxml $SPK/et_xmlfile $SPK/soupsieve $SPK/charset_normalizer $SPK/cryptography
+3.8M  pypdf
+ 58M  pymupdf
+ 24K  fitz
+9.3M  pdfminer
+2.6M  docx
+2.7M  openpyxl
+816K  bs4
+120K  defusedxml
+ 20M  lxml
+ 84K  et_xmlfile
+320K  soupsieve
+1.2M  charset_normalizer
+ 13M  cryptography
+```
+
+(مسیرها در خروجی کوتاه شده‌اند.) `cryptography` و `charset_normalizer` وابستگی
+pdfminer.six هستند و `cryptography` از قبل در `requirements.txt` هست.
 
 **PDF اسکن‌شده** (فقط تصویر) متنی ندارد. OCR خارج از دامنه است. اگر `pdftotext`
 تقریباً هیچ متنی برنگرداند، به مدیر پیام ساده داده می‌شود که «این فایل متن قابل
