@@ -32,3 +32,10 @@ qrcode
 # Prometheus client for the /metrics endpoint (app/services/metrics.py).
 # Own dedicated CollectorRegistry — nothing registers onto the global one.
 prometheus-client
+# Parsers for the knowledge-ingestion module (app/services/ingest_extract.py).
+# defusedxml refuses a DTD in DOCX XML, and openpyxl only protects itself
+# against entity expansion when defusedxml is installed. Both are small and
+# pure Python, and ENABLED_MODULES changes without a new pip install, so they
+# live here rather than in a per-module file.
+defusedxml
+openpyxl

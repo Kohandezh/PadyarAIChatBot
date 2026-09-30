@@ -56,6 +56,8 @@ sudo install -m 0755 -o root -g root \
   /opt/padyar-myevent/deploy/padyar-deploy.sh /usr/local/bin/padyar-deploy
 ```
 
+**خواندن PDF در ماژول `ingest`:** اسکریپت راه‌اندازی `poppler-utils` را نصب می‌کند، اما روی سرورهای موجود یک بار `sudo apt-get install -y poppler-utils` لازم است؛ تا آن موقع آپلود PDF با پیام «خواندن PDF روی این سرور فعال نیست» رد می‌شود و بقیهٔ قالب‌ها کار می‌کنند.
+
 ## بررسی سلامت
 - Liveness: `GET /api/health` (ارزان، بدون فراخوانی خارجی)
 - Readiness: `GET /api/ready` — تا آماده‌شدن ایندکس بازیابی 503 می‌دهد؛
