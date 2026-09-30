@@ -4,10 +4,12 @@
 |-------|-------|
 | Created | 2026-09-30 |
 | Updated | 2026-09-30 |
-| Status | In Review |
+| Status | Approved |
 | Domain | content |
 | Author | ingest-t1-res (عامل، Claude Opus 5.5). مالک فنی و تأییدکننده: Sina |
 | Sources | `docs/features/knowledge-ingestion/RESEARCH.md` (spike پذیرفته‌شده، commit `075b935`)، ADR-023 در `docs/engineering/DECISIONS.md` (Proposed)، ورودی‌های بازبینی spike (بندهای 10 تا 18، N1، N2، I1، بخش «تصمیم‌ها» در پایان این سند) |
+
+Approved by Sina in chat on 2026-09-30 (relayed by Foreman db5-ingest); PR #146 review still open.
 
 **چطور این سند را بخوانید.** هر نیازمندی یک شناسه دارد: `REQ` کارکردی، `SEC`
 امنیتی، `US` داستان کاربر، `SC` معیار پذیرش. «باید» یعنی اجباری؛ «بهتر است» فقط
@@ -1297,9 +1299,9 @@ route/UI pairs must close in the same change.»
 - **Q4 کیفیت روی PDF واقعی مشتری:** اندازه‌گیری‌نشده. Sina چند PDF واقعی (بدون دادهٔ
   حساس) می‌دهد تا بعد از S1 روی آن‌ها اجرا شود.
 - **Q5 رفتار مدل محلی:** Track 3.
-- **Q6 مجوز GPL برای `poppler-utils`:** تصمیم با Sina. اگر رد شد، فقط REQ-005 و
-  وابستگی apt کنار می‌روند و PDF با `pdf_tool_missing` رد می‌شود؛ بقیهٔ SPEC عوض
-  نمی‌شود.
+- **Q6 مجوز GPL برای `poppler-utils`:** تصمیم‌گرفته‌شده توسط Sina: پذیرفته
+  («Ghabul ast»)، چون `pdftotext` به‌صورت یک پردازهٔ جدا اجرا می‌شود و به کد ما link
+  نمی‌شود. منبع: Sina در chat در 2026-09-30 (منتقل‌شده توسط Foreman db5-ingest).
 
 ## 13. Related Artifacts
 

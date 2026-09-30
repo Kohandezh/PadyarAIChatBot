@@ -1,6 +1,7 @@
 # SPIKE: ورود نیمه‌خودکار دانش از سند و وب‌سایت
 
-**Status:** In Review
+**Status:** Resolved
+**Outcome:** نتیجه با تأیید SPEC توسط Sina در chat در 2026-09-30 (منتقل‌شده توسط Foreman db5-ingest) پذیرفته شد.
 **Owner:** ingest-t1-res (عامل پژوهش، Claude Opus 5.5). مالک فنی و بازبین انسانی: Sina
 **Timebox:** یک نوبت کاری (turn 1 از مأموریت `20260930-danesh-t5-ingest`)
 **Date:** 2026-09-30
