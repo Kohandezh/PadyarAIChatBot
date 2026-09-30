@@ -21,16 +21,18 @@ Every hop, the typed URL and each redirect target, passes the same gate:
    through 1 and 2 again (REQ-020).
 
 The answer is streamed under one budget for the whole fetch, all hops
-together: 5 MiB and 20 seconds (REQ-021). The budget is checked before each
-hop and after each chunk, and each hop's socket timeouts are the time left
-when that hop starts. Two things it cannot cut short: the DNS lookup inside
-`pin`, and one socket read already waiting when the budget runs out. So a
-hostile server can hold a fetch up to about twice the budget, still well
-under nginx's 120 s.
+together: 5 MiB and 20 seconds (REQ-021). The 20 seconds run from the first
+byte sent to the last byte read, connect, TLS and headers included:
+`_client()` connects through `_DeadlineBackend`, which gives every blocking
+socket call only the time left (see there). The one wait it cannot bound is
+the DNS lookup inside `pin` (getaddrinfo is a blocking C call). The budget is
+checked before each lookup, so a spent budget never starts one, but a lookup
+that has started runs for as long as the system resolver lets it.
 
 Only HTML, XHTML, plain text and PDF come back (REQ-022). Text extraction is
 not done here; this returns the raw bytes and the declared charset.
 """
+import contextvars
 import ipaddress
 import socket
 import time
@@ -38,6 +40,7 @@ from dataclasses import dataclass
 from typing import NoReturn
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
+import httpcore
 import httpx
 
 from app.services.ai import endpoint_policy
@@ -88,11 +91,90 @@ class Fetched:
     data: bytes
 
 
+# The monotonic deadline of the fetch_url call running in this context, read
+# by every socket call below. None outside a fetch.
+_DEADLINE: contextvars.ContextVar = contextvars.ContextVar("ingest_fetch_deadline",
+                                                           default=None)
+
+
+def _within_budget(timeout, error):
+    """`timeout`, cut to the time left in the fetch. Raises `error` once none is left."""
+    deadline = _DEADLINE.get()
+    if deadline is None:
+        return timeout
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise error("the fetch budget is spent")
+    return left if timeout is None else min(timeout, left)
+
+
+class _DeadlineStream(httpcore.NetworkStream):
+    # httpx's timeouts are per call: a read timeout restarts on every recv. A
+    # server that sends one header byte every few seconds never trips it and
+    # holds the fetch for as long as it likes (measured in review: 12 s
+    # against a 2 s budget). Here every call gets only the time left, so the
+    # whole fetch ends at the deadline whatever the server does. A TLS
+    # handshake is one call: CPython bounds the whole handshake by the socket
+    # timeout set before it.
+
+    def __init__(self, stream: httpcore.NetworkStream):
+        self._stream = stream
+
+    def read(self, max_bytes, timeout=None):
+        return self._stream.read(max_bytes, _within_budget(timeout, httpcore.ReadTimeout))
+
+    def write(self, buffer, timeout=None):
+        self._stream.write(buffer, _within_budget(timeout, httpcore.WriteTimeout))
+
+    def close(self):
+        self._stream.close()
+
+    def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+        return _DeadlineStream(self._stream.start_tls(
+            ssl_context, server_hostname, _within_budget(timeout, httpcore.ConnectTimeout)))
+
+    def get_extra_info(self, info):
+        return self._stream.get_extra_info(info)
+
+
+class _DeadlineBackend(httpcore.NetworkBackend):
+    def __init__(self):
+        self._backend = httpcore.SyncBackend()
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        return _DeadlineStream(self._backend.connect_tcp(
+            host, port, _within_budget(timeout, httpcore.ConnectTimeout),
+            local_address, socket_options))
+
+    def connect_unix_socket(self, path, timeout=None, socket_options=None):
+        return _DeadlineStream(self._backend.connect_unix_socket(
+            path, _within_budget(timeout, httpcore.ConnectTimeout), socket_options))
+
+    def sleep(self, seconds):
+        self._backend.sleep(seconds)
+
+
+class _DeadlineTransport(httpx.HTTPTransport):
+    """httpx's own transport on a connection pool built on `_DeadlineBackend`."""
+
+    def __init__(self):
+        ssl_context = httpx.create_ssl_context(trust_env=False)
+        super().__init__(verify=ssl_context, trust_env=False)
+        # HTTPTransport takes no network backend, so the pool it built is
+        # replaced by one that has ours. `_pool` is what its handle_request
+        # uses (httpx 0.28). The loopback tests fail if that ever changes.
+        self._pool = httpcore.ConnectionPool(
+            ssl_context=ssl_context,
+            network_backend=_DeadlineBackend(),
+        )
+
+
 def _client() -> httpx.Client:
     # trust_env=False: with it on, HTTPS_PROXY and friends route the request
     # through a proxy that resolves the name itself, past the pin, and
     # connects from wherever the proxy sits.
-    return httpx.Client(trust_env=False, follow_redirects=False)
+    return httpx.Client(transport=_DeadlineTransport(), trust_env=False,
+                        follow_redirects=False)
 
 
 def _check_url(url: str) -> str:
@@ -281,10 +363,21 @@ def fetch_url(url: str) -> Fetched:
     """Fetch one page for an ingestion job. Blocking: the caller runs it in a
     thread. Every refusal is a FetchRejected with a code from SPEC section 8."""
     deadline = time.monotonic() + TOTAL_TIMEOUT_S
+    token = _DEADLINE.set(deadline)
+    try:
+        return _fetch(url, deadline)
+    finally:
+        _DEADLINE.reset(token)
+
+
+def _fetch(url: str, deadline: float) -> Fetched:
     current = _check_url(url)
     redirects = 0
     with _client() as client:
         while True:
+            # Before the lookup: a hop that starts after the budget is spent
+            # must not even reach the resolver.
+            _time_left(deadline)
             response = _send(client, current, _pin(current), deadline)
             try:
                 if response.status_code not in REDIRECT_STATUSES:

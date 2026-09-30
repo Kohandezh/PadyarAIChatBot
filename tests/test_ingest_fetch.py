@@ -15,15 +15,33 @@ address" is asserted as "the transport never saw a request for it".
 The 20 second budget is tested with a fake clock put in place of the `time`
 module inside `ingest_fetch`, so no test sleeps.
 
+A MockTransport has no socket, so it cannot show a server that sends its
+headers one byte at a time: httpx's read timeout is per recv, and each byte
+restarts it. That review finding is covered by four tests against a REAL TLS
+server on 127.0.0.1 in a thread, with the budget cut to 1 second. They are
+the only tests here that open a socket, and only to loopback: the real
+resolver is put back for them, `endpoint_policy.pin` runs with the internal
+trust class for 127.0.0.1 only, port 443 is mapped to the server's port at
+the httpcore socket layer, and `certifi.where` points at a CA made for the
+test so certificate checking stays on.
+
 Three choices below are team decisions on points the spec leaves open
 (recorded in the S2 handoff): numeric IPv4 spellings such as 2130706433 and
 every IPv4-mapped IPv6 address are `blocked_address`; a name that does not
 resolve is `blocked_address` because REQ-019 maps every `EndpointRejected`
 there; a compressed answer is `fetch_failed`, never inflated.
 """
+import datetime
 import gzip
+import ipaddress
 import socket
+import ssl
+import threading
+import time
+from urllib.parse import urlsplit
 
+import certifi
+import httpcore
 import httpx
 import pytest
 
@@ -31,6 +49,7 @@ from app.services import ingest_fetch
 from app.services.ai import endpoint_policy
 
 REAL_CLIENT = ingest_fetch._client
+REAL_GETADDRINFO = socket.getaddrinfo
 
 PUBLIC_V4 = "93.184.216.34"
 PUBLIC_V4_B = "93.184.216.35"
@@ -541,17 +560,21 @@ def test_the_20_second_budget_is_shared_by_every_hop(dns, web, clock):
     assert second["connect"] == pytest.approx(5.0)
 
 
-def test_a_hop_after_the_budget_is_spent_is_never_sent(dns, web, clock):
+def test_a_hop_after_the_budget_is_spent_is_never_looked_up_or_sent(dns, web, clock):
+    """The lookup inside `pin` is a blocking C call nothing can cut short, so a
+    hop that starts late must not reach the resolver at all."""
     dns.answer("example.com", PUBLIC_V4)
+    dns.answer("other.example", PUBLIC_V4_B)
 
     def very_slow_redirect(request):
         clock.now += 21
-        return redirect("/next")
+        return redirect("https://other.example/next")
 
     web.route(f"https://{PUBLIC_V4}/start", very_slow_redirect)
 
     assert rejected("https://example.com/start").code == "timeout"
     assert len(web.requests) == 1
+    assert dns.calls == ["example.com"]
 
 
 def test_a_body_that_trickles_past_the_budget_is_timeout(dns, web, clock):
@@ -574,6 +597,171 @@ def test_an_answer_other_than_200_is_fetch_failed(dns, web, status):
     web.route(f"https://{PUBLIC_V4}/", httpx.Response(status, headers={"Content-Type": "text/html"}))
 
     assert rejected("https://example.com/").code == "fetch_failed"
+
+
+# ── REQ-021 on a real socket: the budget binds every blocking read ──────
+
+BUDGET_S = 1.0
+MARGIN_S = 0.5
+
+
+def _write_test_ca(folder):
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    def certificate(subject, issuer, public_key, signing_key, extensions):
+        builder = (x509.CertificateBuilder().subject_name(subject).issuer_name(issuer)
+                   .public_key(public_key).serial_number(x509.random_serial_number())
+                   .not_valid_before(now - datetime.timedelta(minutes=5))
+                   .not_valid_after(now + datetime.timedelta(hours=1)))
+        for extension, critical in extensions:
+            builder = builder.add_extension(extension, critical=critical)
+        return builder.sign(signing_key, hashes.SHA256())
+
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ingest fetch test CA")])
+    ca = certificate(ca_name, ca_name, ca_key.public_key(), ca_key, [
+        (x509.BasicConstraints(ca=True, path_length=None), True),
+        (x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                       data_encipherment=False, key_agreement=False, key_cert_sign=True,
+                       crl_sign=True, encipher_only=False, decipher_only=False), True),
+        (x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), False),
+    ])
+    key = ec.generate_private_key(ec.SECP256R1())
+    leaf = certificate(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")]),
+                       ca_name, key.public_key(), ca_key, [
+        (x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), False),
+        (x509.BasicConstraints(ca=False, path_length=None), True),
+        (x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), False),
+        (x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), False),
+    ])
+    paths = {name: folder / f"{name}.pem" for name in ("ca", "cert", "key")}
+    paths["ca"].write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+    paths["cert"].write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
+    paths["key"].write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                               serialization.PrivateFormat.PKCS8,
+                                               serialization.NoEncryption()))
+    return {name: str(path) for name, path in paths.items()}
+
+
+@pytest.fixture(scope="module")
+def test_ca(tmp_path_factory):
+    return _write_test_ca(tmp_path_factory.mktemp("ingest-fetch-ca"))
+
+
+class LoopbackServer:
+    """One connection, served in one of four ways. Every slow way gives up
+    after 4 seconds, so a fetch that ignores the budget fails the timing
+    assertion instead of hanging the suite."""
+
+    def __init__(self, cert, key):
+        self.tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.tls.load_cert_chain(cert, key)
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.stop = threading.Event()
+        self.thread = None
+
+    def serve(self, mode):
+        self.thread = threading.Thread(target=self._run, args=(mode,), daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.stop.set()
+        if self.thread:
+            self.thread.join(timeout=5)
+        self.listener.close()
+
+    def _trickle(self, sock, byte, seconds=4.0):
+        until = time.monotonic() + seconds
+        while not self.stop.is_set() and time.monotonic() < until:
+            sock.sendall(byte)
+            time.sleep(0.05)
+
+    def _run(self, mode):
+        conn, _ = self.listener.accept()
+        try:
+            with conn:
+                if mode == "handshake":
+                    conn.sendall(b"\x16\x03\x03\x40\x00")
+                    self._trickle(conn, b"\x00")
+                    return
+                tls = self.tls.wrap_socket(conn, server_side=True)
+                tls.recv(65536)
+                if mode == "page":
+                    tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+                                b"Content-Length: 2\r\n\r\nok")
+                elif mode == "headers":
+                    tls.sendall(b"HTTP/1.1 200 OK\r\nX-Slow: ")
+                    self._trickle(tls, b"a")
+                elif mode == "body_then_stall":
+                    tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+                                b"Content-Length: 1000\r\n\r\n")
+                    self._trickle(tls, b"a", seconds=0.9 * BUDGET_S)
+                    self.stop.wait(4)
+        except OSError:
+            pass
+
+
+@pytest.fixture
+def loopback(monkeypatch, test_ca):
+    server = LoopbackServer(test_ca["cert"], test_ca["key"])
+    real_pin = endpoint_policy.pin
+    real_connect = httpcore.SyncBackend.connect_tcp
+
+    def pin_loopback_only(url, trust_class):
+        assert urlsplit(url).hostname == "127.0.0.1"
+        return real_pin(url, endpoint_policy.INTERNAL)
+
+    def connect_to_server(self, host, port, *args, **kwargs):
+        assert (host, port) == ("127.0.0.1", 443)
+        return real_connect(self, host, server.port, *args, **kwargs)
+
+    monkeypatch.setattr(ingest_fetch, "_client", REAL_CLIENT)
+    monkeypatch.setattr(ingest_fetch, "TOTAL_TIMEOUT_S", BUDGET_S)
+    monkeypatch.setattr(socket, "getaddrinfo", REAL_GETADDRINFO)
+    monkeypatch.setattr(endpoint_policy, "pin", pin_loopback_only)
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", connect_to_server)
+    monkeypatch.setattr(certifi, "where", lambda: test_ca["ca"])
+    yield server
+    server.close()
+
+
+def test_the_real_client_fetches_from_the_loopback_server(loopback):
+    """Control: proves TLS, the port mapping and the policy patch work, so a
+    timeout below is the budget and not a broken harness."""
+    loopback.serve("page")
+
+    got = ingest_fetch.fetch_url("https://127.0.0.1/")
+
+    assert (got.content_type, got.data) == ("text/html", b"ok")
+
+
+@pytest.mark.parametrize("mode", ["headers", "handshake", "body_then_stall"])
+def test_a_slow_server_is_cut_off_when_the_budget_runs_out(loopback, mode):
+    """headers: one header byte every 50 ms. Each recv returns in time, so a
+    per-read timeout never fires; this held a fetch for as long as the server
+    liked. handshake: a TLS record that never completes. body_then_stall: a
+    body that trickles, then stops while a recv is waiting."""
+    loopback.serve(mode)
+    started = time.monotonic()
+
+    assert rejected("https://127.0.0.1/").code == "timeout"
+    assert time.monotonic() - started < BUDGET_S + MARGIN_S
+
+
+async def test_the_budget_holds_when_called_inside_a_running_event_loop(loopback):
+    """The deadline needs no event loop of its own, so it works the same from
+    a worker thread (how S3 calls it) or from inside a running loop."""
+    loopback.serve("headers")
+    started = time.monotonic()
+
+    assert rejected("https://127.0.0.1/").code == "timeout"
+    assert time.monotonic() - started < BUDGET_S + MARGIN_S
 
 
 # ── REQ-022: content type, read before the body ─────────────────────────
