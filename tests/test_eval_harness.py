@@ -1,20 +1,29 @@
 """The committed retrieval benchmark: fixtures, harness, gates and CI wiring.
 
-WHY THIS FILE EXISTS. `scripts/run_eval.py` measures the local retrieval layer
-— the part of this product that is not a wrapper around somebody else's model.
-It was unrunnable from a clean checkout: the golden set it needed was deleted
-with the event install it belonged to, `app/default_content.py` ships empty on
-purpose, and no CI job ever called it. Every recall number published in
-`docs/engineering/` was therefore unreproducible. These tests pin the three
-things that make it reproducible again: the fixtures are committed, the harness
-runs offline against them, and the safety gates still fail the build.
+WHY THIS FILE EXISTS. `scripts/run_eval.py` measures the local answer layer,
+the part of this product that is not a wrapper around somebody else's model.
+It was unrunnable from a clean checkout until the fixtures were committed, and
+at 420eb1e its CI gate could not fail on a ranking regression (only
+contamination or a secret leak exited 1), while `recall_at_1` counted a
+refused query as a correct answer. These tests pin what makes the benchmark a
+gate: the fixtures are committed, the harness runs offline, `--check` fails on
+a floor, and a refusal is never scored as an answer.
 
-Every harness run here happens in a SUBPROCESS. The exit code is the contract
-(a tripped gate must exit non-zero), and only a real process can prove it.
-Nothing here writes into `data/eval/`: the gate tests build their own corpus
-and golden pair under `tmp_path`, so an interrupted run cannot leave a poisoned
-fixture behind.
+The design and every metric are defined in
+docs/features/eval-benchmark/SPEC.md.
+
+COST. A harness run loads the embedding model and, in the serving modes,
+boots the app. So the suite makes exactly FOUR such runs: one of the committed
+golden set (module fixture `baseline`) and three of a three-entry probe corpus
+(`clean_probe`, `floors_above_probe`, `poisoned_probe`). Everything that can be
+proven without a model (floors comparison, token merge, scoring rule) is a
+plain unit test on the harness functions. Three more subprocess runs fail on
+their inputs before any app import and cost well under a second each.
+
+Every harness run happens in a SUBPROCESS: the exit code is the contract, and
+only a real process can prove it. Nothing here writes into `data/eval/`.
 """
+import importlib.util
 import json
 import os
 import subprocess
@@ -32,25 +41,34 @@ ROOT = Path(__file__).resolve().parent.parent
 EVAL_DIR = ROOT / "data" / "eval"
 GOLDEN = EVAL_DIR / "golden.json"
 CORPUS = EVAL_DIR / "corpus.json"
+FLOORS = EVAL_DIR / "floors.json"
 RUN_EVAL = ROOT / "scripts" / "run_eval.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
-
-# app/config.py's TRUSTED_MATCH_THRESHOLD, mirrored in run_eval.py as TRUST.
-TRUST = 0.70
+MODES = ("full", "full_no_intent", "hybrid", "dense", "bm25")
 
 
-def run_eval(*args, expect_exit=0):
+def _load_harness():
+    spec = importlib.util.spec_from_file_location("run_eval_under_test", RUN_EVAL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+harness = _load_harness()
+
+
+def run_eval(*args, expect_exit=0, env_extra=None):
     """Run the harness as its own process and return the completed process.
 
     OPENAI_API_KEY is emptied on purpose: the benchmark measures the local
-    layer and must never need an AI provider. If it ever starts needing one,
-    this call is where it breaks.
+    layer and must never need an AI provider.
     """
     env = dict(os.environ)
     env["OPENAI_API_KEY"] = ""
+    env.update(env_extra or {})
     proc = subprocess.run(
         [sys.executable, str(RUN_EVAL), *args],
-        cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=1800)
+        cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=3600)
     if expect_exit is not None and proc.returncode != expect_exit:
         raise AssertionError(
             f"run_eval.py exited {proc.returncode}, expected {expect_exit}\n"
@@ -59,65 +77,55 @@ def run_eval(*args, expect_exit=0):
     return proc
 
 
-@pytest.fixture(scope="module")
-def baseline(tmp_path_factory):
-    """One clean run of the committed fixtures, shared by the tests below."""
-    out = tmp_path_factory.mktemp("eval-baseline")
-    proc = run_eval("--golden", str(GOLDEN),
-                    "--out", str(out / "report.json"),
-                    "--dump", str(out / "dump.json"),
-                    "--recall-k", "1,3,5,8,13")
-    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
-    dump = json.loads((out / "dump.json").read_text(encoding="utf-8"))
-    return proc, report, dump
+def _json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
 def golden_doc():
-    return json.loads(GOLDEN.read_text(encoding="utf-8"))
+    return _json(GOLDEN)
 
 
 @pytest.fixture(scope="module")
 def corpus_doc():
-    return json.loads(CORPUS.read_text(encoding="utf-8"))
+    return _json(CORPUS)
 
 
-def _by_query(dump):
+@pytest.fixture(scope="module")
+def baseline(tmp_path_factory):
+    """HEAVY RUN 1 of 4: the committed golden set, `full`, committed floors."""
+    out = tmp_path_factory.mktemp("eval-baseline")
+    proc = run_eval("--golden", str(GOLDEN), "--mode", "full",
+                    "--check", str(FLOORS),
+                    "--out", str(out / "report.json"),
+                    "--dump", str(out / "dump.json"),
+                    "--recall-k", "1,3,5,8,13")
+    return proc, _json(out / "report.json"), _json(out / "dump.json")
+
+
+def _rows(dump):
     return {row["q"]: row for row in dump["queries"]}
 
 
-def _control(golden_doc, name):
-    """The golden query carrying this allow-control marker."""
-    hits = [r for r in golden_doc["queries"] if r.get("control") == name]
-    assert len(hits) == 1, f"expected exactly one {name!r} control, got {len(hits)}"
-    return hits[0]
+# --- the fixtures are committed and honest ---------------------------------
 
-
-# --- the fixtures are committed -------------------------------------------
-
-@pytest.mark.parametrize("path", [GOLDEN, CORPUS])
+@pytest.mark.parametrize("path", [GOLDEN, CORPUS, FLOORS])
 def test_fixture_is_tracked_by_git(path):
     """A benchmark that lives only on one machine proves nothing."""
     rel = path.relative_to(ROOT).as_posix()
     listed = subprocess.run(["git", "ls-files", rel], cwd=str(ROOT),
                             capture_output=True, text=True, timeout=60)
     assert listed.stdout.strip() == rel, (
-        f"{rel} is not tracked by git — commit it or the benchmark cannot be "
+        f"{rel} is not tracked by git; commit it or the benchmark cannot be "
         f"reproduced from a clean clone")
 
 
 def test_golden_set_is_large_and_bilingual(golden_doc, corpus_doc):
     queries = golden_doc["queries"]
-    entries = corpus_doc["entries"]
     assert len(queries) >= 40
-    assert len(entries) >= 20
-
-    def is_english(text):
-        return all(ch.isascii() for ch in text if ch.isalpha())
-
-    english = [r for r in queries if is_english(r["q"])]
-    persian = [r for r in queries if not is_english(r["q"])]
-    assert english and persian, "the golden set must carry both languages"
+    assert len(corpus_doc["entries"]) >= 20
+    langs = {harness.query_lang(r["q"]) for r in queries if r["expect"]}
+    assert langs == {"fa", "en"}, "the golden set must carry both languages"
 
 
 def test_every_expected_id_exists_in_the_corpus(golden_doc, corpus_doc):
@@ -130,140 +138,229 @@ def test_every_expected_id_exists_in_the_corpus(golden_doc, corpus_doc):
 
 
 def test_corpus_entries_carry_english_fields(corpus_doc):
-    """Design decision: the corpus is bilingual.
-
-    The retrieval index is built from the Persian title+text alone, so the
-    English fields are what put English tokens in the corpus vocabulary — and
-    without them every English query reads as a query full of unknown tokens
-    and never reaches the reranker's cross-lingual path at all.
-    """
+    """The corpus is bilingual: the English fields put English tokens in the
+    corpus vocabulary, without which every English query reads as unknown."""
     missing = [e["id"] for e in corpus_doc["entries"]
                if not e.get("title_en") or not e.get("text_en")]
     assert missing == []
 
 
+def test_the_fixtures_name_no_retired_real_brand(golden_doc, corpus_doc):
+    """R4: the real retired brand names live only in the harness defaults.
+
+    The legacy_contamination queries use an invented former name instead.
+    """
+    blob = json.dumps([golden_doc, corpus_doc], ensure_ascii=False).lower()
+    for token in harness.LEGACY_TOKENS:
+        assert token.lower() not in blob, f"{token!r} appears in data/eval/"
+
+
+def test_every_control_is_declared_with_a_status(golden_doc):
+    """A6: a control claims a bar only with an explicit status the gate reads."""
+    harness.load_controls(golden_doc, golden_doc["queries"])
+    for name, spec in golden_doc["controls"].items():
+        assert spec["status"] in harness.CONTROL_STATUSES, name
+
+
+def test_the_floors_file_covers_every_mode():
+    for mode in MODES:
+        assert harness.load_floors(str(FLOORS), mode)
+
+
 def test_corpus_is_not_seeded_into_an_install():
-    """`app/default_content.py` stays empty — a customer must not inherit it."""
+    """`app/default_content.py` stays empty: a customer must not inherit it."""
     from app import default_content
     assert default_content.DEFAULT_DATASET == []
     assert default_content.DEFAULT_QUESTIONS == []
 
 
-# --- the harness runs, offline, and reports the headline metrics ----------
+# --- the gate logic, without a model ----------------------------------------
 
-def test_harness_runs_offline_and_prints_the_metrics(baseline):
-    proc, _report, _dump = baseline
-    out = proc.stdout
-    assert "recall@1=" in out
-    assert "recall@3=" in out
-    assert "mrr=" in out
-    assert "recall@K:" in out
+def _report(**totals):
+    return {"mode": "full", "totals": totals,
+            "recall_at_k": {"3": 0.9}, "per_language": {"fa": {"answered_at_1": 0.5}}}
 
 
-def test_report_carries_its_corpus_provenance(baseline, corpus_doc):
+def test_a_floor_above_the_measured_value_is_a_violation_naming_the_metric():
+    lines = harness.check_floors(_report(recall_at_1=0.8, mrr=0.9),
+                                 {"recall_at_1": {"min": 0.85}, "mrr": {"min": 0.9}})
+    assert lines == ["FLOOR VIOLATION full.recall_at_1: measured 0.8 < min 0.85"]
+
+
+def test_a_floor_at_the_measured_value_passes():
+    assert harness.check_floors(_report(recall_at_1=0.8),
+                                {"recall_at_1": {"min": 0.8}}) == []
+
+
+def test_false_confident_above_its_ceiling_is_a_violation():
+    lines = harness.check_floors(_report(false_confident_total=1),
+                                 {"false_confident_total": {"max": 0}})
+    assert lines == ["FLOOR VIOLATION full.false_confident_total: measured 1 > max 0"]
+
+
+def test_measured_zero_under_a_zero_ceiling_passes():
+    assert harness.check_floors(_report(false_confident_total=0),
+                                {"false_confident_total": {"max": 0}}) == []
+
+
+def test_a_null_metric_cannot_pass_its_floor():
+    lines = harness.check_floors(_report(refusal_precision=None),
+                                 {"refusal_precision": {"min": 0.5}})
+    assert lines and "measured null" in lines[0]
+
+
+def test_dotted_metric_names_reach_nested_keys():
+    report = _report()
+    assert harness.check_floors(report, {"recall_at_k.3": {"min": 0.95},
+                                         "per_language.fa.answered_at_1": {"min": 0.5}}) \
+        == ["FLOOR VIOLATION full.recall_at_k.3: measured 0.9 < min 0.95"]
+
+
+def test_an_unknown_metric_is_a_config_error_not_a_pass():
+    with pytest.raises(harness.ConfigError, match="unknown metric 'recal_at_1'"):
+        harness.check_floors(_report(recall_at_1=1.0), {"recal_at_1": {"min": 0.1}})
+
+
+def test_a_mode_missing_from_the_floors_file_is_a_config_error(tmp_path):
+    floors = tmp_path / "floors.json"
+    floors.write_text(json.dumps({"full": {"recall_at_1": {"min": 0.1}}}))
+    assert harness.load_floors(str(floors), "full")
+    with pytest.raises(harness.ConfigError, match="mode 'bm25' has no floors"):
+        harness.load_floors(str(floors), "bm25")
+
+
+@pytest.mark.parametrize("bound", [{"min": "0.5"}, {"at_least": 0.5},
+                                   {"min": 0.1, "max": 0.9}, {"min": True}])
+def test_a_malformed_bound_is_a_config_error(tmp_path, bound):
+    floors = tmp_path / "floors.json"
+    floors.write_text(json.dumps({"full": {"recall_at_1": bound}}))
+    with pytest.raises(harness.ConfigError):
+        harness.load_floors(str(floors), "full")
+
+
+def test_golden_token_lists_extend_the_defaults_and_never_replace_them():
+    """D3: 420eb1e did `golden.get(...) or DEFAULTS`, so a golden file that
+    declared its own list silently dropped every default from the gate."""
+    merged = harness.merge_tokens(["elecomp", "noorvision"], ["tolvaresh"])
+    assert merged == ["elecomp", "noorvision", "tolvaresh"]
+    assert harness.merge_tokens(["elecomp"], None) == ["elecomp"]
+    assert harness.merge_tokens(["elecomp"], ["elecomp"]) == ["elecomp"]
+
+
+def test_a_refused_answerable_query_is_never_a_correct_answer():
+    """D2: ranked first but refused is `ranked_first`, not `correct`."""
+    refused = harness.score_answerable(["faq-a"], answered=False, served_id="",
+                                       ranking=["faq-a", "faq-b"])
+    assert refused == {"rank": 1, "ranked_first": True, "correct": False}
+
+
+def test_a_served_correct_answerable_query_is_correct():
+    served = harness.score_answerable(["faq-a"], answered=True, served_id="faq-a",
+                                      ranking=["faq-b", "faq-a"])
+    assert served == {"rank": 1, "ranked_first": True, "correct": True}
+
+
+def test_a_served_wrong_record_is_ranked_first_by_what_was_served():
+    wrong = harness.score_answerable(["faq-a"], answered=True, served_id="faq-b",
+                                     ranking=["faq-a", "faq-b"])
+    assert wrong == {"rank": 2, "ranked_first": False, "correct": False}
+
+
+def test_query_language_is_read_from_the_script():
+    assert harness.query_lang("Where is the venue?") == "en"
+    assert harness.query_lang("نمایشگاه کجاست؟") == "fa"
+    assert harness.query_lang("غرفه B کجاست") == "fa"
+
+
+# --- the committed golden set, measured once ---------------------------------
+
+def test_the_committed_floors_pass_for_full(baseline):
+    """A10, allow side: the committed floors hold at the committed commit."""
+    proc, report, _dump = baseline
+    assert report["mode"] == "full"
+    assert "check: every bound for mode 'full' held" in proc.stdout
+
+
+def test_full_reports_every_metric_the_spec_names(baseline):
     _proc, report, _dump = baseline
-    assert report["corpus"]["version"] == corpus_doc["corpus_version"]
-    assert report["corpus"]["entries"] == len(corpus_doc["entries"])
     totals = report["totals"]
-    for key in ("recall_at_1", "recall_at_3", "mrr"):
-        assert isinstance(totals[key], float)
+    for key in ("recall_at_1", "mrr", "answered_at_1", "out_of_scope_refusal_rate",
+                "refusal_precision", "false_confident_total", "legacy_total",
+                "legacy_redirected"):
+        assert key in totals, key
+    assert set(report["recall_at_k"]) == {"1", "3", "5", "8", "13"}
+    for lang in ("fa", "en"):
+        assert set(report["per_language"][lang]) == {"answerable", "answered_at_1",
+                                                      "recall_at_1"}
+    assert "RANKING" in report["metric_notes"]["recall_at_1"]
 
 
-def test_default_report_path_stays_outside_the_repository():
-    """R2: the default --out used to drop an untracked file into data/eval/.
-
-    A report is a run artifact, not a fixture. Running the documented command
-    with no --out must leave the tracked fixture directory alone.
-    """
-    bare = run_eval("--golden", str(GOLDEN))
-    assert not (EVAL_DIR / "retrieval-eval.json").exists()
-    written = [line.split("→", 1)[1].strip()
-               for line in bare.stdout.splitlines() if line.startswith("report →")]
-    assert len(written) == 1
-    report_path = Path(written[0])
-    assert report_path.is_file()
-    assert ROOT not in report_path.parents, (
-        f"the default report landed inside the repository at {report_path}")
+def test_every_answer_counted_correct_was_actually_answered(baseline):
+    """D2 on the real run, and D5: the dump's `correct` is the report's."""
+    _proc, report, dump = baseline
+    for row in dump["queries"]:
+        if row["expected"] and row["correct"]:
+            assert row["answered"] and row["served_id"] in row["expected"], row["q"]
+    for cat, stat in report["per_category"].items():
+        rows = [r for r in dump["queries"] if r["cat"] == cat]
+        assert stat["correct"] == sum(1 for r in rows if r["correct"]), cat
+        assert stat["ranked_first"] == sum(1 for r in rows if r["ranked_first"]), cat
+    answerable = [r for r in dump["queries"] if r["expected"]]
+    assert report["totals"]["answered_at_1"] == round(
+        sum(1 for r in answerable if r["correct"]) / len(answerable), 3)
 
 
-# --- deny-cases, and the allow-control for each ---------------------------
+def test_the_dump_lists_every_query_in_golden_order(baseline, golden_doc):
+    """R3."""
+    _proc, _report, dump = baseline
+    assert [r["q"] for r in dump["queries"]] == [q["q"] for q in golden_doc["queries"]]
 
-def test_unsupported_queries_are_refused_by_a_gate_not_by_an_empty_index(baseline):
+
+def test_unsupported_queries_are_refused_while_retrieval_had_candidates(baseline):
     """A refusal only counts when retrieval HAD something and declined anyway.
 
-    If the index were empty (the state a clean checkout was actually in), every
-    adversarial query would be "refused" for free and this category would read
-    as a pass. So assert both halves: nothing is answered confidently, AND the
-    retriever produced candidates while refusing.
+    With an empty index every adversarial query is "refused" for free.
     """
     _proc, report, dump = baseline
     stat = report["per_category"]["unsupported"]
-    assert stat["n"] > 0
-    assert report["totals"]["false_confident_unsupported"] == 0
-    assert stat["queries_with_candidates"] == stat["n"], (
-        "a query was refused while retrieval returned nothing — that is an "
-        "accidental pass, not the pipeline declining")
-    refused = (stat.get("refused_by_unknown_token_gate", 0)
-               + stat.get("refused_by_below_trust_bar", 0))
-    assert refused == stat["n"]
-    # Both mechanisms are real on this corpus; the gate is the dominant one.
-    assert stat.get("refused_by_unknown_token_gate", 0) > 0
-
+    assert stat["refused"] == stat["n"] > 0
+    assert stat["queries_with_candidates"] == stat["n"]
     for row in dump["queries"]:
-        if row["cat"] != "unsupported":
-            continue
-        assert row["served"] is None
-        assert row["refused_by"] in ("unknown_token_gate", "below_trust_bar")
-        if row["refused_by"] == "unknown_token_gate":
-            assert row["unknown_tokens"], "gate fired with no unknown token"
+        if row["cat"] == "unsupported" and row["refused_by"] == "unknown_token_gate":
+            assert row["unknown_tokens"] == sorted(row["unknown_tokens"]) != []
 
 
 def test_prompt_injection_is_refused_and_leaks_no_secret(baseline):
-    _proc, report, dump = baseline
-    stat = report["per_category"]["prompt_injection"]
-    assert stat["n"] > 0
-    assert report["totals"]["false_confident_injection"] == 0
-    assert report["totals"]["secret_leaks"] == 0
-    assert stat["queries_with_candidates"] == stat["n"]
-    assert all(row["served"] is None for row in dump["queries"]
-               if row["cat"] == "prompt_injection")
-
-
-def test_paraphrase_allow_control_is_answered_above_the_trust_bar(
-        baseline, golden_doc):
-    """The allow-control for the `unsupported` deny-case.
-
-    Refusing everything is a trivial way to pass an adversarial category. This
-    is the query that proves the pipeline did not simply go quiet.
-    """
-    _proc, _report, dump = baseline
-    control = _control(golden_doc, "paraphrase_above_trust")
-    row = _by_query(dump)[control["q"]]
-    assert row["served"] == control["expect"]
-    assert row["served_score"] >= TRUST
-
-
-def test_benign_lookalike_allow_control_is_still_answered(baseline, golden_doc):
-    """The allow-control for the `prompt_injection` deny-case.
-
-    It shares wording with the injections and must still be answered.
-    """
-    _proc, _report, dump = baseline
-    control = _control(golden_doc, "benign_lookalike_answered")
-    row = _by_query(dump)[control["q"]]
-    assert row["served"] == control["expect"]
-
-
-def test_legacy_queries_leave_no_legacy_identity_in_the_answer(baseline):
     _proc, report, _dump = baseline
-    assert report["totals"]["legacy_contamination_answers"] == 0
-    assert report["totals"]["false_confident_legacy"] == 0
+    stat = report["per_category"]["prompt_injection"]
+    assert stat["refused"] == stat["n"] > 0
+    assert report["totals"]["secret_leaks"] == 0
+    assert report["totals"]["false_confident_total"] == 0
 
 
-# --- the gates themselves: proven live, not asserted ----------------------
+def test_legacy_queries_are_judged_by_the_contamination_gate_only(baseline):
+    """R6: redirects allowed, contamination never; outside the refusal metrics."""
+    _proc, report, _dump = baseline
+    totals = report["totals"]
+    assert totals["legacy_total"] == report["per_category"]["legacy_contamination"]["n"]
+    assert totals["legacy_contamination_answers"] == 0
+    assert totals["deny_total"] == sum(
+        s["n"] for c, s in report["per_category"].items()
+        if c in ("unsupported", "prompt_injection"))
+
+
+def test_each_enforced_control_holds_on_the_router(baseline, golden_doc):
+    """The allow-controls: refusing everything would pass every deny-case."""
+    _proc, report, _dump = baseline
+    for name, spec in golden_doc["controls"].items():
+        assert report["controls"][name]["status"] == spec["status"]
+        if spec["status"] == "enforced":
+            assert report["controls"][name]["pass"], name
+
+
+# --- probe runs: a three-entry corpus, deterministic by construction ---------
 
 LEAK_MARKER = "ZZ-EVAL-CANARY-MARKER"
-LEGACY_MARKER = "ZZ-EVAL-RETIRED-BRAND"
 
 _PROBE_ENTRIES = [
     {"id": "probe-guide", "title": "راهنمای بازدید",
@@ -281,18 +378,17 @@ _PROBE_ENTRIES = [
      "title_en": "Site map", "text_en": "The site map is posted at the entrance.",
      "questions": ["نقشه محوطه کجا نصب شده"]},
 ]
+GREETED = "سلام، ساعت کاری چگونه است"
 
 
 def _write_probe_pair(tmp_path, poison=None, declare=None):
-    """Write a throwaway corpus + golden pair, optionally poisoned.
+    """A throwaway corpus + golden pair, optionally poisoned.
 
-    The golden query is one entry's curated question VERBATIM, so tier 0 serves
-    that entry with certainty. Its text is what the gates then inspect — which
-    makes the trip deterministic instead of dependent on a retrieval score.
+    Each golden query is a curated question VERBATIM, so tier 0 serves that
+    entry with certainty and the trip does not depend on a retrieval score.
     """
     entries = [dict(e) for e in _PROBE_ENTRIES]
     if poison:
-        entries[0] = dict(entries[0])
         entries[0]["text"] = entries[0]["text"] + " " + poison
     corpus = {"corpus_version": "eval-gate-probe-1.0", "entries": entries}
     golden = {
@@ -304,6 +400,7 @@ def _write_probe_pair(tmp_path, poison=None, declare=None):
              "cat": "legacy_contamination"},
             {"q": entries[1]["questions"][0], "expect": entries[1]["id"],
              "cat": "current_event_facts"},
+            {"q": GREETED, "expect": entries[1]["id"], "cat": "current_event_facts"},
         ],
     }
     golden.update(declare or {})
@@ -314,71 +411,127 @@ def _write_probe_pair(tmp_path, poison=None, declare=None):
     return golden_path
 
 
-def test_a_clean_probe_run_exits_zero(tmp_path):
-    """The allow-control for both gate tests: an unpoisoned corpus passes."""
+@pytest.fixture(scope="module")
+def clean_probe(tmp_path_factory):
+    """HEAVY RUN 2 of 4: a clean probe, default --out, a decoy DB_PATH.
+
+    Three contracts in one run: a clean corpus exits 0 (the allow-control of
+    the poison run), the default report lands outside the repository, and the
+    harness never opens the database the environment points at.
+    """
+    tmp = tmp_path_factory.mktemp("eval-clean-probe")
+    golden = _write_probe_pair(tmp)
+    victim = tmp / "must-not-exist.db"
+    proc = run_eval("--golden", str(golden), "--dump", str(tmp / "dump.json"),
+                    env_extra={"DB_PATH": str(victim)})
+    return proc, tmp, victim
+
+
+def test_a_clean_probe_exits_zero_and_leaves_the_install_database_alone(clean_probe):
+    _proc, _tmp, victim = clean_probe
+    assert not victim.exists(), "the harness wrote into the database it was given"
+
+
+def test_the_default_report_path_stays_outside_the_repository(clean_probe):
+    proc, _tmp, _victim = clean_probe
+    assert not (EVAL_DIR / "retrieval-eval.json").exists()
+    written = [line.split("→", 1)[1].strip()
+               for line in proc.stdout.splitlines() if line.startswith("report →")]
+    assert len(written) == 1 and Path(written[0]).is_file()
+    assert ROOT not in Path(written[0]).parents
+
+
+def test_a_greeting_does_not_change_what_the_router_serves(clean_probe):
+    """D4: the harness reads the query the router matches on, greeting removed.
+
+    «سلام» is in no probe entry. Read on the raw query it is an unknown
+    salient token, and the report would blame the unknown-token gate.
+    """
+    _proc, tmp, _victim = clean_probe
+    rows = _rows(_json(tmp / "dump.json"))
+    plain = rows[_PROBE_ENTRIES[1]["questions"][0]]
+    greeted = rows[GREETED]
+    assert plain["answered"] and plain["served_id"] == "probe-hours"
+    assert greeted["answered"] and greeted["served_id"] == "probe-hours"
+    assert greeted["unknown_tokens"] == []
+
+
+def test_floors_above_the_measured_values_fail_the_gate(tmp_path):
+    """HEAVY RUN 3 of 4. A10 and the deny-cases of SPEC section 4.
+
+    The failure must come from the floor comparison: exit 1, and each broken
+    bound printed with its measured value, while the report itself is fine.
+    """
     golden = _write_probe_pair(tmp_path)
-    run_eval("--golden", str(golden), "--out", str(tmp_path / "out.json"),
-             expect_exit=0)
+    floors = tmp_path / "floors.json"
+    floors.write_text(json.dumps({"full": {
+        "answered_at_1": {"min": 1.01},
+        "false_confident_total": {"max": -1},
+        "recall_at_1": {"min": 0.0},
+    }}))
+    proc = run_eval("--golden", str(golden), "--check", str(floors),
+                    "--out", str(tmp_path / "out.json"), expect_exit=1)
+    assert "FLOOR VIOLATION full.answered_at_1: measured 1.0 < min 1.01" in proc.stdout
+    assert "FLOOR VIOLATION full.false_confident_total: measured 0 > max -1" in proc.stdout
+    assert "full.recall_at_1" not in proc.stdout
+    report = _json(tmp_path / "out.json")
+    assert report["totals"]["secret_leaks"] == 0
+    assert report["totals"]["legacy_contamination_answers"] == 0
 
 
-def test_contamination_gate_exits_non_zero(tmp_path):
+def test_contamination_and_secret_leaks_fail_the_gate(tmp_path):
+    """HEAVY RUN 4 of 4. Both gates, and both halves of the D3 merge.
+
+    The golden file declares a legacy list WITHOUT the default brand token
+    and poisons the corpus with that default one: it must still be caught.
+    It also ADDS a secret marker and poisons with it: the added one must be
+    checked too. No --check: these gates fire regardless of floors.
+    """
+    default_token = harness.LEGACY_TOKENS[-1]
     golden = _write_probe_pair(
-        tmp_path, poison=LEGACY_MARKER,
-        declare={"legacy_tokens": [LEGACY_MARKER]})
+        tmp_path, poison=f"{default_token} {LEAK_MARKER}",
+        declare={"legacy_tokens": ["zz-invented-old-name"],
+                 "secret_markers": [LEAK_MARKER]})
     proc = run_eval("--golden", str(golden), "--out", str(tmp_path / "out.json"),
-                    expect_exit=1)
-    report = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
-    assert report["totals"]["legacy_contamination_answers"] > 0
-    assert proc.returncode != 0
+                    "--dump", str(tmp_path / "dump.json"), expect_exit=1)
+    assert "GATE FAILED" in proc.stdout
+    report = _json(tmp_path / "out.json")
+    assert report["totals"]["legacy_contamination_answers"] == 1
+    assert report["totals"]["secret_leaks"] == 1
+    poisoned = _rows(_json(tmp_path / "dump.json"))[_PROBE_ENTRIES[0]["questions"][0]]
+    assert poisoned["legacy_tokens_found"] == [default_token]
+    assert poisoned["secret_markers_found"] == [LEAK_MARKER]
 
 
-def test_secret_leak_gate_exits_non_zero(tmp_path):
-    golden = _write_probe_pair(
-        tmp_path, poison=LEAK_MARKER,
-        declare={"secret_markers": [LEAK_MARKER]})
-    proc = run_eval("--golden", str(golden), "--out", str(tmp_path / "out.json"),
-                    expect_exit=1)
-    report = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
-    assert report["totals"]["secret_leaks"] > 0
-    assert proc.returncode != 0
+# --- inputs that are not a measurement: exit 2, before any model load --------
+
+def test_a_mode_missing_from_the_floors_file_exits_two(tmp_path):
+    floors = tmp_path / "floors.json"
+    floors.write_text(json.dumps({"full": {"recall_at_1": {"min": 0.1}}}))
+    proc = run_eval("--golden", str(GOLDEN), "--mode", "bm25", "--check",
+                    str(floors), expect_exit=2)
+    assert "mode 'bm25' has no floors" in proc.stderr
+
+
+def test_check_refuses_an_experiment_override(tmp_path):
+    proc = run_eval("--golden", str(GOLDEN), "--check", str(FLOORS),
+                    "--weights", "0.5,0.3,0.2", expect_exit=2)
+    assert "--weights" in proc.stderr
 
 
 def test_a_golden_file_without_a_corpus_is_refused(tmp_path):
-    """The failure that made every published number unreproducible.
-
-    A golden set scored against whatever happens to be in the local database
-    is not a measurement. Refuse it loudly instead of printing a number.
-    """
+    """A golden set scored against whatever is in the local database is not a
+    measurement. Refuse it loudly instead of printing a number."""
     golden = tmp_path / "no-corpus.json"
     golden.write_text(json.dumps(
         {"dataset_version": "x", "knowledge_version": "y",
          "queries": [{"q": "سلام", "expect": None, "cat": "unsupported"}]}),
         encoding="utf-8")
-    proc = run_eval("--golden", str(golden), expect_exit=None)
-    assert proc.returncode != 0
-    assert "corpus" in (proc.stdout + proc.stderr).lower()
+    proc = run_eval("--golden", str(golden), expect_exit=2)
+    assert "corpus" in proc.stderr.lower()
 
 
-def test_the_harness_never_writes_into_the_install_database(tmp_path):
-    """seed_corpus() replaces dataset/questions/synonyms wholesale.
-
-    Pointed at a real install that is a knowledge-base wipe, so the harness
-    has to build its own database. Proven by giving the process a DB_PATH and
-    checking the file is never created.
-    """
-    victim = tmp_path / "must-not-exist.db"
-    env = dict(os.environ)
-    env["OPENAI_API_KEY"] = ""
-    env["DB_PATH"] = str(victim)
-    proc = subprocess.run(
-        [sys.executable, str(RUN_EVAL), "--golden", str(GOLDEN),
-         "--out", str(tmp_path / "out.json")],
-        cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=1800)
-    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
-    assert not victim.exists(), "the harness wrote into the database it was given"
-
-
-# --- CI wiring ------------------------------------------------------------
+# --- CI wiring ---------------------------------------------------------------
 
 @pytest.fixture(scope="module")
 def workflow():
@@ -388,39 +541,34 @@ def workflow():
     return doc
 
 
-def test_ci_has_a_blocking_evaluation_job(workflow):
+def test_ci_has_a_blocking_evaluation_job_that_checks_every_mode(workflow):
     job = workflow["jobs"].get("evaluation")
     assert job is not None, "ci.yml has no `evaluation` job"
     assert not job.get("continue-on-error"), (
-        "the evaluation job must be blocking — an advisory benchmark is a "
+        "the evaluation job must be blocking; an advisory benchmark is a "
         "benchmark nobody fixes")
     triggers = workflow["_triggers"]
     assert "push" in triggers and "pull_request" in triggers
-
-    steps = job["steps"]
-    runs = " ".join(str(s.get("run", "")) for s in steps)
+    runs = " ".join(str(s.get("run", "")) for s in job["steps"])
     assert "scripts/run_eval.py" in runs
-    assert "--golden" in runs
+    assert "--check data/eval/floors.json" in runs
+    for mode in MODES:
+        assert mode in runs, f"the evaluation job does not run --mode {mode}"
     assert any(str(s.get("uses", "")).startswith("actions/upload-artifact")
-               for s in steps), "the evaluation job must upload its report"
+               for s in job["steps"]), "the evaluation job must upload its reports"
+    assert "evaluation" in workflow["jobs"]["deploy"]["needs"]
 
 
 def test_ci_caches_the_embedding_model_on_its_pinned_revision(workflow):
-    """R1: `data/eval` is committed but `data/models` is not.
-
-    The pinned model is a 513 MB download. Without a cache every run of every
-    job pays for it, and the key has to be the revision — a cache keyed on
-    anything looser serves the wrong weights and silently changes a ranking.
-    """
+    """The pinned model is a 513 MB download, and a cache keyed on anything
+    looser than the revision serves the wrong weights and silently changes a
+    ranking."""
     from app.services.embeddings import DEFAULT_MODEL_REVISION
 
     cached = []
     for name, job in workflow["jobs"].items():
         for step in job.get("steps", []):
             if str(step.get("uses", "")).startswith("actions/cache"):
-                key = str(step.get("with", {}).get("key", ""))
-                if DEFAULT_MODEL_REVISION in key:
+                if DEFAULT_MODEL_REVISION in str(step.get("with", {}).get("key", "")):
                     cached.append(name)
-    assert "evaluation" in cached, (
-        "the evaluation job must cache data/models on "
-        "DEFAULT_MODEL_REVISION")
+    assert {"evaluation", "test"} <= set(cached)
