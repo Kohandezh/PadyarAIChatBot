@@ -93,6 +93,28 @@
   (۲۶۰۵ تست) بدون خطای collection.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۰۸ (2026-09-30): spike ورود نیمه‌خودکار دانش
+
+- **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5) در نقش پژوهشگر
+  `ingest-t1-res`، زیر رهبری عامل Foreman `db5-ingest` (مأموریت
+  `20260930-danesh-t5-ingest`). سه زیرعامل فقط-خواندنی (Explore) نقشهٔ کد را
+  کشیدند؛ ارجاع‌های `path:line` سند بعد از آن دستی با `sed`/`grep` چک شدند.
+- **کارهای انجام‌شده:**
+  1. `docs/features/knowledge-ingestion/RESEARCH.md` (spike، وضعیت In Review):
+     انتخاب کتابخانهٔ استخراج، امنیت آپلود و SSRF، chunking، گام AI با قاعدهٔ
+     ADR-018، staging و دروازهٔ انسانی، شکل ماژول، job طولانی.
+  2. ADR-023 (Proposed، شمارهٔ موقت) در `docs/engineering/DECISIONS.md`.
+  3. ردیف `knowledge-ingestion` در `docs/features/INDEX.md`.
+- **آزمایش‌ها (دور ریختنی، در venv جدا زیر `/private/tmp`، نه در مخزن):** کیفیت
+  استخراج متن فارسی از دو PDF، DOCX، XLSX و HTML با شش ابزار؛ حملهٔ billion
+  laughs روی DOCX/XLSX؛ zip bomb با سرفایل صادق و جعلی. فرمان‌ها و خروجی‌ها در
+  بخش ۴ RESEARCH.md ثبت شده‌اند.
+- **پچ‌های ردشده/بازگردانده:** هیچ. هیچ کد تولیدی نوشته نشد.
+- **راستی‌آزمایی ماشینی همین نشست:** ارجاع‌های کد روی commit `3a4a415` دستی چک
+  شد؛ نمودار Mermaid با mermaid-cli رندر و دیده شد؛ `grep` برای خط تیرهٔ بلند روی
+  متن تازه. تست pytest: NOT APPLICABLE (فقط سند).
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.
