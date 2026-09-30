@@ -167,6 +167,51 @@ def test_the_floors_file_covers_every_mode():
         assert harness.load_floors(str(FLOORS), mode)
 
 
+# The exact gates each mode carries. Deleting a line from floors.json removes
+# a gate from CI without failing anything, so the set is pinned here: dropping
+# a gate has to be a visible change to this test too.
+_RANKING_GATES = {"recall_at_1", "mrr", "recall_at_k.3", "recall_at_k.5",
+                  "recall_at_k.8", "per_language.fa.recall_at_1"}
+_SERVING_GATES = _RANKING_GATES | {"per_language.en.recall_at_1", "answered_at_1",
+                                   "per_language.fa.answered_at_1",
+                                   "out_of_scope_refusal_rate", "refusal_precision",
+                                   "false_confident_total"}
+EXPECTED_GATES = {
+    "full": _SERVING_GATES,
+    "full_no_intent": _SERVING_GATES,
+    "hybrid": _RANKING_GATES | {"per_language.en.recall_at_1"},
+    "dense": _RANKING_GATES | {"per_language.en.recall_at_1"},
+    # English BM25 recall is 0 (D7): a floor of 0 checks nothing, so none.
+    "bm25": _RANKING_GATES,
+}
+
+
+def test_the_floors_file_pins_every_gate_of_every_mode():
+    floors = _json(FLOORS)
+    assert set(floors) == set(EXPECTED_GATES)
+    for mode, gates in EXPECTED_GATES.items():
+        assert set(floors[mode]) == gates, (
+            f"floors.json[{mode!r}] changed its gate set; if that is deliberate, "
+            f"change EXPECTED_GATES in the same commit")
+    for mode in ("full", "full_no_intent"):
+        assert floors[mode]["false_confident_total"] == {"max": 0}
+
+
+def test_the_dump_carries_no_latency():
+    """R9: latency is machine-specific; it lives in the report only.
+
+    420eb1e's dump copied `totals` with latency in it, so two dumps of the
+    same command could never be identical.
+    """
+    report = {"mode": "full", "ran_at": "t", "totals": {
+        "recall_at_1": 0.5, "latency_ms_p50": 1.0, "latency_ms_p95": 2.0}}
+    doc = harness.dump_document(report, [{"q": "x"}])
+    assert doc["totals"] == {"recall_at_1": 0.5}
+    assert doc["queries"] == [{"q": "x"}]
+    assert "latency" not in json.dumps(doc)
+    assert report["totals"]["latency_ms_p50"] == 1.0, "the report keeps it"
+
+
 def test_corpus_is_not_seeded_into_an_install():
     """`app/default_content.py` stays empty: a customer must not inherit it."""
     from app import default_content

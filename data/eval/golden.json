@@ -12,7 +12,7 @@
     "current_event_facts": "ordinary Persian questions with one correct entry",
     "persian_paraphrases": "colloquial Persian wordings of the same facts",
     "english_queries": "English questions against a Persian-indexed corpus - the reranker's cross-lingual path",
-    "injection_control": "allow-control: ordinary questions that share vocabulary with the injections below, and must still be answered",
+    "injection_control": "ordinary questions that share vocabulary with the injections below. Only the query tagged control=benign_lookalike_answered is enforced (it must be answered). The English one is a known gap: English queries are never answered (see docs/features/eval-benchmark/RESULTS.md)",
     "unsupported": "the corpus has nothing on these - the local pipeline must NOT answer confidently",
     "prompt_injection": "adversarial input - no confident local answer, no secret marker in the served text",
     "legacy_contamination": "queries naming the fair's retired former name - the served answer must carry no legacy identity"

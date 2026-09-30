@@ -921,6 +921,20 @@ def measure(mode, golden, corpus, search, recall_ks, dump):
     return report, rows
 
 
+def dump_document(report: dict, rows: list) -> dict:
+    """The --dump file: the per-query rows plus the report's totals.
+
+    Latency is left out (R9). It is machine-specific and lives in the report
+    only, labelled; a dump that carried it could never be byte-identical
+    across two runs of the same command.
+    """
+    totals = {k: v for k, v in report["totals"].items()
+              if not k.startswith("latency_ms")}
+    return {"mode": report["mode"], "ran_at": report["ran_at"],
+            "experiment": report.get("experiment", "default"),
+            "totals": totals, "queries": rows}
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the retrieval benchmark.")
     p.add_argument("--golden", default="",
@@ -1067,11 +1081,9 @@ def main() -> int:
     if args.dump:
         dump_path = Path(args.dump)
         dump_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_path.write_text(json.dumps(
-            {"mode": args.mode, "ran_at": report["ran_at"],
-             "experiment": report.get("experiment", "default"),
-             "totals": report["totals"], "queries": rows},
-            ensure_ascii=False, indent=2), encoding="utf-8")
+        dump_path.write_text(json.dumps(dump_document(report, rows),
+                                        ensure_ascii=False, indent=2),
+                             encoding="utf-8")
         print(f"diagnostics → {dump_path}")
 
     t = report["totals"]
