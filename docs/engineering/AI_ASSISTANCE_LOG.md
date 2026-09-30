@@ -111,7 +111,7 @@
   4. `data/eval/golden.json`: نام قدیمی ساختگی به‌جای یک نام تجاری واقعی،
      کنترل‌ها با وضعیت صریح. `data/eval/floors.json` تازه.
   5. job `evaluation` در CI هر پنج حالت را با `--check` اجرا می‌کند.
-  6. `tests/test_eval_harness.py`: ۴۵ تست، با چهار اجرای سنگین harness.
+  6. `tests/test_eval_harness.py`: ۴۷ تست، با چهار اجرای سنگین harness.
   7. `docs/features/eval-benchmark/RESULTS.md` و جایگزینی عددهای
      بازتولیدناپذیر در `docs/engineering/`، `app/config.py` (فقط کامنت) و
      `CLAUDE.md` (فقط ردیف `ANSWER_TOPK`).
@@ -122,7 +122,7 @@
 - **پچ‌های بازگردانده:** هیچ.
 - **راستی‌آزمایی ماشینی همین نشست:** هر پنج حالت دو بار با `--check`، همه با
   کد خروج ۰ و گزارش و dump یکسان در دو اجرا؛ `pytest tests/test_eval_harness.py`
-  ۴۵ تست سبز؛ `python -m py_compile` روی فایل‌های تغییریافته. کل مجموعهٔ تست
+  ۴۷ تست سبز؛ `python -m py_compile` روی فایل‌های تغییریافته. کل مجموعهٔ تست
   محلی اجرا نشد (دروازه CI است).
 - **بازبینی انسانی:** pending.
 
