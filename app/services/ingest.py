@@ -285,7 +285,9 @@ def chunk(extracted: Extracted) -> list:
 # ── REQ-031..REQ-033: proposals and their labels ─────────────────────────
 
 _FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
-_FIRST_SENTENCE = re.compile(r"[.؟!?؛\n]")
+# A sentence ends at a mark followed by whitespace or the end of the text,
+# or at a line break: the dot inside "2.5" or "www.example.com" is not one.
+_FIRST_SENTENCE = re.compile(r"[.؟!?؛۔](?=\s|$)|\n")
 
 
 def _title(piece: Chunk) -> tuple:
@@ -490,6 +492,9 @@ def display_url(url: str) -> str:
     hands back the ASCII form (xn--...) of a Persian domain."""
     parts = urlsplit(url)
     host = parts.hostname or ""
+    if ":" in host:
+        # An IPv6 literal: no letters to decode, and the brackets must stay.
+        return url
     try:
         readable = host.encode("ascii").decode("idna")
     except (UnicodeError, ValueError):
@@ -754,10 +759,12 @@ async def _propose(job_id: str, called: bool) -> bool:
         errors_in_a_row = 0
         for proposal in _waiting(job_id):
             seq = proposal["seq"]
-            if _status(job_id) != "proposing":
-                break
             if called:
                 await asyncio.sleep(PACE_SECONDS)
+            # Read after the pacing gap: a cancel during it must stop this
+            # chunk from leaving the server (REQ-039, SEC-024).
+            if _status(job_id) != "proposing":
+                break
             called = True
             started = time.monotonic()
             try:
@@ -918,12 +925,18 @@ def _apply(proposal: dict, reply, known: set) -> None:
         pair = _clean_synonym(item)
         if pair is not None and pair not in synonyms and len(synonyms) < MAX_SYNONYMS:
             synonyms.append(pair)
+    # An admin may edit a card before the model reaches it (REQ-056), and
+    # `proposal` is the snapshot read when the stage started. The edit wins:
+    # an edited card only leaves `waiting`, its fields stay the admin's.
     with closing(get_db_connection()) as conn:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE ingest_proposals SET title = ?, title_source = ?, questions = ?, synonyms = ?,"
-            " ai_state = 'done' WHERE id = ? AND status = 'pending' AND ai_state = 'waiting'",
+            " ai_state = 'done' WHERE id = ? AND status = 'pending' AND ai_state = 'waiting' AND edited = 0",
             (title, source, json.dumps(questions, ensure_ascii=False),
              json.dumps(synonyms, ensure_ascii=False), proposal["id"]))
+        if cur.rowcount != 1:
+            conn.execute("UPDATE ingest_proposals SET ai_state = 'done' WHERE id = ? AND ai_state = 'waiting'",
+                         (proposal["id"],))
         conn.commit()
 
 

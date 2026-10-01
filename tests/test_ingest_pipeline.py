@@ -297,6 +297,20 @@ async def test_a_chunk_without_a_heading_is_titled_by_its_first_sentence(db, ext
     assert not proposal["title"].endswith(" ")
 
 
+@pytest.mark.parametrize("text,title", [
+    ("قیمت بلیت 2.5 میلیون تومان است. جمله دوم این بخش.", "قیمت بلیت 2.5 میلیون تومان است"),
+    ("نشانی سایت www.example.com است و ثبت‌نام همان‌جاست. جمله دوم.",
+     "نشانی سایت www.example.com است و ثبت‌نام همان‌جاست"),
+    ("ساعت کاری نمایشگاه چیست؟ هر روز از نه صبح باز است.", "ساعت کاری نمایشگاه چیست"),
+    ("ورود به سالن اصلی رایگان است. بلیت لازم نیست.", "ورود به سالن اصلی رایگان است"),
+    ("این بخش فقط یک جمله دارد و نقطهٔ آن آخر متن است.", "این بخش فقط یک جمله دارد و نقطهٔ آن آخر متن است"),
+])
+async def test_a_local_title_ends_at_a_real_sentence_end_only(db, extract_as, text, title):
+    job_id = await _run([_para(text)], extract_as)
+    [proposal] = _proposals(job_id)
+    assert (proposal["title"], proposal["title_source"]) == (title, "local")
+
+
 # ── REQ-032, REQ-033: duplicate labels ───────────────────────────────────
 
 def _live_entry(item_id, title, text):
@@ -457,6 +471,13 @@ def test_the_display_name_is_the_base_name_only(db):
     from app.services import ingest
     job, _ = ingest.create_job("file", "../../etc/passwd.txt", b"abc", "txt", "admin")
     assert job["source_name"] == "passwd.txt"
+
+
+@pytest.mark.parametrize("url", ["https://[2606:4700:4700::1111]/about",
+                                 "https://[2606:4700:4700::1111]:443/about?x=1"])
+def test_an_ipv6_page_address_keeps_its_brackets(url):
+    from app.services import ingest
+    assert ingest.display_url(url) == url
 
 
 async def test_a_web_page_is_read_with_the_charset_its_server_declared(db):
@@ -655,6 +676,49 @@ async def test_each_call_is_logged_without_the_document_text(db, extract_as, ai,
     assert calls[0][3]["tokens_out"] == 17
 
 
+# ── REQ-056 against the model stage: the admin's edit wins ──────────────
+
+async def test_an_edit_made_before_the_model_stage_survives_its_answer(db, extract_as, ai, monkeypatch):
+    from app.services import ingest
+    job_id = await _extracted_job([_heading("بخش اول"), _para("متن بخش اول درباره ساعت کاری نمایشگاه.")],
+                                  extract_as, monkeypatch)
+    [proposal] = _proposals(job_id)
+    ingest.edit_proposal(proposal["id"], {"title": "عنوان مدیر", "questions": ["پرسش نوشتهٔ مدیر چیست؟"],
+                                          "synonyms": [{"word": "نمایشگاه", "suggestion": "اکسپو"}]}, "admin")
+    fake = ai(_reply(title="عنوان مدل", questions=["پرسش ساختهٔ مدل چیست؟"], synonyms=[("ساعت", "زمان")]))
+    await ingest.run_model_loop()
+    [after] = _proposals(job_id)
+    assert len(fake.calls) == 1
+    assert (after["title"], after["title_source"], after["edited"]) == ("عنوان مدیر", "admin", 1)
+    assert after["questions"] == ["پرسش نوشتهٔ مدیر چیست؟"]
+    assert after["synonyms"] == [{"word": "نمایشگاه", "suggestion": "اکسپو"}]
+    assert after["ai_state"] == "done"
+    assert _job(job_id)["status"] == "ready"
+
+
+async def test_an_edit_made_while_the_model_answers_another_chunk_survives(db, extract_as, ai, monkeypatch):
+    from app.services import ingest
+    from app.services.ai.wrapper import padyar_ai
+    job_id = await _extracted_job([_heading("بخش یک"), _para("متن بخش یک درباره بلیت ورود."),
+                                   _heading("بخش دو"), _para("متن بخش دو درباره پارکینگ.")],
+                                  extract_as, monkeypatch)
+    first, second = _proposals(job_id)
+    fake = ai(_reply(questions=["بلیت ورود چند است؟"]), _reply(questions=["پارکینگ کجاست؟"]))
+    inner = fake.__call__
+
+    async def editing_during_the_first_call(messages, **kwargs):
+        if len(fake.calls) == 0:
+            ingest.edit_proposal(second["id"], {"title": "پارکینگ (ویرایش مدیر)"}, "admin")
+        return await inner(messages, **kwargs)
+    monkeypatch.setattr(padyar_ai, "generate", editing_during_the_first_call)
+    await ingest.run_model_loop()
+    one, two = _proposals(job_id)
+    assert one["questions"] == ["بلیت ورود چند است؟"]
+    assert (two["title"], two["title_source"], two["edited"]) == ("پارکینگ (ویرایش مدیر)", "admin", 1)
+    assert two["questions"] == []
+    assert two["ai_state"] == "done"
+
+
 # ── REQ-037, REQ-038: one job in the model stage ─────────────────────────
 
 async def test_two_ready_jobs_never_share_the_model_stage(db, extract_as, ai, monkeypatch):
@@ -778,6 +842,25 @@ async def test_a_cancel_mid_call_holds_the_slot_until_the_call_returns(db, extra
     assert all(p["questions"] == [] for p in _proposals(first))
     assert _job(second)["status"] == "ready"
     assert len(calls) == 3
+
+
+async def test_a_cancel_during_the_pacing_gap_sends_no_further_chunk(db, extract_as, ai, monkeypatch):
+    from app.services import ingest
+    job_id = await _extracted_job(_five_chunks()[:6], extract_as, monkeypatch)
+    real_sleep = asyncio.sleep
+    sleeps = []
+
+    async def cancelling_sleep(seconds):
+        sleeps.append(seconds)
+        if seconds >= 1.0 and len([s for s in sleeps if s >= 1.0]) == 1:
+            ingest.cancel_job(job_id, "admin")
+        await real_sleep(0)
+    monkeypatch.setattr(ingest, "PACE_SECONDS", 1.0)
+    monkeypatch.setattr(ingest.asyncio, "sleep", cancelling_sleep)
+    fake = ai()
+    await ingest.run_model_loop()
+    assert len(fake.calls) == 1
+    assert _job(job_id)["status"] == "cancelled"
 
 
 # ── REQ-036: recovery ────────────────────────────────────────────────────
