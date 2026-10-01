@@ -822,11 +822,14 @@ async def test_recent_files_read_in_plain_words(html, open_page):
     api = FakeApi(html, job=jobs[0], jobs=jobs)
     page = await open_page(api)
     text = await _text(page, "#ingest-jobs")
-    for words in ("۸۵ پیشنهاد", "تمام شد", "خوانده نشد", "لغو شد", WAIT_NOTE):
+    for words in ("تمام شد", "خوانده نشد", "لغو شد", WAIT_NOTE):
         assert words in text, words
-    # The list API counts every proposal of the file, not the ones still
-    # waiting, so the row must not read as "85 left to review".
-    assert "آمادهٔ بررسی" not in text
+    # The state in plain words, then the file's total: the list API counts
+    # every proposal of the file, not the ones still waiting, so the row
+    # must not read as "85 left to review" («آمادهٔ بررسی: ۸۵»).
+    ready = page.locator('#ingest-jobs a[href="?job=a"] .ingest-job-status')
+    assert (await ready.inner_text()).strip() == "آمادهٔ بررسی · ۸۵ پیشنهاد"
+    assert "آمادهٔ بررسی:" not in text
     assert await page.locator('#ingest-jobs a[href="?job=a"]').count() == 1
     _assert_plain(await _text(page))
 

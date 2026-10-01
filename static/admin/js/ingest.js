@@ -75,7 +75,7 @@ const T = {
     failedRequest: 'کار انجام نشد. اتصال را بررسی کنید و دوباره امتحان کنید.',
     jobPreparing: 'در حال آماده شدن',
     jobCancelling: 'در حال لغو',
-    jobCount: (n) => `${fa(n)} پیشنهاد`,
+    jobReady: (n) => `آمادهٔ بررسی · ${fa(n)} پیشنهاد`,
     jobDone: 'تمام شد',
     jobFailed: 'خوانده نشد',
     jobCancelled: 'لغو شد',
@@ -846,8 +846,9 @@ async function loadCards(offset, limit) {
 function jobStatus(job) {
     switch (job.status) {
         // The list API counts every proposal of the file, not the ones
-        // still waiting, so the row states the total and nothing more.
-        case 'ready': return T.jobCount(job.chunk_count);
+        // still waiting, so the number is the file's total, set apart from
+        // the state word instead of read as "N left to review".
+        case 'ready': return T.jobReady(job.chunk_count);
         case 'done': return T.jobDone;
         case 'failed': return T.jobFailed;
         case 'cancelled': return T.jobCancelled;
@@ -864,7 +865,7 @@ function jobRow(job, openId) {
         row.setAttribute('aria-current', 'page');
     }
     const name = el('div', 'ingest-break fw-medium', job.source_name);
-    row.append(name, el('div', 'small', jobStatus(job)));
+    row.append(name, el('div', 'small ingest-job-status', jobStatus(job)));
     return row;
 }
 
