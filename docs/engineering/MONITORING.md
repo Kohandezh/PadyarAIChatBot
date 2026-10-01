@@ -129,30 +129,57 @@ The router is included unconditionally in `app/main.py:604`, outside the
 `ENABLED_MODULES` system. It is not an optional module, so every install has
 the endpoint and every install relies on the auth above.
 
-### Reverse proxy: the token is the only gate today
+### Reverse proxy: nginx answers `/metrics` with 404
 
-The old version of this file said to keep `/metrics` out of the public nginx
-server block. **That was never implemented.** Checked today:
+The public vhost never proxies `/metrics` to the app. In the HTTPS server
+block of `deploy/nginx/instance.conf.template`, above the catch-all
+`location / { proxy_pass ... }`, there is:
 
-```bash
-grep -n "location" deploy/nginx/instance.conf.template
-grep -rn "metrics" deploy/nginx/    # no match: no nginx file mentions /metrics
+```nginx
+location = /metrics {
+    return 404;
+}
 ```
 
-`deploy/nginx/instance.conf.template:184` is a catch-all
-`location / { proxy_pass ... }`. There is no `location = /metrics` and no
-`deny`. So on a deployed install, `/metrics` **is** reachable from the
-internet, and the in-app 403 is the only thing standing in front of it.
+So a request from the internet gets a 404 from nginx and never reaches
+uvicorn. The in-app auth above is now the second layer, not the only one.
+Before this block existed, the catch-all proxied `/metrics` and the app's 403
+was the only thing in front of it.
 
-That is not broken (the endpoint was built to defend itself), but it is weaker
-than defence in depth. If you want the second layer, the options are:
+Why 404 and not `deny all` (403): a 404 says nothing about whether the
+endpoint exists. A 403 from nginx would confirm it.
 
-- Add a `location = /metrics { deny all; }` block above the catch-all, and let
-  the scraper reach uvicorn on loopback instead.
-- Or reach the endpoint over a private network or tunnel only.
+What the exact match covers, and what it does not:
 
-Either change belongs in `deploy/nginx/instance.conf.template`. Nobody has made
-it yet.
+| Request | Result |
+|---|---|
+| `/metrics` | 404 from nginx |
+| `/metrics?x=1` | 404. nginx matches a location on the path only, without the query string |
+| `//metrics`, `/%6Detrics` | 404. nginx merges slashes and decodes the path before it matches |
+| `/metrics/`, `/metricsx`, `/METRICS` | Not matched. Proxied to the app, the same as before this change |
+| `http://` (port 80) | The port 80 block proxies nothing. It redirects to HTTPS, which then gives the 404 |
+
+Only the HTTPS server block proxies to the app, so it is the only block that
+needs the location. `tests/test_nginx_template.py` pins this: the block exists
+in every server block that has a `proxy_pass`, it returns 404, it comes before
+`location / {`, and no other location mentions `metrics`. The test reads the
+template text, because nginx is not installed on CI.
+
+Nothing legitimate needs `/metrics` through nginx. A scraper reads the app's
+loopback port directly (`http://127.0.0.1:<APP_PORT>/metrics`). A scraper on
+another host must reach that port over a private network or an SSH tunnel,
+not through the public domain.
+
+**An existing host does not get this change from a deploy.**
+`deploy/padyar-deploy.sh` does not re-render the vhost. Re-render it once per
+install with one of the two scripts that do: re-run
+`sudo bash deploy/15-nginx-and-ssl.sh <slug> <port> <domain>`, or run
+`sudo MAINTENANCE_TITLE='<visitor-facing name>' bash deploy/17-watchdog.sh <slug> <port> <domain>`.
+With `17-watchdog.sh`, `MAINTENANCE_TITLE` is required. That script also
+re-renders the maintenance page visitors see when the app is down, and without
+the variable the page goes back to the default title instead of the install's
+own name. The full commands and the check are in `deploy/README.md`, section
+"Closing `/metrics` on an existing host".
 
 ### Setting the token
 

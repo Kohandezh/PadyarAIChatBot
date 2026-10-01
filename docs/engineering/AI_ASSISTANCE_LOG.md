@@ -93,6 +93,32 @@
   (۲۶۰۵ تست) بدون خطای collection.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): بستن `/metrics` در nginx
+
+- **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5). پیاده‌سازی WU0 از
+  `docs/features/monitoring-stack/SPEC.md` (PR #158، هنوز روی main نیست؛ REQ-061، REQ-066، SEC-002).
+- **ریشهٔ مشکل:** `location /` در `deploy/nginx/instance.conf.template` همهٔ
+  مسیرها را، از جمله `/metrics`، به برنامه می‌فرستاد. پس `/metrics` از اینترنت
+  در دسترس بود و فقط 403 خود برنامه جلوی آن بود.
+- **کارهای انجام‌شده (پچ‌های پذیرفته‌شده):**
+  1. بلوک `location = /metrics { return 404; }` در server block پورت 443، بالای
+     `location /`. فقط همین server block به برنامه proxy می‌کند؛ بلوک پورت 80
+     فقط به HTTPS redirect می‌دهد و دست نخورد.
+  2. تست تازهٔ `tests/test_nginx_template.py` (۷ تست، فقط متن قالب، بدون
+     nginx، شبکه یا root): بلوک در هر server block که `proxy_pass` دارد هست،
+     404 برمی‌گرداند، پیش از `location / {` است، و بقیهٔ locationها عوض نشده‌اند.
+  3. مستندسازی: بخش reverse proxy در `docs/engineering/MONITORING.md`، و در
+     `deploy/README.md` یک ردیف جدول nginx و بخش «Closing `/metrics` on an
+     existing host» (اجرای دوبارهٔ `15-nginx-and-ssl.sh`، یا `17-watchdog.sh` با
+     `MAINTENANCE_TITLE` تا عنوان صفحهٔ نگهداری به پیش‌فرض برنگردد).
+- **پچ‌های ردشده/بازگردانده:** `deny all` (403) به‌جای 404 رد شد، چون 403 از
+  nginx وجود endpoint را تأیید می‌کند.
+- **راستی‌آزمایی ماشینی همین نشست:** تست تازه پیش از تغییر قالب ۳ شکست و ۴
+  موفق داشت، و بعد از آن ۷ موفق. `nginx -t` روی قالب رندرشده اجرا **نشد**،
+  چون nginx روی این ماشین نصب نیست. چک زندهٔ 404 روی سرور (SC-008) اجرا
+  **نشد**؛ کار اپراتور بعد از merge است.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.
