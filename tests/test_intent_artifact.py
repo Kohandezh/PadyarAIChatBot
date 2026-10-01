@@ -1080,6 +1080,12 @@ def test_every_script_that_boots_the_app_redirects_the_artifact_directory():
         assert redirect != -1, f"{path} boots the app without redirecting INTENT_MODEL_DIR"
         assert boot_import == -1 or redirect < boot_import, \
             f"{path} redirects INTENT_MODEL_DIR only after importing the app"
+        # One redirect is not enough when a script has several entry points
+        # (run_eval.py: --conversations and the benchmark). Every place that
+        # moves the database to a throwaway one must move the model too.
+        assert source.count('os.environ["INTENT_MODEL_DIR"]') >= \
+            source.count('os.environ["DB_PATH"]'), \
+            f"{path} moves DB_PATH somewhere without also moving INTENT_MODEL_DIR"
 
 
 # ── Turn 3, finding 4: only the owner can write the directory ───────────
