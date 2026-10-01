@@ -72,7 +72,8 @@ ablation یعنی یک بخش را برمی‌داریم و می‌بینیم ع
 - **توسعه‌دهنده یا ارزیاب بیرونی:** دستور را از ریشهٔ مخزن اجرا می‌کند.
   هیچ endpoint، هیچ نشست ادمین و هیچ کوکی بازدیدکننده‌ای در کار نیست.
 - **CI (`.github/workflows/ci.yml`، job `evaluation`):** همان دستور را روی هر
-  push و هر PR اجرا می‌کند. `deploy` منتظر آن می‌ماند.
+  push و هر PR اجرا می‌کند. CI دیگر job `deploy` ندارد (PR #155) و deploy دستی
+  است، پس این job دروازهٔ merge است.
 - harness هرگز به پایگاه‌دادهٔ نصب دست نمی‌زند. پیش از اولین import از
   `app`، `DB_PATH` و `LOGS_DB_PATH` را به یک پوشهٔ موقت می‌برد (همان کاری که
   `420eb1e` می‌کند و همان‌جا می‌ماند).
@@ -421,8 +422,8 @@ OPENAI_API_KEY= .venv/bin/python scripts/run_eval.py --golden data/eval/golden.j
   `docs/engineering/DECISIONS.md` و `docs/engineering/ARCHITECTURE.md`. هیچ کدی
   در `app/**` گزارش را نمی‌خواند.
 - **CI:** job `evaluation` همهٔ حالت‌ها را با `--check data/eval/floors.json`
-  اجرا و هر گزارش را آپلود می‌کند. `deploy.needs` همچنان `evaluation` را
-  دارد. کلید کش مدل همان revision سنجاق‌شده (`DEFAULT_MODEL_REVISION`) است.
+  اجرا و هر گزارش را آپلود می‌کند. job `deploy` از PR #155 در CI نیست، پس
+  `evaluation` فقط دروازهٔ merge است. کلید کش مدل همان revision سنجاق‌شده (`DEFAULT_MODEL_REVISION`) است.
 - **کلیدهای گزارش:** `totals.recall_at_3` حذف و
   `per_category.*.correct` معنی‌اش سخت‌تر می‌شود. هیچ مصرف‌کنندهٔ کدی جز
   تست‌ها ندارند. تست‌ها در همان تغییر به‌روز می‌شوند.
@@ -464,8 +465,8 @@ OPENAI_API_KEY= .venv/bin/python scripts/run_eval.py --golden data/eval/golden.j
       حداکثر یک پرسش از مخرج است. `RESULTS.md` حد تحمل و دلیلش را می‌گوید.
 - [ ] هر کنترلی که امروز برآورده نمی‌شود، `known_gap` است و در `RESULTS.md`
       با مقدار اندازه‌گیری‌شده آمده.
-- [ ] job `evaluation` همهٔ حالت‌ها را با `--check` اجرا می‌کند و `deploy`
-      منتظر آن است.
+- [ ] job `evaluation` همهٔ حالت‌ها را با `--check` اجرا می‌کند و blocking
+      است (job `deploy` از PR #155 در CI نیست).
 - [ ] `grep -rn "0.952\|0.786\|۰.۹۵۲\|۰.۷۸۶" docs/engineering CLAUDE.md app/config.py`
       هیچ عدد قدیمیِ بدون برچسب برنمی‌گرداند.
 
