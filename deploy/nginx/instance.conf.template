@@ -181,6 +181,16 @@ server {
         proxy_set_header X-Forwarded-For   $remote_addr;
     }
 
+    # Prometheus metrics are never served to the internet. The scraper reads
+    # the app's loopback port directly, so nothing legitimate comes through
+    # here, and without this block the catch-all below would proxy /metrics
+    # with only the app's own 403 in front of it. Exact match: the query
+    # string is ignored, so /metrics?x=1 gets the 404 too; /metrics/ and
+    # /metricsx are other paths and still go to the app.
+    location = /metrics {
+        return 404;
+    }
+
     location / {
         proxy_pass http://padyar_{{SLUG}};
         proxy_http_version 1.1;

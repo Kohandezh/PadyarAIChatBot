@@ -121,22 +121,65 @@ gh pr ready
 
 ### PR body
 
-State the root cause, not just the change. A useful body answers: what was broken, why, what the fix does, and how it was verified.
+Every PR body uses the six headings of `.github/pull_request_template.md`, in
+this order, spelled exactly like this:
+
+`## Root cause`, `## Design doc`, `## Tests`, `## Security`, `## AI assistance`, `## Human review`.
+
+The `pr-governance` workflow runs `scripts/check_pr_governance.py` on every PR.
+When the PR changes `app/` or `migrations/`, the first five sections must have
+text outside HTML comments, or the check shows a red X. The rules and the
+reason the check is advisory: `docs/features/review-governance/SPEC.md` and
+ADR-026. The review process: `docs/engineering/REVIEW_PROCESS.md`.
+
+- **Root cause:** what was broken and why, not only what changed.
+- **Design doc:** the path of a doc under `docs/` that exists in this branch,
+  or one line `No design needed: <reason>` with a reason of at least 15
+  characters.
+- **Tests:** the test that proves it, and that it fails without the fix. Say
+  what you ran and what you did not run.
+- **Security:** who can reach the change, and the denied path.
+- **AI assistance:** what the agent wrote and what the agent itself verified.
+- **Human review:** an agent leaves this section **empty**. Never tick a box,
+  never write a reviewer name, never write that a human reviewed anything. Only
+  the human reviewer fills it.
+
+Check the body before you open the PR:
+
+```bash
+git -c core.quotePath=false diff --no-renames --name-only main...HEAD > /tmp/changed.txt
+python scripts/check_pr_governance.py --body-file /tmp/pr-body.md --changed-files /tmp/changed.txt
+```
+
+Example:
 
 ```
-Root cause: the chat token is minted per theme render, so switching themes
-invalidated the token the open page was still holding.
+## Root cause
+The chat token is minted per theme render, so switching themes invalidated
+the token the open page was still holding.
 
-Fix: mint the token per session instead of per render, and validate it
-against the session in app/auth/security.py.
+## Design doc
+No design needed: one-line lifetime fix, the token design is unchanged.
 
-Verified: new test tests/test_chat_token.py::test_token_survives_theme_switch
-(fails on main), plus CI.
+## Tests
+New test tests/test_chat_token.py::test_token_survives_theme_switch fails on
+main and passes here. Full suite: CI.
+
+## Security
+The token is still validated in app/auth/security.py. An expired token is
+still rejected (tested).
+
+## AI assistance
+An agent wrote the fix and the test, ran py_compile and the new test file.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+## Human review
 ```
 
-End every PR body you write with that trailer line.
+Put the `🤖 Generated with` trailer line at the end of `## AI assistance`,
+before `## Human review`. `## Human review` is the last heading and stays
+completely empty in a body an agent writes.
 
 **Visuals in the body.** When the description has to explain a *shape* (a call path that moved, a file that split, a state machine that gained a branch), a sketch is shorter than the paragraph it replaces. The `show-me` skill owns the form, and a `diff` block showing a call tree before and after is the usual fit. GitHub renders `diff`, `text`, and `mermaid` blocks in a PR body. At most one per PR, and it replaces prose rather than adding to it.
 

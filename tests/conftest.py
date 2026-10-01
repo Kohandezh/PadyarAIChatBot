@@ -74,6 +74,27 @@ def _never_touch_the_real_log_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _never_touch_the_real_intent_artifact(tmp_path, monkeypatch):
+    """Redirect this install's trained-model files for EVERY test.
+
+    Every `TestClient(app)` boot runs the app lifespan, which turns recording
+    on and reindexes, so without this fixture a test run would write, or
+    delete, the operator's real data/intent-model/. Measured on the earlier
+    design: a plain `pytest tests/test_intent_routing.py` emptied it.
+
+    Same idiom, and same reason, as the ENV_FILE and LOGS_DB_PATH fixtures
+    above. tests/test_intent_artifact.py has a guard test that fails if this
+    fixture is removed.
+    """
+    import app.config as config
+    from app.services import intent
+    monkeypatch.setattr(config, "INTENT_MODEL_DIR", str(tmp_path / "intent-model"))
+    # Recording is a process-wide switch the app lifespan turns on. Every test
+    # starts with it off, and gets it back off, so no test inherits it.
+    monkeypatch.setattr(intent, "_recording", False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_settings_cache():
     """Drop the process-local settings TTL cache around every test.
 

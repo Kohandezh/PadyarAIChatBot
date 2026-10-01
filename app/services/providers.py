@@ -34,6 +34,15 @@ class ProviderStatus:
     detail: str = ""
     latency_ms: Optional[float] = None
     checked_at: float = field(default_factory=time.time)
+    # Measured holdout accuracy of this install's trained intent classifier,
+    # 0-1, or None when it has no classifier. A NUMBER, not a boolean: the
+    # detail line below used to say only intent=trained|off, which cannot tell
+    # a classifier that is right 9 times out of 10 from one that is right 4.
+    # Set by the local provider only; the external one has no model of its own.
+    intent_holdout_accuracy: Optional[float] = None
+    # Version of the recorded model being served (app/services/intent.py),
+    # or None when no recorded model is served. Local provider only.
+    intent_model_version: Optional[int] = None
 
     def as_dict(self) -> dict:
         return {
@@ -42,6 +51,8 @@ class ProviderStatus:
             "available": self.available,
             "detail": self.detail,
             "latency_ms": self.latency_ms,
+            "intent_holdout_accuracy": self.intent_holdout_accuracy,
+            "intent_model_version": self.intent_model_version,
         }
 
 
@@ -65,13 +76,24 @@ class LocalRetrievalProvider:
             # probe still reports it as DEGRADED, and the count rides the
             # detail line here.
             ok = True
+            classifier = search.intent_classifier
+            accuracy = classifier.holdout_accuracy if classifier is not None else None
+            version = classifier.model_version if classifier is not None else None
+            # The measured number and the version ride the human-readable line
+            # as well, so an operator reading /api/ready by eye sees them
+            # without parsing JSON.
+            measured = f", accuracy={accuracy:.3f}" if accuracy is not None else ""
+            if version is not None:
+                measured += f", version={version}"
             detail = (
                 f"dataset={len(search.dataset)} entries, "
                 f"backend={'embedding+bm25' if search.dataset_embedding_index is not None else 'bm25'}, "
-                f"intent={'trained' if search.intent_classifier is not None else 'off'}"
+                f"intent={'trained' if classifier is not None else 'off'}{measured}"
             )
             return ProviderStatus(self.name, self.kind, ok, detail,
-                                  (time.perf_counter() - t0) * 1000)
+                                  (time.perf_counter() - t0) * 1000,
+                                  intent_holdout_accuracy=accuracy,
+                                  intent_model_version=version)
         except Exception as e:  # noqa: BLE001
             return ProviderStatus(self.name, self.kind, False, f"{type(e).__name__}: {e}")
 

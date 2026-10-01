@@ -889,7 +889,7 @@ flowchart TB
 **ریسک‌ها:**
 
 - **شمارهٔ ADR و migration:** ADR-022 روی شاخهٔ `feat/intent-model-artifact`
-  گرفته شده است. ADR-023 موقتی است و ممکن است هنگام merge عوض شود. شمارهٔ
+  گرفته شده است. شمارهٔ ADR-023 از 2026-10-01 ثابت است (بعد از merge کردن `main`). شمارهٔ
   migration بعد از 0029 هم همین ریسک را دارد.
 - **تأیید و بازسازی نمایه (خواندن کد):** اگر هنگام تأیید یک بازسازی دیگر قفل را
   گرفته باشد، `_rebuild` **بدون انتشار نسخه** برمی‌گردد
@@ -958,7 +958,7 @@ flowchart TB
 
 - PRD: ندارد. هدف در `/Users/sinashamsizadeh/herdr-worktrees/briefs/5-knowledge-ingestion.md` است.
 - Spec: `docs/features/knowledge-ingestion/SPEC.md` (واحد B، هنوز نوشته نشده)
-- ADR: ADR-023 در `docs/engineering/DECISIONS.md` (Proposed، شمارهٔ موقت)؛ مرتبط: ADR-006 (بازنشسته)، ADR-016، ADR-017، ADR-018
+- ADR: ADR-023 در `docs/engineering/DECISIONS.md` (Proposed، شمارهٔ ثابت)؛ مرتبط: ADR-006 (بازنشسته)، ADR-016، ADR-017، ADR-018
 - Plan: ندارد
 
 **منابع بیرونی (همه در 2026-09-30 خوانده شدند):**

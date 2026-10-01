@@ -1308,7 +1308,7 @@ route/UI pairs must close in the same change.»
 - PRD: ندارد. هدف از brief مالک (در مخزن نیست) در بخش ۱ نقل شده است.
 - Spike: `docs/features/knowledge-ingestion/RESEARCH.md` (پذیرفته‌شده در بازبینی تیم،
   commitهای `eaaf0d4`، `4d79351`، `075b935`؛ وضعیت In Review تا تأیید Sina).
-- ADR: ADR-023 در `docs/engineering/DECISIONS.md` (Proposed، شمارهٔ موقت)؛ مرتبط:
+- ADR: ADR-023 در `docs/engineering/DECISIONS.md` (Proposed، شمارهٔ ثابت)؛ مرتبط:
   ADR-006 (بازنشسته)، ADR-016 (CSRF)، ADR-017 (سیم‌کشی کامل)، ADR-018 (مدل انتخاب
   می‌کند)، ADR-021 (جدول شرکت‌ها).
 - Plan: ندارد. برش‌های بالا جای plan را می‌گیرند؛ هر تیم پیاده‌سازی یک برش می‌گیرد.
