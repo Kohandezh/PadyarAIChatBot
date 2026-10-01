@@ -296,7 +296,8 @@ def _title(piece: Chunk) -> tuple:
             return piece.heading, "heading"
         # Numbered, so the live rows cut from one long section never share a
         # title (SPEC review input H1).
-        return f"{piece.heading} (بخش {piece.part} از {piece.parts})".translate(_FA_DIGITS), "heading"
+        part, parts = str(piece.part).translate(_FA_DIGITS), str(piece.parts).translate(_FA_DIGITS)
+        return f"{piece.heading} (بخش {part} از {parts})", "heading"
     sentence = _FIRST_SENTENCE.split(piece.text, 1)[0].strip()
     if len(sentence) > LOCAL_TITLE_CHARS:
         cut = sentence.rfind(" ", 0, LOCAL_TITLE_CHARS)
@@ -526,28 +527,46 @@ def create_job(source_kind: str, source_name: str, data: bytes, fmt: str, admin:
     for attempt in (1, 2):
         tmp_path = _write_temp(data)
         job_id = secrets.token_hex(12)
-        with closing(get_db_connection()) as conn:
-            try:
-                conn.execute(
-                    "INSERT INTO ingest_jobs (id, source_kind, source_name, content_hash, byte_size, format,"
-                    " status, tmp_path, created_by) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
-                    (job_id, source_kind, name, content_hash, len(data), fmt, tmp_path, admin))
-                conn.commit()
-            except Exception as exc:
-                conn.rollback()
-                _unlink(tmp_path)
-                if attempt == 2 or not dberrors.is_unique_violation(exc):
-                    raise
-                row = conn.execute(
-                    f"SELECT * FROM ingest_jobs WHERE content_hash = ? AND status IN ({_marks(ACTIVE)})",
-                    (content_hash, *ACTIVE)).fetchone()
-                if row is not None:
-                    return _job_view(dict(row)), True
-                continue
+        # Any failure from here on, opening the connection included, must not
+        # leave the document on disk with no job row to find it (REQ-028).
+        try:
+            with closing(get_db_connection()) as conn:
+                try:
+                    conn.execute(
+                        "INSERT INTO ingest_jobs (id, source_kind, source_name, content_hash, byte_size, format,"
+                        " status, tmp_path, created_by) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
+                        (job_id, source_kind, name, content_hash, len(data), fmt, tmp_path, admin))
+                    conn.commit()
+                except Exception as exc:
+                    conn.rollback()
+                    _unlink(tmp_path)
+                    if attempt == 2 or not dberrors.is_unique_violation(exc):
+                        raise
+                    row = conn.execute(
+                        f"SELECT * FROM ingest_jobs WHERE content_hash = ? AND status IN ({_marks(ACTIVE)})",
+                        (content_hash, *ACTIVE)).fetchone()
+                    if row is not None:
+                        return _job_view(dict(row)), True
+                    continue
+        except BaseException:
+            _unlink(tmp_path)
+            raise
         applog.audit("ingest.job.created", "یک فایل یا صفحه برای ورود دانش فرستاده شد",
                      actor=admin, target=job_id,
                      metadata={"source_kind": source_kind, "format": fmt, "byte_size": len(data)})
         return get_job(job_id), False
+
+
+def active_job_for(data: bytes):
+    """The active job for these bytes, or None. Only for the upload route's
+    rate limit: a repeat of a file already in progress is not a new job and
+    must not spend the hourly budget. It is NOT the uniqueness control; the
+    unique index in create_job still is (REQ-027)."""
+    content_hash = hashlib.sha256(data).hexdigest()
+    with closing(get_db_connection()) as conn:
+        row = conn.execute(f"SELECT * FROM ingest_jobs WHERE content_hash = ? AND status IN ({_marks(ACTIVE)})",
+                           (content_hash, *ACTIVE)).fetchone()
+    return _job_view(dict(row)) if row is not None else None
 
 
 def _move(job_id: str, before: str, after: str) -> bool:
@@ -779,6 +798,7 @@ async def _propose(job_id: str, called: bool) -> bool:
                 errors_in_a_row += 1
                 if exc.code in AI_STOP_CODES or errors_in_a_row >= AI_ERRORS_IN_A_ROW:
                     _leave_model_stage(job_id, stopped_at=seq)
+                    _finish_cancel(job_id)
                     return called
                 _set_ai_state(proposal["id"], "failed")
                 _heartbeat(job_id)
@@ -791,7 +811,11 @@ async def _propose(job_id: str, called: bool) -> bool:
             _apply(proposal, reply, known)
             _heartbeat(job_id)
         else:
+            # A cancel after the last status read leaves `cancelling`, which
+            # _leave_model_stage does not move; finish it here, or the job
+            # would hold the model slot until the recovery sweep (REQ-039).
             _leave_model_stage(job_id)
+            _finish_cancel(job_id)
             return called
     except Exception as exc:  # noqa: BLE001 (decision D13: free the slot now, not after five minutes)
         logger.error("[ingest] model stage of %s stopped: %s", job_id, type(exc).__name__)
@@ -872,24 +896,49 @@ def _model_title_ok(title, source_text: str) -> bool:
     lowered = title.lower()
     if "@" in lowered or "http" in lowered or "www." in lowered:
         return False
-    return content_tokens(normalizer.normalize_persian(title)) <= content_tokens(
-        normalizer.normalize_persian(source_text))
+    # The empty set is a subset of anything, so a title of punctuation or
+    # stopwords alone would pass; it must carry a content word.
+    words = content_tokens(normalizer.normalize_persian(title))
+    return bool(words) and words <= content_tokens(normalizer.normalize_persian(source_text))
 
 
 _PERSIAN_LETTER = re.compile(r"[؀-ۿ]")
-_DIGIT_RUN = re.compile(r"[0-9]+")
+_DIGIT_RUN = re.compile(r"\d+")
 
 
-def _clean_question(item, taken: set, folded_source=None):
-    """REQ-046 for one question, or None. `folded_source` None skips the digit
+def _whole_numbers(text: str) -> set:
+    """The numbers a chunk states, as whole numbers. The same rule as
+    generated_prose_is_grounded in app/services/answer.py ("WHOLE NUMBERS,
+    NEVER SUBSTRINGS", measured 2026-08-28): with a substring test the «۳» of
+    an invented «سالن ۳» passes against any phone number. Each word gives
+    its digit runs, and its runs joined, so «۰۲۱-۱۲۳۴۵۶۷۸» still matches a
+    chunk that wrote «۰۲۱۱۲۳۴۵۶۷۸»."""
+    numbers = set()
+    for word in fold_digits(text).split():
+        runs = _DIGIT_RUN.findall(word)
+        numbers.update(runs)
+        if len(runs) > 1:
+            numbers.add("".join(runs))
+    return numbers
+
+
+def _numbers_grounded(question: str, numbers: set) -> bool:
+    for word in fold_digits(question).split():
+        runs = _DIGIT_RUN.findall(word)
+        if runs and not all(r in numbers for r in runs) and "".join(runs) not in numbers:
+            return False
+    return True
+
+
+def _clean_question(item, taken: set, source_numbers=None):
+    """REQ-046 for one question, or None. `source_numbers` None skips the digit
     rule: a digit an admin typed is the admin's fact, not the model's."""
     if not isinstance(item, str):
         return None
     question = " ".join(item.split())
     if not 5 <= len(question) <= 120 or not _PERSIAN_LETTER.search(question):
         return None
-    if folded_source is not None and any(
-            run not in folded_source for run in _DIGIT_RUN.findall(fold_digits(question))):
+    if source_numbers is not None and not _numbers_grounded(question, source_numbers):
         return None
     key = _norm(question)
     if key in taken:
@@ -913,11 +962,11 @@ def _apply(proposal: dict, reply, known: set) -> None:
     title, source = proposal["title"], proposal["title_source"]
     if source == "local" and _model_title_ok(data.get("title"), proposal["source_text"]):
         title, source = data["title"].strip(), "model"
-    folded = fold_digits(proposal["source_text"])
+    numbers = _whole_numbers(proposal["source_text"])
     taken = set(known)
     questions = []
     for item in data.get("questions") if isinstance(data.get("questions"), list) else []:
-        question = _clean_question(item, taken, folded)
+        question = _clean_question(item, taken, numbers)
         if question is not None and len(questions) < MAX_QUESTIONS:
             questions.append(question)
     synonyms = []

@@ -50,22 +50,20 @@ def _accepted(job: dict, existing: bool, background: BackgroundTasks, *args):
     return JSONResponse(status_code=202, content={"job": job})
 
 
-def _upload_job(data: bytes, filename: str, admin: str) -> tuple:
+def _detect(data: bytes, filename: str) -> str:
     # REQ-025: the type is decided here, inside the request, from the name
     # and the first bytes only (detect_format opens no zip member).
     try:
-        fmt = ingest_extract.detect_format(data, filename)
+        return ingest_extract.detect_format(data, filename)
     except ingest_extract.IngestRejected as exc:
         status = 413 if exc.code in ("too_large", "zip_too_big") else 415
         raise IngestError(status, exc.code, exc.message_fa)
-    return ingest.create_job("file", filename, data, fmt, admin)
 
 
 @router.post(f"{API}/jobs/upload")
 async def upload(request: Request, background: BackgroundTasks, file: UploadFile | None = File(None),
                  admin: str = Depends(verify_admin)):
     try:
-        _rate_limit(request, admin)
         if file is None or not (file.filename or "").strip():
             raise IngestError(422, "no_name")
         # SEC-004: the body middleware reads only Content-Length, so the cap
@@ -73,7 +71,16 @@ async def upload(request: Request, background: BackgroundTasks, file: UploadFile
         data = await file.read(ingest_extract.MAX_FILE_BYTES + 1)
         if len(data) > ingest_extract.MAX_FILE_BYTES:
             raise IngestError(413, "too_large")
-        job, existing = await anyio.to_thread.run_sync(_upload_job, data, file.filename, admin)
+        fmt = await anyio.to_thread.run_sync(_detect, data, file.filename)
+        # SEC-018 limits new jobs. A refused file is not a job, and sending a
+        # file again to see its progress answers the job already running, so
+        # neither spends the budget (the grandmother test: a wrong pick or a
+        # second press must not lock an admin out for an hour).
+        running = await anyio.to_thread.run_sync(ingest.active_job_for, data)
+        if running is not None:
+            return {"job": running, "existing": True}
+        _rate_limit(request, admin)
+        job, existing = await anyio.to_thread.run_sync(ingest.create_job, "file", file.filename, data, fmt, admin)
     except IngestError as exc:
         return _refuse(exc)
     return _accepted(job, existing, background)
@@ -86,6 +93,8 @@ _PAGE_FORMATS = {"application/pdf": "pdf", "text/plain": "txt"}
 async def from_url(request: Request, background: BackgroundTasks, payload: dict | None = Body(None),
                    admin: str = Depends(verify_admin)):
     try:
+        # Counted before the fetch on purpose: the budget also bounds how
+        # often this server connects out to an address an admin types.
         _rate_limit(request, admin)
         url = payload.get("url") if isinstance(payload, dict) else None
         if not isinstance(url, str) or not url.strip():

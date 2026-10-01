@@ -345,6 +345,20 @@ def test_the_21st_job_of_an_admin_within_an_hour_is_429(client, monkeypatch):
     _refusal(client.post(f"{API}/jobs/url", json={"url": "https://example.com/"}), 429, "rate_limited")
 
 
+def test_refused_and_repeated_uploads_do_not_spend_the_hourly_budget(client, monkeypatch):
+    from app.services import ingest
+
+    async def not_run(job_id, charset=""):
+        return None
+    monkeypatch.setattr(ingest, "run_job", not_run)
+    for n in range(20):
+        _refusal(_upload(client, f"tool{n}.exe", b"MZ binary"), 415, "bad_type")
+    assert _upload(client, "first.txt", "متن نخست برای آزمون".encode()).status_code == 202
+    for _ in range(20):
+        repeat = _upload(client, "first.txt", "متن نخست برای آزمون".encode())
+        assert (repeat.status_code, repeat.json()["existing"]) == (200, True)
+    assert _upload(client, "second.txt", "متن دوم برای آزمون".encode()).status_code == 202
+
 # ── REQ-026: a web page ──────────────────────────────────────────────────
 
 @pytest.fixture
