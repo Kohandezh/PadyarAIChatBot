@@ -16,7 +16,7 @@ wait for that publish; `index_version_before` lets the page see it land.
 """
 import anyio
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import security
 from app.auth.security import verify_admin
@@ -191,3 +191,17 @@ async def reject(proposal_id: str, payload: dict | None = Body(None), admin: str
 @router.get(f"{API}/index-status", dependencies=[Depends(verify_admin)])
 async def index_status():
     return {"version": search.published_index_version()}
+
+
+@router.get("/secure-panel-admin/ingest", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """REQ-069: the review page, with the session check and login redirect of
+    every other admin page. The shell carries no document text; the page
+    script reads it from the API above and writes it as text (SEC-020)."""
+    from app.routers.public import _render, _require_admin
+
+    redirect = await _require_admin(request)
+    if redirect:
+        return redirect
+    return _render("admin/ingest.html", request=request, active_page="ingest",
+                   pdf_available=ingest_extract.pdf_available())
