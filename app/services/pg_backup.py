@@ -137,6 +137,75 @@ def _safe_dir(backup_id: str) -> str:
     return path
 
 
+# The schemas the app owns. Only their tables are counted: the restore drill
+# compares these and nothing else, and another schema in the same database is
+# not this install's data.
+_COUNTED_SCHEMAS = ("app", "observability")
+
+
+def _open_snapshot(parts: dict):
+    """Export a snapshot and count every table pg_dump will dump from it.
+
+    Returns `(connection, snapshot_id, counts)`. The caller passes the id to
+    `pg_dump --snapshot=<id>` and must keep the connection open until pg_dump
+    ends: an exported snapshot lives only as long as its transaction.
+
+    Why a snapshot: the restore drill compares restored row counts against
+    these. Counting the live database at any other moment gives numbers that
+    differ from the dump as soon as one visitor writes a row.
+
+    Only ordinary tables (relkind 'r') hold dumped rows. Partitioned parents,
+    views and foreign tables carry none, and tables owned by an extension are
+    not dumped as data. The table list is read inside the snapshot too, so a
+    table created after it is in neither the dump nor the counts.
+    """
+    import psycopg
+    from psycopg import sql
+
+    conn = psycopg.connect(
+        host=parts["host"], port=parts["port"], user=parts["user"],
+        password=parts["password"] or None, dbname=parts["dbname"],
+        connect_timeout=10, autocommit=True,
+        application_name="padyar-backup-snapshot",
+        # A count waits for locks like any query. Without a bound, a migration
+        # holding a table lock at backup time would hang the nightly backup
+        # forever. A timeout here falls back to the plain dump instead.
+        options=f"-c lock_timeout=10s -c statement_timeout={_TIMEOUT}s")
+    try:
+        conn.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        snapshot_id = conn.execute("SELECT pg_export_snapshot()").fetchone()[0]
+        tables = conn.execute(
+            "SELECT n.nspname, c.relname FROM pg_class c"
+            " JOIN pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE c.relkind = 'r' AND n.nspname = ANY(%s)"
+            " AND NOT EXISTS (SELECT 1 FROM pg_depend d"
+            "   WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid"
+            "   AND d.deptype = 'e')",
+            (list(_COUNTED_SCHEMAS),)).fetchall()
+        counts = {}
+        for schema, table in tables:
+            query = sql.SQL("SELECT count(*) FROM {}.{}").format(
+                sql.Identifier(schema), sql.Identifier(table))
+            counts[f"{schema}.{table}"] = conn.execute(query).fetchone()[0]
+    except Exception:
+        conn.close()
+        raise
+    return conn, snapshot_id, dict(sorted(counts.items()))
+
+
+def _close_snapshot(conn) -> None:
+    """End the snapshot transaction. Never raises: by now the dump is either
+    done or already failed, and a close error changes neither."""
+    try:
+        conn.execute("ROLLBACK")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _manifest_path(backup_id: str) -> str:
     return os.path.join(_safe_dir(backup_id), "manifest.json")
 
@@ -158,14 +227,30 @@ def create(actor: str = "", reason: str = "manual") -> dict:
     started = time.perf_counter()
     applog.info("backup", "backup.started", "پشتیبان‌گیری پستگرس آغاز شد",
                 actor=actor, target=backup_id, metadata={"reason": reason})
+
+    # Row counts from the snapshot pg_dump will read. If this step fails the
+    # backup is still taken the old way: a backup is worth more than its counts.
+    snapshot_conn, snapshot_id, row_counts = None, None, None
     try:
-        _run([_pg_bin("pg_dump"),
-              "--host", parts["host"], "--port", parts["port"],
-              "--username", parts["user"], "--dbname", parts["dbname"],
-              "--format", "custom", "--compress", "6",
-              "--no-owner", "--no-privileges",
-              "--file", _dump_path(backup_id)],
-             _env(parts), "pg_dump")
+        snapshot_conn, snapshot_id, row_counts = _open_snapshot(parts)
+    except Exception as e:  # noqa: BLE001 (see the comment above)
+        logger.warning("[pg_backup] row counts unavailable, taking a plain "
+                       "dump: %s: %s", type(e).__name__, str(e)[:200])
+        applog.warning("backup", "backup.row_counts.unavailable",
+                       "شمارش ردیف‌ها ممکن نشد؛ پشتیبان بدون شمارش گرفته می‌شود",
+                       actor=actor, target=backup_id,
+                       metadata={"error": type(e).__name__})
+
+    try:
+        argv = [_pg_bin("pg_dump"),
+                "--host", parts["host"], "--port", parts["port"],
+                "--username", parts["user"], "--dbname", parts["dbname"],
+                "--format", "custom", "--compress", "6",
+                "--no-owner", "--no-privileges",
+                "--file", _dump_path(backup_id)]
+        if snapshot_id:
+            argv.append("--snapshot=" + snapshot_id)
+        _run(argv, _env(parts), "pg_dump")
     except BackupError:
         shutil.rmtree(target, ignore_errors=True)
         applog.error("backup", "backup.failed", "پشتیبان‌گیری ناموفق بود",
@@ -173,6 +258,11 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         from app.services import metrics
         metrics.backup_outcome_total.labels(result="failed").inc()
         raise
+    finally:
+        # Held open until pg_dump ends, then closed on every path. A leaked
+        # open transaction would hold back vacuum for the whole database.
+        if snapshot_conn is not None:
+            _close_snapshot(snapshot_conn)
 
     duration = int((time.perf_counter() - started) * 1000)
     size = os.path.getsize(_dump_path(backup_id))
@@ -189,6 +279,11 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         "duration_ms": duration,
         "reason": reason,
         "verification": {"status": "unknown", "checked_at": None},
+        # "<schema>.<table>": rows, read inside the snapshot pg_dump used, so
+        # they equal the rows in the file. null when the count step failed.
+        "row_counts": row_counts,
+        "row_counts_source": ("dump_snapshot" if row_counts is not None
+                              else "unavailable"),
     }
     with open(_manifest_path(backup_id), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)

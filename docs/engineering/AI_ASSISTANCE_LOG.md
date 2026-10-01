@@ -93,6 +93,28 @@
   (۲۶۰۵ تست) بدون خطای collection.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): شمارش ردیف‌ها از snapshot همان dump
+
+- **مدل/ارکستراتور:** Claude Opus 5.5، عامل پیاده‌ساز `drill-t1-impl` در تیم
+  foreman `drill-t1` (رهبر `foreman7`)، کار B1 از مأموریت `20260930-dbmaturity`.
+- **کارهای انجام‌شده:**
+  1. `app/services/pg_backup.py`: `create()` یک اتصال جدا باز می‌کند، تراکنش
+     `REPEATABLE READ READ ONLY`، `pg_export_snapshot()`، شمارش هر جدول
+     schemaهای `app` و `observability` با `psycopg.sql.Identifier`، و بعد
+     `pg_dump --snapshot=<id>` تا آخر dump تراکنش باز می‌ماند.
+  2. `manifest.json` دو فیلد تازه دارد: `row_counts` (کلیدهای مرتب) و
+     `row_counts_source` (`dump_snapshot` یا `unavailable`).
+  3. اگر شمارش شکست بخورد (اتصال باز نشود، قفل بیش از 10 ثانیه)، پشتیبان مثل
+     قبل بدون `--snapshot` گرفته می‌شود و هشدار در `logger` و `applog` ثبت می‌شود.
+  4. تست‌ها: `tests/postgres/test_pg_backup_counts.py` (6 تست روی PostgreSQL
+     واقعی، از جمله درج همزمان بین snapshot و dump) و
+     `tests/test_pg_backup_counts_fallback.py` (5 تست بدون سرور).
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** 11 تست تازه سبز؛ کل `tests/postgres`
+  (128 تست) سبز روی `postgres:16-alpine`؛ آزمون جهش (حذف `--snapshot`) تست
+  درج همزمان را قرمز کرد (`assert 53 == 3`)؛ `python -m py_compile`.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.
