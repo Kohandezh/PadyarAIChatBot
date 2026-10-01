@@ -118,10 +118,41 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
 
 1. هدف‌های RPO و RTO بخش 6، بند 5، همان‌طور که نوشته شده‌اند پذیرفته شدند.
 2. staging فقط محتوا می‌گیرد (`dataset`، `questions`، `synonyms`، `settings`). هیچ
-   دادهٔ شخصی بازدیدکننده به staging نمی‌رود.
+   دادهٔ شخصی بازدیدکننده به staging نمی‌رود. یک نکته برای spec PR E: از ADR-021
+   شرکت‌ها جدول خودشان را دارند (`companies`). بدون آن، staging تیرهای شرکت را تست
+   نمی‌کند. ولی `companies` اطلاعات تماس هم دارد، پس اینکه «محتوا» حساب شود یا
+   نه، سؤال spec PR E است، نه این ADR.
 3. `OFFSITE_BACKUP_TARGET` امروز روی سرور تنظیم نیست. مقصد دلخواه برای کپی
-   بیرون از سرور Google Drive است (PR H در بخش 9).
+   بیرون از سرور Google Drive بود. **در نوبت 3 عوض شد** (پایین).
 4. pgBackRest از apt خود اوبونتو نصب می‌شود (نسخهٔ 2.50). آزمایش 4 همین نسخه را اجرا کرد.
+
+### تصمیم‌های مالک محصول (نوبت 3)
+
+مالک محصول این‌ها را در گفتگو تأیید کرد (2026-10-01). ADR-022 همچنان Proposed است.
+
+1. **مقصد بیرون از سرور SFTP است، نه Google Drive.** دلیل: خود Google می‌نویسد
+   «Google restricts access to some of its business services in certain countries
+   or regions, such as Crimea, Cuba, ... Iran, North Korea, and Syria»
+   (https://knowledge.workspace.google.com/admin/support/troubleshooting/countries-or-regions-where-google-workspace-is-available،
+   «last updated 2026-09-30 UTC»؛ همان صفحه‌ای که support.google.com/a/answer/2891389
+   به آن می‌رود). پس حساب Google یا client_id که rclone حالا لازم دارد ممکن است
+   با سیاست Google رد یا بعداً معلق شود، نه فقط با بستن شبکه، و آن هم بعد از
+   اینکه دادهٔ شخصی (رمزشده) آنجا گذاشته شده است. تست شبکه از سرور این را رد
+   نمی‌کند. این منبع فقط به‌عنوان تاریخچهٔ تصمیم در سند می‌ماند.
+2. **هنوز هیچ سرور SFTP وجود ندارد.** PR H کد را می‌سازد و آن را در برابر یک
+   کانتینر SFTP موقت تست می‌کند. روی سرور واقعی `OFFSITE_BACKUP_TARGET` و repo2
+   خالی می‌مانند تا مقصد ساخته شود. تا آن روز، از دست رفتن سرور یعنی از دست
+   رفتن همه‌چیز.
+3. **WAL هم در خود PR H بیرون می‌رود، نه بعداً.** pgBackRest repo2 از نوع
+   `sftp` با رمزنگاری خودش: WAL و پشتیبان‌های پایه. dumpها از یک نوع هدف تازهٔ
+   `sftp:` در `backup_offsite.py`.
+4. **رمزنگاری قبل از آپلود، روی خود سرور.** کلید روی کاغذ در گاوصندوق نگه داشته
+   می‌شود، نه داخل هیچ پشتیبانی و نه در مقصد. (بخش 6، بند 10، توضیح می‌دهد
+   «نه روی سرور» در عمل چه معنی دارد.)
+5. **VMware از این سرور snapshot می‌گیرد.** کجا و برای چند وقت، نامعلوم است
+   (سؤال باز). در هیچ عدد RPO یا RTO از snapshot استفاده نمی‌شود.
+6. **rclone و Google Drive از برنامه حذف شدند.** یافتهٔ «مقصد بیرونی prune
+   نمی‌شود» داخل PR H می‌ماند.
 
 ## 4. Investigation
 
@@ -153,11 +184,10 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
 | `archive_mode` فقط در شروع سرور تنظیم می‌شود (یعنی restart لازم است) | https://www.postgresql.org/docs/16/runtime-config-wal.html | بدون تاریخ |
 | پشتیبانی چند repo همزمان از pgBackRest v2.33: «Multi-Repository and GCS Support - Released April 5, 2021». repo نوع SFTP از v2.46 (2023-05-22) | https://pgbackrest.org/release.html (خوانده‌شده 2026-10-01) | بدون تاریخ کلی |
 | `archive-push-queue-max` در 2.50 وجود دارد: بعد از سقف، WAL را «successfully archived» اعلام و «DROP IT» می‌کند تا دیسک پر نشود | خروجی `pgbackrest help archive-push archive-push-queue-max` در آزمایش 4 | 2026-10-01 |
-| rclone crypt: رمزنگاری سمت کلاینت؛ محتوا با «NaCl SecretBox, based on XSalsa20 cipher and Poly1305»، نام فایل با «EME using AES with 256 bit key»؛ رمزِ محتوای قبلاً رمزشده عوض‌شدنی نیست | https://rclone.org/crypt/ | «last updated 2026-08-27» |
-| rclone Google Drive: «The shared client_id is being retired and will stop working during 2026»، پس client_id خود لازم است؛ سقف بی‌سند آپلود 750 GiB در روز | https://rclone.org/drive/ | «last updated 2026-09-03» |
-| پیکربندی روی ماشین بدون مرورگر: `rclone authorize` روی ماشینی با مرورگر، و چسباندن نتیجه | https://rclone.org/remote_setup/ | «last updated 2026-06-28» |
-| اوبونتو 24.04 بستهٔ `rclone` نسخهٔ 1.60.1+dfsg-3ubuntu0.24.04.6 در universe دارد | https://packages.ubuntu.com/noble/rclone | بدون تاریخ (خوانده‌شده 2026-10-01) |
-| pgBackRest نوع repo برای Google Drive ندارد (انواع: azure، cifs، gcs، posix، s3، sftp). `gcs` یعنی Google Cloud Storage، نه Drive | https://pgbackrest.org/configuration.html | «Updated July 20, 2026» |
+| pgBackRest repo از نوع `sftp` (`repo-sftp-host`، `repo-sftp-host-user`، `repo-sftp-private-key-file`، بررسی کلید میزبان پیش‌فرض `strict`) | https://pgbackrest.org/configuration.html | «Updated July 20, 2026» |
+| رمزنگاری repo: `repo-cipher-type` با `none` یا `aes-256-cbc`، و `repo-cipher-pass`؛ «encryption is always performed client-side even if the repository type (e.g. S3) supports encryption» | همان صفحه | «Updated July 20, 2026» |
+| Google دسترسی به برخی سرویس‌های کسب‌وکارش را در ایران محدود می‌کند: «Google restricts access to some of its business services in certain countries or regions, such as ... Iran» (دلیل کنار گذاشتن Drive؛ فقط تاریخچه) | https://knowledge.workspace.google.com/admin/support/troubleshooting/countries-or-regions-where-google-workspace-is-available | «last updated 2026-09-30 UTC» |
+| `gnupg` همین امروز در نصب پایهٔ سرور نصب می‌شود | `deploy/00-bootstrap-server.sh:37` | کد در `3a4a415` |
 
 ### Experiments / Prototypes
 
@@ -260,6 +290,47 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
 - `pgbackrest help archive-push archive-push-queue-max` در 2.50 این گزینه را نشان
   داد (متن در Evidence).
 
+**آزمایش 5 (نوبت 3): کپی بیرون از سرور با SFTP، و از دست رفتن کامل سرور.**
+- سه کانتینر روی یک شبکهٔ Docker: `dbmat-t1-db` (اوبونتو 24.04 با
+  `pgbackrest 2.50-1build2`، `postgresql-16 16.15`، `gnupg 2.4.4`، `rsync 3.2.7`، همه
+  از apt اوبونتو)، `dbmat-t1-sftp` (اوبونتو با `openssh-server`، یک حساب **فقط SFTP**:
+  `ChrootDirectory` و `ForceCommand internal-sftp`، ورود فقط با کلید)، و برای
+  یک آزمون تشخیصی `dbmat-t1-r259` (pgBackRest از PGDG).
+- repo1 محلی (posix)، repo2 از نوع `sftp` با `repo2-cipher-type=aes-256-cbc`.
+  `stanza-create` و `check` موفق. پشتیبان کامل به repo2: 5.8 ثانیه، 7.9 MB.
+  `pgbackrest info`: `repo1: none`، `repo2: aes-256-cbc`.
+- **آنچه مقصد نگه می‌دارد خوانا نیست.** فایل WAL در مقصد با سرآیند `Salted__`
+  شروع می‌شود و جستجوی شماره‌تلفن‌ها در همهٔ فایل‌های مقصد صفر نتیجه داد.
+- **قطع شدن مقصد، آرشیو محلی را هم متوقف کرد.** sshd مقصد خاموش شد و سه فایل WAL
+  ساخته شد. بعد از 20 ثانیه: سه فایل `.ready` در انتظار، `failed_count=0`
+  (فرمان هنوز منتظر اتصال بود)، و repo1 محلی هم **هیچ** WAL تازه‌ای نگرفته بود
+  (`...09`). بعد از برگشتن مقصد، همه‌چیز رسید (`...0D`، `failed=0`). پس با دو repo،
+  قطع مقصد بیرونی کل آرشیو را نگه می‌دارد و WAL در `pg_wal` جمع می‌شود (همان
+  خطر بخش 4، که `archive-push-queue-max` مرزش را می‌گذارد)، و `failed_count` به‌تنهایی
+  علامت کافی نیست؛ سن `last_archived_time` علامت درست است.
+- **از دست رفتن کامل سرور.** پوشهٔ داده، repo1، `pgbackrest.conf` و کلید SSH پاک
+  شدند. بازیابی فقط با: نشانی و کاربر SFTP (از runbook)، یک کلید SSH **تازه** که
+  اپراتور روی مقصد مجاز می‌کند، و کلید رمز که از روی کاغذ تایپ می‌شود.
+  - کلید رمز غلط: `ERROR: [075]: no backup set found to restore`. بدون کلید درست،
+    حتی فهرست پشتیبان‌ها خوانده نمی‌شود.
+  - **restore مستقیم از SFTP با 2.50 شکست خورد**، هر بار روی همان فایل:
+    `unable to open file '.../2602_vm.zst' for read: libssh2 error [-31]: sftp error [4]`
+    (سه تلاش، 40 ثانیه). همان فایل با `sftp` معمولی دانلود شد و
+    `pgbackrest verify` روی همان repo بدون خطا تمام شد. علت را پیدا نکردم؛ در
+    release notes بعد از 2.50 موردی که دقیقاً همین را بگوید نیافتم.
+  - **همان repo، همان کلید، با pgBackRest 2.59.2 از PGDG:** restore در 3.1 ثانیه
+    موفق، نصب A 500,000 و نصب B 200,001 ردیف (برابر مبدأ)، شامل آخرین نوشتهٔ
+    قبل از حادثه.
+  - **راه دور زدن با 2.50:** کل repo رمزشده با `sftp` معمولی دانلود شد (1.3 ثانیه،
+    42 MB)، و 2.50 از یک repo محلی posix با همان کلید restore کرد (3.0 ثانیه)،
+    بالا آمدن 3.4 ثانیه، **جمع 7.7 ثانیه**. همهٔ ردیف‌ها، شامل آخرین نوشته، برگشت.
+- **مسیر dump:** `rsync` (همان کاری که هدف `rsync:` امروز می‌کند) به حساب فقط-SFTP
+  شکست خورد: `rsync error: protocol incompatibility (code 2)`. `gpg --symmetric
+  --cipher-algo AES256` با یک فایل کلید، بعد `sftp put` و `get` و رمزگشایی: sha256
+  برابر. کلید غلط: `gpg: decryption failed: Bad session key`. در فایل رمزشده هیچ
+  شماره‌تلفنی پیدا نشد. یک آزمون رمزنگاری با کلید عمومی gpg هم اجرا کردم، ولی
+  ساختن کلید بی‌صدا شکست خورد؛ پس دربارهٔ آن گزینه چیزی ادعا نمی‌کنم.
+
 **آزمایش‌های بازبین (dbmat-t1-crit)، نه این عامل.** بازبین این دو را در Docker
 روی Mac توسعه اجرا کرد و گزارش داد. اینجا با انتساب درست آمده‌اند:
 - نقشی با `statement_timeout = '1s'` و `idle_in_transaction_session_timeout = '2s'`:
@@ -284,9 +355,11 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
   dump یک دیتابیس 1.9 GB 110 ثانیه طول کشید ولی restore آن **262.7 ثانیه**، یعنی
   88 درصد سقف. **تخمین** با رشد خطی: restore حدود **2.2 GB** به سقف می‌رسد (dump
   حدود 5 GB). restore پنل قبلش یک dump ایمنی هم می‌گیرد (`:404`) و هر دو فراخوان
-  سقف جدای خود را دارند. پیشنهاد ما همین مسیر را برای drill شبانه و برای آخرین
-  قدم بازیابی یک نصب با PITR به کار می‌برد. پس وقتی دیتابیس از حدود 2.2 GB رد
-  شود، drill هر شب قرمز می‌شود و مسیر بازیابی اپراتور وسط حادثه شکست می‌خورد.
+  سقف جدای خود را دارند. پیشنهاد ما همین مسیر را برای drill شبانه به کار می‌برد.
+  پس وقتی دیتابیس از حدود 2.2 GB رد شود، drill هر شب قرمز می‌شود و **restore
+  پنل** وسط حادثه شکست می‌خورد. آخرین قدم بازیابی یک نصب با PITR یک
+  `pg_restore` دستی بیرون از پنل است (بخش 6، بند 1)، از `_run()` نمی‌گذرد و این
+  سقف را ندارد.
   dump قبل از deploy هم بعداً (حدود 5 GB) deploy را متوقف می‌کند
   (`deploy/padyar-deploy.sh:113-116`). سرور واقعی احتمالاً سریع‌تر است؛
   اندازه‌گیری نشده است. restore آزمایش 4 (یک جدول، 250 MB) در 9.6 ثانیه تمام شد؛
@@ -304,6 +377,16 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
   (`deploy/padyar-deploy.sh:41-43`).
 - **نمونهٔ جدای PITR باید آرشیو خاموش داشته باشد** (آزمایش 4). وگرنه در repo
   production یک timeline تازه می‌نویسد.
+- **با repo بیرونی، قطع مقصد کل آرشیو را نگه می‌دارد** (آزمایش 5). repo1 محلی
+  هم WAL تازه نمی‌گیرد. پس هر قطعی طولانی مقصد SFTP، WAL را در `pg_wal` جمع
+  می‌کند تا `archive-push-queue-max` آن را دور بریزد. علامت روی صفحهٔ Backups باید
+  سن `last_archived_time` باشد، نه فقط `failed_count`، چون در قطعی کوتاه
+  `failed_count` صفر ماند. اینکه حالت async pgBackRest (`archive-async`) اجازه
+  می‌دهد repo1 جلو برود، آزموده نشده است.
+- **pgBackRest 2.50 نمی‌تواند مستقیم از SFTP بازیابی کند** (در آزمایش 5، هر بار
+  شکست خورد؛ 2.59.2 موفق شد). نوشتن به SFTP با 2.50 کار می‌کند. پس بازیابی بعد از
+  از دست رفتن سرور با 2.50 دو قدم دارد: اول کل repo رمزشده با `sftp` معمولی
+  دانلود می‌شود، بعد از repo محلی restore می‌شود (اندازه‌گیری‌شده).
 - **دانلود از GitHub در ایران ممکن است بسته یا کند باشد** (فرض قرارداد). wal-g
   فقط از GitHub نصب می‌شود. pgBackRest از مخزن اوبونتو نصب می‌شود.
 - **امنیت.** pgBackRest به‌عنوان کاربر سیستمی `postgres` اجرا می‌شود و به کل
@@ -322,8 +405,14 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
   باشد. pgBackRest یک استثنای آگاهانه است: فقط root و timerهای systemd آن را
   اجرا می‌کنند.
 - **کپی بیرون از سرور یعنی دادهٔ شخصی بیرون از سرور.** dumpها نام و شمارهٔ تلفن
-  بازدیدکننده دارند. هر مقصد بیرونی (Google Drive) فقط نسخهٔ رمزشده در سمت
-  سرور را می‌گیرد، و کلید رمز جای دیگری غیر از خود Drive نگه داشته می‌شود.
+  بازدیدکننده دارند، و WAL و پشتیبان‌های پایهٔ pgBackRest همهٔ داده‌های هر دو نصب
+  را دارند. مقصد SFTP فقط نسخه‌ای را می‌گیرد که روی خود سرور رمز شده است، و کلید
+  هرگز در مقصد نیست.
+- **کلید رمز و بازیابی.** رمزنگاری بدون حضور انسان (WAL هر دقیقه، dump ساعت 3
+  صبح) یعنی سرور باید بتواند رمز کند. برای رمز متقارن pgBackRest، این یعنی کلید
+  روی خود سرور هست (بخش 6، بند 10). نسخهٔ کاغذی در گاوصندوق تنها نسخهٔ بیرون از
+  سرور است. اگر سرور از دست برود، کسی باید کلید را از روی کاغذ تایپ کند، وگرنه
+  نسخهٔ بیرونی بی‌فایده است.
 - **داده‌های شخصی در staging.** دادهٔ production نام و شمارهٔ تلفن بازدیدکننده
   دارد (`app.visitors`). کپی آن به staging یعنی یک جای دیگر برای داده‌های شخصی.
   تصمیم مالک محصول: staging فقط محتوا می‌گیرد (بخش 3).
@@ -351,19 +440,30 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
 - **Barman** برای یک سرور جدا طراحی شده (مستند خودش). ما سرور دوم نداریم.
 - `pg_dump` جایگزین نمی‌شود، **مکمل** می‌ماند: فقط `pg_dump` یک نصب را جدا از
   نصب دیگر برمی‌گرداند، و فقط `pg_dump` از پنل ادمین قابل بازیابی است.
-- **کپی بیرون از سرور و Google Drive.** امروز هیچ کپی از سرور بیرون نمی‌رود
-  (بخش 3). مقصد دلخواه مالک محصول Google Drive است. `backup_offsite.py` فقط
-  `rsync:` و `dir:` را می‌شناسد (`app/services/backup_offsite.py:38-39`). pgBackRest
-  نوع repo برای Drive ندارد. پس دو راه:
-  - **فقط dumpها به Drive** (با یک نوع هدف تازهٔ `rclone:` و rclone crypt): ساده،
-    از مسیر موجود `verify` می‌گذرد. RPO برای از دست رفتن سرور: 24 ساعت.
-  - **repo pgBackRest هم به Drive** (کپی زمان‌بندی‌شدهٔ پوشهٔ repo با rclone):
-    RPO از دست رفتن سرور را به فاصلهٔ کپی پایین می‌آورد (مثلاً یک ساعت؛ تخمین).
-    ولی سازگاری کپی یک repo در حال نوشتن آزموده نشده، و حجم WAL سقف 750 GiB
-    روزانهٔ Drive و پهنای باند سرور را بیشتر مصرف می‌کند.
-  پیشنهاد: اول فقط dumpها (PR H). کپی repo بعداً، با آزمایش جدا (بخش 6).
-- **دسترسی به Google Drive از سرور در ایران آزموده نشده است.** هیچ‌کس تست نکرده.
-  اگر در دسترس نباشد، PR H کار نمی‌کند و RPO از دست رفتن سرور نامحدود می‌ماند.
+- **کپی بیرون از سرور با SFTP.** امروز هیچ کپی از سرور بیرون نمی‌رود (بخش 3).
+  Google Drive کنار گذاشته شد (تصمیم مالک محصول در نوبت 3، دلیل در بخش 3). مقصد
+  تازه یک حساب SFTP است، که هنوز وجود ندارد. یک حساب SFTP هر دو را می‌پذیرد:
+  - **WAL و پشتیبان‌های پایه:** pgBackRest repo2 از نوع `sftp` (از v2.46) با
+    `repo2-cipher-type=aes-256-cbc`. رمزنگاری همیشه در سمت سرور است (مستند
+    pgBackRest). در آزمایش 5 با 2.50 کار کرد. با این، RPO از دست رفتن سرور به
+    همان فاصلهٔ آرشیو WAL می‌رسد (هدف، نه اندازه‌گیری؛ بخش 6، بند 5).
+  - **dumpها:** نوع هدف تازهٔ `sftp:` در `backup_offsite.py`. چرا `rsync:` موجود
+    کافی نیست: `rsync` روی سرور مقصد به یک shell و خود برنامهٔ `rsync` نیاز دارد، و
+    یک حساب فقط-SFTP (رایج‌ترین شکل فضای پشتیبان اجاره‌ای، و امن‌تر چون shell
+    نمی‌دهد) آن را رد می‌کند. در آزمایش 5 دقیقاً همین شد. `sftp` همراه
+    `openssh-client` نصب است. رمزنگاری dump با `gpg --symmetric --cipher-algo AES256`
+    قبل از آپلود؛ `gnupg` همین امروز در نصب پایه هست
+    (`deploy/00-bootstrap-server.sh:37`)، پس وابستگی تازه‌ای نیست.
+  - **چرا dump هم، وقتی repo2 هست:** dump یک قالب مستقل از pgBackRest است. اگر
+    روزی خود pgBackRest یا repo آن مشکل داشته باشد (همان ریسک نگهداری پروژه)،
+    dump با `pg_restore` معمولی هر نصب را جدا برمی‌گرداند.
+- **بازیابی بعد از از دست رفتن سرور با 2.50 دو قدم دارد**: دانلود repo رمزشده با
+  `sftp`، بعد restore از repo محلی. restore مستقیم از SFTP با 2.50 در آزمایش 5
+  شکست خورد و با 2.59.2 کار کرد (بخش 4).
+- **کلید رمز روی کاغذ.** بعد از از دست رفتن سرور، کسی باید کلید را از روی کاغذ
+  تایپ کند، و یک کلید SSH تازه روی مقصد مجاز کند. بدون کلید رمز درست، pgBackRest
+  حتی فهرست پشتیبان‌ها را نمی‌خواند (آزمایش 5). این قدم‌ها در runbook و در
+  تمرین بازیابی کامل می‌آیند.
 
 ### 5.2 Replica
 
@@ -439,8 +539,11 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
 | خطای داده یا migration بد، سرور سالم | تا 24 ساعت (از dump شبانه)؛ برای deploy، صفر (dump قبل از deploy) | اندازه‌گیری نشده روی سرور. restore یک dump با 1.9 GB روی مک: 4 دقیقه و 23 ثانیه، ولی با سقف 300 ثانیه، بالای حدود 2.2 GB شکست می‌خورد (تخمین) |
 | از دست رفتن دیسک یا سرور | **همه‌چیز.** `OFFSITE_BACKUP_TARGET` روی سرور تنظیم نیست، پس هیچ نسخه‌ای از سرور بیرون نمی‌رود (تأیید مالک محصول) | بازیابی ممکن نیست، فقط ساخت از صفر |
 
-یک نکته دربارهٔ سطر آخر: سرور یک ماشین مجازی VMware است. اگر hypervisor خودش
-snapshot می‌گیرد، این مبنا کمی بهتر است. نمی‌دانیم؛ سؤال باز برای مالک محصول.
+یک نکته دربارهٔ سطر آخر: سرور یک ماشین مجازی VMware است و مالک محصول تأیید کرد
+که VMware از آن snapshot می‌گیرد (2026-10-01). کجا نگه داشته می‌شود و برای چند
+وقت، نامعلوم است. اگر snapshotها روی همان میزبان فیزیکی باشند، از دست رفتن آن
+میزبان آن‌ها را هم می‌برد. تا وقتی این معلوم و آزموده نشده، در هیچ عدد RPO یا
+RTO از snapshot استفاده نمی‌شود.
 
 ### 5.6 Rollback
 
@@ -531,8 +634,9 @@ restore. `NOSUPERUSER NOCREATEDB NOCREATEROLE` و `statement_timeout = 30s` و
 برنامه، روی یک دیتابیس drill از پیش ساخته. بدون replica. بدون PgBouncer.
 staging با یک slug دوم روی همان سرور. قاعدهٔ expand/contract برای migration
 مخرب. بستن اتصال بین دو نصب (`REVOKE CONNECT ... FROM PUBLIC`) الان؛ نقش فقط
-خواندنی و جدا کردن مالک از اجرا بعداً. کپی رمزشدهٔ dumpها به Google Drive با
-rclone (امروز هیچ کپی بیرون از سرور نیست).
+خواندنی و جدا کردن مالک از اجرا بعداً. کپی رمزشده به یک حساب SFTP: WAL و
+پشتیبان پایه با pgBackRest repo2، dumpها با `gpg` و یک هدف تازهٔ `sftp:`. امروز هیچ
+کپی بیرون از سرور نیست و هنوز سرور SFTP هم وجود ندارد.
 
 ```mermaid
 flowchart TB
@@ -540,28 +644,42 @@ flowchart TB
     classDef shipped fill:#e8f0fe,stroke:#2d5ca7,color:#000
     classDef fallback fill:#f2f2f2,stroke:#666,color:#000
 
-    DUMP["pg_dump per install<br/>app/services/pg_backup.py"]:::shipped
-    SNAP["row counts from the dump snapshot<br/>stored in manifest.json"]:::proposed
-    DRILL["nightly restore drill<br/>into padyar_slug_drill, app role"]:::proposed
-    SHOW["result stored in manifest<br/>Backups page + gauges read at scrape"]:::proposed
-    PITR["pgBackRest 2.50 from Ubuntu apt<br/>one stanza per cluster, local posix repo<br/>archive-push-queue-max bounds pg_wal"]:::proposed
-    SIDE["PITR restore into a SIDE data dir, archive off<br/>pg_dump one install, manual pg_restore<br/>as padyar_slug (measured 49.9 s on a Mac)"]:::proposed
-    OFF["encrypted dumps to Google Drive<br/>rclone crypt, new rclone: target (PR H)"]:::proposed
-    ROLL["rollback = git revert on main<br/>data = pre-deploy dump"]:::proposed
-    EC["destructive migration ships<br/>in its own later deploy"]:::proposed
+    subgraph INST["per install"]
+        DUMP["pg_dump per install<br/>app/services/pg_backup.py"]:::shipped
+        SNAP["row counts from the dump snapshot<br/>stored in manifest.json"]:::proposed
+        DRILL["nightly restore drill<br/>into padyar_slug_drill, app role"]:::proposed
+        SHOW["result stored in manifest<br/>Backups page + gauges read at scrape"]:::proposed
+    end
+
+    subgraph CLU["whole cluster"]
+        PITR["pgBackRest 2.50 from Ubuntu apt<br/>one stanza, local posix repo<br/>archive-push-queue-max bounds pg_wal"]:::proposed
+        SIDE["PITR restore into a SIDE data dir, archive off<br/>pg_dump one install, manual pg_restore<br/>as padyar_slug (measured 49.9 s on a Mac)"]:::proposed
+        FB["built-in PostgreSQL tools<br/>archive_command + pg_basebackup"]:::fallback
+    end
+
+    subgraph OFFG["off-site (PR H)"]
+        OFF["one SFTP account, all encrypted on the server<br/>repo2 sftp aes-256-cbc: WAL + base<br/>dumps: gpg AES256 + new sftp: target"]:::proposed
+        NOOFF["no SFTP destination yet:<br/>server loss loses everything"]:::fallback
+    end
+
+    subgraph DEP["deploy rule"]
+        ROLL["rollback = git revert on main<br/>data = pre-deploy dump"]:::proposed
+        EC["destructive migration ships<br/>in its own later deploy"]:::proposed
+    end
 
     DUMP -->|"DF01 · snapshot export works"| SNAP
     SNAP -->|"DF02"| DRILL
     DRILL -->|"DF03"| SHOW
-    DUMP -.->|"DF04 · snapshot fails: drill checks<br/>schema_migrations + non-empty tables only"| DRILL
+    DUMP -.->|"DF04 · snapshot fails: check<br/>schema_migrations + non-empty tables"| DRILL
 
     PITR -->|"DF05 · one install broke"| SIDE
-    PITR -.->|"DF06 · pgBackRest unmaintained or<br/>not installable: archive_command + pg_basebackup"| FB["built-in PostgreSQL tools"]:::fallback
+    PITR -.->|"DF06 · pgBackRest unusable"| FB
+
+    PITR -->|"DF08 · repo2"| OFF
+    DUMP -->|"DF09 · after verify"| OFF
+    OFF -.->|"DF10 · until a destination exists"| NOOFF
 
     ROLL -->|"DF07 · only safe if"| EC
-
-    DUMP -->|"DF08 · after verify, Drive reachable from Iran"| OFF
-    DUMP -.->|"DF09 · Drive unreachable: no off-site copy,<br/>server loss still loses everything"| NOOFF["open risk, not solved"]:::fallback
 ```
 
 راهنما: خط‌چین زرد یعنی پیشنهادی (هنوز ساخته نشده). آبی یعنی امروز وجود
@@ -581,10 +699,13 @@ flowchart TB
      نشان می‌دهد (نقش برنامه آن را می‌خواند، آزمایش 4).
    - **روشن کردن:** یک restart کل cluster؛ هر دو نصب چند ثانیه قطع می‌شوند؛ فقط
      در ساعت آرام و با تأیید مالک محصول.
-   - **کپی بیرون از سرور:** در این مرحله فقط dumpها (بند 10). کپی repo به Drive
-     بعداً و با آزمایش جدا، چون pgBackRest نوع repo برای Drive ندارد.
+   - **کپی بیرون از سرور:** repo2 از نوع `sftp` با رمز `aes-256-cbc`، در خود PR H
+     (بند 10). روی سرور واقعی repo2 خالی می‌ماند تا مقصد SFTP ساخته شود.
    - **دو نصب روی یک cluster:** restore درجای کل cluster فقط برای خرابی کل cluster.
-     برای خطای یک نصب، همان زنجیرهٔ آزمایش 4: restore به زمان T در یک پوشهٔ جدا
+     برای خطای یک نصب، همان زنجیرهٔ آزمایش 4: **اول بررسی فضای آزاد دیسک در
+     برابر اندازهٔ کل cluster** (نمونهٔ جدا یک کپی از کل cluster است، یعنی هر دو
+     نصب و بعد از PR E staging هم، به‌اضافهٔ WAL برای replay؛ اگر دیسک وسط حادثه پر
+     شود، cluster زنده هم می‌خوابد)، بعد restore به زمان T در یک پوشهٔ جدا
      روی پورت دیگر **با `archive_mode=off`**، `pg_dump` فقط دیتابیس آن نصب از
      نمونهٔ جدا با نقش `padyar_<slug>`، یک dump ایمنی از دیتابیس زنده، و بعد
      **`pg_restore` دستی** با نقش `padyar_<slug>` و همان flagهای پنل، بیرون از
@@ -618,7 +739,8 @@ flowchart TB
    `settings`)، بدون هیچ دادهٔ شخصی بازدیدکننده (تصمیم مالک محصول). از `settings`
    کپی‌شده، اعتبار SMS و کلید AI برداشته می‌شوند: staging provider `dev` برای SMS
    دارد و یک کلید AI جدا با سقف هزینهٔ خودش، تا staging نه SMS واقعی بفرستد نه
-   هزینهٔ AI production را مصرف کند. `WEB_CONCURRENCY=1`.
+   هزینهٔ AI production را مصرف کند. `WEB_CONCURRENCY=1`. جدول `companies` در این
+   فهرست نیست؛ تصمیمش با spec PR E است (بخش 3، تصمیم 2).
 5. **RPO و RTO.** مالک محصول در گفتگو این هدف‌ها را همان‌طور که نوشته شده‌اند
    تأیید کرد (2026-09-30 و 2026-10-01). **این‌ها هدف‌اند، نه چیزی که امروز
    برآورده می‌شود.** هیچ هدف RTO هنوز روی سرور و از سر تا ته اندازه‌گیری نشده است.
@@ -627,10 +749,11 @@ flowchart TB
    |---|---|---|---|---|---|
    | خطای یک نصب، سرور سالم | 5 دقیقه | آرشیو WAL با `archive_timeout=60` | سن آخرین WAL آرشیوشده (`pg_stat_archiver.last_archived_time`) | 1 ساعت | **هنوز از سر تا ته اندازه‌گیری نشده.** زنجیرهٔ کامل (restore جدا، replay تا T، `pg_dump` یک نصب، dump ایمنی، `pg_restore`، ری‌استارت سرویس، بوت برنامه) را اسکریپت PR C روی سرور زمان می‌گیرد. اولین عدد: 49.9 ثانیه برای یک نصب 250 MB روی Mac، بدون ری‌استارت و بوت برنامه (آزمایش 4). بوت برنامه تا یک دقیقه طول می‌کشد (`deploy/padyar-deploy.sh:167-178`) |
    | خرابی cluster، سرور سالم | 5 دقیقه | همان | همان | 2 ساعت | هنوز اندازه‌گیری نشده؛ تست PITR دوره‌ای (اسکریپت PR C) |
-   | از دست رفتن سرور | 24 ساعت، **بعد از PR H**. امروز: همه‌چیز از دست می‌رود | dump شبانهٔ verify‌شده، رمزشده، به Google Drive (PR H) | وضعیت `offsite` در manifest | 1 روز کاری (تخمین) | فقط با یک تمرین بازسازی کامل روی سرور دیگر؛ امروز انجام نشده |
+   | از دست رفتن سرور | **امروز: همه‌چیز از دست می‌رود.** هدف بعد از PR H **و** وجود یک مقصد SFTP: 5 دقیقه | WAL هر حداکثر 60 ثانیه به repo2 روی SFTP، رمزشده؛ dump شبانهٔ رمزشده هم به همان مقصد | سن `pg_stat_archiver.last_archived_time` (آرشیو منتظر هر دو repo می‌ماند، آزمایش 5)، `pgbackrest verify` روی repo2، و وضعیت `offsite` در manifest | 1 روز کاری (تخمین) | فقط با یک تمرین بازسازی کامل روی سرور دیگر؛ امروز انجام نشده. همان زنجیره روی Mac، برای 42 MB، 7.7 ثانیه بود (آزمایش 5)، که سرور تازه، نصب بسته‌ها و کلید را شامل نمی‌شود |
 
-   اگر بعداً repo pgBackRest هم به Drive کپی شود، RPO سطر آخر به فاصلهٔ کپی
-   پایین می‌آید (تخمین). این جزو هدف پذیرفته‌شده نیست.
+   هدف سطر آخر در نوبت 3 عوض شد: مالک محصول خواست WAL هم در PR H بیرون برود
+   (2026-10-01). این یک **هدف** است، نه اندازه‌گیری، و تا وقتی مقصد SFTP وجود
+   ندارد اصلاً برآورده نمی‌شود. snapshotهای VMware در هیچ عددی حساب نشده‌اند.
 
 6. **Rollback:** مسیر استاندارد کد: `git revert` روی `main`. اسکریپت یک حالت
    rollback صریح می‌گیرد که sha قدیمی را فقط اگر جد (ancestor) `main` باشد
@@ -649,17 +772,36 @@ flowchart TB
 9. **ظرفیت:** یک هشدار در صفحهٔ Backups وقتی مدت **restore در drill** از 50 درصد
    سقف restore گذشت (restore سقف تنگ‌تر است، بخش 4)، و یک بند در runbook دربارهٔ
    `chat_log_retention_days`.
-10. **کپی بیرون از سرور (PR H):** یک نوع هدف تازهٔ `rclone:` در
-    `app/services/backup_offsite.py`، کنار `rsync:` و `dir:`، با یک remote از نوع
-    rclone crypt روی Google Drive. رمزنگاری در سرور انجام می‌شود، چون dumpها نام و
-    شمارهٔ تلفن بازدیدکننده دارند. کلید crypt جای دیگری غیر از Drive و غیر از
-    همان سرور هم نگه داشته می‌شود، وگرنه با از دست رفتن سرور کلید هم می‌رود.
-    rclone از apt اوبونتو (1.60.1، universe). یک قدم روی سرور که فقط مالک محصول
-    می‌تواند انجام دهد: ساختن client_id خود در Google Cloud (client_id مشترک rclone
-    در 2026 کنار می‌رود) و مجوز OAuth حساب خودش با `rclone authorize`. **دسترسی
-    به Google Drive از سرور در ایران آزموده نشده است.** PR H با همین آزمون شروع
-    می‌شود. پاک کردن کپی‌های قدیمی مقصد هم جزو PR H است (امروز هیچ مقصدی prune
-    نمی‌شود، بخش 3).
+10. **کپی بیرون از سرور (PR H): یک حساب SFTP، هر چیزی که بیرون می‌رود رمزشده.**
+    - **WAL و پشتیبان پایه:** pgBackRest repo2 با `repo2-type=sftp`،
+      `repo2-cipher-type=aes-256-cbc`، `repo2-cipher-pass`، و
+      `repo2-sftp-host-key-check-type=strict`. کلید SSH مخصوص کاربر سیستمی
+      `postgres` روی سرور. کلید میزبان مقصد با fingerprint ثبت‌شده در runbook
+      بررسی می‌شود (در آزمایش 5، فقط ثبت کلید ed25519 کافی نبود و libssh2 نوع
+      دیگری را انتخاب کرد؛ همهٔ کلیدهای میزبان باید ثبت شوند).
+    - **dumpها:** نوع هدف تازهٔ `sftp:` در `app/services/backup_offsite.py`، کنار
+      `rsync:` و `dir:`، با argv ثابت (همان قاعدهٔ امروز آن فایل). قبل از آپلود،
+      `gpg --symmetric --cipher-algo AES256` با فایل کلید. پاک کردن کپی‌های قدیمی
+      مقصد هم جزو همین PR است (امروز هیچ مقصدی prune نمی‌شود، بخش 3).
+    - **کلید:** یک کلید تصادفی طولانی، روی کاغذ در گاوصندوق (تصمیم مالک محصول).
+      **«نه روی سرور» در عمل ممکن نیست**، و این را صریح می‌گوییم: آرشیو WAL هر
+      دقیقه و dump ساعت 3 صبح بدون حضور انسان رمز می‌شوند، و رمز متقارن یعنی همان
+      کلید باید روی سرور باشد. pgBackRest حالت کلید عمومی ندارد. پس قاعده این
+      است: کلید روی سرور فقط در فایل‌های پیکربندی با دسترسی محدود است
+      (`/etc/pgbackrest.conf` با `0600` مال `postgres`، و یک فایل کلید جدا برای
+      dump)؛ **هرگز داخل هیچ پشتیبانی** (`pg_dump` فقط دیتابیس را می‌گیرد، نه
+      `/etc`؛ و repo هم پیکربندی را نمی‌گیرد)؛ **هرگز در مقصد**؛ و تنها نسخهٔ بیرون
+      از سرور، کاغذ است. نتیجه برای بازیابی: بعد از از دست رفتن سرور، کسی باید
+      کلید را از روی کاغذ تایپ کند. بدون آن، نسخهٔ بیرونی بی‌فایده است (آزمایش 5:
+      کلید غلط یعنی «no backup set found»). اگر کسی که سرور را می‌گیرد کلید را هم
+      بخواند، می‌تواند نسخهٔ مقصد را هم بخواند؛ ولی همان شخص همین حالا هم به خود
+      دیتابیس دسترسی دارد.
+    - **بازیابی از مقصد با 2.50:** دانلود کل repo با `sftp`، بعد restore از repo
+      محلی (آزمایش 5). runbook همین دو قدم را می‌نویسد.
+    - **تا وقتی مقصد نیست:** PR H کد را می‌سازد و در CI در برابر یک کانتینر SFTP
+      موقت تست می‌کند (همان شکل آزمایش 5). روی سرور واقعی `OFFSITE_BACKUP_TARGET`
+      و repo2 خالی می‌مانند، و صفحهٔ Backups به زبان ساده می‌گوید «هیچ نسخه‌ای
+      بیرون از سرور نیست».
 
 ### چه چیزی را از دست می‌دهیم
 
@@ -672,7 +814,10 @@ flowchart TB
 | سقف صف آرشیو، WAL را دور می‌ریزد و PITR را تا پشتیبان کامل بعدی قطع می‌کند | پر شدن دیسک هر دو نصب را متوقف می‌کند؛ از دست دادن PITR بهتر از از دست دادن سرویس است | `failed_count` روی صفحهٔ Backups؛ پشتیبان کامل تازه بعد از رفع مشکل |
 | روشن کردن آرشیو یک restart کل cluster لازم دارد | فقط یک بار، در ساعت آرام | با تأیید مالک محصول و خارج از زمان رویداد |
 | بازیابی یک نصب از PITR بیرون از پنل و دستی است | ساختن «وارد کردن dump بیرونی» به پنل کار بزرگ‌تری است | runbook قدم به قدم؛ همان flagهای پنل؛ نقش `padyar_<slug>` |
-| dumpها در Google Drive، یعنی دادهٔ شخصی بیرون از سرور | امروز از دست رفتن سرور یعنی از دست رفتن همه‌چیز | rclone crypt در سرور؛ کلید جدا نگه داشته می‌شود |
+| WAL، پشتیبان پایه و dump رمزشده روی یک سرور SFTP بیرونی، یعنی دادهٔ شخصی بیرون از سرور | امروز از دست رفتن سرور یعنی از دست رفتن همه‌چیز | رمزنگاری در سمت سرور (`aes-256-cbc` در pgBackRest، `gpg` AES256 برای dump)؛ کلید فقط روی سرور و روی کاغذ، هرگز در مقصد |
+| کلید رمز باید روی سرور باشد، برخلاف خواستِ «نه روی سرور» | رمزنگاری بی‌حضور انسان بدون آن ممکن نیست؛ pgBackRest کلید عمومی ندارد | فایل‌های `0600`؛ هرگز داخل پشتیبان یا مقصد؛ نسخهٔ کاغذی برای بازیابی |
+| قطع مقصد SFTP آرشیو محلی را هم نگه می‌دارد | دو repo یعنی آرشیو منتظر هر دو می‌ماند (آزمایش 5) | `archive-push-queue-max`؛ هشدار روی سن `last_archived_time` |
+| بازیابی از مقصد با 2.50 دو قدم است (دانلود، بعد restore) | restore مستقیم از SFTP با 2.50 شکست خورد | دو قدم اندازه‌گیری شد (7.7 ثانیه روی Mac)؛ runbook همین را می‌نویسد |
 | بدون replica، خرابی سرور یعنی ساعت‌ها قطعی | سرور دوم نیست و replica روی همان سرور محافظت نمی‌کند | کپی بیرون از سرور + runbook بازسازی؛ شرط بازبینی در ADR |
 | drill هر شب چند دقیقه CPU و I/O ساعت 3 صبح می‌گیرد | همان ساعتی است که dump هم اجرا می‌شود و ترافیک کم است | مدت در manifest ثبت و در صفحه دیده می‌شود |
 | staging روی همان سرور منابع production را می‌خورد | ساده‌ترین راهی است که همان مسیر استقرار را تست می‌کند | staging با `WEB_CONCURRENCY=1`، provider `dev` برای SMS، کلید AI جدا |
@@ -691,8 +836,10 @@ flowchart TB
 | `archive_command` + `pg_basebackup` بدون ابزار | صفر وابستگی، ولی retention، پاک کردن WAL، `check` و restore به زمان را باید خودمان بنویسیم. به‌عنوان جایگزین (DF06) نگه داشته شد |
 | Barman | برای سرور پشتیبان جدا طراحی شده؛ GPL 3؛ ما سرور دوم نداریم |
 | هیچ کاری نکردن برای PITR | RPO 24 ساعت برای یک مشتری سازمانی با داده‌های ثبت‌نام و سرنخ فروش زیاد است؛ و دقیقاً همان چیزی است که ارزیاب رد کرد |
-| تکیه بر snapshot ماشین مجازی (VMware) | سرور یک VM است (`deploy/README.md:196`، `:215`). نمی‌دانیم hypervisor snapshot می‌گیرد یا نه، یا کجا نگه می‌دارد (سؤال باز). حتی اگر بگیرد، snapshot کل دیسک بدون هماهنگی با پستگرس فقط در حد «بعد از قطع برق» سازگار است، یک نصب را جدا برنمی‌گرداند، و ما آن را تست یا مانیتور نمی‌کنیم. اگر وجود داشته باشد، مبنای «از دست رفتن سرور» را بهتر می‌کند، ولی جای PITR و drill را نمی‌گیرد |
-| repo pgBackRest روی Drive با `rclone mount` | یک فایل‌سیستم شبکه‌ای زیر `archive-push`؛ هر قطعی شبکه آرشیو را شکست می‌دهد و صف WAL را پر می‌کند (بخش 4). رد شد |
+| تکیه بر snapshot ماشین مجازی (VMware) | سرور یک VM است (`deploy/README.md:196`، `:215`) و مالک محصول تأیید کرد VMware از آن snapshot می‌گیرد. ولی کجا و چند وقت نامعلوم است (سؤال باز). snapshot کل دیسک بدون هماهنگی با پستگرس فقط در حد «بعد از قطع برق» سازگار است، یک نصب را جدا برنمی‌گرداند، و ما آن را تست یا مانیتور نمی‌کنیم. جای PITR و drill را نمی‌گیرد و در هیچ عدد RPO یا RTO نیست |
+| Google Drive با rclone (تصمیم نوبت 2، در نوبت 3 کنار گذاشته شد) | خود Google می‌نویسد دسترسی به برخی سرویس‌های کسب‌وکارش را در ایران محدود می‌کند (https://knowledge.workspace.google.com/admin/support/troubleshooting/countries-or-regions-where-google-workspace-is-available، «last updated 2026-09-30 UTC»). پس حساب یا client_id ممکن است با سیاست Google رد یا بعداً معلق شود، نه فقط با شبکه، و آن هم بعد از گذاشتن دادهٔ شخصی رمزشده آنجا. تست شبکه این را رد نمی‌کند |
+| هدف `rsync:` موجود برای dump | به shell و برنامهٔ `rsync` روی مقصد نیاز دارد؛ یک حساب فقط-SFTP آن را رد کرد (`protocol incompatibility (code 2)`، آزمایش 5). برای مقصدی با shell هنوز کار می‌کند و حذف نمی‌شود |
+| فقط repo2 بدون dump بیرونی | dump قالبی مستقل از pgBackRest است و هر نصب را جدا برمی‌گرداند؛ با ریسک نگهداری pgBackRest، یک راه دوم بیرون از سرور ارزش دارد |
 | مقصد بیرونی بدون رمزنگاری | dumpها نام و شمارهٔ تلفن بازدیدکننده دارند. رد شد |
 | جایگزین کردن `pg_dump` با pgBackRest | بازیابی یک نصب جدا از نصب دیگر و بازیابی از پنل ادمین از دست می‌رود |
 | replica روی همان سرور | در برابر خرابی سرور و خطای انسانی محافظت نمی‌کند |
@@ -716,10 +863,12 @@ flowchart TB
 | `statement_timeout = 30s` نقش روی `pg_restore` در drill | **بسته شد.** بازبین با timeout یک ثانیه تست کرد و آرشیو خودش timeout را صفر می‌کند؛ آزمایش 4 هم با timeoutهای واقعی `05` درست کار کرد |
 | خواندن `pg_stat_archiver` با نقش برنامه | **بسته شد.** در آزمایش 4 خوانده شد |
 | pgBackRest 2.50 اوبونتو با PostgreSQL 16 | **بسته شد.** آزمایش 4 (نوبت 1 فقط 2.59.1 را اجرا کرده بود) |
-| دسترسی به Google Drive از سرور در ایران | **تأییدنشده. هیچ‌کس تست نکرده.** اگر در دسترس نباشد، PR H کار نمی‌کند و از دست رفتن سرور همچنان یعنی از دست رفتن همه‌چیز |
-| client_id خود در Google Cloud و OAuth حساب مالک محصول | قدمی که فقط مالک محصول می‌تواند انجام دهد؛ انجام نشده |
-| کپی یک repo pgBackRest در حال نوشتن با rclone | تأییدنشده؛ فعلاً پیشنهاد نمی‌شود |
-| آیا VMware از سرور snapshot می‌گیرد | نامعلوم؛ سؤال باز |
+| مقصد SFTP | **وجود ندارد.** تا وقتی ساخته نشود، از دست رفتن سرور یعنی از دست رفتن همه‌چیز |
+| علت شکست restore مستقیم از SFTP با 2.50 | **نامعلوم.** دو بار تکرار شد، روی همان فایل؛ `verify` و `sftp` معمولی همان فایل را خواندند؛ 2.59.2 موفق شد. راه دو قدمی اندازه‌گیری شد |
+| حالت async pgBackRest با دو repo هنگام قطع مقصد | تأییدنشده (آزمایش 5 حالت sync بود) |
+| رمزنگاری dump با کلید عمومی gpg | آزمون اجرا شد ولی ساختن کلید بی‌صدا شکست خورد؛ چیزی ادعا نمی‌شود |
+| فرایند کلید کاغذی (چه کسی، کجا، چطور تایپ و آزموده می‌شود) | نوشته نشده؛ کار runbook PR H |
+| snapshotهای VMware: کجا و چند وقت | VMware snapshot می‌گیرد (تأیید مالک محصول)؛ محل و مدت نامعلوم؛ در هیچ عددی استفاده نمی‌شود |
 | رفتار `archive-push-queue-max` وقتی واقعاً پر شود | متن help در 2.50 خوانده شد؛ خود پر شدن تست نشد. در PR C تست شود |
 | زنجیرهٔ کامل بازیابی یک نصب روی سرور، با ری‌استارت و بوت برنامه | اندازه‌گیری نشده؛ فقط 49.9 ثانیه روی Mac بدون بوت برنامه |
 | هزینهٔ CPU فشرده‌سازی WAL روی سرور GPU | تأییدنشده |
@@ -754,7 +903,7 @@ flowchart TB
 | D | حالت rollback امن | rollback دستی به sha قدیمی کار نمی‌کند | `deploy/padyar-deploy.sh` (حالت rollback با بررسی ancestor و فهرست migrationهای جلوتر)، runbook | A | بله: نصب دوبارهٔ `/usr/local/bin/padyar-deploy` |
 | E | staging | مسیر استقرار قبل از production تست نمی‌شود | `.github/workflows/ci.yml` (job `deploy-staging` و environment)، `deploy/README.md`، `deploy/env/instance.env.template` (نکتهٔ staging: SMS `dev`، کلید AI جدا، `WEB_CONCURRENCY=1`)، اسکریپت کپی فقط محتوا (`dataset`، `questions`، `synonyms`، `settings` بدون اعتبارها)، runbook | D | بله: نصب slug تازه |
 | F | جدایی اتصال بین دو نصب | هر نقش به دیتابیس نصب دیگر وصل می‌شود؛ فقط سد schema جلویش را می‌گیرد | `deploy/05-create-databases.sh` (`REVOKE CONNECT ON DATABASE padyar_<slug> FROM PUBLIC` و `GRANT CONNECT` به نقش خود نصب؛ **بدون** نقش فقط خواندنی و **بدون** `pg_read_all_data`)، `docs/engineering/SECURITY.md` | هیچ | بله: اجرای دوبارهٔ دستورها روی دیتابیس‌های موجود |
-| H | کپی رمزشده به Google Drive | امروز هیچ نسخه‌ای از سرور بیرون نمی‌رود | `app/services/backup_offsite.py` (نوع هدف `rclone:` با argv ثابت، و prune کپی‌های قدیمی مقصد)، `app/config.py`، `.env.example`، `tests/test_backup_offsite.py`، `deploy/README.md` و runbook (نصب rclone از apt، ساخت remote از نوع crypt روی drive، جای نگه‌داری کلید crypt بیرون از سرور و بیرون از Drive). **قدم اول: آزمودن دسترسی به Drive از سرور.** | هیچ | بله: نصب rclone، client_id و OAuth که فقط مالک محصول انجام می‌دهد |
+| H | کپی رمزشده به یک مقصد SFTP | امروز هیچ نسخه‌ای از سرور بیرون نمی‌رود | `deploy/55-pitr.sh` (repo2: `repo2-type=sftp`، `repo2-cipher-type=aes-256-cbc`، کلید SSH کاربر `postgres`، ثبت همهٔ کلیدهای میزبان مقصد)، `app/services/backup_offsite.py` (نوع هدف `sftp:` با argv ثابت، رمزنگاری `gpg --symmetric --cipher-algo AES256` با فایل کلید قبل از آپلود، و prune کپی‌های قدیمی مقصد)، `app/config.py`، `.env.example`، `tests/test_backup_offsite.py`، و یک job در `.github/workflows/ci.yml` که در برابر یک **کانتینر SFTP موقت فقط-SFTP** (همان شکل آزمایش 5) این‌ها را ثابت می‌کند: آپلود رمزشده، خوانا نبودن مقصد بدون کلید، شکست با کلید غلط، و بازیابی کامل بعد از پاک کردن «سرور» با روش دو قدمی 2.50 (دانلود، بعد restore). صفحهٔ Backups: «هیچ نسخه‌ای بیرون از سرور نیست» تا وقتی مقصد تنظیم نشده. runbook: فرایند کلید کاغذی و بازیابی بعد از از دست رفتن سرور. **بدون rclone و بدون Google Drive.** | C | بله، ولی فقط وقتی مقصد SFTP ساخته شد: کلید SSH، کلید رمز، پیکربندی repo2 و `OFFSITE_BACKUP_TARGET`. تا آن روز روی سرور خالی می‌ماند |
 | G | RPO و RTO و ظرفیت | هیچ هدف نوشته‌شده‌ای نیست | `docs/engineering/DEPLOYMENT_RUNBOOK.md` (یا یک فایل تازه در `docs/engineering/`)، با عددهای واقعی drill، زنجیرهٔ PR C روی سرور، و وضعیت PR H | B2، C، H | نه |
 
 خارج از این track: هشدار روی متریک‌ها و شکل multiprocess متریک‌ها (track 4،
@@ -764,14 +913,28 @@ flowchart TB
 
 1. هدف‌های RPO و RTO بخش 6: پذیرفته شد، همان‌طور که نوشته شده.
 2. staging: فقط محتوا، بدون دادهٔ شخصی بازدیدکننده.
-3. `OFFSITE_BACKUP_TARGET`: روی سرور تنظیم نیست. مقصد دلخواه: Google Drive.
+3. `OFFSITE_BACKUP_TARGET`: روی سرور تنظیم نیست. مقصد دلخواه در نوبت 2: Google Drive (در نوبت 3 عوض شد، پایین).
 4. pgBackRest: از apt اوبونتو (2.50).
+
+### سؤال‌های پاسخ‌داده در نوبت 3 (مالک محصول در گفتگو تأیید کرد، 2026-10-01)
+
+5. مقصد بیرونی: SFTP، نه Google Drive. هنوز سرور SFTP نیست.
+6. WAL هم در PR H بیرون می‌رود.
+7. رمزنگاری قبل از آپلود؛ کلید روی کاغذ در گاوصندوق.
+8. VMware snapshot می‌گیرد.
 
 ### سؤال‌های باز برای مالک محصول
 
-1. آیا VMware از این سرور snapshot می‌گیرد؟ کجا نگه داشته می‌شود و چند وقت؟
-2. کلید rclone crypt کجا نگه داشته شود (بیرون از سرور و بیرون از Drive)؟
-3. آیا بعداً repo pgBackRest هم به Drive کپی شود (RPO از دست رفتن سرور پایین‌تر، حجم و پهنای باند بیشتر)؟
+1. snapshotهای VMware کجا نگه داشته می‌شوند و برای چند وقت؟
+2. مقصد SFTP کجا و کی ساخته می‌شود؟ تا آن روز، از دست رفتن سرور یعنی از دست
+   رفتن همه‌چیز.
+3. **تعارض با «نه روی سرور»:** رمزنگاری بی‌حضور انسان یعنی کلید روی سرور هست
+   (بخش 6، بند 10). آیا قاعدهٔ «فقط در فایل پیکربندی `0600`، هرگز در پشتیبان یا
+   مقصد، نسخهٔ دوم فقط روی کاغذ» قابل قبول است؟
+4. **pgBackRest 2.50 نمی‌تواند مستقیم از SFTP بازیابی کند** (آزمایش 5). پیشنهاد:
+   2.50 بماند (تصمیم نوبت 2) و runbook بازیابی دو قدمی را بنویسد. یا PGDG
+   (2.59.x)، اگر از سرور در دسترس باشد. تصمیم با مالک محصول است.
+5. کلید کاغذی دست چه کسی است، و هر چند وقت یک بار تایپ و آزموده می‌شود؟
 
 ## 10. Related Artifacts
 
@@ -792,7 +955,7 @@ flowchart TB
 - **RTO:** بیشترین زمانی که سرویس بعد از حادثه قطع می‌ماند.
 - **drill:** تمرین منظم بازیابی واقعی یک پشتیبان، برای اثبات اینکه قابل بازیابی است.
 - **expand/contract:** اول کد را طوری مستقر کن که دیگر از ستون استفاده نکند، و در یک deploy بعدی ستون را حذف کن.
-- **rclone crypt:** لایه‌ای در rclone که فایل را قبل از آپلود، روی خود سرور رمز می‌کند.
+- **SFTP:** انتقال فایل روی SSH. یک «حساب فقط-SFTP» فایل می‌گیرد ولی shell نمی‌دهد.
 
 ## پیوست الف: دستورها و خروجی پشت هر عدد
 
@@ -942,4 +1105,67 @@ docker run --rm postgres:16 pg_dump --help | grep -i snapshot
   --snapshot=SNAPSHOT          use given snapshot for the dump
 grep -rn "CREATE TABLE IF NOT EXISTS\|CREATE INDEX IF NOT EXISTS\|ALTER TABLE" app/services/*.py app/db/*.py | grep -v "^app/db/connection.py" | wc -l
 36
+```
+
+### الف.7: SFTP، رمزنگاری، و از دست رفتن سرور (آزمایش 5)
+
+```bash
+# destination: an SFTP-only account
+Match User pgrepo
+    ChrootDirectory /srv/sftp/pgrepo
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    PasswordAuthentication no
+# /etc/pgbackrest.conf on the db host (0600, owner postgres)
+repo1-path=/var/lib/pgbackrest
+repo2-type=sftp
+repo2-path=/upload/pgbackrest
+repo2-sftp-host=dbmat-t1-sftp
+repo2-sftp-host-user=pgrepo
+repo2-sftp-private-key-file=/var/lib/postgresql/.ssh/id_ed25519
+repo2-sftp-public-key-file=/var/lib/postgresql/.ssh/id_ed25519.pub
+repo2-sftp-host-key-hash-type=sha1
+repo2-cipher-type=aes-256-cbc
+repo2-cipher-pass=<the key on paper>
+archive-push-queue-max=1GiB
+time pgbackrest --stanza=main --repo=2 --type=full backup
+```
+```
+gnupg 2.4.4-2ubuntu17.6 / openssh-client 1:9.6p1-3ubuntu13.19 / pgbackrest 2.50-1build2 / postgresql-16 16.15-0ubuntu0.24.04.1 / rsync 3.2.7-1ubuntu1.5
+real	0m5.792s
+    cipher: mixed
+        repo1: none
+        repo2: aes-256-cbc
+            repo2: backup set size: 7.9MB, backup size: 7.9MB
+0000000   S   a   l   t   e   d   _   _ ...      # first bytes of a WAL file at the destination
+0                                               # files at the destination containing "0912000"
+```
+قطع مقصد (`pkill -x sshd` روی مقصد، سه `pg_switch_wal()`، 20 ثانیه صبر):
+```
+before:  archived=11 failed=0 last_archived=000000010000000000000008.00000028.backup pg_wal_files=8 ready=0
+outage:  archived=11 failed=0 last_archived=000000010000000000000008.00000028.backup pg_wal_files=8 ready=3
+        wal archive min/max (16): 000000010000000000000001/000000010000000000000009     # repo1 (local) did not move
+after:   archived=15 failed=0 last_archived=00000001000000000000000D pg_wal_files=8 ready=0
+```
+از دست رفتن سرور (پاک کردن پوشهٔ داده، repo1، `pgbackrest.conf`، کلید SSH؛ کلید
+SSH تازه روی مقصد؛ پیکربندی تازه فقط با repo از نوع sftp و کلید تایپ‌شده):
+```
+source: a=500000 b=200001
+wrong key typed:  ERROR: [075]: no backup set found to restore
+2.50 direct:      ERROR: [041]: raised from local-1 protocol: unable to open file '/upload/pgbackrest/backup/main/20261001-165010F/pg_data/base/16398/2602_vm.zst' for read: libssh2 error [-31]: sftp error [4]
+                  [FileOpenError] on 2 retries from 1-15013ms ...
+                  real 0m40.474s
+pgbackrest verify (2.50, same sftp repo):  no warnings, real 0m1.955s
+2.59.2 (PGDG) direct:  real 0m3.142s ; a=500000 b=200001 last-before-loss=1
+2.50 two steps:   download: 1.3 s (42M); restore (2.50, posix): 3.0 s; start+replay: 3.4 s; total: 7.7 s
+                  a=500000 b=200001 last-before-loss=1
+```
+مسیر dump:
+```
+rsync -a --chmod=F600 /tmp/padyar.dump pgrepo@dbmat-t1-sftp:/upload/
+rsync error: protocol incompatibility (code 2) at compat.c(622) [sender=3.2.7]
+gpg --batch --pinentry-mode loopback --passphrase-file /tmp/pass --symmetric --cipher-algo AES256 -o padyar.dump.gpg padyar.dump
+0                                   # phone numbers found in the encrypted file
+sha256 before: 69c2cf8142634f85     sha256 after sftp put/get + decrypt: 69c2cf8142634f85
+wrong key: gpg: decryption failed: Bad session key
 ```
