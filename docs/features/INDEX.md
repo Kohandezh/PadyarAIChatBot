@@ -34,7 +34,7 @@ Central tracking for all features.
 | freshness-schedule | Removed (2026-09-15, retired with the event install) | — | infrastructure | 2026-09-14 | 2026-09-15 |
 | synonym-suggestions | Implemented | Ready | search | 2026-09-14 | 2026-09-14 |
 | question-assist | Implemented | Ready | content | 2026-09-14 | 2026-09-14 |
-| monitoring-stack | Draft (research complete, In Review) | Not started | infrastructure | 2026-09-30 | 2026-09-30 |
+| monitoring-stack | Draft | Not started | infrastructure | 2026-09-30 | 2026-10-01 |
 
 ## Quick Features
 

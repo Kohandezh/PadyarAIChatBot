@@ -393,3 +393,203 @@ intent روی پیکره‌ای ساخته شده بودند که سه‌چها�
 ندارد. سنجش واقعیِ سود این تغییر روی نسبت شرکت/FAQ به گسترش مجموعه‌ی
 طلایی با سؤال شرکتی نیاز دارد که در backlog است.
 
+## ADR-024: پشتهٔ پایش با بسته‌های Ubuntu و systemd، فقط روی loopback، و پیامک هشدار از watchdog
+
+**وضعیت:** Proposed (پیشنهادی). هر تصمیم زیر یک پیشنهاد برای مالک محصول
+(Sina) است و در بازبینی PR پذیرفته یا رد می‌شود.
+**تاریخ:** 2026-10-01
+**تصمیم‌گیرندگان:** Sina Shamsizadeh (مالک محصول). پیش‌نویس با کمک AI.
+**مرجع:** `docs/features/monitoring-stack/RESEARCH.md`،
+`docs/features/monitoring-stack/SPEC.md`
+
+شمارهٔ این ADR: ADR-022 را PRهای باز #148، #150 و #156 (از جمله multiprocess
+برای `/metrics`) و ADR-023 را PR باز #146 گرفته‌اند.
+
+### 1. Context
+
+تیکت می‌خواهد: Prometheus که `/metrics` را بخواند، داشبورد Grafana، قواعد
+هشدار، روند on-call و حادثه، و همه با یک اسکریپت deploy نصب شوند. امروز
+`/metrics` هست ولی هیچ چیز آن را نمی‌خواند
+(`docs/engineering/MONITORING.md:7-24`). میزبان (gpuserver، Ubuntu 24.04) در
+ایران است، هیچ ورودی از اینترنت ندارد، و فقط با Cloudflare Tunnel بیرون
+می‌رود (`deploy/README.md:144-153`). کیت `deploy/` همه bash و apt و systemd
+است. spike همین پوشه چهار روش نصب را مقایسه کرد (بخش 5، D1). این ADR روش
+نصب و تصمیم‌های وابسته به آن را ثبت می‌کند.
+
+### 2. Decision
+
+1. **روش نصب: گزینهٔ (b) spike.** Prometheus 2.45.3، Alertmanager 0.26.0،
+   node_exporter 1.7.0، postgres_exporter 0.15.0 و blackbox_exporter 0.24.0
+   از آرشیو Ubuntu noble (universe)، زیر systemd، همه روی `127.0.0.1`. نصب با
+   یک اسکریپت تازه: `deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]`.
+   یک Prometheus برای کل میزبان، یک scrape job برای هر نصب.
+2. **Grafana در فاز اول نیست.** بخش «Grafana dashboards» تیکت فعلاً با رابط
+   خود Prometheus (نمودار و صفحهٔ Alerts) از راه تونل SSH پاسخ داده می‌شود،
+   تا مالک دربارهٔ Grafana تصمیم بگیرد. دلیل: Grafana در آرشیو Ubuntu نیست،
+   هر سه منبع آن مال Grafana Labs است، و شرایط استفادهٔ Grafana Labs (بند 21،
+   به‌روزشده 2026-07-10) دانلود به کشورهای تحریمی را منع می‌کند.
+3. **رابط هشدار: فقط رابط Prometheus و Alertmanager** (تصمیم مالک: «فعلاً فقط
+   UI»)، برای اپراتوری که SSH دارد. فهرست هشدارهای روشن در Admin →
+   Operations یک گزینهٔ نام‌دار برای آینده است و در این کار نیست.
+4. **رساندن هشدار: UI و پیامک Asanak** (تصمیم مالک)، با طرح (P) spike:
+   watchdog موجود هر نصب (`deploy/watchdog/watchdog.py`) هر ۶۰ ثانیه هشدارهای
+   `page="sms"` را از API Alertmanager می‌خواند و پیامک می‌کند. Alertmanager
+   **هیچ گیرندهٔ بیرونی ندارد**: یک route و یک receiver خالی.
+5. **API Alertmanager با basic auth بسته می‌شود** (`--web.config.file`).
+   پشتیبانی آن در Alertmanager از 0.22.0 هست (CHANGELOG تگ v0.26.0، خط
+   «Support TLS and basic authentication on the web server. #2446»، خوانده
+   در 2026-10-01). دلیل: بدون آن هر پروسهٔ محلی می‌تواند هشدار جعلی با
+   `page="sms"` بسازد و پیامک پولی بفرستد (spike، D3). جزئیات در SPEC.
+6. **هشدارهای سطح میزبان** (دیسک، DB، تونل، گواهی، و باز نشدن سایت از راه
+   nginx و TLS مبدأ) را فقط **یک** نصب پیامک
+   می‌کند: «صاحب هشدارهای میزبان». پیش‌فرض: اولین slug که به اسکریپت داده
+   شده، یا صریح با `--host-alerts <slug>`.
+7. **بودجهٔ پیامک (تعارض D3 spike):** پیشنهاد پیش‌فرض این است که پیامک هشدار
+   از همان `sms_daily_budget` مشترک مصرف کند (بدون تغییر کد برنامه)، و سقف
+   روزانهٔ خود watchdog برای هشدار (۱۰ پیامک در روز برای هر نصب) سیل هشدار را
+   محدود کند. دو ریسک صریح نوشته می‌شود:
+   - یک روز شلوغ OTP می‌تواند بودجه را تمام کند و پیامک هشدار رد شود
+     (`app/services/sms.py:396-410`).
+   - **وقتی `SMS_DAILY_BUDGET` در `.env` نصب بزرگ‌تر از صفر است و DB پایین
+     است، هیچ پیامک هشداری نمی‌رود.** وقتی DB پایین است، `get_setting` به‌جای
+     خطا `None` می‌دهد (`app/db/queries.py:33-43`)، پس بودجه از env خوانده
+     می‌شود (`app/services/sms.py:271-286`، `:358-365`). اگر آن عدد بزرگ‌تر از
+     صفر باشد، `_spend_budget` قبل از ارسال شمارنده را با `set_setting` در DB
+     می‌نویسد (`app/services/sms.py:412-413`)، و `set_setting` بدون DB خطا
+     می‌دهد (`app/db/queries.py:274-279`). پس خود پیامک «DB پایین است» هم
+     نمی‌رود. مقدار env وقتی پر است که آینهٔ پنل ادمین به `.env` کار کرده
+     (`app/services/sms.py:289-327`). با مقدار خالی یا صفر (پیش‌فرض،
+     `app/services/sms.py:204`) تابع زود برمی‌گردد (`:393-395`) و این مشکل
+     نیست. اسکریپت نصب همان مقدار `.env` را می‌خواند و هشدار می‌دهد.
+
+   **بدیل برای مالک:** هشدار از بودجه معاف شود (یک تغییر کوچک در
+   `app/services/sms.py`). این هر دو ریسک بالا را می‌بندد، ولی یک مسیر ارسال
+   بی‌سقف می‌سازد که فقط سقف watchdog جلویش را می‌گیرد.
+8. **`health_score` هشدار ندارد** (spike، D2). قاعدهٔ `PadyarAppDown` برچسب
+   `page="sms"` ندارد، چون probe خود watchdog همین امروز «برنامه پایین است» را
+   پیامک می‌کند.
+9. **قواعد با اجرای دوبارهٔ `deploy/55-monitoring.sh` به میزبان می‌رسند.**
+   `deploy/padyar-deploy.sh` عوض نمی‌شود.
+
+### 3. Why
+
+- (b) تنها گزینه‌ای است که منبع دانلودش هیچ مانع مستندی از ایران ندارد و همین
+  امروز `00-bootstrap` از آن استفاده می‌کند (`deploy/00-bootstrap-server.sh:32-42`).
+- با کیت یکی است: apt، systemd، idempotent. اپراتوری که `17-watchdog.sh` را
+  می‌شناسد، این را هم می‌فهمد.
+- هر چیز لازم در نسخهٔ noble هست: `credentials_file` و `scrape_config_files`
+  در Prometheus 2.45 (`config/config.go:224` در تگ v2.45.3)، `promtool`، و
+  `GET /api/v2/alerts` با `fingerprint` در Alertmanager 0.26.
+- طرح (P) هیچ listener یا سرویس تازه‌ای نمی‌سازد، پیامک را با همان کاربر و
+  اعتبار Asanak هر نصب می‌فرستد، و مرگ خود پشتهٔ پایش را هم می‌بیند.
+
+### 4. Alternatives Considered
+
+#### Option A: Docker Compose (گزینهٔ a)
+- Pros: نسخهٔ جدید، Grafana در همان compose.
+- Cons: Docker Hub و `download.docker.com` گزارش 403 از ایران دارند و شرایط
+  Docker ایران را منع می‌کند. اولین Docker در کیتی که Docker ندارد.
+- Why not: منبع دانلود و ناسازگاری با کیت.
+
+#### Option C: باینری upstream از GitHub با systemd (گزینهٔ c)
+- Pros: Prometheus 3.x با پشتیبانی upstream.
+- Cons: کاربر، unit، checksum و وصلهٔ امنیتی همه دستی. دسترسی GitHub از داخل
+  ایران تأیید نشد.
+- Why not: در فاز اول نه. ولی مسیر جایگزین است (بخش 7).
+
+#### Option D: هیچ کار (فقط `/metrics` و watchdog)
+- Pros: صفر هزینه.
+- Cons: تیکت برآورده نمی‌شود. «برنامه بالا است ولی DB یا دیسک یا پشتیبان خراب
+  است» را هیچ کس نمی‌بیند.
+- Why not: فقط وقتی می‌ماند که (b) و (c) هر دو نصب نشوند.
+
+#### Option W: Alertmanager با webhook به یک relay پیامکی تازه
+- Pros: تأخیر چند ثانیه، dedup آمادهٔ Alertmanager.
+- Cons: یک listener و یک راز تازه برای هر نصب، و مرگ Alertmanager را هیچ کس
+  نمی‌بیند.
+- Why not: طرح (P) همین را بدون سطح تازه می‌دهد.
+
+#### Option T: یک timer به سبک watchdog به‌جای Alertmanager
+- Pros: یک سرویس کمتر. هر چیز در کد خود ما.
+- Cons: silence، inhibit و رابط هشدار را باید از نو ساخت. Alertmanager در همان
+  آرشیو هست.
+- Why not: بازسازی چیزی که آماده و آزموده است.
+
+#### Option CA: Cloudflare Access جلوی رابط Prometheus
+- Pros: اپراتور بدون SSH از مرورگر به رابط می‌رسد، پشت ورود Zero Trust.
+- Cons: یک hostname عمومی تازه روی تونل می‌سازد. حتی پشت ورود، یک سطح عمومی
+  تازه است.
+- Why not: تونل SSH همین دسترسی را بدون سطح تازه می‌دهد.
+
+#### بدیل بودجه: معافیت هشدار از `sms_daily_budget`
+- Pros: پیامک هشدار نه با OTP رقابت می‌کند و نه با DB پایین مسدود می‌شود.
+- Cons: تغییر کد برنامه، و یک مسیر ارسال بیرون از سقف خرج.
+- Why not (فعلاً): تصمیم با مالک است. پیش‌فرض بدون تغییر کد پیشنهاد شد.
+
+### 5. Consequences
+
+#### Positive
+- هر ده هشدار تیکت یک منبع واقعی و یک قاعده دارند (سه تا، R04 و R05 و R06، فقط بعد از merge وابستگی‌های کد برنامه، SPEC بخش 11.1).
+- `/metrics` از اینترنت بسته می‌شود (`location = /metrics { return 404; }`).
+- مرگ Prometheus یا Alertmanager خودش پیامک می‌شود.
+
+#### Negative / Trade-offs
+- Prometheus 2.45 از نظر upstream از 2024-07-31 پایان عمر است. universe بدون
+  Ubuntu Pro تعهد امنیتی ندارد.
+- بدون Grafana، داشبورد زیبا نداریم.
+- watchdog یک مرحلهٔ تازه می‌گیرد (خواندن هشدار، dedup، سقف روزانه).
+- بودجهٔ مشترک پیامک دو ریسک بالا (بخش 2، بند 7) را باز می‌گذارد.
+
+#### Operational / Security / UX Impact
+- همهٔ listenerهای تازه روی `127.0.0.1`. اسکریپت با `ss -ltn` این را چک می‌کند.
+- basic auth روی Alertmanager مجوز جدا برای هر endpoint ندارد. پس رمز مشترک
+  `watchdog` که هر نصب روی میزبان می‌تواند بخواند، هم هشدار جعلی می‌سازد و هم
+  **silence** می‌گذارد. یک نصب به خطر افتاده می‌تواند هشدارهای واقعی نصب دیگر را
+  بی‌هزینه ساکت کند. کاهش: watchdog صاحب میزبان برای هر silence تازه پیامک
+  می‌دهد (SPEC REQ-054). باقی ریسک (اثر silence تا اپراتور پیامک را ببیند) ریسک
+  پذیرفته‌شدهٔ مالک است.
+- رازهای تازه روی دیسک: فایل توکن هر نصب (`root:prometheus 0640`) و فایل‌های
+  رمز basic auth Alertmanager. هیچ کدام در repo نیست و هیچ کدام چاپ نمی‌شود.
+- هیچ صفحه‌ای که بازدیدکننده یا کارکنان مشتری می‌بینند عوض نمی‌شود.
+
+### 6. Migration / Rollout
+
+- بدون migration دیتابیس. برداشتن: `apt-get purge` بسته‌ها و پاک کردن
+  `/etc/prometheus` و `/etc/padyar-monitoring`. بستن `/metrics` در nginx
+  می‌ماند، چون خودش درست است.
+- **به‌روزرسانی بسته‌ها:** `unattended-upgrades` که `00-bootstrap` نصب می‌کند
+  (`deploy/00-bootstrap-server.sh:42`) وصله‌های امنیتی Ubuntu را خودکار نصب
+  می‌کند. به‌روزرسانی غیرامنیتی کار دستی اپراتور میزبان است.
+- **رفتن از (b) به (c):** همان `prometheus.yml`، قواعد و configهای
+  `/etc/prometheus` و `/etc/padyar-monitoring` می‌مانند. بسته‌ها purge می‌شوند
+  (با نگه داشتن `/etc`)، باینری‌های upstream با checksum و unit دستی نصب
+  می‌شوند، و پوشهٔ داده (`/var/lib/prometheus`) نگه داشته یا به مسیر تازه منتقل
+  می‌شود. config 2.45 با 3.x **تأیید نشد**؛ یادداشت‌های مهاجرت 3.0 پیش از رفتن
+  خوانده می‌شوند و `promtool check config` نسخهٔ تازه گیت است.
+- ترتیب: بعد از `deploy/40-cloudflare-tunnel.sh` (به پورت metrics تونل نیاز
+  دارد). هر نصب باید پیش از آن `METRICS_TOKEN` در `.env` داشته باشد و برنامه
+  یک بار restart شده باشد (`app/config.py:422` فقط موقع import می‌خواند).
+
+### 7. Revisit Conditions
+
+- **برگشت به (c):** اپراتور میزبان (امروز مالک محصول) هفته‌ای یک بار فهرست
+  Ubuntu Security Notices (`https://ubuntu.com/security/notices`) را برای این
+  پنج بسته نگاه می‌کند. یکی از این‌ها رخ دهد:
+  - یک CVE با امتیاز CVSS حداقل 7.0 روی یکی از پنج بستهٔ نصب‌شده منتشر شود و
+    Ubuntu تا ۳۰ روز بعد از انتشار، وصله‌ای در noble-security یا noble-updates
+    منتشر نکند؛
+  - یا `apt-get install` این بسته‌ها روی میزبان شکست بخورد (پیش‌شرط Q3 در SPEC).
+- **Grafana:** وقتی مالک دسترسی `apt.grafana.com` از سرور و مسئلهٔ شرایط
+  استفاده را تأیید کند.
+- **بودجه:** اگر یک پیامک هشدار به‌خاطر بودجه یا DB پایین نرسید، معافیت
+  دوباره بررسی شود.
+- **رابط هشدار:** اگر کارکنان غیرفنی مشتری باید هشدار را ببینند، فهرست در
+  Admin → Operations.
+
+### 8. Related Artifacts
+
+- PRD: ندارد
+- Spike: `docs/features/monitoring-stack/RESEARCH.md`
+- Spec: `docs/features/monitoring-stack/SPEC.md`
+- Plan: ندارد (شکست کار در بخش «Work breakdown» SPEC)
+
