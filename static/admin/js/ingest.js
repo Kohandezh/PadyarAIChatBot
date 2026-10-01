@@ -714,12 +714,20 @@ function clearFieldErrors(card) {
 function openEditor(card) {
     if (!card.parts.form) buildEditor(card);
     const p = card.data;
-    card.parts.title.value = p.title || '';
-    card.parts.text.value = p.text || '';
-    card.parts.questions.value = (p.questions || []).join('\n');
-    card.parts.synonyms.value = (p.synonyms || []).map((s) => `${s.word} = ${s.suggestion}`).join('\n');
+    // What the admin is shown now is what is compared and obeyed at the
+    // press, whatever the job poll changes meanwhile: an untouched field is
+    // never sent, and an editor opened as «ذخیره» never approves (the
+    // human gate, SEC-021).
+    card.shown = {
+        title: p.title || '',
+        text: p.text || '',
+        questions: (p.questions || []).join('\n'),
+        synonyms: (p.synonyms || []).map((s) => `${s.word} = ${s.suggestion}`).join('\n'),
+    };
+    card.saveOnly = !REVIEWABLE.includes(p.ai_state);
+    EDIT_FIELDS.forEach((name) => { card.parts[name].value = card.shown[name]; });
     clearFieldErrors(card);
-    card.parts.save.textContent = REVIEWABLE.includes(p.ai_state) ? T.save : T.saveOnly;
+    card.parts.save.textContent = card.saveOnly ? T.saveOnly : T.save;
     card.editing = true;
     card.parts.answer.hidden = true;
     card.parts.actions.hidden = true;
@@ -737,38 +745,35 @@ function closeEditor(card, giveFocusBack) {
     if (giveFocusBack) card.parts.edit.focus();
 }
 
-function sameList(a, b) {
-    return JSON.stringify(a) === JSON.stringify(b || []);
+// Only the fields whose box the admin changed, as the API takes them.
+// Null when a synonym line has no «=».
+function editedFields(card) {
+    const changed = (name) => card.parts[name].value !== card.shown[name];
+    const changes = {};
+    if (changed('title')) changes.title = card.parts.title.value.trim();
+    if (changed('text')) changes.text = card.parts.text.value.trim();
+    if (changed('questions')) changes.questions = lines(card.parts.questions.value);
+    if (changed('synonyms')) {
+        changes.synonyms = [];
+        for (const line of lines(card.parts.synonyms.value)) {
+            const at = line.indexOf('=');
+            if (at < 0) return null;
+            changes.synonyms.push({ word: line.slice(0, at).trim(), suggestion: line.slice(at + 1).trim() });
+        }
+    }
+    return changes;
 }
 
 async function saveAndApprove(card) {
     clearFieldErrors(card);
-    const p = card.data;
-    const synonyms = [];
-    for (const line of lines(card.parts.synonyms.value)) {
-        const at = line.indexOf('=');
-        if (at < 0) {
-            showFieldError(card, 'synonyms', T.synonymLine);
-            return;
-        }
-        synonyms.push({ word: line.slice(0, at).trim(), suggestion: line.slice(at + 1).trim() });
-    }
-    const values = {
-        title: card.parts.title.value.trim(),
-        text: card.parts.text.value.trim(),
-        questions: lines(card.parts.questions.value),
-        synonyms,
-    };
-    const changes = {};
-    if (values.title !== p.title) changes.title = values.title;
-    if (values.text !== p.text) changes.text = values.text;
-    if (!sameList(values.questions, p.questions)) changes.questions = values.questions;
-    if (!sameList(values.synonyms, (p.synonyms || []).map((s) => ({ word: s.word, suggestion: s.suggestion })))) {
-        changes.synonyms = values.synonyms;
+    const changes = editedFields(card);
+    if (!changes) {
+        showFieldError(card, 'synonyms', T.synonymLine);
+        return;
     }
     if (Object.keys(changes).length) {
         card.parts.save.disabled = true;
-        const result = await call(`${API}/proposals/${enc(p.id)}`, {
+        const result = await call(`${API}/proposals/${enc(card.data.id)}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
         });
         card.parts.save.disabled = false;
@@ -781,9 +786,7 @@ async function saveAndApprove(card) {
         card.data = result.body.proposal;
         fill(card);
     }
-    // A card still being prepared cannot be approved yet (section 10):
-    // the edit is kept and «تأیید» opens once the card is ready.
-    if (!REVIEWABLE.includes(card.data.ai_state)) {
+    if (card.saveOnly) {
         closeEditor(card, true);
         if (Object.keys(changes).length) setCardState(card, 'pending', T.saved, 'success');
         return;

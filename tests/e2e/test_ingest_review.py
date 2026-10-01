@@ -888,6 +888,72 @@ async def test_a_card_still_being_prepared_can_be_edited_but_not_approved(html, 
     _assert_csrf(api)
 
 
+async def test_a_save_only_press_never_approves_even_when_the_card_became_ready(html, open_page):
+    """The human gate: the admin opened the editor while the card was being
+    prepared and was shown «ذخیره». The model finishes while the editor is
+    open (the job poll and the edit's own answer both carry the new state).
+    Pressing «ذخیره» still only saves; approving stays a separate press."""
+    api = FakeApi(html, job=_job(status="proposing", chunk_count=2, _ai_done=1),
+                  proposals=[_proposal(1), _proposal(2, ai_state="waiting")])
+    page = await open_page(api, "?job=job-1", clock=True)
+    card = _card(page, "p2")
+    await card.locator(".ingest-edit").click()
+    assert (await card.locator(".ingest-save").inner_text()).strip() == "ذخیره"
+
+    api.proposals[1]["ai_state"] = "done"
+    api.job.update(status="ready", _ai_done=2)
+    lists = len(api.sent("GET", f"{API}/jobs/job-1/proposals"))
+    await _advance_until(page, "document.getElementById('ingest-summary').textContent.includes('۲ پیشنهاد آماده')",
+                         step_ms=3000)
+    await _barrier(page)
+    assert len(api.sent("GET", f"{API}/jobs/job-1/proposals")) > lists, "the poll re-read the cards"
+    assert (await card.locator(".ingest-save").inner_text()).strip() == "ذخیره", "the label the admin saw stays"
+
+    await card.locator(".ingest-f-title").fill("ساعت بازدید نمایشگاه")
+    await card.locator(".ingest-save").click()
+    await page.wait_for_function(
+        "document.querySelector('.ingest-card[data-id=\"p2\"] .ingest-card-msg').textContent.length > 0",
+        polling=50)
+    await _barrier(page)
+    assert api.sent("POST", f"{API}/proposals/p2/approve") == [], "«ذخیره» must never approve"
+    assert "ذخیره شد" in await _text(page, '.ingest-card[data-id="p2"] .ingest-card-msg')
+    assert api.sent("PUT", f"{API}/proposals/p2")[-1]["body"] == {"title": "ساعت بازدید نمایشگاه"}
+    assert api.proposals[1]["status"] == "pending"
+    assert await card.locator(".ingest-approve").is_enabled(), "now ready: approving is the admin's own press"
+
+    await card.locator(".ingest-edit").click()
+    assert (await card.locator(".ingest-save").inner_text()).strip() == "ذخیره و تأیید", \
+        "opened on a ready card, the editor offers save and approve"
+
+
+async def test_an_untouched_field_is_never_sent_as_an_edit(html, open_page):
+    """Stored text may end in a space or a new line. Opening the editor and
+    pressing «ذخیره و تأیید» without changing anything is an approval, not
+    an edit: no PUT, so no `edited` flag and no edit audit event."""
+    api = FakeApi(html, job=_job(), proposals=[_proposal(1, title="ساعت‌های بازدید ",
+                                                         text="نمایشگاه هر روز باز است.\n",
+                                                         questions=["نمایشگاه کی باز است؟ "])])
+    page = await open_page(api, "?job=job-1", clock=True)
+    card = _card(page, "p1")
+    await card.locator(".ingest-edit").click()
+    await card.locator(".ingest-save").click()
+    await page.wait_for_function(
+        "document.querySelector('.ingest-card[data-id=\"p1\"]').dataset.state === 'approved'", polling=50)
+    await _barrier(page)
+    assert api.sent("PUT") == [], "nothing was changed, so nothing is sent as an edit"
+    assert len(api.sent("POST", f"{API}/proposals/p1/approve")) == 1
+
+    api2 = FakeApi(html, job=_job(), proposals=[_proposal(1, text="نمایشگاه هر روز باز است.\n")])
+    page2 = await open_page(api2, "?job=job-1", clock=True)
+    card2 = _card(page2, "p1")
+    await card2.locator(".ingest-edit").click()
+    await card2.locator(".ingest-f-title").fill("ساعت بازدید")
+    await card2.locator(".ingest-save").click()
+    await page2.wait_for_function(
+        "document.querySelector('.ingest-card[data-id=\"p1\"]').dataset.state === 'approved'", polling=50)
+    assert api2.sent("PUT")[-1]["body"] == {"title": "ساعت بازدید"}, "only the changed field is sent"
+
+
 async def test_the_page_has_no_technical_words_in_any_state(html, open_page):
     api = FakeApi(html, job=_job(status="proposing", chunk_count=3, _ai_done=1),
                   proposals=[_proposal(1, similar_kind="duplicate", similar_to="p0"),
