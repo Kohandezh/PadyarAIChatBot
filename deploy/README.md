@@ -176,6 +176,7 @@ serving, the 500m upload limit and the proxy timeouts still apply.
 | `proxy_read_timeout 120s` | 60 s | the Tier-2 AI fallback can outlast 60 s |
 | `X-Forwarded-For $remote_addr` | *(append)* | `app/auth/security.py:62` reads the **first** entry, so appending lets a visitor forge it and rotate past the rate limit |
 | `location /media/` → `alias` | proxied | a video streamed through uvicorn holds a worker for the whole playback |
+| `location = /metrics { return 404; }` | proxied | Prometheus metrics stay off the internet. The scraper reads the app's loopback port, so nothing legitimate needs this path through nginx |
 
 ### GPU
 
@@ -316,3 +317,39 @@ Deploys under ~3 minutes intentionally never SMS: a ~60 s deploy restart
 shows the maintenance page but cannot reach the 3-failure threshold. The
 page covers the visitor for that window; the phone is reserved for outages
 that need a human.
+
+## Closing `/metrics` on an existing host
+
+The vhost template answers `/metrics` with a 404 from nginx (see
+`docs/engineering/MONITORING.md`, "Reverse proxy"). A host installed before
+that change still proxies `/metrics` to the app, and a normal deploy does not
+fix it: `padyar-deploy.sh` never re-renders the vhost. Re-render it once per
+install with one of these two scripts. Both rebuild
+`/etc/nginx/sites-available/<domain>.conf` from the template, run `nginx -t`,
+and reload nginx.
+
+```bash
+# Option 1: the nginx script. It skips the certificate when one exists, but in
+# the default DNS mode it still stops if /root/.secrets/cloudflare.ini is missing.
+sudo bash deploy/15-nginx-and-ssl.sh myevent 8010 chat.example.com
+
+# Option 2: the watchdog script. ALWAYS pass MAINTENANCE_TITLE.
+sudo MAINTENANCE_TITLE='<visitor-facing name of the install>' \
+  bash deploy/17-watchdog.sh myevent 8010 chat.example.com
+```
+
+Why `MAINTENANCE_TITLE` matters: `17-watchdog.sh` also re-renders the
+maintenance page that visitors see when the app is down (502/504). Without
+the variable it writes the default title, چت‌بات پایدیار, over the install's
+own name. Use the same title the install had before. Read it first:
+
+```bash
+grep -o '<title>[^<]*' /var/www/padyar/maintenance/myevent/__maintenance.html
+```
+
+Check it from the host itself, once per domain:
+
+```bash
+curl -sk -o /dev/null -w '%{http_code}\n' --resolve chat.example.com:443:127.0.0.1 https://chat.example.com/metrics   # 404
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8010/metrics   # 403 without a token: the app is still there for the scraper
+```
