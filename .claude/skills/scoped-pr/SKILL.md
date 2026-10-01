@@ -130,7 +130,7 @@ The `pr-governance` workflow runs `scripts/check_pr_governance.py` on every PR.
 When the PR changes `app/` or `migrations/`, the first five sections must have
 text outside HTML comments, or the check shows a red X. The rules and the
 reason the check is advisory: `docs/features/review-governance/SPEC.md` and
-ADR-022. The review process: `docs/engineering/REVIEW_PROCESS.md`.
+ADR-026. The review process: `docs/engineering/REVIEW_PROCESS.md`.
 
 - **Root cause:** what was broken and why, not only what changed.
 - **Design doc:** the path of a doc under `docs/` that exists in this branch,

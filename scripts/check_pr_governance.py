@@ -3,7 +3,7 @@
 
 Run by .github/workflows/pr-governance.yml on every pull request. The rules
 live in docs/features/review-governance/SPEC.md (REQ-001 to REQ-009, REQ-018) and the
-reason the check is advisory is ADR-022 in docs/engineering/DECISIONS.md.
+reason the check is advisory is ADR-026 in docs/engineering/DECISIONS.md.
 
 Usage:
     python scripts/check_pr_governance.py --body-file <path> \

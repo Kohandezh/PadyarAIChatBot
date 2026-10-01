@@ -4,7 +4,7 @@ name: PR governance
 # itself: root cause, design doc (or "No design needed: <reason>"), tests,
 # security and AI assistance. Rules: docs/features/review-governance/SPEC.md.
 #
-# ADVISORY (ADR-022): a failure shows a red X so the author fixes the
+# ADVISORY (ADR-026): a failure shows a red X so the author fixes the
 # description, but this job is not a required check. It also runs on draft
 # PRs so an agent fixes the description before anyone spends review time.
 #
@@ -12,7 +12,7 @@ name: PR governance
 # Python from the event JSON file and never placed inside a ${{ }}
 # expression in a run: block, which would be a script-injection hole.
 # The plain `pull_request` event plus a read-only token means code from a
-# fork never runs with write access or repository secrets (ADR-022 names the
+# fork never runs with write access or repository secrets (ADR-026 names the
 # event variant that would allow that, and why it is rejected).
 on:
   pull_request:

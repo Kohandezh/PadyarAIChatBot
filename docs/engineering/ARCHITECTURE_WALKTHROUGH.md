@@ -116,7 +116,7 @@
   وابستگی‌ها، migration، راه‌اندازی دوباره، بررسی سلامت) و اینکه هر شکست کجا
   برمی‌گردد.
 - `.github/workflows/release.yml`: با tag `v*` نسخه منتشر می‌شود.
-- `.github/workflows/pr-governance.yml`: بررسی مشورتی متن PR (ADR-022).
+- `.github/workflows/pr-governance.yml`: بررسی مشورتی متن PR (ADR-026).
 - فرایند بازبینی: `docs/engineering/REVIEW_PROCESS.md`.
 
 ## بعد از این یک ساعت

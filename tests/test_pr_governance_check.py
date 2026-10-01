@@ -1,7 +1,7 @@
 """The PR governance check: scripts/check_pr_governance.py and its wiring.
 
 Spec: docs/features/review-governance/SPEC.md (REQ-001 to REQ-017, SC-001 to
-SC-013). Why the check is advisory and not required: ADR-022.
+SC-013). Why the check is advisory and not required: ADR-026.
 
 The script is imported by path, the same way the workflow runs it, because
 scripts/ is not a package.

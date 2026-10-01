@@ -28,7 +28,7 @@
 - قالب PR در `.github/pull_request_template.md` با شش بخش ثابت.
 - اسکریپت `scripts/check_pr_governance.py` که متن PR را بررسی می‌کند.
 - workflow تازهٔ `.github/workflows/pr-governance.yml` که آن اسکریپت را روی
-  هر PR اجرا می‌کند (مشورتی، نه اجباری؛ ADR-022).
+  هر PR اجرا می‌کند (مشورتی، نه اجباری؛ ADR-026).
 - بازنویسی `docs/engineering/CODE_OWNERSHIP.md` از روی کد امروز (هر ۱۵ ماژول
   رجیستری + زیرسیستم‌های مشترک).
 - سندهای تازه: `docs/engineering/REVIEW_PROCESS.md`،
@@ -49,7 +49,7 @@
   پر می‌کند.
 - بررسی خودکار محتوای بخش `## Human review` را بررسی **نمی‌کند** و آن بخش را
   اجباری **نمی‌کند** (دلیل در SEC-004).
-- بررسی خودکار یک required check **نیست** (ADR-022).
+- بررسی خودکار یک required check **نیست** (ADR-026).
 - توضیح قدیمی «The repo is public» در `.github/workflows/ci.yml` در این PR
   اصلاح **نمی‌شود**. آن یک علت جداست و در گزارش تحویل ثبت شده است.
 
@@ -142,7 +142,7 @@
 - **REQ-012:** یک job با شناسهٔ `pr-governance` روی `ubuntu-latest`، با
   `fetch-depth: 0`.
 - **REQ-013:** اگر اسکریپت با کد ۱ خارج شود، job شکست می‌خورد (ضربدر قرمز).
-  این check در هیچ قاعدهٔ محافظت شاخه‌ای اجباری نمی‌شود (ADR-022).
+  این check در هیچ قاعدهٔ محافظت شاخه‌ای اجباری نمی‌شود (ADR-026).
 - **REQ-018:** فهرست فایل‌های تغییرکرده با
   `git -c core.quotePath=false diff --no-renames --name-only "$BASE_SHA"..."$HEAD_SHA"`
   ساخته می‌شود. **انحراف تأییدشده از طرح اول** (که `git diff --name-only` ساده
@@ -314,7 +314,7 @@
 - Spike: ندارد. روش جای تردید فنی نداشت: الگوی workflow از `.github/workflows/ci.yml`
   و الگوی تست متنیِ مخزن از `tests/test_no_legacy_engine_references.py` گرفته
   شد. تصمیم CODEOWNERS را مالک محصول در 2026-09-30 گرفت.
-- ADR: ADR-022 در `docs/engineering/DECISIONS.md` (بررسی مشورتی، نه اجباری).
+- ADR: ADR-026 در `docs/engineering/DECISIONS.md` (بررسی مشورتی، نه اجباری).
 - Plan: ندارد. کار در یک PR است.
 - سندهای همین PR: `docs/engineering/REVIEW_PROCESS.md`،
   `docs/engineering/REVIEW_PLAN.md`، `docs/engineering/ARCHITECTURE_WALKTHROUGH.md`،
