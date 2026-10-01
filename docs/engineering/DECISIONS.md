@@ -393,6 +393,69 @@ intent روی پیکره‌ای ساخته شده بودند که سه‌چها�
 ندارد. سنجش واقعیِ سود این تغییر روی نسبت شرکت/FAQ به گسترش مجموعه‌ی
 طلایی با سؤال شرکتی نیاز دارد که در backlog است.
 
+## ADR-022: /metrics با چند worker، یک پوشه‌ی مشترک برای همه‌ی process ها
+
+**تاریخ:** ۲۰۲۶-۱۰-۰۱ · **وضعیت:** پذیرفته‌شده، پیاده‌سازی و با تست‌های
+subprocess و یک اجرای واقعی `uvicorn --workers 3` روی یک ماشین محلی آزمایش شد.
+روی نصب‌های موجود هنوز اجرا نشده: باید unit دوباره ساخته شود (دستورها در
+`docs/engineering/MONITORING.md`) · **مرجع:** `docs/engineering/MONITORING.md`،
+`app/services/metrics.py`، `deploy/systemd/padyar-app.service.template`،
+`tests/test_metrics_multiprocess.py`
+
+**زمینه:** production با `uvicorn --workers ${WEB_CONCURRENCY}` (پیش‌فرض ۳)
+اجرا می‌شود. هر worker یک process جدا با registry خودش در حافظه است و
+`GET /metrics` فقط registry همان workerی را می‌خواند که اتصال را گرفته. هر سه
+worker یک پورت را می‌شنوند و انتخاب با هسته‌ی سیستم است. پس counterها بین سه
+عدد مستقل می‌پریدند (Prometheus آن را reset می‌بیند) و gaugeها فقط یک worker
+را نشان می‌دادند.
+
+**تصمیم:** حالت multiprocess کتابخانه‌ی `prometheus_client`. هر worker در
+فایل‌های memory-mapped داخل `PROMETHEUS_MULTIPROC_DIR` می‌نویسد و
+`metrics.exposition()` با هر scrape آن‌ها را جمع می‌کند.
+
+- counter و histogram: جمع.
+- `http_inflight`: `livesum`، جمع روی worker های زنده.
+- `ai_circuit_state` و `health_score`: `mostrecent`. وضعیت circuit در دیتابیس
+  است و هر تغییر را فقط یک worker منتشر می‌کند (برنده‌ی UPDATE شرطی). با `max`
+  ممکن بود A عدد ۲ بنویسد، B بعداً ۰ بنویسد، A دیگر ننویسد، و scrape همیشه
+  «open» نشان بدهد. `live` هم نه: تغییری که worker ای منتشر کرده و بعد خارج
+  شده هنوز درست است.
+- خروجی با `FAMILY_NAMES` (از registry اختصاصی) فیلتر می‌شود، چون هر متریک هر
+  کتابخانه هم در همان پوشه می‌افتد. همان هشت خانواده در هر دو حالت.
+- systemd پوشه را می‌دهد: `RuntimeDirectory=padyar-<slug>` با حالت `0700`.
+  هر start خالی است و هر stop پاک می‌شود.
+- مقدار خالی یا پوشه‌ی بد، برنامه را بالا نمی‌آورد. حالت را با وجود **کلید**
+  تعیین می‌کنیم (مثل خود کتابخانه)، نه با درست‌بودن مقدار.
+- اگر `WEB_CONCURRENCY` بیشتر از ۱ باشد و متغیر نباشد، هر process یک WARNING
+  می‌نویسد و بالا می‌آید.
+
+**بدیل‌های ردشده:**
+
+- `WEB_CONCURRENCY=1`: عدد درست می‌شد، ولی throughput که غرفه‌های نمایشگاه
+  لازم دارند از بین می‌رفت.
+- label `worker` یا scrape جدا برای هر worker: هر سه worker یک پورت دارند و
+  هسته انتخاب می‌کند کدام جواب بدهد. نمی‌شود یک worker مشخص را scrape کرد.
+- Push Gateway یا StatsD: یک سرویس تازه که باید اجرا و امن شود، برای مشکلی که
+  یک پوشه حل می‌کند.
+- پاک‌کردن پوشه توسط خود برنامه موقع شروع: ناامن است. با چند worker، یکی از
+  آن‌ها فایل‌هایی را پاک می‌کرد که worker دیگر همین الان نوشته. systemd این
+  کار را قبل از شروع هر worker انجام می‌دهد.
+
+**نتیجه‌ها و محدودیت‌ها:**
+
+- هر به‌روزرسانی متریک حالا یک نوشتن در فایل memory-mapped است (بدون شبکه،
+  دیتابیس و fsync).
+- worker ای که با kill -9 بمیرد فایل live gauge خودش را جا می‌گذارد و
+  `http_inflight` تا restart بعدی سرویس کهنه می‌ماند. خروج عادی آن را تمیز
+  می‌کند (پایان `lifespan`).
+- restart سرویس همه‌ی counterها را از صفر شروع می‌کند. Prometheus آن را یک
+  reset عادی می‌بیند.
+- در حالت multiprocess gaugeهای `*_created` نیستند و `health_score` تا اولین
+  محاسبه sample ندارد.
+- روی نصب‌های موجود دو قدم لازم است: اسکریپت deploy فقط سرویس را restart
+  می‌کند و unit را دوباره نمی‌سازد، پس باید دستورهای MONITORING.md یک بار اجرا
+  شوند. کد جدید با unit قدیمی فقط WARNING می‌دهد و خروجی قبلی را نگه می‌دارد.
+
 ## ADR-024: پشتهٔ پایش با بسته‌های Ubuntu و systemd، فقط روی loopback، و پیامک هشدار از watchdog
 
 **وضعیت:** Proposed (پیشنهادی). هر تصمیم زیر یک پیشنهاد برای مالک محصول
@@ -402,8 +465,8 @@ intent روی پیکره‌ای ساخته شده بودند که سه‌چها�
 **مرجع:** `docs/features/monitoring-stack/RESEARCH.md`،
 `docs/features/monitoring-stack/SPEC.md`
 
-شمارهٔ این ADR: ADR-022 را PRهای باز #148، #150 و #156 (از جمله multiprocess
-برای `/metrics`) و ADR-023 را PR باز #146 گرفته‌اند.
+شمارهٔ این ADR: ADR-022 (multiprocess برای `/metrics`، PR #156) در `main` است و
+ADR-023 را PR باز #146 گرفته است.
 
 ### 1. Context
 
