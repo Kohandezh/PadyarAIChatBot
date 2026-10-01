@@ -152,7 +152,7 @@ See `.env.example` for the full list:
 PadyarAIChatbot/
   main.py                        # Entry point — uvicorn runner (HOST/PORT env-overridable)
   setup.sh                       # Interactive installer script
-  requirements.txt               # Python dependencies (17 packages)
+  requirements.txt               # Python dependencies (19 packages)
   VERSION                        # Single source of the product version (0.1.0)
   CHANGELOG.md                   # Keep a Changelog — release notes per version
   .env / .env.example            # Environment config
