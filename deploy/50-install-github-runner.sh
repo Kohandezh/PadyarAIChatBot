@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+#
+# NOT USED ANY MORE (2026-10). .github/workflows/ci.yml has no self-hosted
+# job, so nothing is scheduled on this runner. Kept for reference only. To
+# deploy, run /usr/local/bin/padyar-deploy by hand (deploy/README.md).
+# When removing the runner, keep /usr/local/bin/padyar-deploy.
+#
 # Install a self-hosted GitHub Actions runner for auto-deploy.
 #
 #   sudo bash deploy/50-install-github-runner.sh <registration-token>

@@ -35,6 +35,7 @@ Central tracking for all features.
 | synonym-suggestions | Implemented | Ready | search | 2026-09-14 | 2026-09-14 |
 | question-assist | Implemented | Ready | content | 2026-09-14 | 2026-09-14 |
 | eval-benchmark | Draft | Not started | search | 2026-09-30 | 2026-09-30 |
+| own-model-next | Draft | Not started | chat | 2026-09-30 | 2026-09-30 |
 
 ## Quick Features
 

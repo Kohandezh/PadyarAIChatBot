@@ -5,14 +5,16 @@ on:
     branches: [main]
   pull_request:
   # Manual trigger: "Run workflow" button (Actions tab) or
-  # `gh workflow run CI --ref main`. Same gates, same deploy — the only way
-  # this differs from a push is who asked.
+  # `gh workflow run CI --ref main`. Same gates. The only way this differs
+  # from a push is who asked.
   workflow_dispatch:
 
 jobs:
-  # The repo is public, so GitHub-hosted runners are free and unlimited.
-  # All checks run on ubuntu-latest and parallelize again. Only `deploy`
-  # stays on the self-hosted `padyar` runner on gpuserver (see below).
+  # Every job runs on GitHub-hosted ubuntu-latest runners. Nothing runs on
+  # the production server: there is no self-hosted job and no auto-deploy.
+  # Production is deployed by hand on the server with
+  # `sudo /usr/local/bin/padyar-deploy <slug> <port> <sha>`
+  # (deploy/README.md, "Deploying a new version").
   test:
     runs-on: ubuntu-latest
     steps:
@@ -278,63 +280,6 @@ jobs:
           name: retrieval-eval
           path: retrieval-eval-*.json
           if-no-files-found: warn
-
-  # ── Auto-deploy ────────────────────────────────────────────────────────
-  # The production server runs a self-hosted runner (deploy/50-install-
-  # github-runner.sh, label `padyar`) that dials OUT to GitHub, so nothing
-  # inbound opens on the server. This job runs ON that server. It stays
-  # self-hosted now that the repo is public: the `if` below limits it to
-  # push/dispatch on main (write access required), so fork pull requests
-  # can never schedule code onto the server runner — and the production
-  # environment approval is a second gate on top of that.
-  #
-  # Gate 1: every blocking CI job (including the identity-guard below) must
-  # be green.
-  # Gate 2: the `production` environment holds a required-reviewer approval
-  #         (repo Settings → Environments → production). One click per
-  #         deploy; set it up once after installing the runner.
-  #
-  # The job does exactly one privileged thing: call the root-owned deploy
-  # script with the ephemeral job token in its environment. No credential is
-  # stored on the server; the token dies when the job ends.
-  deploy:
-    needs: [test, postgres-tests, dependency-audit, secret-scan, identity-guard, evaluation]
-    # Push to main deploys; so does a manual dispatch ON main (the button is
-    # the operator saying "deploy the current main again" — same gates).
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: [self-hosted, padyar]
-    timeout-minutes: 15
-    environment: production
-    permissions:
-      contents: read
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false   # queue merges; never race two deploys
-    steps:
-      # The install this host serves is named by repository variables, so
-      # one workflow deploys any install. If the deploy fails, the job fails
-      # red and the install is rolled back by its own health gate.
-      - name: Deploy to production
-        run: |
-          set -euo pipefail
-          # Fail closed, like every other gate in this file: a deploy
-          # without a configured target is a misconfiguration, not a no-op.
-          # DEPLOY_SLUG/DEPLOY_PORT live in repo Settings → Secrets and
-          # variables → Actions → Variables (DEPLOY_PORT is the install's
-          # APP_PORT — the port its systemd unit listens on).
-          if [ -z "${{ vars.DEPLOY_SLUG }}" ] || [ -z "${{ vars.DEPLOY_PORT }}" ]; then
-            echo "::error::DEPLOY_SLUG and DEPLOY_PORT repository variables are not set. Configure them in Settings → Secrets and variables → Actions → Variables, then re-run."
-            exit 1
-          fi
-          sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
-            /usr/local/bin/padyar-deploy "${{ vars.DEPLOY_SLUG }}" "${{ vars.DEPLOY_PORT }}" "${{ github.sha }}"
-
-      - name: Report
-        run: |
-          echo "Deployed ${{ github.sha }}:"
-          echo "  - padyar-${{ vars.DEPLOY_SLUG }} (port ${{ vars.DEPLOY_PORT }})"
 
   # Blocking. The retired event brands must not come back: every scrubbed
   # surface (source, tests, scripts, docs) stays scrubbed. Each allowlist is

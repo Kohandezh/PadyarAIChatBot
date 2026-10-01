@@ -595,9 +595,8 @@ per-endpoint، چون opt-in بودن یعنی هر mutation ادمینی که �
 ## 13. انتشار
 
 `deploy/padyar-deploy.sh`، با `sudo /usr/local/bin/padyar-deploy <slug> <port> <sha>`
-اجرا می‌شود. کل نیمهٔ سمت سرور خط لولهٔ انتشار همین است؛ کار privileged ی که GitHub
-Actions انجام می‌دهد دقیقاً یک چیز است: صدا زدن این اسکریپت. کاربر runner می‌تواند
-اپ را بخواند اما به systemd، postgres یا nginx دست نمی‌زند.
+اجرا می‌شود. اپراتور آن را بعد از merge به `main` دستی روی سرور اجرا می‌کند. CI هیچ
+job ی روی سرور production ندارد و استقرار خودکار نیست (`deploy/README.md`).
 
 ```mermaid
 flowchart TB
