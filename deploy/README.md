@@ -49,41 +49,38 @@ sudo HF_TOKEN=hf_xxx bash deploy/25-install-tts.sh
 bash deploy/30-verify.sh myevent 8010 myevent.example.com   # end-to-end smoke test
 ```
 
-## Auto-deploy from CI (optional, one-time setup)
+## Deploying a new version
 
-After the install is live and verified, merges to `main` can deploy
-themselves: CI green → one approval click → the server updates itself. Setup:
+There is no auto-deploy. CI runs the checks on GitHub-hosted runners and
+never touches the server. After a PR is merged to `main` and CI is green,
+deploy it by hand on the server:
 
 ```bash
-# 1. On your dev machine (gh logged in as a repo admin), mint the 1-hour token:
-gh api -X POST repos/Kohandezh/PadyarAIChatBot/actions/runners/registration-token --jq .token
-
-# 2. On the server:
-sudo bash deploy/50-install-github-runner.sh <that-token>
-
-# 3. Once, in the browser: repo Settings → Environments → New environment
-#    "production" → Required reviewers → add yourself.
-
-# 4. Once, in the browser: repo Settings → Secrets and variables → Actions →
-#    Variables → add DEPLOY_SLUG=myevent and DEPLOY_PORT=8010 (the install's
-#    APP_PORT). The deploy job refuses to run without both — fail closed.
+sudo PADYAR_GIT_TOKEN=<read-only token> /usr/local/bin/padyar-deploy myevent 8010 <sha>
 ```
 
-What each piece is allowed to do:
+`myevent 8010` is the install's slug and its `APP_PORT`, and `<sha>` is the
+merged commit on `main`. If `main` has moved past `<sha>`, the script stops
+with `SUPERSEDED` and changes nothing; run it again with the newer sha. Its steps, in order: backup, fetch, deps, migrate, restart,
+health check, and a code rollback when the health check fails.
 
-| Piece | Privilege |
-|---|---|
-| `gh-runner` user | run `/usr/local/bin/padyar-deploy` with sudo — nothing else (`/etc/sudoers.d/gh-runner-deploy`, one entry) |
-| `padyar-deploy` script | root-owned at `/usr/local/bin`; backup → fetch → deps → migrate → restart → health, with code rollback |
-| GitHub job token | `contents: read`, dies when the job ends; never stored on the server |
+The repository is private, so the fetch needs a credential.
+`PADYAR_GIT_TOKEN` is a fine-grained GitHub token with read-only access to
+contents of this one repository. It reaches git through a one-shot credential
+helper and is never stored. A read-only deploy key for the app user works
+too; then leave `PADYAR_GIT_TOKEN` out.
 
-During an event: do not deploy. The approval click is the calendar — an
-unapproved deploy sits in the queue and harms nothing.
+During an event: do not deploy.
 
-To deploy manually without GitHub: `sudo /usr/local/bin/padyar-deploy
-myevent 8010 <sha>` does exactly what the pipeline does (fetch needs a
-credential for the private repo; a one-line `PADYAR_GIT_TOKEN=... sudo -E`
-works, or push the branch and let the pipeline carry it).
+**Why there is no auto-deploy.** Until 2026-10 a `deploy` job in
+`.github/workflows/ci.yml` ran on a self-hosted runner on this server
+(`deploy/50-install-github-runner.sh`). It was removed so that no CI job
+runs on the production server. The runner script is kept for reference only.
+A server that still has the runner installed can remove it with the steps
+under "TO REMOVE" at the top of that script, with one change: keep
+`/usr/local/bin/padyar-deploy`, because the manual deploy above uses it.
+Remove only the runner service, the `gh-runner` user and
+`/etc/sudoers.d/gh-runner-deploy`.
 
 ## Things that will bite you, and why
 
@@ -179,6 +176,7 @@ serving, the 500m upload limit and the proxy timeouts still apply.
 | `proxy_read_timeout 120s` | 60 s | the Tier-2 AI fallback can outlast 60 s |
 | `X-Forwarded-For $remote_addr` | *(append)* | `app/auth/security.py:62` reads the **first** entry, so appending lets a visitor forge it and rotate past the rate limit |
 | `location /media/` → `alias` | proxied | a video streamed through uvicorn holds a worker for the whole playback |
+| `location = /metrics { return 404; }` | proxied | Prometheus metrics stay off the internet. The scraper reads the app's loopback port, so nothing legitimate needs this path through nginx |
 
 ### GPU
 
@@ -269,6 +267,22 @@ curl -s localhost:8003/health | jq
 sudo bash deploy/10-install-app.sh myevent
 ```
 
+When `deploy/systemd/padyar-app.service.template` changes, the CI deploy
+(`deploy/padyar-deploy.sh`) only restarts the service. It does not re-render
+the unit. Re-render it by hand (more in `docs/engineering/MONITORING.md`):
+```bash
+TMP="$(mktemp)"
+if ! sed "s/{{SLUG}}/myevent/g" /opt/padyar-myevent/deploy/systemd/padyar-app.service.template > "$TMP"; then
+  echo "STOP: could not render the unit. Nothing was installed."
+elif grep -qF '{{' "$TMP" || ! grep -q '^ExecStart=' "$TMP"; then
+  echo "STOP: the rendered unit is incomplete. Nothing was installed."
+else
+  sudo install -m 0644 "$TMP" /etc/systemd/system/padyar-myevent.service
+  sudo systemctl daemon-reload && sudo systemctl restart padyar-myevent
+fi
+rm -f "$TMP"
+```
+
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
 
@@ -303,3 +317,39 @@ Deploys under ~3 minutes intentionally never SMS: a ~60 s deploy restart
 shows the maintenance page but cannot reach the 3-failure threshold. The
 page covers the visitor for that window; the phone is reserved for outages
 that need a human.
+
+## Closing `/metrics` on an existing host
+
+The vhost template answers `/metrics` with a 404 from nginx (see
+`docs/engineering/MONITORING.md`, "Reverse proxy"). A host installed before
+that change still proxies `/metrics` to the app, and a normal deploy does not
+fix it: `padyar-deploy.sh` never re-renders the vhost. Re-render it once per
+install with one of these two scripts. Both rebuild
+`/etc/nginx/sites-available/<domain>.conf` from the template, run `nginx -t`,
+and reload nginx.
+
+```bash
+# Option 1: the nginx script. It skips the certificate when one exists, but in
+# the default DNS mode it still stops if /root/.secrets/cloudflare.ini is missing.
+sudo bash deploy/15-nginx-and-ssl.sh myevent 8010 chat.example.com
+
+# Option 2: the watchdog script. ALWAYS pass MAINTENANCE_TITLE.
+sudo MAINTENANCE_TITLE='<visitor-facing name of the install>' \
+  bash deploy/17-watchdog.sh myevent 8010 chat.example.com
+```
+
+Why `MAINTENANCE_TITLE` matters: `17-watchdog.sh` also re-renders the
+maintenance page that visitors see when the app is down (502/504). Without
+the variable it writes the default title, چت‌بات پایدیار, over the install's
+own name. Use the same title the install had before. Read it first:
+
+```bash
+grep -o '<title>[^<]*' /var/www/padyar/maintenance/myevent/__maintenance.html
+```
+
+Check it from the host itself, once per domain:
+
+```bash
+curl -sk -o /dev/null -w '%{http_code}\n' --resolve chat.example.com:443:127.0.0.1 https://chat.example.com/metrics   # 404
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8010/metrics   # 403 without a token: the app is still there for the scraper
+```
