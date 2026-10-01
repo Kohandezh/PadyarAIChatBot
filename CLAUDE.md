@@ -180,6 +180,7 @@ PadyarAIChatbot/
       tts.py                     # Admin panel -> AI -> Text to speech (proxy to Chatterbox)
       otp.py                     # /verify page, /api/auth/otp/*, /api/visit-plan
       leads.py                   # Exhibition lead capture: visitor, company edit, admin queue
+      ingest.py                  # Knowledge ingestion API: upload a file or page, review, approve
       themes.py                  # Theme listing and activation
 
     services/                    # Business logic
@@ -206,6 +207,9 @@ PadyarAIChatbot/
       leads.py                   # Lead capture business logic (visitor/company/admin doors)
       company_profiles.py        # Company records behind the leads module
       company_search.py          # Company lookup for the leads module
+      ingest.py                  # Ingestion jobs: chunks, duplicate labels, AI step, human approval
+      ingest_extract.py          # Safe local reading of an uploaded file (child process, zip gate)
+      ingest_fetch.py            # Safe fetch of one web page (https only, IP pinned per hop)
       themes.py                  # Theme discovery from themes/ dir
       branding.py                # White-label defaults (WL_DEFAULTS) + branding context
       menu_settings.py           # Hamburger-drawer row visibility (admin-toggleable)
@@ -407,7 +411,7 @@ All features are implemented as **modules**. Each module has its own router, ser
 | Category                               | Behavior                                                                                         | Members (see `app/modules/registry.py`)             |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
 | **Core modules** (`is_core=True`)      | Always enabled. Ship with every installation. Cannot be disabled.                                | `chat`, `admin`, `search`, `dataset`, `theme`, `conversations` |
-| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `infra`, `backups`, `ops`, `logs`, `tts`, `registration`, `leads` |
+| **Optional modules** (`is_core=False`) | Enabled/disabled per installation via `ENABLED_MODULES` env var. Customer orders these features. | `voice`, `video`, `infra`, `backups`, `ops`, `logs`, `tts`, `registration`, `leads`, `ingest` |
 
 The registry is the authoritative list — `MODULES` in `app/modules/registry.py`:
 
@@ -428,6 +432,7 @@ The registry is the authoritative list — `MODULES` in `app/modules/registry.py
 | `tts`           | No   | `app.routers.tts`                  | Persian text-to-speech control panel + voice cloning              |
 | `registration`  | No   | `app.routers.otp`                  | Visitor registration + SMS verification, and the targeted visit plan |
 | `leads`         | No   | `app.routers.leads`                | Exhibition lead capture: field visitor, company contact, admin queue |
+| `ingest`        | No   | `app.routers.ingest`               | Knowledge from a file or web page: proposals that go live only after an admin approves them |
 
 **The `conversations` module** is the only way a human sees what the `chat` module (core, always on) already writes to the database — visitors, conversation transcripts, and the wrong-answer queue. It is core, not optional: an install able to switch it off would still collect names, phone numbers and everything people typed, with nobody able to read, check or export any of it.
 
@@ -523,6 +528,8 @@ Core `app` tables:
 | `dataset_edits`   | `app/services/leads.py` (`ensure_tables()`) | The review queue: multi-field proposals (`old_values`/`new_values` JSON + `edit_kind` change/confirm, migration 0022) between a company contact and the live `companies` row |
 | `sms_messages`    | `app/services/sms_outbox.py` (`ensure_table()`) | One row per gateway send with the msgid and polled delivery status (migration 0023); also carries campaign verdict rows (`skipped`/`send_failed`) |
 | `sms_campaigns`   | `app/services/campaigns.py` (`ensure_table()`) | Bulk confirm campaigns: text, audience, sent/skipped/failed counters, stop reason (migration 0024) |
+| `ingest_jobs`     | migration 0030, `app/db/connection.py` (`init_db()`) | One uploaded file or fetched page and its state (queued to done); partial unique indexes allow one active job per content hash and one job in the model stage |
+| `ingest_proposals` | migration 0030, `app/db/connection.py` (`init_db()`) | One chunk of a job: the document's own text, the suggested title, questions and synonyms, the duplicate label, and the review state (pending, approved, rejected) |
 
 `init_db()` in `app/db/connection.py` creates the first eight at startup. `otp_challenges` is created on demand by the registration module's `ensure_table()`, so an install without `registration` never grows the table.
 
