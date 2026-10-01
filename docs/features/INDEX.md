@@ -39,7 +39,7 @@ Central tracking for all features.
 | monitoring-stack | Draft | Not started | infrastructure | 2026-09-30 | 2026-10-01 |
 | intent-model | Approved | In review | search | 2026-09-30 | 2026-09-30 |
 | review-governance | Draft | In review | infrastructure | 2026-09-30 | 2026-09-30 |
-| knowledge-ingestion | Approved (`docs/features/knowledge-ingestion/SPEC.md`, spike: `RESEARCH.md`) | Not started | content | 2026-09-30 | 2026-09-30 |
+| knowledge-ingestion | Approved (`docs/features/knowledge-ingestion/SPEC.md`, spike: `RESEARCH.md`) | In review: S1، S2، S3a در main (#151، #153، #152)؛ S3 (#162) و S4 در بازبینی | content | 2026-09-30 | 2026-10-01 |
 
 ## Quick Features
 
