@@ -207,10 +207,11 @@ async def admin_page(request: Request):
     """REQ-069: the review page, with the session check and login redirect of
     every other admin page. The shell carries no document text; the page
     script reads it from the API above and writes it as text (SEC-020)."""
-    from app.routers.public import _render, _require_admin
+    from app.routers.public import _render, _require_admin, admin_js_version
 
     redirect = await _require_admin(request)
     if redirect:
         return redirect
     return _render("admin/ingest.html", request=request, active_page="ingest",
-                   pdf_available=ingest_extract.pdf_available())
+                   pdf_available=ingest_extract.pdf_available(),
+                   js_version=admin_js_version("ingest.js"))

@@ -63,6 +63,8 @@ const T = {
     editFor: (title) => `ویرایش پیشنهاد: ${title}`,
     rejectFor: (title) => `رد پیشنهاد: ${title}`,
     save: 'ذخیره و تأیید',
+    saveOnly: 'ذخیره',
+    saved: 'ذخیره شد.',
     cancelEdit: 'انصراف',
     fieldTitle: 'عنوان',
     fieldText: 'متن پاسخ',
@@ -73,7 +75,7 @@ const T = {
     failedRequest: 'کار انجام نشد. اتصال را بررسی کنید و دوباره امتحان کنید.',
     jobPreparing: 'در حال آماده شدن',
     jobCancelling: 'در حال لغو',
-    jobReady: (n) => `آمادهٔ بررسی: ${fa(n)} پیشنهاد`,
+    jobCount: (n) => `${fa(n)} پیشنهاد`,
     jobDone: 'تمام شد',
     jobFailed: 'خوانده نشد',
     jobCancelled: 'لغو شد',
@@ -130,6 +132,17 @@ const view = {
 };
 
 // ── REQ-074: a card is seen after one second at least half in view ──────
+// A card taller than two screens can never be half in view, so it also
+// counts once its visible part covers half the screen height. The fine
+// thresholds make the observer report as that part grows and shrinks.
+
+const SEEN_STEPS = Array.from({ length: 101 }, (_, i) => i / 100);
+
+function lookedAt(entry) {
+    if (!entry.isIntersecting || document.hidden) return false;
+    const screen = entry.rootBounds ? entry.rootBounds.height : window.innerHeight;
+    return entry.intersectionRatio >= 0.5 || entry.intersectionRect.height >= screen / 2;
+}
 
 const seen = {
     observer: null,
@@ -139,7 +152,7 @@ const seen = {
 
     init() {
         this.observer = new IntersectionObserver((entries) => entries.forEach((e) => this.onEntry(e)),
-            { threshold: 0.5 });
+            { threshold: SEEN_STEPS });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) [...this.timers.keys()].forEach((id) => this.stop(id));
         });
@@ -161,7 +174,7 @@ const seen = {
 
     onEntry(entry) {
         const id = entry.target.dataset.id;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.5 && !document.hidden) {
+        if (lookedAt(entry)) {
             if (!this.timers.has(id)) {
                 this.timers.set(id, setTimeout(() => this.mark(id, entry.target), SEEN_DWELL_MS));
             }
@@ -564,7 +577,7 @@ function fill(card) {
 
     const ready = REVIEWABLE.includes(p.ai_state);
     approve.disabled = !ready;
-    edit.disabled = !ready;
+    edit.disabled = false;
     waitNote.hidden = ready;
     if (ready) approve.removeAttribute('aria-describedby');
     else approve.setAttribute('aria-describedby', waitNote.id);
@@ -584,7 +597,7 @@ function setCardState(card, state, text, tone) {
 function setCardButtons(card, enabled) {
     const ready = REVIEWABLE.includes(card.data.ai_state);
     card.parts.approve.disabled = !enabled || !ready;
-    card.parts.edit.disabled = !enabled || !ready;
+    card.parts.edit.disabled = !enabled;
     card.parts.reject.disabled = !enabled;
 }
 
@@ -706,6 +719,7 @@ function openEditor(card) {
     card.parts.questions.value = (p.questions || []).join('\n');
     card.parts.synonyms.value = (p.synonyms || []).map((s) => `${s.word} = ${s.suggestion}`).join('\n');
     clearFieldErrors(card);
+    card.parts.save.textContent = REVIEWABLE.includes(p.ai_state) ? T.save : T.saveOnly;
     card.editing = true;
     card.parts.answer.hidden = true;
     card.parts.actions.hidden = true;
@@ -767,6 +781,13 @@ async function saveAndApprove(card) {
         card.data = result.body.proposal;
         fill(card);
     }
+    // A card still being prepared cannot be approved yet (section 10):
+    // the edit is kept and «تأیید» opens once the card is ready.
+    if (!REVIEWABLE.includes(card.data.ai_state)) {
+        closeEditor(card, true);
+        if (Object.keys(changes).length) setCardState(card, 'pending', T.saved, 'success');
+        return;
+    }
     closeEditor(card, false);
     await approveCard(card);
 }
@@ -824,7 +845,9 @@ async function loadCards(offset, limit) {
 
 function jobStatus(job) {
     switch (job.status) {
-        case 'ready': return T.jobReady(job.chunk_count);
+        // The list API counts every proposal of the file, not the ones
+        // still waiting, so the row states the total and nothing more.
+        case 'ready': return T.jobCount(job.chunk_count);
         case 'done': return T.jobDone;
         case 'failed': return T.jobFailed;
         case 'cancelled': return T.jobCancelled;

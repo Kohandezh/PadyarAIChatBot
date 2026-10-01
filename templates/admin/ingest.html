@@ -188,7 +188,7 @@
 
 {% block page_js %}
 <script type="module">
-    import { initIngest } from '/static/admin/js/ingest.js';
+    import { initIngest } from '/static/admin/js/ingest.js?v={{ js_version }}';
     initIngest();
 </script>
 {% endblock %}

@@ -329,6 +329,13 @@ async def _in_view(page, proposal_id) -> float:
     }""", proposal_id)
 
 
+async def _visible_px(page, proposal_id) -> float:
+    return await page.evaluate("""id => {
+        const r = document.querySelector(`.ingest-card[data-id="${id}"]`).getBoundingClientRect();
+        return Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+    }""", proposal_id)
+
+
 async def _text(page, selector="#ingest-root"):
     return " ".join((await page.locator(selector).inner_text()).split())
 
@@ -464,6 +471,42 @@ async def test_a_card_counts_as_seen_only_after_a_second_at_least_half_in_view(h
         "document.getElementById('ingest-approve-seen').textContent.includes('(۱)')", polling=50)
     assert _seen_ids(api) == ["p2"], "only the card that was really looked at is reported"
     assert await page.locator("#ingest-approve-seen").is_enabled()
+    _assert_csrf(api)
+
+
+async def test_a_card_taller_than_the_screen_counts_once_it_fills_half_the_screen(html, open_page):
+    """A full card on a phone is taller than two screens, so half of the card
+    can never be in view. It counts as seen once its visible part covers at
+    least half the screen height for one second; a smaller part does not."""
+    long_text = " ".join(["نمایشگاه هر روز از صبح تا عصر باز است و بازدیدکننده‌ها بلیت را در ورودی می‌خرند."] * 10)
+    tall = _proposal(1, source_text=long_text, text=long_text,
+                     questions=[f"پرسش شمارهٔ {_fa(i)} دربارهٔ نمایشگاه چیست؟" for i in range(1, 6)],
+                     synonyms=[{"word": f"کلمه{_fa(i)}", "suggestion": f"مترادف{_fa(i)}"} for i in range(1, 6)])
+    api = FakeApi(html, job=_job(chunk_count=1), proposals=[tall])
+    page = await open_page(api, "?job=job-1", viewport={"width": 375, "height": 500}, clock=True)
+    height = await page.evaluate("document.querySelector('.ingest-card[data-id=\"p1\"]').offsetHeight")
+    assert height > 2 * 500, f"the card must be taller than two screens for this case, it is {height}px"
+
+    await page.evaluate("""() => {
+        const card = document.querySelector('.ingest-card[data-id="p1"]');
+        window.scrollBy({top: card.getBoundingClientRect().top - window.innerHeight + 200, behavior: 'instant'});
+    }""")
+    await _frame(page)
+    assert 150 < await _visible_px(page, "p1") < 250
+    await page.clock.run_for(4000)
+    assert _seen_ids(api) == [], "less than half the screen is not a look"
+
+    await page.evaluate("""() => {
+        const card = document.querySelector('.ingest-card[data-id="p1"]');
+        window.scrollBy({top: card.getBoundingClientRect().top + 300, behavior: 'instant'});
+    }""")
+    await _frame(page)
+    assert await _visible_px(page, "p1") == 500
+    async with page.expect_request(lambda r: r.url.endswith(f"{API}/proposals/seen")):
+        await page.clock.run_for(1100)
+        await page.clock.run_for(2100)
+    await _barrier(page)
+    assert _seen_ids(api) == ["p1"]
     _assert_csrf(api)
 
 
@@ -779,8 +822,11 @@ async def test_recent_files_read_in_plain_words(html, open_page):
     api = FakeApi(html, job=jobs[0], jobs=jobs)
     page = await open_page(api)
     text = await _text(page, "#ingest-jobs")
-    for words in ("آمادهٔ بررسی: ۸۵ پیشنهاد", "تمام شد", "خوانده نشد", "لغو شد", WAIT_NOTE):
+    for words in ("۸۵ پیشنهاد", "تمام شد", "خوانده نشد", "لغو شد", WAIT_NOTE):
         assert words in text, words
+    # The list API counts every proposal of the file, not the ones still
+    # waiting, so the row must not read as "85 left to review".
+    assert "آمادهٔ بررسی" not in text
     assert await page.locator('#ingest-jobs a[href="?job=a"]').count() == 1
     _assert_plain(await _text(page))
 
@@ -809,8 +855,34 @@ async def test_a_ready_file_counts_its_proposals_and_a_waiting_card_cannot_be_ap
         "!document.querySelector('.ingest-card[data-id=\"p2\"] .ingest-approve').disabled", polling=50)
     assert "۲ پیشنهاد آماده است. هرکدام را کنار متن اصلی ببینید و تأیید کنید." in await _text(page, "#ingest-summary")
     await page.wait_for_function(
-        "document.getElementById('ingest-jobs').textContent.includes('آمادهٔ بررسی')", polling=50)
+        "document.getElementById('ingest-jobs').textContent.includes('۲ پیشنهاد')", polling=50)
     assert await page.locator("#ingest-progress-body").is_hidden(), "a finished file leaves no empty box"
+
+
+async def test_a_card_still_being_prepared_can_be_edited_but_not_approved(html, open_page):
+    """Section 10 disables only «تأیید» on a waiting card (REQ-056 allows an
+    edit on any pending proposal). Saving there saves; it does not approve."""
+    api = FakeApi(html, job=_job(status="proposing", chunk_count=2, _ai_done=1),
+                  proposals=[_proposal(1), _proposal(2, ai_state="waiting")])
+    page = await open_page(api, "?job=job-1", clock=True)
+    card = _card(page, "p2")
+    assert await card.locator(".ingest-approve").is_disabled()
+    assert await card.locator(".ingest-edit").is_enabled()
+
+    await card.locator(".ingest-edit").click()
+    save = card.locator(".ingest-save")
+    assert (await save.inner_text()).strip() == "ذخیره"
+    await card.locator(".ingest-f-title").fill("ساعت بازدید نمایشگاه")
+    await save.click()
+    await page.wait_for_function(
+        "document.querySelector('.ingest-card[data-id=\"p2\"] .ingest-card-msg').textContent.includes('ذخیره شد')",
+        polling=50)
+    assert api.sent("PUT", f"{API}/proposals/p2")[-1]["body"] == {"title": "ساعت بازدید نمایشگاه"}
+    assert api.sent("POST", f"{API}/proposals/p2/approve") == []
+    assert await card.locator(".ingest-editor").is_hidden()
+    assert await card.locator(".ingest-approve").is_disabled(), "still being prepared"
+    assert "ساعت بازدید نمایشگاه" in await _text(page, '.ingest-card[data-id="p2"]')
+    _assert_csrf(api)
 
 
 async def test_the_page_has_no_technical_words_in_any_state(html, open_page):

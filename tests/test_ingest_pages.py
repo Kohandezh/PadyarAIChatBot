@@ -128,6 +128,16 @@ def test_an_admin_gets_the_page_with_its_script(client):
         assert f'id="{hook}"' in response.text, hook
 
 
+def test_the_script_address_changes_when_the_script_does(client):
+    """A deploy that changes the page and its script together must not leave
+    a browser running the old cached script (app/routers/public.py,
+    admin_js_version)."""
+    from app.routers.public import admin_js_version
+    version = admin_js_version("ingest.js")
+    assert version != "0"
+    assert f"/static/admin/js/ingest.js?v={version}" in client.get(PAGE).text
+
+
 # ── REQ-070, SEC-003: the menu link follows the module ───────────────────
 
 def test_the_menu_links_to_the_page_with_its_words_and_icon(client):
