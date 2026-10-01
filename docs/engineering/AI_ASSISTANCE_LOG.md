@@ -232,6 +232,36 @@
   (۲۶۰۵ تست) بدون خطای collection.
 - **بازبینی انسانی:** pending.
 
+## نشست 2026-09-30: فرایند بازبینی انسانی و مالکیت فنی
+
+- **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5) در نقش عامل
+  پیاده‌ساز یک تیم foreman (رهبر: یک session دیگر Claude)، در git worktree جدا
+  روی شاخهٔ `chore/human-review-governance`. یک عامل بازبین جدا (نه انسان) خروجی
+  را با تست oracle خودش بررسی می‌کند.
+- **کارهای انجام‌شده (پچ‌های پیشنهادی، هنوز ادغام نشده):**
+  1. سند طراحی `docs/features/review-governance/SPEC.md` و ADR-026 (بررسی متن
+     PR مشورتی است، نه اجباری)، پیش از هر کد.
+  2. `.github/CODEOWNERS` با دو حساب `@Kohandezh` و `@sinashamsizadeh` (تصمیم
+     مالک محصول در 2026-09-30).
+  3. قالب PR با شش بخش، و اسکریپت `scripts/check_pr_governance.py` با workflow
+     `.github/workflows/pr-governance.yml` که آن را روی هر PR اجرا می‌کند.
+  4. بازنویسی `docs/engineering/CODE_OWNERSHIP.md` از روی کد امروز (۱۵ ماژول
+     رجیستری + ۸ زیرسیستم مشترک). ستون مالک فقط جای خالی
+     `(تعیین توسط Sina)` را دارد و هیچ نامی در آن نوشته نشد.
+  5. سندهای تازه: `docs/engineering/REVIEW_PROCESS.md` (با دستور آمادهٔ محافظت
+     شاخه که اجرا **نشده**)، `docs/engineering/REVIEW_PLAN.md`،
+     `docs/engineering/ARCHITECTURE_WALKTHROUGH.md`.
+  6. به‌روزرسانی بخش PR body در `.claude/skills/scoped-pr/SKILL.md`.
+  7. تست‌های `tests/test_pr_governance_check.py` و
+     `tests/test_code_ownership_doc.py`.
+- **پچ‌های ردشده/بازگردانده:** اجباری کردن بخش `## Human review` در بررسی
+  خودکار (رد شد، چون عامل‌ها را به پر کردن جعلی آن هل می‌داد؛ ADR-026).
+- **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی اسکریپت؛
+  `pytest` روی دو فایل تست تازه و `tests/test_suite_isolation.py`؛ اجرای دستی
+  اسکریپت روی متن PR پیشنهادی با فهرست واقعی فایل‌های تغییرکرده. خروجی دقیق در
+  گزارش تحویل این نشست است. مجموعهٔ کامل تست‌ها اجرا نشد (CI دروازه است).
+- **بازبینی انسانی:** pending.
+
 ## نشست ۱۴۰۵/۰۷/۰۸ (2026-09-30): مدل intent به‌عنوان artifact نسخه‌دار
 
 - **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5)، در نقش implementer
