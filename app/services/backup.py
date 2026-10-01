@@ -67,6 +67,39 @@ def get_schedule() -> dict:
     }
 
 
+def _set_schedule_metric(sched: dict) -> None:
+    """Publish the schedule as backup_schedule_interval_seconds.
+
+    `sched["enabled"]` is the scheduler's own test, so the gauge says 0
+    exactly when scheduler_loop would never run a backup. A failure to write
+    the metric is logged and never stops the scheduler: only the metric is
+    wrong then, not the backups."""
+    from app.services import metrics
+    try:
+        metrics.backup_schedule_interval_seconds.set(
+            sched["interval_hours"] * 3600 if sched["enabled"] else 0)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not write backup_schedule_interval_seconds: %s",
+                       type(e).__name__)
+
+
+def publish_schedule_metric() -> None:
+    """Read the schedule and publish it. Never raises.
+
+    A read that fails (database down, a hand-edited interval that is not a
+    number) keeps the last value. Writing a guess would be worse: 0 would
+    silence the "backup is stale" alert, and the default would page an
+    install that backs up every 48 hours."""
+    try:
+        sched = get_schedule()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("backup_schedule_interval_seconds not updated: the "
+                       "backup schedule could not be read (%s). Keeping the "
+                       "last value.", type(e).__name__)
+        return
+    _set_schedule_metric(sched)
+
+
 def save_schedule(enabled: bool, interval_hours: int, time_str: str,
                   keep: int = None) -> dict:
     set_setting("backup_auto_enabled", "true" if enabled else "false")
@@ -203,10 +236,17 @@ async def scheduler_loop():
     logger.info("Backup scheduler started")
     from app.services import applog
     applog.service("backup.scheduler.started", "زمان‌بند پشتیبان‌گیری آغاز شد")
+    # Every worker starts this loop, so this is "set at app start" for the
+    # schedule metric, without waiting for the first check.
+    publish_schedule_metric()
     while True:
         try:
             await asyncio.sleep(CHECK_EVERY_SECONDS)
             sched = get_schedule()
+            # Before the enabled test, so "switched off" reaches the gauge
+            # too. An admin's change in the panel reaches every worker here,
+            # within one check.
+            _set_schedule_metric(sched)
             if not sched["enabled"]:
                 continue
 

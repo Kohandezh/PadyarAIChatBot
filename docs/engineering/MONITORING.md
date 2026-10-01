@@ -14,7 +14,7 @@ authenticated `GET /metrics` endpoint that serves Prometheus text.
 | `/metrics` endpoint | **Exists.** `app/routers/metrics.py` |
 | Metric definitions and registry | **Exists.** `app/services/metrics.py` |
 | Instrumentation hooks (HTTP, chat, AI, circuit, backup, health) | **Exists.** Wired at the call sites listed below |
-| Tests | **Exist.** `tests/test_metrics.py` (13 tests), `tests/test_metrics_multiprocess.py` (42 tests, each multiprocess case in a real subprocess) and `tests/test_backup_metrics.py` (22 tests) |
+| Tests | **Exist.** `tests/test_metrics.py` (13 tests), `tests/test_metrics_multiprocess.py` (45 tests, each multiprocess case in a real subprocess), `tests/test_backup_metrics.py` (22 tests) and `tests/test_backup_interval_metric.py` (22 tests) |
 | A Prometheus server that scrapes it | **Does not exist.** No scrape config anywhere in the repo |
 | A Grafana (or any) dashboard | **Does not exist.** No dashboard file in the repo |
 | Metric retention | **Does not exist.** Retention is a property of a Prometheus server, and there is none |
@@ -45,13 +45,13 @@ but it is not a monitoring stack.
 
 `/metrics` serves a **dedicated** `CollectorRegistry`, not the library default
 (`app/services/metrics.py:80`). Anything a third-party package registers onto
-`prometheus_client.REGISTRY` never appears. Only the nine families below are
+`prometheus_client.REGISTRY` never appears. Only the ten families below are
 exposed.
 
 With several workers (multiprocess mode) the dedicated registry alone is not
 enough, because every metric of every library lands in the shared directory.
 `exposition()` therefore filters the merged result by `FAMILY_NAMES`, which is
-built from the dedicated registry. The rule is the same in both modes: nine
+built from the dedicated registry. The rule is the same in both modes: ten
 families, nothing else.
 
 The reason is review: every series on this endpoint was chosen by a person. A
@@ -60,7 +60,7 @@ looked at.
 
 ## Metric list
 
-All nine are defined in `app/services/metrics.py:82-151`.
+All ten are defined in `app/services/metrics.py:82-165`.
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
@@ -70,8 +70,9 @@ All nine are defined in `app/services/metrics.py:82-151`.
 | `chat_tier_served_total` | counter | `tier` | Chat turns, by the tier that served them | `app/routers/chat.py:165`, inside `_log_turn` |
 | `ai_calls_total` | counter | `provider`, `outcome` | Routed AI requests by provider type and `success`/`failed` | `app/services/ai/engine.py:366`, inside `_record_usage` |
 | `ai_circuit_state` | gauge | `instance` | Circuit breaker per provider instance: `0` closed, `1` half_open, `2` open | `app/services/ai/circuit.py:83-92` (`_metrics_state`) |
-| `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts made by the scheduler path: `success` = created AND verified, `failed` = any other ending. Both series start at 0 | `app/services/backup.py:154`, `:172` and `:174` (`_run_backup_now`) |
-| `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:171`) and the startup seed (`app/main.py:156`) |
+| `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts made by the scheduler path: `success` = created AND verified, `failed` = any other ending. Both series start at 0 | `app/services/backup.py:187`, `:205` and `:207` (`_run_backup_now`) |
+| `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:204`) and the startup seed (`app/main.py:156`) |
+| `backup_schedule_interval_seconds` | gauge | none | فاصله‌ی پشتیبان‌گیری خودکار به ثانیه (`backup_interval_hours × 3600`). `0` = پشتیبان‌گیری خودکار خاموش است. بخش «فاصله‌ی زمان‌بند پشتیبان» را ببینید | `app/services/backup.py:70` (`_set_schedule_metric`)، صدا زده از `:241` (شروع حلقه‌ی زمان‌بند) و `:249` (هر چک) |
 | `health_score` | gauge | none | The 0 to 100 system health score | `app/services/health.py:339` |
 
 Two hook points are worth knowing about, because they are why the numbers are
@@ -153,6 +154,39 @@ instrumentation adds no latency to the chat path.
   هر خطای دیگر شروع برنامه را متوقف نمی‌کند. این کار به `DB_BACKEND` وابسته نیست.
   روی نصب SQLite پوشه‌ی پشتیبان پستگرس خالی است، پس عدد ۰ می‌ماند.
 
+### فاصله‌ی زمان‌بند پشتیبان
+
+**`backup_schedule_interval_seconds`** زمان‌بند پشتیبان‌گیری خودکار را به
+Prometheus نشان می‌دهد. زمان‌بند در جدول `settings` است
+(`backup_auto_enabled` و `backup_interval_hours`) و Prometheus آن را نمی‌خواند.
+بدون این عدد، قاعده‌ی «پشتیبان کهنه است» فرق «پشتیبان خودکار عمداً خاموش است» یا
+«این نصب هر ۴۸ ساعت پشتیبان می‌گیرد» را با «پشتیبان‌گیری متوقف شده» نمی‌فهمید و
+هشدار دروغ می‌داد.
+
+- **مقدار** برابر `backup_interval_hours × 3600` است وقتی پشتیبان‌گیری خودکار
+  روشن است. اگر سطری در `settings` نباشد، پیش‌فرض‌های `backup.DEFAULTS` به کار
+  می‌روند (۲۴ ساعت، یعنی `86400`).
+- **مقدار ۰ یعنی زمان‌بند هیچ پشتیبان خودکاری نمی‌گیرد.** «روشن» دقیقاً همان
+  آزمونی است که خود زمان‌بند می‌کند (`get_schedule()["enabled"]`، یعنی مقدار
+  سطر دقیقاً رشته‌ی `true` باشد). پس این عدد هرگز با کار واقعی زمان‌بند فرق
+  ندارد. قاعده‌ی «کهنه» (برنامه‌ریزی شده، هنوز در این مخزن نیست) وقتی این عدد ۰
+  است فعال نمی‌شود.
+- **کی به‌روز می‌شود.** حلقه‌ی زمان‌بند (`scheduler_loop`) در هر worker موقع
+  شروع برنامه یک بار آن را set می‌کند، و بعد در هر چک (هر `CHECK_EVERY_SECONDS`،
+  یعنی ۶۰ ثانیه) دوباره. پس تغییر زمان‌بند در پنل مدیریت حداکثر حدود ۶۰ ثانیه
+  بعد در همه‌ی worker ها دیده می‌شود. حلقه یا timer تازه‌ای اضافه نشده است.
+- **خواندن ناموفق مقدار قبلی را نگه می‌دارد.** اگر خواندن `settings` خطا بدهد
+  (دیتابیس پایین است، یا `backup_interval_hours` با دست به چیزی غیر عددی عوض
+  شده)، عدد تکان نمی‌خورد و فقط در لاگ ثبت می‌شود. حدس زدن بدتر بود: ۰ هشدار
+  «کهنه» را خاموش می‌کرد و پیش‌فرض به نصبی با بازه‌ی ۴۸ ساعت هشدار دروغ می‌داد.
+  خطای نوشتن متریک هم فقط در لاگ ثبت می‌شود و جلوی پشتیبان‌گیری را نمی‌گیرد.
+- **اگر دیتابیس موقع شروع یک worker پایین باشد**، عدد تا اولین خواندن موفق
+  مقدار پیش‌فرض gauge یعنی ۰ را نشان می‌دهد و قاعده‌ی «کهنه» ساکت است. این
+  پذیرفته شده است، چون در این مدت هشدار «PostgreSQL پایین است»
+  (`HostPostgresDown`، برنامه‌ریزی شده) خودش فعال است و هیچ پشتیبانی هم
+  نمی‌تواند اجرا شود.
+- رفتار پشتیبان‌گیری و API مدیریت عوض نشده است. فقط این متریک اضافه شده.
+
 **موتور SQLite.** مسیر `backup_center` (فقط backend تست و نسخه‌ی بازگشت) مثل
 قبل است. این دو متریک فقط پشتیبان‌های پستگرس (`pg_dump`) را توصیف می‌کنند.
 
@@ -163,7 +197,7 @@ raw URL path ever became a label value, any visitor could mint unlimited
 combinations just by requesting random paths, and the Prometheus server would
 run out of memory. That is the one failure mode this design must never have.
 
-`route_template()` (`app/services/metrics.py:170-187`) is the only function that
+`route_template()` (`app/services/metrics.py:184-201`) is the only function that
 produces the `route` label. It has three branches and none can return an
 unbounded value:
 
@@ -171,7 +205,7 @@ unbounded value:
    (`/chat`, `/api/things/{thing_id}`), never the raw path. This holds even
    when the request 404s or 422s inside the route.
 2. A path under a static mount collapses to its fixed prefix. The set is
-   `("/static", "/themes", "/media", "/LOGO")` (`metrics.py:163`).
+   `("/static", "/themes", "/media", "/LOGO")` (`metrics.py:177`).
 3. Everything else collapses to the fixed string `unmatched`.
 
 `tests/test_metrics.py:55` pins this: it requests a junk path and a junk asset,
@@ -307,6 +341,7 @@ memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metr
 | `http_request_duration_seconds` | histogram | جمع `_count` و `_sum` و همه‌ی bucketها | همان دلیل |
 | `http_inflight` | gauge | `livesum`: جمع روی worker های زنده | درخواست‌های در حال انجام همه‌ی worker ها باید جمع شوند. فایل worker ای که خارج شود حذف می‌شود |
 | `ai_circuit_state` (به ازای هر `instance`) | gauge | `mostrecent`: آخرین مقداری که هر process set کرده | دلیلش پایین‌تر آمده |
+| `backup_schedule_interval_seconds` | gauge | `mostrecent` | همه‌ی worker ها همان سطر جدول settings را می‌خوانند، پس تازه‌ترین مقدار همان زمان‌بند فعلی است. با `max`، خاموش کردن پشتیبان خودکار (۰) پشت یک ۸۶۴۰۰ قدیمی در فایل worker دیگر پنهان می‌ماند. `live` نیست، چون زمان‌بند بعد از خروج worker هنوز درست است |
 | `health_score` | gauge | `mostrecent` | همه‌ی worker ها از همان چک‌ها همان امتیاز را حساب می‌کنند، پس تازه‌ترین مقدار درست است |
 
 **چرا `ai_circuit_state` حالت `mostrecent` دارد، نه `max` و نه `live`.**
@@ -317,12 +352,12 @@ memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metr
 با `live` هم درست نیست: تغییری که یک worker منتشر کرده و بعد خارج شده هنوز
 درست است و نباید گم شود. پس آخرین نوشته حقیقت است.
 
-### فقط نه خانواده
+### فقط ده خانواده
 
 پوشه‌ی مشترک هر متریکی را نگه می‌دارد که هر کدی در هر worker ساخته، از جمله
 متریک‌های کتابخانه‌های دیگر. برای همین `exposition()` نتیجه‌ی جمع‌شده را با
 `FAMILY_NAMES` فیلتر می‌کند. این مجموعه از registry اختصاصی ساخته می‌شود، پس
-هنوز همان یک منبع حقیقت است. در هر دو حالت همان نه خانواده دیده می‌شود.
+هنوز همان یک منبع حقیقت است. در هر دو حالت همان ده خانواده دیده می‌شود.
 خانواده‌ای که هنوز هیچ worker در آن ننوشته (مثلاً `ai_circuit_state` قبل از اولین
 تغییر وضعیت circuit)
 بدون sample لیست می‌شود، مثل حالت یک process.

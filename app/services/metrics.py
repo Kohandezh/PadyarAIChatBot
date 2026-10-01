@@ -41,7 +41,7 @@ is set, every worker writes into that directory and exposition() merges the
 files on each scrape. The mode is chosen at import time, by the library, for
 EVERY metric in the process. That is also why the dedicated registry alone
 is not enough: a metric from any dependency would land in the same
-directory. exposition() therefore keeps only the nine families defined
+directory. exposition() therefore keeps only the ten families defined
 here. See docs/engineering/MONITORING.md.
 """
 import os
@@ -143,6 +143,20 @@ backup_last_success_timestamp_seconds = Gauge(
     "0 when none is known.",
     registry=registry, multiprocess_mode="max")
 
+# The backup schedule, for the planned "backup is stale" alert: it cannot
+# read the settings table, so without this it cannot tell "automatic backups
+# are off" or "this install backs up every 48 hours" from "backups stopped".
+# interval_hours * 3600 when the scheduler runs automatic backups, 0 when it
+# does not. Set only by app/services/backup.py _set_schedule_metric().
+# mostrecent, not max: every worker reads the same settings row, so the
+# newest write is the current schedule. Under max, switching backups off (0)
+# would stay hidden behind an older 86400 in another worker's file. Not live:
+# the schedule is still true after the worker that published it exits.
+backup_schedule_interval_seconds = Gauge(
+    "backup_schedule_interval_seconds",
+    "Automatic backup interval in seconds; 0 when automatic backups are off.",
+    registry=registry, multiprocess_mode="mostrecent")
+
 # mostrecent: every worker computes the same score from the same checks, so
 # the newest value is the current one. Only set() is used (never inc/dec).
 health_score = Gauge(
@@ -207,7 +221,7 @@ def set_backup_last_success(timestamp: float) -> None:
 
 
 class _OurFamiliesFromFiles:
-    """Collector for one multiprocess scrape: merge the files, keep our nine.
+    """Collector for one multiprocess scrape: merge the files, keep our ten.
 
     The directory holds every metric any code in any worker created, so the
     merged result is filtered by name. This is the multiprocess twin of the
@@ -219,7 +233,7 @@ class _OurFamiliesFromFiles:
         for family in multiprocess.MultiProcessCollector(
                 None, path=MULTIPROC_DIR).collect():
             # The filter is by family NAME only. A metric with one of these
-            # nine names, created by other code in the process, would be
+            # ten names, created by other code in the process, would be
             # merged in. No dependency does that today.
             if family.name in FAMILY_NAMES:
                 seen.add(family.name)
@@ -227,7 +241,7 @@ class _OurFamiliesFromFiles:
         # Nothing has written this family yet (for example ai_circuit_state
         # before the first circuit transition).
         # List it with no samples, as single-process mode does, so /metrics
-        # always shows the same nine families.
+        # always shows the same ten families.
         for name, (documentation, typ) in _FAMILY_META.items():
             if name not in seen:
                 yield Metric(name, documentation, typ)
