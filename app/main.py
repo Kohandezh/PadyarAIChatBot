@@ -149,6 +149,12 @@ async def lifespan(app: FastAPI):
     # Mount theme static directories
     _mount_themes(app)
 
+    # The last verified backup time must survive a restart, or every restart
+    # would look like "never backed up" until the next nightly run. Reads the
+    # manifests on disk only, and never raises.
+    from app.services import pg_backup
+    pg_backup.seed_last_success_metric()
+
     # Start the automatic-backup scheduler (honours the admin panel schedule)
     from app.services.backup import scheduler_loop
     backup_task = asyncio.create_task(scheduler_loop())
