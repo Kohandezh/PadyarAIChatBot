@@ -184,9 +184,26 @@ flowchart TB
 | `DB_BACKEND` | `postgres` | `DB_BACKEND` | انتخاب backend دیتابیس |
 | `METRICS_TOKEN` | خالی | `METRICS_TOKEN` | توکن Bearer برای `GET /metrics` |
 
-`ANSWER_TOPK = 8` از اندازه‌گیری آمده، نه از حدس: روی golden set بازنشسته
-(2026-08-28) recall@1=0.786، @3=0.857، @5=0.929، @8=0.952، @13=0.952 بود. منحنی
-بعد از ۸ صاف می‌شود.
+`ANSWER_TOPK = 8` از یک منحنی recall@K آمد که روی golden set یک رویدادِ
+بازنشسته اندازه گرفته شد (2026-08-28). آن golden set و پیکره‌اش در کامیت
+`4c4303f` حذف شدند، پس آن اندازه‌گیری دیگر بازتولیدپذیر نیست و عددهایش اینجا
+تکرار نمی‌شوند. مقدار ۸ همان مقدار قبلی است.
+
+اندازه‌گیری جاری و بازتولیدپذیر در
+[`docs/features/eval-benchmark/RESULTS.md`](../features/eval-benchmark/RESULTS.md)
+است: پیکرهٔ ساختگی `data/eval/corpus.json`، golden set `data/eval/golden.json`،
+پنج حالت (`bm25`، `dense`، `hybrid`، `full`، `full_no_intent`) و دستور
+بازتولید هر کدام. در حالت `full` روی این پیکره منحنی recall@K این است:
+@1=0.854، @3=0.979، @5=0.979، @8=0.979، @13=1.0 (جزئیات در RESULTS.md). بین ۳
+و ۸ صاف است و بعد از ۸ هنوز یک پرسش دیگر اضافه می‌شود. این پیکره کوچک‌تر از
+پیکرهٔ رویداد است، پس
+`ANSWER_TOPK = 8` را دوباره **اثبات نمی‌کند** و نقض هم نمی‌کند. تعریف
+متریک‌ها در [`docs/features/eval-benchmark/SPEC.md`](../features/eval-benchmark/SPEC.md)
+است.
+
+job بلاک‌کنندهٔ `evaluation` در `.github/workflows/ci.yml` هر پنج حالت را با
+`--check data/eval/floors.json` روی هر push و هر PR اجرا می‌کند. اگر یک
+متریک از کفش پایین‌تر برود، job قرمز می‌شود.
 
 چند تصمیم دیگر به‌جای env در جدول `settings` می‌نشینند تا مشتری بدون deploy
 عوضشان کند: `options_shown`، `collection_noun_fa`/`_en`، `assistant_domain`/`_en`،

@@ -324,9 +324,10 @@ def is_module_enabled(module_name: str) -> bool:
 # settings rows in the admin panel instead.
 
 # How many retrieved records the model is shown before it chooses one.
-# Measured on the retired golden eval set (2026-08-28, embedding + rerank):
-# recall@1=0.786, @3=0.857, @5=0.929, @8=0.952, @13=0.952. The curve is flat
-# after 8, so eight records buy the whole ceiling and nothing beyond it.
+# Chosen from a recall@K curve measured on a retired golden set (2026-08-28)
+# that was deleted with its event install, so that measurement cannot be
+# reproduced. The current, reproducible curve is in
+# docs/features/eval-benchmark/RESULTS.md.
 ANSWER_TOPK = 8
 
 # Prior turns handed to the model as context. Five covers the follow-ups
