@@ -16,8 +16,11 @@
 # root-owned, reviewed once, changed only through the repository — the runner
 # user itself can read the app but cannot touch systemd, postgres or nginx.
 #
-# The script is idempotent and safe to re-run. It is also the rollback path:
-# calling it with an OLD sha walks the same steps backwards.
+# The script is idempotent and safe to re-run. It is NOT a rollback path for
+# an old sha: any sha that is not the tip of main exits with SUPERSEDED and
+# changes nothing (see the FETCHED check in step 2). To roll back by hand, run
+# `git revert` on main and deploy that commit the normal way. Only a red health
+# check (step 6) rolls the code back on its own.
 #
 # THE ORDER IS THE SAFETY
 # -----------------------
@@ -31,12 +34,16 @@
 #                    a failure aborts (old process STILL serving) and resets
 #                    the worktree to the old commit
 #   5. restart       only now does the new code go live
-#   6. health        /health × 3; red => reset to the old commit + restart.
-#                    That is a CODE rollback. The database is additive-only
-#                    so far in this project's history; if a migration is ever
-#                    destructive, restoring the step-1 backup is a manual,
-#   explicitly-confirmed action from the admin panel (Infrastructure >
-#   Backups), never an automatic one.
+#   6. health        /api/health, up to 12 tries 5s apart; red => reset to the
+#                    old commit + restart. That is a CODE rollback only. The
+#                    database is NOT rolled back. Some migrations drop things
+#                    (0006, 0013, 0028 drop columns or tables, 0029 deletes a
+#                    settings row), so old code may meet a schema it does not
+#                    expect. Restoring the step-1 backup is a manual,
+#                    explicitly-confirmed action from the admin panel
+#                    (Infrastructure > Backups), never an automatic one.
+#                    A `git revert` of a deploy that contained a drop also
+#                    needs that step-1 backup. See docs/engineering/DATABASE.md.
 #
 # DURING AN EVENT: do not deploy. Migrations and restarts are for quiet hours
 # (DEPLOYMENT_RUNBOOK.md says the same). The GitHub side has an approval
