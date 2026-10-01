@@ -31,9 +31,9 @@ from prometheus_client.parser import text_string_to_metric_families
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SERVICE_TEMPLATE = REPO_ROOT / "deploy" / "systemd" / "padyar-app.service.template"
 
-# The `# TYPE` names of the eight families /metrics may expose. A counter's
+# The `# TYPE` names of the nine families /metrics may expose. A counter's
 # TYPE line carries the `_total` suffix.
-EIGHT_TYPE_NAMES = {
+NINE_TYPE_NAMES = {
     "http_requests_total",
     "http_request_duration_seconds",
     "http_inflight",
@@ -41,10 +41,11 @@ EIGHT_TYPE_NAMES = {
     "ai_calls_total",
     "ai_circuit_state",
     "backup_outcome_total",
+    "backup_last_success_timestamp_seconds",
     "health_score",
 }
 
-# A writer that touches every one of the eight families at least once.
+# A writer that touches every one of the nine families at least once.
 WRITE_EVERYTHING = """
 from app.services import metrics
 metrics.http_requests_total.labels("GET", "/chat", "200").inc()
@@ -54,6 +55,7 @@ metrics.chat_tier_served_total.labels("local").inc()
 metrics.ai_calls_total.labels("openai", "success").inc()
 metrics.ai_circuit_state.labels(instance="i-all").set(1)
 metrics.backup_outcome_total.labels("success").inc()
+metrics.backup_last_success_timestamp_seconds.set(1790000000)
 metrics.health_score.set(80)
 """
 
@@ -290,10 +292,40 @@ def test_health_score_is_the_most_recently_set_value(mp_dir, first, second):
     assert _value(_scrape(mp_dir), "health_score") == second
 
 
-# ── AC3: exactly eight families, in both modes ─────────────────────────
+# ── The last verified backup time is the maximum over processes ──────
 
 
-def test_only_the_eight_families_are_exposed_and_foreign_metrics_are_not(mp_dir):
+def test_last_backup_time_is_the_newest_any_worker_set(mp_dir):
+    """`max`, not `mostrecent` and not `live`. Worker A ran the backup and set
+    its time. Worker B never saw a backup (it holds 0) and C seeded an older
+    time at startup, after A. Neither may hide or lower A's value, and A
+    exiting does not remove it: the backup is still on disk."""
+    _run("""
+        from app.services import metrics
+        metrics.backup_last_success_timestamp_seconds.set(1790000000)
+        metrics.mark_process_dead()
+    """, mp_dir)
+    _run("""
+        from app.services import metrics
+        metrics.backup_last_success_timestamp_seconds.set(0)
+    """, mp_dir)
+    _run("""
+        from app.services import metrics
+        metrics.backup_last_success_timestamp_seconds.set(1780000000)
+    """, mp_dir)
+    assert _value(_scrape(mp_dir),
+                  "backup_last_success_timestamp_seconds") == 1790000000
+
+
+def test_last_backup_time_is_zero_when_no_worker_knows_one(mp_dir):
+    """0 is "no verified backup known", the value the stale alert fires on."""
+    assert _value(_scrape(mp_dir), "backup_last_success_timestamp_seconds") == 0
+
+
+# ── AC3: exactly nine families, in both modes ─────────────────────────
+
+
+def test_only_the_nine_families_are_exposed_and_foreign_metrics_are_not(mp_dir):
     foreign = textwrap.dedent("""
         import prometheus_client
         leak = prometheus_client.Counter("foreign_leak_total", "x")
@@ -307,19 +339,19 @@ def test_only_the_eight_families_are_exposed_and_foreign_metrics_are_not(mp_dir)
     assert "foreign_leak" in raw, f"the writer never wrote the foreign metric: {raw}"
 
     text = _scrape(mp_dir)
-    assert _type_names(text) == EIGHT_TYPE_NAMES
+    assert _type_names(text) == NINE_TYPE_NAMES
     assert "foreign_leak" not in text
 
 
-def test_all_eight_families_are_listed_even_before_anything_was_written(mp_dir):
-    """Single-process mode always lists all eight (labelled families just have
+def test_all_nine_families_are_listed_even_before_anything_was_written(mp_dir):
+    """Single-process mode always lists all nine (labelled families just have
     no samples yet). Multiprocess mode must not hide a family only because no
     worker has written to it yet."""
     text = _scrape(mp_dir)
-    assert _type_names(text) == EIGHT_TYPE_NAMES
+    assert _type_names(text) == NINE_TYPE_NAMES
 
 
-def test_single_process_output_is_unchanged_and_lists_the_eight_families():
+def test_single_process_output_is_unchanged_and_lists_the_nine_families():
     """AC3 and AC4 without the variable: exposition() is exactly
     generate_latest(registry), in this very process."""
     from app.services import metrics
@@ -330,19 +362,20 @@ def test_single_process_output_is_unchanged_and_lists_the_eight_families():
     metrics.http_request_duration_seconds.labels("GET", "/single").observe(0.1)
 
     assert metrics.exposition() == generate_latest(metrics.registry)
-    assert len(metrics.FAMILY_NAMES) == 8
+    assert len(metrics.FAMILY_NAMES) == 9
     assert metrics.FAMILY_NAMES == {
         "http_requests", "http_request_duration_seconds", "http_inflight",
         "chat_tier_served", "ai_calls", "ai_circuit_state",
-        "backup_outcome", "health_score"}
+        "backup_outcome", "backup_last_success_timestamp_seconds",
+        "health_score"}
 
     names = _type_names(metrics.exposition().decode())
     # generate_latest also prints a `<family>_created` gauge for every counter
     # and histogram child. That is today's output and AC4 keeps it. Nothing
-    # else may appear next to the eight.
-    extra = {n for n in names if n not in EIGHT_TYPE_NAMES}
+    # else may appear next to the nine.
+    extra = {n for n in names if n not in NINE_TYPE_NAMES}
     assert all(n.endswith("_created") for n in extra), extra
-    assert EIGHT_TYPE_NAMES <= names
+    assert NINE_TYPE_NAMES <= names
 
 
 def test_marking_a_process_dead_is_a_no_op_in_single_process_mode():
@@ -410,7 +443,7 @@ def test_metrics_endpoint_auth_in_multiprocess_mode(tmp_path, mp_dir):
     # counted into the shared directory.
     assert _value(body, "http_requests_total", method="GET",
                   route="/metrics", status="403") == 2
-    assert _type_names(body) == EIGHT_TYPE_NAMES
+    assert _type_names(body) == NINE_TYPE_NAMES
 
 
 # ── AC6: a worker that exits normally removes its live gauge files ─────

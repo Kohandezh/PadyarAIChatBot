@@ -18,8 +18,8 @@ ever becomes a label value. So every label here has a bounded value set:
   * `tier` — the `source` value a chat turn was served from; the set is the
     closed list of tiers in app/routers/chat.py.
   * `provider` — the provider TYPE from the AI control plane (11 values).
-  * `outcome` — "success" | "failed" (ai_calls), "success" | "failed"
-    (backups).
+  * `outcome`: "success" | "failed" (ai_calls).
+  * `result`: "success" | "failed" (backups).
   * `instance` — provider instance id; bounded by the control-plane rows an
     operator creates by hand.
 
@@ -41,10 +41,11 @@ is set, every worker writes into that directory and exposition() merges the
 files on each scrape. The mode is chosen at import time, by the library, for
 EVERY metric in the process. That is also why the dedicated registry alone
 is not enough: a metric from any dependency would land in the same
-directory. exposition() therefore keeps only the eight families defined
+directory. exposition() therefore keeps only the nine families defined
 here. See docs/engineering/MONITORING.md.
 """
 import os
+import threading
 
 from prometheus_client import (CollectorRegistry, Counter, Gauge, Histogram,
                                generate_latest, multiprocess)
@@ -119,10 +120,28 @@ ai_circuit_state = Gauge(
     "Circuit-breaker state per provider instance: 0 closed, 1 half_open, 2 open.",
     ["instance"], registry=registry, multiprocess_mode="mostrecent")
 
+# One outcome per backup attempt made by app/services/backup.py
+# _run_backup_now: "success" only when the dump was created AND verified.
+# Both series exist from the start (value 0), so increase() after a restart
+# has a series to read before the first failure.
 backup_outcome_total = Counter(
     "backup_outcome_total",
     "PostgreSQL backup attempts by outcome.",
     ["result"], registry=registry)
+for _result in ("success", "failed"):
+    backup_outcome_total.labels(result=_result)
+
+# max: the newest verified backup ANY worker knows. The worker that ran the
+# backup set it; the others still hold 0 or an older seeded value, and must
+# not hide it. A backup that is still on disk stays true after its worker
+# exits, so not live. Only set() is used, through
+# set_backup_last_success() below, which never lowers the value.
+# 0 means no verified backup is known (none since this start, none on disk).
+backup_last_success_timestamp_seconds = Gauge(
+    "backup_last_success_timestamp_seconds",
+    "Unix time of the newest PostgreSQL backup that passed verification; "
+    "0 when none is known.",
+    registry=registry, multiprocess_mode="max")
 
 # mostrecent: every worker computes the same score from the same checks, so
 # the newest value is the current one. Only set() is used (never inc/dec).
@@ -168,8 +187,27 @@ def route_template(request) -> str:
     return UNMATCHED_ROUTE
 
 
+_backup_last_success_lock = threading.Lock()
+
+
+def set_backup_last_success(timestamp: float) -> None:
+    """Move backup_last_success_timestamp_seconds forward to `timestamp`.
+
+    Never backward. Verifying an older backup (the admin panel's verify
+    button, the restore pre-check) must not make the newest good backup look
+    older. The current value is read from the gauge itself, so a reset of the
+    gauge is a reset of this rule too. The lock keeps two threads of one
+    worker from both reading the old value.
+    """
+    gauge = backup_last_success_timestamp_seconds
+    with _backup_last_success_lock:
+        current = next(iter(gauge.collect())).samples[0].value
+        if timestamp > current:
+            gauge.set(timestamp)
+
+
 class _OurFamiliesFromFiles:
-    """Collector for one multiprocess scrape: merge the files, keep our eight.
+    """Collector for one multiprocess scrape: merge the files, keep our nine.
 
     The directory holds every metric any code in any worker created, so the
     merged result is filtered by name. This is the multiprocess twin of the
@@ -181,14 +219,15 @@ class _OurFamiliesFromFiles:
         for family in multiprocess.MultiProcessCollector(
                 None, path=MULTIPROC_DIR).collect():
             # The filter is by family NAME only. A metric with one of these
-            # eight names, created by other code in the process, would be
+            # nine names, created by other code in the process, would be
             # merged in. No dependency does that today.
             if family.name in FAMILY_NAMES:
                 seen.add(family.name)
                 yield family
-        # Nothing has written this family yet (for example, no backup has run).
+        # Nothing has written this family yet (for example ai_circuit_state
+        # before the first circuit transition).
         # List it with no samples, as single-process mode does, so /metrics
-        # always shows the same eight families.
+        # always shows the same nine families.
         for name, (documentation, typ) in _FAMILY_META.items():
             if name not in seen:
                 yield Metric(name, documentation, typ)

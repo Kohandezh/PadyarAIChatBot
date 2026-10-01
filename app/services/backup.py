@@ -140,21 +140,38 @@ def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
 
     On PostgreSQL the fresh dump is also VERIFIED before pruning: the
     off-site copy hangs off verify success, so without this the nightly
-    backup would never leave the host."""
+    backup would never leave the host.
+
+    On PostgreSQL this is also where backup_outcome_total counts, one
+    outcome per attempt: "success" only when the dump was created AND
+    verified, "failed" for any other ending (an error before or during the
+    dump, a verify that fails or raises). create() alone counts nothing."""
     if _backup_engine() == "postgres":
-        from app.services import pg_backup
-        summary = pg_backup.create(actor=actor, reason=kind)
+        from app.services import metrics, pg_backup
+        try:
+            summary = pg_backup.create(actor=actor, reason=kind)
+        except Exception:
+            metrics.backup_outcome_total.labels(result="failed").inc()
+            raise
         # Verify the fresh dump, and thereby offer it to the off-site copy
         # (which hangs off verify success). create() alone never proves the
         # archive restorable, and the nightly backup is the one that must
         # survive the host. A verify failure is NOT fatal here: the backup
         # exists, verify() has already logged it, and the run must go on to
         # prune.
+        verified = None
         try:
-            pg_backup.verify(summary["backup_id"], actor=actor)
+            verified = pg_backup.verify(summary["backup_id"], actor=actor)
         except Exception as e:  # noqa: BLE001
             logger.error("PostgreSQL backup verify failed for %s: %s",
                          summary["backup_id"], type(e).__name__)
+        # record_verified() also moves the last-success time. verify() has
+        # already done that on success; doing it from the verdict here too
+        # keeps the counter and the time moving together from one answer.
+        if pg_backup.record_verified(verified):
+            metrics.backup_outcome_total.labels(result="success").inc()
+        else:
+            metrics.backup_outcome_total.labels(result="failed").inc()
         removed = pg_backup.prune(keep=configured_keep())
         set_setting("backup_last_run", datetime.now().isoformat())
         logger.info("PostgreSQL backup created: %s%s", summary["backup_id"],
