@@ -93,6 +93,34 @@
   (۲۶۰۵ تست) بدون خطای collection.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): پیامک هشدارهای Alertmanager از راه watchdog
+
+- **مدل:** Claude Opus 5.5 (claude-opus-5-5)، در نقش پیاده‌ساز، در یک git
+  worktree جدا. قرارداد از بخش 5.5 سند
+  `docs/features/monitoring-stack/SPEC.md` (REQ-040 تا REQ-054) می‌آید.
+- **کارهای انجام‌شده (پچ‌های پیشنهادی):**
+  1. مرحلهٔ تازه در `deploy/watchdog/watchdog.py`: هشدارهای `page="sms"` از
+     API محلی Alertmanager خوانده می‌شوند و در هر چرخه حداکثر یک پیامک
+     می‌روند.
+  2. تصمیم‌ها در هستهٔ خالص با ساعت تزریقی: انتخاب هشدار، dedup با
+     `fingerprint`، یادآوری ۶ ساعته، سقف ۱۰ پیامک در روز UTC، پیامک «سیستم
+     پایش کار نمی‌کند»، و خبر silence تازه. متن پیامک فقط از جدول ثابت
+     ساخته می‌شود.
+  3. سه reader تزریقی تازه در `run_cycle`: `alerts_reader`، `owner_reader`،
+     `silences_reader`. پیش‌فرض تولیدی فقط GET روی `127.0.0.1:9093` می‌زند،
+     بدون proxy و بدون دنبال کردن redirect، تا رمز از میزبان بیرون نرود.
+  4. ۴۹ تست تازه در `tests/test_watchdog_logic.py` و
+     `tests/test_watchdog_io.py`، اول نوشته شدند و قرمز بودند. هیچ تستی پیامک
+     واقعی نمی‌فرستد؛ فرستنده و readerها جعلی‌اند.
+  5. مستندات: بخش 11 در `docs/features/critical-watchdog/SPEC.md` و بخش
+     «Watchdog alert SMS» در `docs/engineering/MONITORING.md`.
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی
+  `deploy/watchdog/watchdog.py`؛ `pytest tests/test_watchdog*.py` با ۶۸ تست
+  سبز (۱۹ تست قبلی بدون تغییر رفتار)؛ ۱۶ جهش عمدی در کد، هر کدام دست‌کم یک
+  تست را قرمز کرد. CI اجرا نشده است.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.

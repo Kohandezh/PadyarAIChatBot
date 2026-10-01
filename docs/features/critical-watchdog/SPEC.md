@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-08-30 |
-| Updated | 2026-08-30 |
+| Updated | 2026-10-01 |
 | Status | Implemented |
 | Domain | infrastructure |
 | Author | تیم پادیار |
@@ -195,7 +195,7 @@ the watchdog's messages come off the same Asanak credit as everything else.
 
 One JSON file per install: `/var/lib/padyar-watchdog/{install}/state.json`
 (`fail_count`, `down_since`, `last_alert`, `credit_day`, `credit_alerted`,
-`cached_phone`).
+`cached_phone`, plus the alert SMS keys of §11).
 
 - **Why per-install directories:** the per-install watchdog services run as
   distinct service users (the pattern is
@@ -271,3 +271,55 @@ whole window.
 - `tests/test_critical_alert_settings.py` — the writer side of the settings
   pair: defaults, `0912…` → `+98912…` canonicalization, refusals, empty-phone
   disables, Persian-digit threshold.
+
+## 11. Alert SMS step (monitoring stack)
+
+Added 2026-10-01. The full contract is section 5.5 of
+`docs/features/monitoring-stack/SPEC.md` (REQ-040 to REQ-054). This is the
+short version.
+
+On a host that runs the monitoring stack (`deploy/55-monitoring.sh`), every
+cycle ends with one more step, after the probe, the down-SMS and the credit
+check. Alertmanager itself sends nothing; the watchdog pulls, so it also
+notices when Alertmanager or Prometheus dies.
+
+- It reads `GET http://127.0.0.1:9093/api/v2/alerts?active=true` with basic
+  auth user `watchdog` (password from
+  `/etc/padyar-monitoring/alertmanager-watchdog.pass`, 5 s timeout, no proxy,
+  no redirects followed).
+- It texts alerts with `page="sms"` and state `active` that carry this
+  install's `install` label, or no `install` label when
+  `/etc/padyar-monitoring/host-alerts-owner` names this install. While the
+  install is down (3 failed probes), its own alerts wait: the down-SMS
+  covers them.
+- At most one SMS per cycle and ten per UTC day per install. The tenth is
+  the "cap reached" notice. A still-firing alert is reminded every 6 h.
+  There is no "resolved" SMS.
+- The text comes only from a fixed table keyed by `alertname`. Label values
+  and annotations never reach the phone, because any install on the host can
+  post an alert.
+- The host-owner install also texts "monitoring is down" after 3 cycles in
+  a row in which Alertmanager does not answer or the always-firing
+  `MonitoringHeartbeat` alert is missing, and one notice for every new
+  silence. A cycle in which the install is not the owner, or skips the
+  step, ends that streak.
+
+| Condition | Behavior |
+|---|---|
+| Password file absent | Step skipped without a journal line. The install behaves exactly as before. |
+| Password file unreadable | Journal `monitoring alerts OFF: cannot read alertmanager-watchdog.pass (<Type>); re-run deploy/55-monitoring.sh <slug>` on every cycle. |
+| Alertmanager unreachable or bad answer | Journal `alertmanager unreadable (<Type>)`. The host owner texts after 3 cycles. |
+| Send fails (a spent `sms_daily_budget` included) | Journal `alert send failed: <Type>`. Nothing is marked as sent; the next try waits 300 s. |
+| Alert phone empty | Journal `alert pending but no alert_critical_phone configured`. |
+
+New state keys, with defaults in `_fresh_state` so an older state file still
+loads: `alert_sent`, `alert_day`, `alert_sms_today`, `alert_retry_after`,
+`am_fail_count`, `am_down_since`, `am_last_alert`, `silence_seen`.
+
+No unit change is needed. systemd adds the groups the system group database
+lists for `User=` (so `padyar-alertread` from the installer applies at the
+next run), and `ProtectSystem=full` leaves `/etc` readable.
+
+Tests: the pure decisions are in `tests/test_watchdog_logic.py`, the cycle in
+`tests/test_watchdog_io.py`. Every Alertmanager reader and the SMS sender are
+fakes there, so no test sends an SMS.

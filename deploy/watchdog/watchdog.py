@@ -25,8 +25,14 @@ at most one reminder every REALERT_SECONDS; one healthy probe wipes the
 streak, so a flapping install cannot re-arm the threshold by accident. The
 SMS credit floor is checked once per UTC day because the wallet moves slowly
 and a daily nudge is enough to trigger a top-up.
+
+On a host that runs the monitoring stack, a last step texts the install's
+page="sms" Alertmanager alerts: at most one SMS per cycle, ten per UTC day.
+Its decisions live in this core too (select_alerts and the functions after
+it); a host without the stack never reaches that step.
 """
 import argparse
+import base64
 import json
 import os
 import time
@@ -148,13 +154,221 @@ def low_credit_message(credit_toman: int, threshold_toman: int) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════
+# ALERTMANAGER SMS STEP: the pure decisions.
+#
+# Alertmanager on the host has no receiver of its own, so nothing leaves it.
+# Each install's watchdog pulls the page="sms" alerts instead and texts them
+# with the install's own phone and Asanak credentials. Pulling (not a push
+# from Alertmanager) is what lets the watchdog notice when Alertmanager or
+# Prometheus itself dies. The functions below decide; run_cycle reads,
+# sends and persists.
+
+# 6 h between reminders keeps a long-lived alert (a 26 h backup window) at a
+# handful of SMS. Ten a day per install bounds what an alert flood, or a
+# forged alert posted by another install on the host, can cost. 300 s after
+# a failed send keeps a dead gateway from being called every minute.
+ALERT_REMIND_SECONDS = 21600
+ALERT_SMS_DAILY_CAP = 10
+ALERT_RETRY_SECONDS = 300
+
+# This Prometheus rule is always firing. A live Alertmanager without it means
+# Prometheus stopped evaluating rules, so every other alert went blind.
+HEARTBEAT_ALERT = "MonitoringHeartbeat"
+
+# The SMS text comes ONLY from this table, keyed by alertname. Label values
+# and annotations are written by whoever posts the alert, and any install on
+# the host can post one, so none of them ever reaches the phone.
+ALERT_LABELS = {
+    "PadyarHigh5xxRate": "خطای سرور زیاد",
+    "PadyarChatLatencyHigh": "پاسخ چت کند",
+    "PadyarAICircuitOpen": "سرویس هوش مصنوعی قطع",
+    "PadyarBackupFailed": "پشتیبان ناموفق",
+    "PadyarBackupStale": "پشتیبان قدیمی",
+    "HostDiskLow": "دیسک تقریباً پر",
+    "HostPostgresDown": "پایگاه داده پایین",
+    "HostCertExpiring": "گواهی رو به انقضا",
+    "HostTunnelDown": "تونل Cloudflare قطع",
+    "HostOriginProbeFailed": "سایت از راه nginx باز نمی‌شود",
+}
+OTHER_ALERT_LABEL = "هشدار دیگر"
+SILENCE_LABEL = "یک silence تازه گذاشته شد"
+
+
+def select_alerts(alerts: list, install: str, owner: str, app_down: bool) -> list:
+    """The alerts this install texts, in the order Alertmanager listed them.
+
+    Kept: page="sms", status "active" (so a silence or an inhibit rule is
+    respected), and either labels.install == install, or no install label
+    (a host alert) when this install is the host owner. While the app is
+    down, its own alerts are dropped: the down-SMS already covers them and
+    the inhibit rule may not have caught up yet. Host alerts still go.
+    """
+    picked = []
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        labels, status = alert.get("labels"), alert.get("status")
+        if not isinstance(labels, dict) or not isinstance(status, dict):
+            continue
+        if labels.get("page") != "sms" or status.get("state") != "active":
+            continue
+        fingerprint = alert.get("fingerprint")
+        if not isinstance(fingerprint, str) or not fingerprint:
+            continue  # nothing to deduplicate on
+        target = labels.get("install")
+        if target:
+            if target != install or app_down:
+                continue
+        elif owner != install:
+            continue
+        picked.append(alert)
+    return picked
+
+
+def prune_alert_sent(state: dict, selected: list) -> None:
+    """Forget every fingerprint that is no longer selected. No "resolved" SMS.
+
+    Call it only with a successful Alertmanager answer: a failed call says
+    nothing about what still fires, and pruning on it would re-send every
+    alert after a one-cycle blip.
+    """
+    keep = {alert["fingerprint"] for alert in selected}
+    sent = state.get("alert_sent") or {}
+    state["alert_sent"] = {fp: at for fp, at in sent.items() if fp in keep}
+
+
+def due_alerts(state: dict, selected: list, now: float) -> list:
+    """[(alert, is_reminder)] to text now: every new fingerprint, and every
+    old one whose last SMS is at least ALERT_REMIND_SECONDS old."""
+    sent = state.setdefault("alert_sent", {})
+    due = []
+    for alert in selected:
+        last = sent.get(alert["fingerprint"])
+        if last is None:
+            due.append((alert, False))
+        elif now - last >= ALERT_REMIND_SECONDS:
+            due.append((alert, True))
+    return due
+
+
+def alert_label(alertname) -> str:
+    """Persian label for one alertname; anything unknown is "another alert"."""
+    if not isinstance(alertname, str):
+        return OTHER_ALERT_LABEL
+    return ALERT_LABELS.get(alertname, OTHER_ALERT_LABEL)
+
+
+def alert_message(name: str, labels: list, reminder: bool) -> str:
+    """One SMS for every item of a cycle. A repeated label is named once, at
+    most three are named, and the rest are counted ("و k مورد دیگر")."""
+    distinct = list(dict.fromkeys(labels))
+    body = "، ".join(distinct[:3])
+    if len(distinct) > 3:
+        body += f" و {len(distinct) - 3} مورد دیگر"
+    text = f"پادیار | هشدار {name}: {body}. جزئیات در صفحهٔ هشدار."
+    return f"یادآوری | {text}" if reminder else text
+
+
+def cap_message(name: str) -> str:
+    """The tenth alert SMS of a UTC day, sent in place of whatever was due."""
+    return (f"پادیار | سقف پیامک هشدار امروز برای {name} پر شد. "
+            f"بقیهٔ هشدارهای امروز فقط در صفحهٔ هشدار دیده می‌شوند.")
+
+
+def monitoring_down_message(since_epoch: float) -> str:
+    """Alertmanager unreachable, or Prometheus no longer evaluating rules."""
+    return (f"پادیار | سیستم پایش از ساعت {tehran_clock(since_epoch)} (به وقت تهران) "
+            f"کار نمی‌کند. هشدارها تا رفع آن پیامک نمی‌شوند.")
+
+
+def cap_gate(state: dict, now: float) -> str:
+    """"send" | "cap" | "closed" for this step's next SMS on the UTC day of `now`.
+
+    Nine ordinary SMS, then the tenth slot carries the cap notice instead,
+    then nothing until the next UTC day. Only rolls the day: the caller
+    adds one to alert_sms_today after a send that went through.
+    """
+    today = datetime.fromtimestamp(now, tz=timezone.utc).date().isoformat()
+    if state.get("alert_day") != today:
+        state["alert_day"] = today
+        state["alert_sms_today"] = 0
+    used = state.setdefault("alert_sms_today", 0)
+    if used < ALERT_SMS_DAILY_CAP - 1:
+        return "send"
+    if used == ALERT_SMS_DAILY_CAP - 1:
+        return "cap"
+    return "closed"
+
+
+def monitoring_down_due(state: dict, ok: bool, now: float) -> bool:
+    """Fold one cycle's view of the monitoring stack (host owner only).
+
+    The same shape as next_action: FAILS_BEFORE_ALERT bad cycles in a row
+    earn one SMS, then a reminder every ALERT_REMIND_SECONDS; one good cycle
+    resets the streak. Unlike next_action it does not mark the SMS as sent.
+    The caller sets am_last_alert only after the sender succeeded, so an SMS
+    lost to the daily cap or to the gateway stays due.
+    """
+    state.setdefault("am_fail_count", 0)
+    state.setdefault("am_down_since", 0.0)
+    state.setdefault("am_last_alert", 0.0)
+    if ok:
+        end_monitoring_streak(state)
+        return False
+    if state["am_down_since"] == 0.0:
+        state["am_down_since"] = now
+    state["am_fail_count"] += 1
+    if state["am_fail_count"] < FAILS_BEFORE_ALERT:
+        return False
+    if state["am_last_alert"] < state["am_down_since"]:
+        return True  # this streak has not been texted yet
+    return now - state["am_last_alert"] >= ALERT_REMIND_SECONDS
+
+
+def end_monitoring_streak(state: dict) -> None:
+    """Forget the bad-cycle streak of monitoring_down_due.
+
+    Also called when this install stops watching the monitoring stack (it is
+    not the host owner this cycle, or the step is skipped). A streak frozen
+    there would resume later at its old count and old start time, and text
+    "monitoring is down" on the first bad cycle with the wrong clock.
+    am_last_alert stays: it only records when the last such SMS went out.
+    """
+    state["am_fail_count"] = 0
+    state["am_down_since"] = 0.0
+
+
+def new_silences(state: dict, silences: list) -> list:
+    """Ids of active silences not texted yet. Ids gone from the answer are
+    forgotten, so the list stays as small as the answer.
+
+    Every new silence is texted, the operator's own too: createdBy is
+    written by the client, so the only way to see a forged silence (one
+    that mutes another install's real alerts) is to see every silence.
+    """
+    listed = [s for s in silences if isinstance(s, dict) and isinstance(s.get("id"), str)]
+    present = {s["id"] for s in listed}
+    seen = [i for i in state.get("silence_seen") or [] if i in present]
+    state["silence_seen"] = seen
+    fresh = []
+    for silence in listed:
+        status = silence.get("status")
+        if (isinstance(status, dict) and status.get("state") == "active"
+                and silence["id"] not in seen):
+            fresh.append(silence["id"])
+    return fresh
+
+
+# ════════════════════════════════════════════════════════════════════════
 # I/O SHELL — everything that touches sockets, files, or the SMS gateway.
 #
 # WHY EVERY DEPENDENCY IS A PARAMETER
 # -----------------------------------
-# run_cycle's signature lists the four ways this script reaches the outside
+# run_cycle's signature lists the ways this script reaches the outside
 # world: probe (health check), settings_reader (DB), credit_reader + sender
-# (SMS gateway). Each has a production default that imports the app LAZILY,
+# (SMS gateway), and alerts_reader + owner_reader + silences_reader (the
+# host's Alertmanager). Each has a production default; the app-backed ones
+# import the app LAZILY,
 # inside the function body — the decision core above must stay importable on
 # a box where the app tree (and its env vars) does not exist. Each can also
 # be replaced by a plain lambda in tests, which is why the whole cycle is
@@ -178,6 +392,16 @@ def _fresh_state() -> dict:
         "credit_day": "",
         "credit_alerted": False,
         "cached_phone": "",
+        # Alertmanager SMS step. A host without the monitoring stack never
+        # moves these off their defaults.
+        "alert_sent": {},
+        "alert_day": "",
+        "alert_sms_today": 0,
+        "alert_retry_after": 0.0,
+        "am_fail_count": 0,
+        "am_down_since": 0.0,
+        "am_last_alert": 0.0,
+        "silence_seen": [],
     }
 
 
@@ -268,6 +492,193 @@ def _read_credit():
     return asanak_credit()
 
 
+# Where the monitoring stack (deploy/55-monitoring.sh) leaves what the alert
+# step reads. The password file is root:padyar-alertread 0640, and the
+# installer adds every registered install's service user to that group; the
+# unit's User= then carries the group into each run.
+ALERTMANAGER_URL = "http://127.0.0.1:9093"
+ALERTMANAGER_USER = "watchdog"
+ALERTMANAGER_PASS_FILE = "/etc/padyar-monitoring/alertmanager-watchdog.pass"
+HOST_ALERTS_OWNER_FILE = "/etc/padyar-monitoring/host-alerts-owner"
+
+
+class PasswordFileUnreadable(Exception):
+    """The Alertmanager password file exists but this user cannot read it."""
+
+
+def _alertmanager_password() -> str:
+    """The watchdog user's password.
+
+    FileNotFoundError passes through untouched: it means "this host has no
+    monitoring stack", and the step is skipped without a word. Every other
+    failure is wrapped, so run_cycle can tell "re-run the installer for this
+    install" apart from "Alertmanager is down".
+    """
+    try:
+        with open(ALERTMANAGER_PASS_FILE, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except FileNotFoundError:
+        raise
+    except Exception as e:  # noqa: BLE001 (the caller classifies it; nothing is swallowed)
+        raise PasswordFileUnreadable(type(e).__name__) from e
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect. urllib would re-send the Authorization header to
+    whatever host the Location names; a 3xx becomes an HTTPError instead,
+    which the alert step counts as an API failure."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _alertmanager_get(path: str):
+    """GET one Alertmanager API path with basic auth; the parsed JSON body.
+
+    Only 127.0.0.1 and only GET. The opener gets an empty ProxyHandler (an
+    http_proxy in the install's .env must never carry this password off the
+    host) and refuses every redirect, for the same reason. Anything but
+    HTTP 200 raises.
+    """
+    password = _alertmanager_password()
+    token = base64.b64encode(f"{ALERTMANAGER_USER}:{password}".encode("utf-8")).decode("ascii")
+    request = urllib.request.Request(ALERTMANAGER_URL + path,
+                                     headers={"Authorization": f"Basic {token}"})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
+    with opener.open(request, timeout=5) as response:
+        if response.status != 200:
+            raise RuntimeError(f"HTTP {response.status}")
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _read_alerts():
+    """Every alert Alertmanager holds. The query has no label filter, so the
+    always-firing heartbeat alert is in the answer too."""
+    return _alertmanager_get("/api/v2/alerts?active=true")
+
+
+def _read_silences():
+    return _alertmanager_get("/api/v2/silences")
+
+
+def _read_host_owner() -> str:
+    """The slug that texts host alerts (alerts with no install label)."""
+    try:
+        with open(HOST_ALERTS_OWNER_FILE, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def _alert_step(install: str, state: dict, phone: str, now: float,
+                alerts_reader, owner_reader, silences_reader, sender) -> None:
+    """Text this install's Alertmanager alerts: at most one SMS per cycle.
+
+    Runs after the probe and the down-SMS, so state["fail_count"] already
+    holds this cycle's verdict. Mutates `state`; run_cycle persists it.
+    """
+    name = install.upper()
+    failure = "unexpected body"
+    try:
+        alerts = alerts_reader()
+    except FileNotFoundError:
+        end_monitoring_streak(state)
+        return  # no monitoring stack on this host: exactly the old behaviour
+    except (PermissionError, PasswordFileUnreadable) as e:
+        # Seen when the install was created after the last installer run,
+        # so its user is not in padyar-alertread yet. Loud on every cycle.
+        cause = type(e.__cause__ or e).__name__
+        print(f"[watchdog] {install}: monitoring alerts OFF: cannot read "
+              f"alertmanager-watchdog.pass ({cause}); "
+              f"re-run deploy/55-monitoring.sh {install}", flush=True)
+        end_monitoring_streak(state)
+        return
+    except Exception as e:  # noqa: BLE001 (an unreachable API is data, not a crash)
+        alerts, failure = None, type(e).__name__
+    if not isinstance(alerts, list):
+        print(f"[watchdog] {install}: alertmanager unreadable ({failure})", flush=True)
+        alerts = None
+
+    try:
+        owner = owner_reader()
+    except Exception as e:  # noqa: BLE001
+        print(f"[watchdog] {install}: host-alerts-owner unreadable ({type(e).__name__})",
+              flush=True)
+        owner = ""
+
+    due = []
+    if alerts is not None:
+        selected = select_alerts(alerts, install, owner,
+                                 app_down=state.get("fail_count", 0) >= FAILS_BEFORE_ALERT)
+        prune_alert_sent(state, selected)
+        due = due_alerts(state, selected, now)
+
+    # Watching the monitoring stack itself, and the silence notices, belong
+    # to the host owner alone, so one event on the host is one SMS.
+    monitoring_due, fresh = False, []
+    if owner == install:
+        ok = alerts is not None and any(
+            isinstance(a, dict) and isinstance(a.get("labels"), dict)
+            and a["labels"].get("alertname") == HEARTBEAT_ALERT for a in alerts)
+        if alerts is not None:
+            if not ok:
+                print(f"[watchdog] {install}: {HEARTBEAT_ALERT} missing from alertmanager",
+                      flush=True)
+            try:
+                silences = silences_reader()
+                if not isinstance(silences, list):
+                    raise ValueError("unexpected body")
+            except Exception as e:  # noqa: BLE001
+                print(f"[watchdog] {install}: alertmanager silences unreadable "
+                      f"({type(e).__name__})", flush=True)
+                ok = False
+            else:
+                fresh = new_silences(state, silences)
+        monitoring_due = monitoring_down_due(state, ok, now)
+    else:
+        end_monitoring_streak(state)
+
+    # One SMS per cycle. "Monitoring is down" goes first; anything else that
+    # is due waits one cycle, because it is not marked as sent.
+    if monitoring_due:
+        text = monitoring_down_message(state["am_down_since"])
+    elif due or fresh:
+        # The silence notice leads, so it is never folded into "k more".
+        labels = [SILENCE_LABEL] if fresh else []
+        labels += [alert_label(alert["labels"].get("alertname")) for alert, _ in due]
+        reminder = not fresh and all(is_reminder for _, is_reminder in due)
+        text = alert_message(name, labels, reminder)
+    else:
+        return
+
+    if not phone:
+        print(f"[watchdog] {install}: alert pending but no alert_critical_phone configured",
+              flush=True)
+        return
+    if now < state.get("alert_retry_after", 0.0):
+        return  # a send failed less than ALERT_RETRY_SECONDS ago
+    gate = cap_gate(state, now)
+    if gate == "closed":
+        return
+    if gate == "cap":
+        text = cap_message(name)
+    try:
+        sender(phone, text)
+    except Exception as e:  # noqa: BLE001 (journal the class only, then wait)
+        print(f"[watchdog] {install}: alert send failed: {type(e).__name__}", flush=True)
+        state["alert_retry_after"] = now + ALERT_RETRY_SECONDS
+        return
+    state["alert_sms_today"] += 1
+    if gate == "cap":
+        return  # nothing is marked as sent, so today's leftovers go tomorrow
+    if monitoring_due:
+        state["am_last_alert"] = now
+        return
+    for alert, _ in due:
+        state["alert_sent"][alert["fingerprint"]] = now
+    state["silence_seen"] = state["silence_seen"] + fresh
+
+
 def run_cycle(
     install: str,
     now: float | None = None,
@@ -276,6 +687,9 @@ def run_cycle(
     settings_reader=None,
     credit_reader=None,
     state_path: str | None = None,
+    alerts_reader=None,
+    owner_reader=None,
+    silences_reader=None,
 ) -> dict:
     """One full probe→decide→alert→persist cycle for one install.
 
@@ -295,6 +709,9 @@ def run_cycle(
     sender = _send if sender is None else sender
     settings_reader = _read_settings if settings_reader is None else settings_reader
     credit_reader = _read_credit if credit_reader is None else credit_reader
+    alerts_reader = _read_alerts if alerts_reader is None else alerts_reader
+    owner_reader = _read_host_owner if owner_reader is None else owner_reader
+    silences_reader = _read_silences if silences_reader is None else silences_reader
     # os.fspath: tests pass a pathlib.Path, __main__ passes nothing — both
     # must land as a plain str because _persist does `path + ".tmp"`.
     # Per-install subdirectory: each install's service user owns exactly its
@@ -372,6 +789,14 @@ def run_cycle(
                     except Exception as e:  # noqa: BLE001
                         print(f"[watchdog] {install}: send failed: {type(e).__name__}",
                               flush=True)
+
+        # Last: Alertmanager alerts. Its own try, so a bug in this step can
+        # never cost the probe verdict or the down-SMS state above.
+        try:
+            _alert_step(install, state, phone, now,
+                        alerts_reader, owner_reader, silences_reader, sender)
+        except Exception as e:  # noqa: BLE001
+            print(f"[watchdog] {install}: alert step error: {type(e).__name__}", flush=True)
     except Exception as e:  # noqa: BLE001 — the shell is total: journal, persist, return
         print(f"[watchdog] {install}: cycle error: {type(e).__name__}", flush=True)
 

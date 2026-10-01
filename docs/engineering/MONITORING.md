@@ -200,11 +200,48 @@ quietly delete the evidence of their own actions.
 If a Prometheus server is ever added, its retention is configured on that
 server (for example `--storage.tsdb.retention.time=30d`), not in this repo.
 
+## Watchdog alert SMS
+
+The per-install watchdog (`deploy/watchdog/watchdog.py`, one oneshot run a
+minute) is what turns an Alertmanager alert into an SMS. Alertmanager itself
+has no receiver and sends nothing. The full contract is section 5.5 of
+`docs/features/monitoring-stack/SPEC.md`; the operator view is §11 of
+`docs/features/critical-watchdog/SPEC.md`.
+
+The step stays idle until the host runs the monitoring stack. Its switch is
+one file: without `/etc/padyar-monitoring/alertmanager-watchdog.pass` the
+watchdog skips the step and behaves exactly as before.
+
+| What | Value |
+|---|---|
+| Read | `GET http://127.0.0.1:9093/api/v2/alerts?active=true`, basic auth user `watchdog`, 5 s timeout, no proxy, no redirect followed |
+| Texted | `page="sms"`, state `active`, this install's `install` label (or no label, on the host-owner install only) |
+| Not texted | `suppressed` alerts (silence or inhibit), and alerts of an install that is already down. There is no "resolved" SMS |
+| Volume | At most one SMS per cycle and ten per UTC day per install; a still-firing alert is reminded every 6 h |
+| Text | Fixed Persian labels keyed by `alertname` only. Labels and annotations never reach the phone |
+| Monitoring down | Host owner only: one SMS after 3 cycles without an answer or without the `MonitoringHeartbeat` alert |
+| Silences | Host owner only: one notice per new active silence, the operator's own included |
+| Sender | The same `send_asanak` path as the down-SMS, so a spent `sms_daily_budget` blocks it too (journal `alert send failed`) |
+
+Every journal line starts with `[watchdog] <slug>:`. To see them:
+
+```bash
+journalctl -u padyar-watchdog@<slug>.service -n 50
+```
+
+The two lines that mean "an operator must act": `monitoring alerts OFF:
+cannot read alertmanager-watchdog.pass` (re-run `deploy/55-monitoring.sh
+<slug>`, usually after creating a new install), and `alert pending but no
+alert_critical_phone configured` (set the phone in the admin panel).
+
 ## Checking it yourself
 
 ```bash
 # Run the endpoint's tests
 .venv/bin/python -m pytest tests/test_metrics.py -q
+
+# Run the watchdog tests (alert SMS step included; every SMS is faked)
+.venv/bin/python -m pytest tests/test_watchdog_logic.py tests/test_watchdog_io.py -q
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics
