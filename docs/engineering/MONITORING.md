@@ -45,13 +45,13 @@ but it is not a monitoring stack.
 
 `/metrics` serves a **dedicated** `CollectorRegistry`, not the library default
 (`app/services/metrics.py:80`). Anything a third-party package registers onto
-`prometheus_client.REGISTRY` never appears. Only the ten families below are
+`prometheus_client.REGISTRY` never appears. Only the twelve families below are
 exposed.
 
 With several workers (multiprocess mode) the dedicated registry alone is not
 enough, because every metric of every library lands in the shared directory.
 `exposition()` therefore filters the merged result by `FAMILY_NAMES`, which is
-built from the dedicated registry. The rule is the same in both modes: ten
+built from the dedicated registry. The rule is the same in both modes: twelve
 families, nothing else.
 
 The reason is review: every series on this endpoint was chosen by a person. A
@@ -60,7 +60,7 @@ looked at.
 
 ## Metric list
 
-All ten are defined in `app/services/metrics.py:82-165`.
+All twelve are defined in `app/services/metrics.py:82-194`. The two `intent_*` gauges are the newest.
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
@@ -74,6 +74,8 @@ All ten are defined in `app/services/metrics.py:82-165`.
 | `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:204`) and the startup seed (`app/main.py:156`) |
 | `backup_schedule_interval_seconds` | gauge | none | فاصله‌ی پشتیبان‌گیری خودکار به ثانیه (`backup_interval_hours × 3600`). `0` = پشتیبان‌گیری خودکار خاموش است. بخش «فاصله‌ی زمان‌بند پشتیبان» را ببینید | `app/services/backup.py:70` (`_set_schedule_metric`)، صدا زده از `:241` (شروع حلقه‌ی زمان‌بند) و `:249` (هر چک) |
 | `health_score` | gauge | none | The 0 to 100 system health score | `app/services/health.py:339` |
+| `intent_holdout_accuracy` | gauge | none | Holdout accuracy (0 to 1) of the intent model this install serves. NaN when there is no measurement | `app/services/intent.py:813` (`_publish_gauges`, called by `record_artifact` on every reindex) |
+| `intent_model_version` | gauge | none | Version of the served intent model. Rises by one per newly trained model; a model loaded unchanged keeps its number. NaN when no recorded model is served | `app/services/intent.py:815` (same function) |
 
 Two hook points are worth knowing about, because they are why the numbers are
 trustworthy:
@@ -84,6 +86,12 @@ trustworthy:
 - **`_record_usage`** fires once per completed AI request. Retries and
   failovers are counted inside that request as attempts, not as extra rows, so
   `ai_calls_total` counts requests, not attempts.
+
+The two `intent_*` gauges start at NaN, not 0. A 0 would read as "0% accurate"
+or "version 0", and an alert rule cannot tell that from a real bad model. To
+alert on "no model" use `intent_holdout_accuracy != intent_holdout_accuracy`
+(true only for NaN). The model and its files are described in
+`docs/features/intent-model/MODEL_CARD.md`.
 
 `ai_circuit_state` is a number, not a label, on purpose. One series per
 provider instance means "alert when open" is a single PromQL comparison
@@ -370,6 +378,7 @@ memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metr
 | `ai_circuit_state` (به ازای هر `instance`) | gauge | `mostrecent`: آخرین مقداری که هر process set کرده | دلیلش پایین‌تر آمده |
 | `backup_schedule_interval_seconds` | gauge | `mostrecent` | همه‌ی worker ها همان سطر جدول settings را می‌خوانند، پس تازه‌ترین مقدار همان زمان‌بند فعلی است. با `max`، خاموش کردن پشتیبان خودکار (۰) پشت یک ۸۶۴۰۰ قدیمی در فایل worker دیگر پنهان می‌ماند. `live` نیست، چون زمان‌بند بعد از خروج worker هنوز درست است |
 | `health_score` | gauge | `mostrecent` | همه‌ی worker ها از همان چک‌ها همان امتیاز را حساب می‌کنند، پس تازه‌ترین مقدار درست است |
+| `intent_holdout_accuracy`، `intent_model_version` | gauge | `mostrecent` | هر worker مدلی را که سرو می‌کند هنگام boot و بعد از هر reindex منتشر می‌کند، پس تازه‌ترین مقدار تازه‌ترین مدل است. `live` نیست، چون مدل بعد از خروج worker هنوز روی دیسک است و سرو می‌شود. مقدار NaN هنگام import فقط در حالت تک‌process نوشته می‌شود؛ در حالت چند worker همان نوشتن، تازه‌ترین نوشته می‌شد و مدل واقعی را پنهان می‌کرد |
 
 **چرا `ai_circuit_state` حالت `mostrecent` دارد، نه `max` و نه `live`.**
 وضعیت circuit در دیتابیس مشترک است. هر تغییر را فقط یک worker منتشر می‌کند:

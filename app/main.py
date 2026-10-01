@@ -107,6 +107,12 @@ async def lifespan(app: FastAPI):
         logger.error("[applog] startup hook failed: %s", type(e).__name__)
 
     logger.info("Loading dataset...")
+    # Every app boot records the trained intent model into INTENT_MODEL_DIR.
+    # This cannot tell a real server from a TestClient harness, so a script
+    # that boots the app must redirect INTENT_MODEL_DIR first (a test checks
+    # every script). See app/services/intent.py and ADR-025.
+    from app.services import intent
+    intent.enable_recording()
     load_dataset_internal()
     try:
         from app.services.search import init_index_version
@@ -163,6 +169,8 @@ async def lifespan(app: FastAPI):
     sms_task = asyncio.create_task(_sms_delivery_loop())
 
     yield
+
+    intent.disable_recording()
 
     try:
         from app.services import applog

@@ -384,6 +384,7 @@ def run_conversations(spec_path: str) -> int:
     tmp = tempfile.mkdtemp(prefix="padyar-conversations-")
     os.environ["DB_PATH"] = os.path.join(tmp, "conversations.db")
     os.environ["LOGS_DB_PATH"] = os.path.join(tmp, "application_logs.db")
+    os.environ["INTENT_MODEL_DIR"] = os.path.join(tmp, "intent-model")
 
     spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
     _validate_conversation_spec(spec)
@@ -557,6 +558,10 @@ def _isolate_database() -> str:
     tmp = tempfile.mkdtemp(prefix="padyar-eval-")
     os.environ["DB_PATH"] = os.path.join(tmp, "eval.db")
     os.environ["LOGS_DB_PATH"] = os.path.join(tmp, "application_logs.db")
+    # Booting the app records the trained intent model (app/main.py). Left at
+    # its default, a model fitted on the eval corpus would replace the
+    # install's own one in data/intent-model.
+    os.environ["INTENT_MODEL_DIR"] = os.path.join(tmp, "intent-model")
     return tmp
 
 

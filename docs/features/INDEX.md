@@ -37,6 +37,7 @@ Central tracking for all features.
 | eval-benchmark | Draft | Not started | search | 2026-09-30 | 2026-09-30 |
 | own-model-next | Draft | Not started | chat | 2026-09-30 | 2026-09-30 |
 | monitoring-stack | Draft | Not started | infrastructure | 2026-09-30 | 2026-10-01 |
+| intent-model | Approved | In review | search | 2026-09-30 | 2026-09-30 |
 
 ## Quick Features
 

@@ -164,6 +164,35 @@ health_score = Gauge(
     "The system health score computed by app/services/health.py (0-100).",
     registry=registry, multiprocess_mode="mostrecent")
 
+# The intent model this install serves (app/services/intent.py
+# _publish_gauges). Every worker publishes both values at boot (lifespan ->
+# search.load_dataset_internal -> intent.record_artifact) and again on every
+# reindex. mostrecent: the newest write is the newest model. Not live: the
+# model is still on disk and still served after the worker that published it
+# exits. Only set() is used.
+intent_holdout_accuracy = Gauge(
+    "intent_holdout_accuracy",
+    "Holdout accuracy (0-1) of the intent classifier this install trained at "
+    "the last reindex. NaN when there is no measurement.",
+    registry=registry, multiprocess_mode="mostrecent")
+
+intent_model_version = Gauge(
+    "intent_model_version",
+    "Version number of the intent classifier this install serves. Rises by one "
+    "with every newly trained model; a model loaded unchanged keeps its number. "
+    "NaN when no recorded model is served.",
+    registry=registry, multiprocess_mode="mostrecent")
+
+# NaN until a training run says otherwise. The default Gauge value is 0.0, and
+# 0.0 would read as "this install's classifier is 0% accurate" or "version 0":
+# false statements an alert rule would act on. See intent._publish_gauges.
+# Single-process only. In multiprocess mode this import-time write would be
+# the NEWEST write of any process that imports this module, and mostrecent
+# would then show NaN over the model the workers published.
+if MULTIPROC_DIR is None:
+    intent_holdout_accuracy.set(float("nan"))
+    intent_model_version.set(float("nan"))
+
 # The registry stays the single source of truth for "which families exist".
 # FAMILY_NAMES is what the multiprocess scrape is allowed to show. The
 # documentation and type are kept so a family nobody has written to yet can
