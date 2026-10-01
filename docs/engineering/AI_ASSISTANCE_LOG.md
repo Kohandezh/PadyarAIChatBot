@@ -119,6 +119,43 @@
   اجرا یا اندازه‌گیری نشد. هیچ تستی اجرا نشد (تغییر فقط سند است).
 - **بازبینی انسانی:** pending.
 
+## نشست 2026-10-01: ADR و SPEC پشتهٔ پایش و هشدار
+
+- **مدل:** Claude (claude-opus-5-5)، پیش‌نویس ADR و SPEC. مالک سندها: Sina
+  Shamsizadeh.
+- **کارهای انجام‌شده (پیش‌نویس، commit نشده):**
+  1. ADR-024 در `docs/engineering/DECISIONS.md` با وضعیت Proposed: روش نصب
+     (بسته‌های Ubuntu و systemd، فقط loopback)، نبودن Grafana در فاز اول،
+     رابط هشدار فقط برای اپراتور، پیامک هشدار از watchdog، basic auth روی API
+     Alertmanager، صاحب هشدارهای میزبان، و تصمیم بودجهٔ پیامک با ریسک DB پایین.
+  2. `docs/features/monitoring-stack/SPEC.md` با وضعیت Draft: سیزده بخش قالب،
+     فهرست کامل سیزده قاعده با عبارت و `for:` و برچسب، رفتار اسکریپت
+     `deploy/55-monitoring.sh`، مرحلهٔ پیامک watchdog، تست‌ها، و شکست کار به
+     شش PR.
+  3. ردیف `monitoring-stack` در `docs/features/INDEX.md` به Draft به‌روز شد.
+- **پچ‌های ردشده/بازگردانده:** شمارهٔ ADR اول ADR-023 بود و به ADR-024 عوض
+  شد، چون PRهای باز ADR-022 و ADR-023 را گرفته‌اند.
+- **اصلاح‌های بازبینی (همان روز):** یک بازبین AI چهارده یافته داد و همه اعمال
+  شد: قاعدهٔ تازهٔ `HostOriginProbeFailed` برای سایتی که از راه nginx و TLS مبدأ
+  باز نمی‌شود، قانون خواندن `.env` بدون `source` (SEC-010)، pin کردن نسخهٔ
+  `promtool` در CI، ریسک silence با رمز مشترک و پیامک برای silence تازه،
+  `MAINTENANCE_TITLE` در دستور `17-watchdog.sh`، خطای خواندن فایل رمز در
+  journal، شرط دقیق بودجه (مقدار `.env`)، جدا کردن بستن `/metrics` در یک PR
+  جدا (WU0)، و چند اصلاح کوچک در ADR و runbook. این بازبینی AI است، نه
+  بازبینی انسانی.
+- **راستی‌آزمایی ماشینی همین نشست:** ارجاع‌های `file:line` روی commit
+  `fcdf14c` با خواندن کد چک شد. سه حقیقت بیرونی در کد منبع تگ همان نسخه
+  خوانده شد (2026-10-01): `scrape_config_files` در Prometheus v2.45.3، basic auth
+  و پیش‌فرض `0.0.0.0:9094` خوشه در Alertmanager v0.26.0، و
+  `node_filesystem_readonly` در node_exporter v1.7.0. نمودار SPEC با
+  mermaid-cli (با Chrome محلی) رندر و PNG آن دیده شد؛ PNG در repo نیست.
+  دو حقیقت دیگر هم در کد منبع خوانده شد: شرط `resp.TLS != nil` در
+  blackbox_exporter v0.24.0 و پیش‌فرض `1m` برای `rules.alert.resend-delay` در
+  Prometheus v2.45.3. هیچ چیز روی سرور اجرا نشد. هیچ تستی اجرا نشد
+  (تغییر فقط سند است). عبارت‌های PromQL با `promtool` چک **نشده‌اند**؛ این
+  کار تست WU1 است.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.
