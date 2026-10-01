@@ -1,0 +1,13 @@
+  # The site as the tunnel reaches it: nginx and its Let's Encrypt
+  # certificate on 127.0.0.1:443, with this install's name. ip4 because the
+  # target is the literal 127.0.0.1 and the exporter otherwise prefers ip6.
+  origin_{{SLUG}}:
+    prober: http
+    timeout: 10s
+    http:
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      headers:
+        Host: "{{DOMAIN}}"
+      tls_config:
+        server_name: "{{DOMAIN}}"

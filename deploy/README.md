@@ -39,6 +39,8 @@ sudo bash deploy/10-install-app.sh myevent
 sudo bash deploy/15-nginx-and-ssl.sh myevent 8010 myevent.example.com   # needs a Cloudflare API token, see below
 sudo MAINTENANCE_TITLE="چت‌بات رویداد من" \
   bash deploy/17-watchdog.sh myevent 8010 myevent.example.com           # down-SMS watchdog + maintenance page
+# After deploy/40-cloudflare-tunnel.sh has published the site ("Going public" below):
+sudo bash deploy/55-monitoring.sh myevent   # host monitoring; needs METRICS_TOKEN in the .env, see "Monitoring"
 
 # GPU + TTS (independent of the app above):
 sudo bash deploy/20-gpu-driver.sh
@@ -271,6 +273,41 @@ sudo bash deploy/10-install-app.sh myevent
 
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
+
+## Monitoring
+
+`deploy/55-monitoring.sh` installs one Prometheus, one Alertmanager and three
+exporters for the whole host, from the Ubuntu archive, under systemd, every
+one on `127.0.0.1` only. Full description: `docs/engineering/MONITORING.md`.
+
+```bash
+# 1. Per install: a token in the .env, then restart the app (the script stops
+#    and prints this exact command when the token is empty).
+sudo sed -i "s/^METRICS_TOKEN=.*/METRICS_TOKEN=$(openssl rand -hex 32)/" /opt/padyar-myevent/.env \
+  && sudo systemctl restart padyar-myevent
+
+# 2. Once per host, and again after every rule change. Run the FIRST time
+#    outside event hours: it restarts cloudflared, and every site on the host
+#    drops for a few seconds.
+sudo bash deploy/55-monitoring.sh myevent [otherevent ...] [--host-alerts myevent]
+
+# 3. Look at it from your own machine, through SSH only. There is no public URL.
+ssh -N -L 9090:127.0.0.1:9090 -L 9093:127.0.0.1:9093 <user>@<host>
+#    http://127.0.0.1:9090  Prometheus (Alerts, Graph)
+#    http://127.0.0.1:9093  Alertmanager (user operator, password in /root/.secrets/alertmanager-operator.pass)
+
+# Silence an alert before planned work (maintenance mode answers 503):
+sudo amtool silence add alertname=PadyarHigh5xxRate install=myevent --duration=2h --comment="maintenance"
+```
+
+Firing alerts show in those two UIs only. Nothing texts them yet: the
+watchdog step that will is a separate change. The watchdog's own "the app is
+down" SMS works as before.
+
+Running it again with fewer slugs never removes another install's scrape job
+or probe. Passwords and token files are created only when missing.
+`deploy/padyar-deploy.sh` does not touch the stack: new rules reach the host
+only by re-running `55-monitoring.sh`.
 
 ## Watchdog & maintenance page
 

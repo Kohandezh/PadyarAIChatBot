@@ -1,0 +1,166 @@
+# Alert rules for every Padyar install on this host and for the host itself.
+# Installed to /etc/prometheus/rules/ by deploy/55-monitoring.sh. The text
+# of each rule is fixed by docs/features/monitoring-stack/SPEC.md (5.3).
+#
+# Label rule: severity="critical" if and only if page="sms". The watchdog of
+# each install texts only page="sms" alerts. The one exception is
+# PadyarAppDown: critical, but no page, because the watchdog's own probe
+# already texts "the app is down".
+#
+# Not here yet, on purpose (SPEC 11.1): PadyarAICircuitOpen (waits for
+# DEP-1, DEP-3), PadyarBackupFailed (DEP-2), PadyarBackupStale (DEP-2,
+# DEP-4). A rule whose metric does not exist yet would load, evaluate to
+# nothing, and never fire. tests/test_monitoring_rules.py keeps that list.
+#
+# Every app gauge or counter is aggregated with `sum by` or `max by`, so a
+# rule still works if a metric gets one series per worker process.
+groups:
+  - name: padyar-install
+    rules:
+      - alert: PadyarAppDown
+        expr: up{app="padyar"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus نمی‌تواند /metrics نصب {{ $labels.install }} را بخواند. یا برنامه پایین است، یا METRICS_TOKEN برنامه با فایل توکن یکی نیست (پاسخ 403)."
+          description: "اول sudo systemctl status padyar-{{ $labels.install }} را ببینید. اگر برنامه بالا است، deploy/55-monitoring.sh {{ $labels.install }} را دوباره اجرا کنید تا توکن دوباره چک شود."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarappdown"
+
+      - alert: PadyarHigh5xxRate
+        expr: |
+          (
+            sum by (install) (increase(http_requests_total{app="padyar",status=~"5.."}[10m]))
+            /
+            sum by (install) (increase(http_requests_total{app="padyar"}[10m]))
+          ) > 0.05
+          and on (install)
+          sum by (install) (increase(http_requests_total{app="padyar"}[10m])) >= 20
+        for: 5m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "بیش از ۵٪ درخواست‌های نصب {{ $labels.install }} در ۱۰ دقیقهٔ گذشته خطای سرور (5xx) گرفتند. اگر حالت نگهداری روشن است، silence بگذارید."
+          description: "در رابط Prometheus، http_requests_total نصب {{ $labels.install }} را به تفکیک route و status ببینید و journalctl -u padyar-{{ $labels.install }} را بخوانید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarhigh5xxrate"
+
+      - alert: PadyarChatLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, install) (rate(http_request_duration_seconds_bucket{app="padyar",route="/chat"}[10m]))
+          ) > 8
+          and on (install)
+          sum by (install) (increase(http_request_duration_seconds_count{app="padyar",route="/chat"}[10m])) >= 10
+        for: 10m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "p95 زمان پاسخ چت نصب {{ $labels.install }} بالای ۸ ثانیه است."
+          description: "در رابط Prometheus ببینید پاسخ‌ها از کدام tier می‌آیند (chat_tier_served_total) و سرویس هوش مصنوعی کند است یا نه (ai_calls_total)."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarchatlatencyhigh"
+
+  - name: padyar-host
+    rules:
+      - alert: HostDiskLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|devtmpfs|overlay|squashfs|ramfs"}
+            / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|devtmpfs|overlay|squashfs|ramfs"}
+          ) < 0.10
+          and on (device, mountpoint) node_filesystem_readonly{job="node"} == 0
+        for: 10m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "کمتر از ۱۰٪ فضای {{ $labels.mountpoint }} آزاد است."
+          description: "با sudo du -xh --max-depth=1 {{ $labels.mountpoint }} | sort -h ببینید چه چیزی فضا را گرفته است. پشتیبان‌ها و لاگ‌ها اول."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostdisklow"
+
+      - alert: HostPostgresDown
+        expr: pg_up{job="postgres"} == 0 or up{job="postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "PostgreSQL پاسخ نمی‌دهد، یا exporter آن پایین است."
+          description: "sudo systemctl status postgresql و sudo systemctl status prometheus-postgres-exporter را ببینید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostpostgresdown"
+
+      - alert: HostCertExpiring
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox-origin"} - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "گواهی مبدأ {{ $labels.domain }} کمتر از ۱۴ روز اعتبار دارد؛ تمدید خودکار Let's Encrypt کار نکرده."
+          description: "sudo certbot renew --dry-run را اجرا کنید و خطای آن را بخوانید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostcertexpiring"
+
+      - alert: HostTunnelDown
+        expr: |
+          max(cloudflared_tunnel_ha_connections{job="cloudflared"}) < 1
+          or max(up{job="cloudflared"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "تونل Cloudflare هیچ اتصال فعالی ندارد، یا metrics آن خوانده نمی‌شود."
+          description: "sudo systemctl status cloudflared و sudo journalctl -u cloudflared -n 50 را ببینید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hosttunneldown"
+
+      - alert: HostDiskFilling
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|devtmpfs|overlay|squashfs|ramfs"}
+            / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|devtmpfs|overlay|squashfs|ramfs"}
+          ) < 0.20
+          and on (device, mountpoint) node_filesystem_readonly{job="node"} == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "کمتر از ۲۰٪ فضای {{ $labels.mountpoint }} آزاد است."
+          description: "هنوز فوری نیست. پیش از آن‌که به ۱۰٪ برسد (HostDiskLow) فضا آزاد کنید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostdiskfilling"
+
+      - alert: MonitoringTargetDown
+        expr: up{job=~"node|blackbox-origin"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "exporter {{ $labels.job }} خوانده نمی‌شود."
+          description: "تا این exporter برنگردد، هشدارهای دیسک یا گواهی و سایت دیده نمی‌شوند. وضعیت سرویس prometheus-*-exporter مربوط را ببینید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#monitoringtargetdown"
+
+      - alert: HostOriginProbeFailed
+        expr: |
+          probe_success{job="blackbox-origin"} == 0
+          unless on (probe_install)
+          label_replace(up{app="padyar"} == 0, "probe_install", "$1", "install", "(.*)")
+        for: 3m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "probe روی https://127.0.0.1:443/api/health برای {{ $labels.domain }} شکست خورد در حالی که برنامه بالا است. nginx پایین است یا گواهی مبدأ منقضی یا نامعتبر است. تونل همین را رد می‌کند، پس بازدیدکننده خطا می‌بیند."
+          description: "sudo systemctl status nginx و sudo nginx -t را ببینید، سپس curl -skv --resolve {{ $labels.domain }}:443:127.0.0.1 https://{{ $labels.domain }}/api/health را اجرا کنید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostoriginprobefailed"
+
+  - name: padyar-monitoring
+    rules:
+      - alert: MonitoringHeartbeat
+        expr: vector(1)
+        for: 0m
+        labels:
+          severity: none
+        annotations:
+          summary: "ضربان سیستم پایش. این هشدار همیشه روشن است."
+          description: "اگر این هشدار در Alertmanager نیست، Prometheus قاعده‌ها را ارزیابی نمی‌کند یا به Alertmanager نمی‌رسد."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#monitoringheartbeat"

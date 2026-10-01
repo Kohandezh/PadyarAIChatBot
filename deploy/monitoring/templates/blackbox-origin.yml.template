@@ -1,0 +1,21 @@
+# Rendered by deploy/55-monitoring.sh into
+# /etc/prometheus/scrape.d/blackbox-origin.yml from EVERY registered install.
+# Do not edit on the host.
+#
+# These targets carry NO `install` label: an alert from this job is a host
+# alert, texted only by the host-alerts owner (ADR-024, decision 6). The
+# install is in `probe_install`, which only HostOriginProbeFailed reads.
+scrape_configs:
+  - job_name: blackbox-origin
+    metrics_path: /probe
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [probe_install]
+        target_label: __param_module
+        replacement: origin_${1}
+      - source_labels: [domain]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+    static_configs:

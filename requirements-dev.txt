@@ -19,3 +19,9 @@ pytest-cov
 # requirements.txt — but without it here, collection ERRORS rather than
 # skips, and the whole suite stops.
 openpyxl
+
+# tests/test_monitoring_rules.py and tests/test_monitoring_install_script.py
+# read the monitoring YAML (rules, promtool tests, rendered scrape files).
+# Today PyYAML only arrives as a dependency of huggingface_hub; naming it here
+# keeps those tests from breaking the day that chain changes.
+PyYAML

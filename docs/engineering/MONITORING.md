@@ -1,40 +1,163 @@
-# Monitoring (Prometheus `/metrics`)
+# Monitoring (Prometheus `/metrics` and the host stack)
 
-Verified against the code on 2026-09-19.
+Verified against the code on 2026-10-01.
 
 ## What exists, and what does not
-
-Be clear about this before reading the rest. This repo ships **one thing**: an
-authenticated `GET /metrics` endpoint that serves Prometheus text.
 
 | Piece | State |
 |---|---|
 | `/metrics` endpoint | **Exists.** `app/routers/metrics.py` |
 | Metric definitions and registry | **Exists.** `app/services/metrics.py` |
 | Instrumentation hooks (HTTP, chat, AI, circuit, backup, health) | **Exists.** Wired at the call sites listed below |
-| Tests | **Exist.** `tests/test_metrics.py`, 13 tests |
-| A Prometheus server that scrapes it | **Does not exist.** No scrape config anywhere in the repo |
-| A Grafana (or any) dashboard | **Does not exist.** No dashboard file in the repo |
-| Metric retention | **Does not exist.** Retention is a property of a Prometheus server, and there is none |
-| Alerting rules | **Does not exist.** No alert rule file in the repo |
+| Tests for the endpoint | **Exist.** `tests/test_metrics.py` |
+| A Prometheus server that scrapes it | **Exists in the repo, installed by hand.** `deploy/55-monitoring.sh` installs Prometheus 2.45 from the Ubuntu noble archive, with one scrape job per install. See "The monitoring stack" below |
+| Alert rules | **Exist.** `deploy/monitoring/rules/padyar.rules.yml`, 11 rules. Three more wait for app changes (see below) |
+| Alertmanager | **Exists, UI only.** One route, one receiver with no destination. It sends nothing anywhere |
+| Metric retention | **Exists.** 30 days or a size cap, whichever comes first (see "Retention") |
+| An SMS for a firing alert | **Does not exist yet.** The watchdog step that reads Alertmanager and texts `page="sms"` alerts is a separate change (SPEC monitoring-stack, WU2). Until it ships, an alert is only visible in the Prometheus and Alertmanager UIs. The watchdog's own "the app is down" SMS works as before |
+| A Grafana (or any) dashboard | **Does not exist.** Not in this phase (ADR-024, decision 2). The Prometheus UI is the dashboard |
 | Distributed tracing (OpenTelemetry, Jaeger) | **Does not exist.** No tracing dependency in `requirements.txt` |
 
-So today the numbers below are produced correctly, held in process memory, and
-**nothing reads them** except a human who opens `/metrics` in a browser with an
-admin session. The moment the app restarts, every counter goes back to zero,
-because nothing has stored them.
+Installing the stack is a separate, manual step. Merging the repo changes
+nothing on a host. An operator runs `deploy/55-monitoring.sh` on the host,
+and runs it again after every rule change.
 
-Verify the gaps yourself:
+## The monitoring stack
+
+Decided in ADR-024 (`docs/engineering/DECISIONS.md`), specified in
+`docs/features/monitoring-stack/SPEC.md`. One stack per host, shared by every
+install on it.
 
 ```bash
-grep -rniI "grafana\|scrape_config\|alertmanager\|opentelemetry" \
-  --include="*.yml" --include="*.yaml" --include="*.conf" --include="*.py" \
-  app/ deploy/ .github/          # no matches
-grep -n "prometheus" requirements.txt   # only: prometheus-client
+sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
 ```
 
-This is a scrape surface waiting for a scraper. That is a real, useful step,
-but it is not a monitoring stack.
+### What it installs
+
+| Service (systemd unit) | Listens on | Reads |
+|---|---|---|
+| `prometheus` | `127.0.0.1:9090` | each install's `/metrics` with that install's token, the exporters below |
+| `prometheus-alertmanager` | `127.0.0.1:9093` (basic auth) | alerts from Prometheus. HA gossip (`:9094`) is turned off |
+| `prometheus-node-exporter` | `127.0.0.1:9100` | disk space of the host |
+| `prometheus-postgres-exporter` | `127.0.0.1:9187` | the PostgreSQL cluster, over the local socket, role `prometheus` with `pg_monitor` only |
+| `prometheus-blackbox-exporter` | `127.0.0.1:9115` | each site through nginx: `https://127.0.0.1:443/api/health` with the site's own name and certificate |
+| `cloudflared` (already there) | `127.0.0.1:20241` | its own tunnel connections. The script adds one `metrics:` line to `/etc/cloudflared/config.yml` |
+
+Every listener is on `127.0.0.1`. The script checks this with `ss` after the
+restart and exits with code 2 if any monitoring port listens anywhere else.
+
+apt starts each new package at once on its Debian defaults (every interface,
+Alertmanager without a password, cluster gossip on `0.0.0.0:9094`); UFW
+covers the seconds until the script restarts them with its own config. If a
+run stops before that restart (a failed check, a 403 from an app, ...), the
+script stops and disables the services that this run installed, says which,
+and leaves packages that were installed before the run alone. They stay off
+until a run succeeds.
+The UIs are reached through an SSH tunnel only:
+
+```bash
+ssh -N -L 9090:127.0.0.1:9090 -L 9093:127.0.0.1:9093 <user>@<host>
+```
+
+### Files on the host
+
+| Path | What | Owner and mode |
+|---|---|---|
+| `/etc/prometheus/prometheus.yml`, `rules/`, `alertmanager.yml`, `blackbox.yml` | Copied or rendered from `deploy/monitoring/` | `root:root 0644` |
+| `/etc/prometheus/scrape.d/padyar-<slug>.yml` | One scrape job per install | `root:root 0644` |
+| `/etc/prometheus/secrets/<slug>.token` | The install's `METRICS_TOKEN` | `root:prometheus 0640` |
+| `/etc/prometheus/alertmanager-web.yml` | bcrypt hashes of the three API users | `root:prometheus 0640` |
+| `/etc/padyar-monitoring/installs/<slug>.conf` | `PORT` and `DOMAIN` of each install, no secret | `root:root 0644` |
+| `/etc/padyar-monitoring/host-alerts-owner` | The install that owns host-level alerts | `root:root 0644` |
+| `/etc/padyar-monitoring/alertmanager-watchdog.pass` | Password of the `watchdog` API user | `root:padyar-alertread 0640` |
+| `/root/.secrets/alertmanager-operator.pass`, `/root/.config/amtool/config.yml` | The operator's password, and `amtool`'s config that carries it | `root:root 0600` |
+| `/root/padyar-backups/monitoring-<UTC time>/` | The previous version of every config file the run replaced | `root:root 0700` |
+
+No token or password is in the repo, in `prometheus.yml`, in the script's
+output, or in any command line: the token check uses `curl -H @<0600 file>`.
+
+**Known limit of the Alertmanager API auth.** Basic auth has no per-endpoint
+permission. Every install's user can read the `watchdog` password (that is
+how its watchdog reads alerts), so a compromised install could also post a
+fake alert or a silence for another install. A fake alert's cost is bounded
+by the watchdog's daily SMS cap; a silence is reported by SMS by the
+host-alerts owner's watchdog once that step ships. The rest is an accepted
+risk (ADR-024, section 5).
+
+### How the script reads an install's `.env`
+
+It is the first script in the kit that reads an install's `.env` as root,
+and the app rewrites that file from admin-panel input. So the script never
+sources or evaluates it. It reads only lines of the exact form `KEY=value`,
+removes one layer of matching quotes, and checks each value against its own
+pattern (`APP_PORT` digits, `METRICS_TOKEN` `[A-Za-z0-9_-]+`). A line it cannot
+read with certainty (`export`, indentation, escapes, `$`, backticks, an inline
+comment, the same key twice with different values) stops the run with the key
+and file named, never the value.
+
+### The alert rules
+
+`deploy/monitoring/rules/padyar.rules.yml`. `severity="critical"` means
+`page="sms"`, with one exception: `PadyarAppDown` is critical without `page`,
+because the watchdog already texts "the app is down".
+
+| Rule | Fires when | For |
+|---|---|---|
+| `PadyarAppDown` | Prometheus cannot read an install's `/metrics` (app down, or a 403 from a wrong token) | 2m |
+| `PadyarHigh5xxRate` | More than 5% of an install's requests in 10 minutes are 5xx, with at least 20 requests. 503 counts, so turning on maintenance mode needs a silence | 5m |
+| `PadyarChatLatencyHigh` | p95 of `/chat` above 8 s, with at least 10 chats in 10 minutes | 10m |
+| `HostDiskLow` | Under 10% free on a writable, non-tmpfs filesystem | 10m |
+| `HostPostgresDown` | `pg_up == 0`, or the exporter does not answer | 2m |
+| `HostCertExpiring` | The origin's Let's Encrypt certificate has under 14 days left | 1h |
+| `HostTunnelDown` | cloudflared holds no connection, or its metrics do not answer | 2m |
+| `HostOriginProbeFailed` | The site does not open through nginx and TLS while the app is up | 3m |
+| `HostDiskFilling` (warning) | Under 20% free | 30m |
+| `MonitoringTargetDown` (warning) | node_exporter or the origin probe cannot be read | 5m |
+| `MonitoringHeartbeat` | Always. Its absence means Prometheus is not evaluating rules | 0m |
+
+Not in the file yet, on purpose: `PadyarAICircuitOpen` (waits for the circuit
+state to be published at startup), `PadyarBackupFailed` and
+`PadyarBackupStale` (wait for the verified-backup metrics and the backup
+interval gauge). A rule whose metric does not exist would load, evaluate to
+nothing, and never fire. `tests/test_monitoring_rules.py` keeps that list and
+fails if a name is in both places or in neither.
+
+Disks mounted under `/mnt`, `/media` or `/run` have no `node_filesystem_*`
+series: the Ubuntu build of node_exporter excludes those mount points, so
+`HostDiskLow` cannot see them. Source: the package's
+`debian/patches/0001-Debian-defaults.patch` at the noble version
+1.7.0-1ubuntu0.3, line 27, which sets the default to
+`^/(dev|proc|run|sys|mnt|media|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)`
+(https://git.launchpad.net/ubuntu/+source/prometheus-node-exporter/tree/debian/patches/0001-Debian-defaults.patch?h=import/1.7.0-1ubuntu0.3#n27).
+Before installing, run `df -h` on the host: a disk that matters and is
+mounted under one of those paths is not watched.
+
+Two caveats until the matching app changes land:
+
+- Until `/metrics` merges every uvicorn worker (open PR, "DEP-1" in the
+  SPEC), each scrape sees one worker of several. `PadyarHigh5xxRate` and
+  `PadyarChatLatencyHigh` are then noisy. Do not install the stack on a
+  production host before that change is deployed there.
+- The rules reach the host only when someone re-runs
+  `deploy/55-monitoring.sh`. `deploy/padyar-deploy.sh` does not touch the
+  stack, because it deploys one install and the stack belongs to the host.
+
+### What the tests prove, and what they do not
+
+`tests/test_monitoring_rules.py` checks that every metric a rule reads exists
+in its real source (the app registry, or the allowlist of the exporter
+behind the selector's `job`, each name linked to its source at the packaged
+version), that every label exists on the metric, and runs `promtool check
+rules`, `promtool test rules`, `promtool check config` and `amtool
+check-config` when the host's versions (2.45, 0.26) are on `PATH`. The CI job
+`monitoring-rules` installs promtool from the Ubuntu archive; amtool is not
+installed by any CI job, and the install script runs it on the host before
+any restart.
+`tests/test_monitoring_install_script.py` tests the script's functions one by
+one with temp files and stub commands.
+
+Neither proves the install itself. The script needs root, systemd and apt;
+it has not been run by a test, and running it on a host is a separate step.
 
 ## The registry
 
@@ -152,7 +275,9 @@ than defence in depth. If you want the second layer, the options are:
 - Or reach the endpoint over a private network or tunnel only.
 
 Either change belongs in `deploy/nginx/instance.conf.template`. Nobody has made
-it yet.
+it yet. `deploy/55-monitoring.sh` checks each site and prints a loud warning,
+with the command that re-renders the site, when `/metrics` does not answer
+404 through nginx.
 
 ### Setting the token
 
@@ -169,19 +294,41 @@ does **not** mean an operator can change `.env` and see the new value take
 effect. `os.getenv` already ran. **Changing the token in `.env` needs an app
 restart.**
 
-`METRICS_TOKEN` is not currently listed in `.env.example`
-(`grep -i metrics .env.example` returns nothing). It is documented in
-`CLAUDE.md`. Add it to `.env.example` when someone next touches that file.
+On a host, the key is in `deploy/env/instance.env.template`, empty by
+default (empty means `/metrics` answers only to an admin session).
+`deploy/55-monitoring.sh` stops on an empty or missing token and prints the
+one-line fix. After a new token, restart the app and re-run
+`deploy/55-monitoring.sh <slug>` right away: between the two, every scrape
+gets a 403 and `PadyarAppDown` fires after 2 minutes.
+
+`METRICS_TOKEN` is not listed in `.env.example` (the local development file).
 
 Treat the token like any other secret. Never in the repo, never in a
 screenshot.
 
 ## Retention
 
-There is no metric retention here, because there is nothing storing metrics.
-`/metrics` is a scrape surface, not a store, and its values reset on restart.
+`/metrics` itself stores nothing: its values reset on restart. The history is
+kept by the Prometheus server that `deploy/55-monitoring.sh` installs:
 
-The operational history this install actually keeps for humans is a different
+- **30 days**, or a **size cap**, whichever comes first
+  (`--storage.tsdb.retention.time=30d --storage.tsdb.retention.size=<cap>MB`
+  in `/etc/default/prometheus`);
+- the cap is the smaller of 5 GB and 30% of (the free space on the
+  partition of `/var/lib/prometheus` + the TSDB's current size). If that is
+  under 1 GB, the script stops;
+- the script prints the number it chose.
+
+**This differs from the feature SPEC on purpose.** SPEC REQ-016 says 30% of
+the free space alone. But the TSDB's own data counts as used space, so with
+the SPEC formula every re-run would lower the cap a little and Prometheus
+would delete history to meet it. Counting the TSDB's current size fixes
+that. The change is called out in the pull request for the owner's review.
+
+The 30 days, the 5 GB and the memory caps (`MemoryMax=` drop-ins) are
+estimates, not measurements. Review them after 30 days of real data.
+
+The operational history this install keeps for humans is a different
 system: the applog store (`app/services/applog.py`, tables in the
 `observability` schema, created by `migrations/0002_observability.sql`, read in
 the admin panel under Logs). It has three retention windows, all settings rows:
@@ -197,14 +344,16 @@ readers. `0` means keep forever, an explicit operator choice. Audit and security
 on purpose, so an operator lowering the operational window to 7 days cannot
 quietly delete the evidence of their own actions.
 
-If a Prometheus server is ever added, its retention is configured on that
-server (for example `--storage.tsdb.retention.time=30d`), not in this repo.
-
 ## Checking it yourself
 
 ```bash
 # Run the endpoint's tests
 .venv/bin/python -m pytest tests/test_metrics.py -q
+
+# Run the rule and install-script tests (promtool 2.45 / amtool 0.26 on PATH
+# for the promtool cases; they skip with a reason otherwise)
+.venv/bin/python -m pytest tests/test_monitoring_rules.py tests/test_monitoring_install_script.py -q
+promtool test rules deploy/monitoring/tests/padyar_rules_test.yml
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics
@@ -212,4 +361,5 @@ curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics
 
 Related files: `app/services/metrics.py`, `app/routers/metrics.py`,
 `app/main.py` (the `prometheus_metrics` middleware),
-`docs/features/metrics-endpoint/SPEC.md`.
+`docs/features/metrics-endpoint/SPEC.md`, `deploy/55-monitoring.sh`,
+`deploy/monitoring/`, `docs/features/monitoring-stack/SPEC.md`.
