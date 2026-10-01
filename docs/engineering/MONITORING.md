@@ -1,6 +1,8 @@
 # Monitoring (Prometheus `/metrics`)
 
-Verified against the code on 2026-09-19.
+Verified against the code on 2026-09-19. The multi-worker section and the
+line numbers that moved with it were updated on 2026-10-01. The backup
+metrics (section «متریک‌های پشتیبان‌گیری») were changed on 2026-10-01.
 
 ## What exists, and what does not
 
@@ -12,17 +14,20 @@ authenticated `GET /metrics` endpoint that serves Prometheus text.
 | `/metrics` endpoint | **Exists.** `app/routers/metrics.py` |
 | Metric definitions and registry | **Exists.** `app/services/metrics.py` |
 | Instrumentation hooks (HTTP, chat, AI, circuit, backup, health) | **Exists.** Wired at the call sites listed below |
-| Tests | **Exist.** `tests/test_metrics.py`, 13 tests |
+| Tests | **Exist.** `tests/test_metrics.py` (13 tests), `tests/test_metrics_multiprocess.py` (45 tests, each multiprocess case in a real subprocess), `tests/test_backup_metrics.py` (22 tests) and `tests/test_backup_interval_metric.py` (22 tests) |
 | A Prometheus server that scrapes it | **Does not exist.** No scrape config anywhere in the repo |
 | A Grafana (or any) dashboard | **Does not exist.** No dashboard file in the repo |
 | Metric retention | **Does not exist.** Retention is a property of a Prometheus server, and there is none |
 | Alerting rules | **Does not exist.** No alert rule file in the repo |
 | Distributed tracing (OpenTelemetry, Jaeger) | **Does not exist.** No tracing dependency in `requirements.txt` |
 
-So today the numbers below are produced correctly, held in process memory, and
-**nothing reads them** except a human who opens `/metrics` in a browser with an
-admin session. The moment the app restarts, every counter goes back to zero,
-because nothing has stored them.
+So today the numbers below are produced correctly, held in memory (with several
+workers: in memory-mapped files in one shared directory, see the section
+«چند worker و /metrics» below), and **nothing reads them** except a human who opens
+`/metrics` in a browser with an admin session. The moment the app restarts,
+every counter goes back to zero, because nothing has stored them. The one
+exception is `backup_last_success_timestamp_seconds`: at startup it is read
+back from the backup manifests on disk.
 
 Verify the gaps yourself:
 
@@ -39,9 +44,15 @@ but it is not a monitoring stack.
 ## The registry
 
 `/metrics` serves a **dedicated** `CollectorRegistry`, not the library default
-(`app/services/metrics.py:35`). Anything a third-party package registers onto
-`prometheus_client.REGISTRY` never appears. Only the eight families below are
+(`app/services/metrics.py:80`). Anything a third-party package registers onto
+`prometheus_client.REGISTRY` never appears. Only the ten families below are
 exposed.
+
+With several workers (multiprocess mode) the dedicated registry alone is not
+enough, because every metric of every library lands in the shared directory.
+`exposition()` therefore filters the merged result by `FAMILY_NAMES`, which is
+built from the dedicated registry. The rule is the same in both modes: ten
+families, nothing else.
 
 The reason is review: every series on this endpoint was chosen by a person. A
 shared global registry would let any future dependency publish series nobody
@@ -49,17 +60,19 @@ looked at.
 
 ## Metric list
 
-All eight are defined in `app/services/metrics.py:37-75`.
+All ten are defined in `app/services/metrics.py:82-165`.
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
-| `http_requests_total` | counter | `method`, `route`, `status` | Every HTTP request | `app/main.py:568` and `:575` (middleware) |
-| `http_request_duration_seconds` | histogram | `method`, `route` | Request latency in seconds. Buckets 0.005s to 10s | `app/main.py:578` |
-| `http_inflight` | gauge | none | Requests being served right now | `app/main.py:562` / `:572` |
+| `http_requests_total` | counter | `method`, `route`, `status` | Every HTTP request | `app/main.py:588` and `:595` (middleware) |
+| `http_request_duration_seconds` | histogram | `method`, `route` | Request latency in seconds. Buckets 0.005s to 10s | `app/main.py:598` |
+| `http_inflight` | gauge | none | Requests being served right now | `app/main.py:582` / `:592` |
 | `chat_tier_served_total` | counter | `tier` | Chat turns, by the tier that served them | `app/routers/chat.py:165`, inside `_log_turn` |
 | `ai_calls_total` | counter | `provider`, `outcome` | Routed AI requests by provider type and `success`/`failed` | `app/services/ai/engine.py:366`, inside `_record_usage` |
 | `ai_circuit_state` | gauge | `instance` | Circuit breaker per provider instance: `0` closed, `1` half_open, `2` open | `app/services/ai/circuit.py:83-92` (`_metrics_state`) |
-| `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts, `success` or `failed` | `app/services/pg_backup.py:174` and `:203` |
+| `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts made by the scheduler path: `success` = created AND verified, `failed` = any other ending. Both series start at 0 | `app/services/backup.py:187`, `:205` and `:207` (`_run_backup_now`) |
+| `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:204`) and the startup seed (`app/main.py:156`) |
+| `backup_schedule_interval_seconds` | gauge | none | فاصله‌ی پشتیبان‌گیری خودکار به ثانیه (`backup_interval_hours × 3600`). `0` = پشتیبان‌گیری خودکار خاموش است. بخش «فاصله‌ی زمان‌بند پشتیبان» را ببینید | `app/services/backup.py:70` (`_set_schedule_metric`)، صدا زده از `:241` (شروع حلقه‌ی زمان‌بند) و `:249` (هر چک) |
 | `health_score` | gauge | none | The 0 to 100 system health score | `app/services/health.py:339` |
 
 Two hook points are worth knowing about, because they are why the numbers are
@@ -76,8 +89,106 @@ trustworthy:
 provider instance means "alert when open" is a single PromQL comparison
 (`ai_circuit_state > 0`) instead of a label match.
 
-Every update is an in-memory counter increment or gauge set. No hook does I/O,
-so instrumentation adds no latency to the chat path.
+Every update is a counter increment or a gauge set. With one process it is an
+in-memory change. In multiprocess mode it is a write into a memory-mapped file.
+Either way there is no network call, no database call and no fsync, so
+instrumentation adds no latency to the chat path.
+
+## متریک‌های پشتیبان‌گیری
+
+این دو متریک باید بگویند «یک پشتیبان قابل بازگردانی داریم»، نه فقط «یک فایل dump
+نوشته شد». قبلاً `success` داخل `pg_backup.create()` و قبل از `verify()` زیاد
+می‌شد. `failed` هم فقط وقتی زیاد می‌شد که خود `pg_dump` شکست بخورد. پس یک dump
+خراب هم «موفق» شمرده می‌شد.
+
+**`backup_outcome_total{result=...}`** یک شمارش برای هر تلاش پشتیبان‌گیری است.
+این شمارش در `_run_backup_now` (`app/services/backup.py`) انجام می‌شود. این تابع را
+زمان‌بند شبانه صدا می‌زند، و هر چیزی که `create_backup_now` را صدا بزند
+(endpoint قدیمی `POST /admin/api/backups/create` در `app/routers/admin.py`، و
+عملیات «پشتیبان‌گیری» در `app/services/service_control.py`).
+
+| مقدار `result` | یعنی |
+|---|---|
+| `success` | dump ساخته شد **و** `verify()` گفت `verified`. برای هر تلاش دقیقاً یک بار |
+| `failed` | هر پایان دیگر: خطا قبل از dump (مثلاً ساختن پوشه یا خواندن `DATABASE_URL`)، شکست `pg_dump`، `verify()` که `failed` بگوید، یا `verify()` که خطا بدهد. برای هر تلاش دقیقاً یک بار |
+
+- هر دو سری از شروع process با مقدار ۰ وجود دارند. پس
+  `increase(backup_outcome_total{result="failed"}[1h])` بعد از restart هم سری
+  دارد که بخواند.
+- **چه چیزی شمرده نمی‌شود.** ساختن دستی پشتیبان از صفحه‌ی
+  Infrastructure → Backups (`POST /admin/api/infra/backups`) و پشتیبان ایمنی
+  قبل از restore مستقیم `pg_backup.create()` را صدا می‌زنند و verify نمی‌کنند.
+  این دو در `backup_outcome_total` هیچ چیزی نمی‌شمارند. تا قبل از این تغییر،
+  همین‌ها `success` می‌شمردند.
+- رفتار خود پشتیبان‌گیری عوض نشده است: همان فایل‌ها، همان prune، همان کپی
+  off-site، همان رخدادهای applog و همان پاسخ API. شکست verify هنوز اجرا را
+  متوقف نمی‌کند و prune بعد از آن انجام می‌شود.
+
+**`backup_last_success_timestamp_seconds`** زمان Unix (ثانیه) ساخته‌شدن
+(`created_at` در manifest) تازه‌ترین پشتیبانی است که verify آن `verified` بوده.
+
+- **مقدار ۰ یعنی هیچ پشتیبان verify شده‌ای شناخته نیست**: نه از این start، نه روی
+  دیسک. یک gauge بدون label در `prometheus_client` قبل از اولین `set()` مقدار ۰
+  نشان می‌دهد، پس «sample ندارد» ممکن نیست. قاعده‌ی «پشتیبان کهنه است»
+  (`time() - backup_last_success_timestamp_seconds > 26*3600`) برای ۰ هم فعال
+  می‌شود، و این همان رفتاری است که می‌خواهیم.
+- پشتیبانی که ساخته شد ولی verify آن `failed` بود، یا هنوز verify نشده، این عدد
+  را تکان نمی‌دهد.
+- هر verify موفق این عدد را جلو می‌برد، نه فقط verify زمان‌بند. اگر اپراتور یک
+  پشتیبان دستی را بعداً با دکمه‌ی verify بررسی کند، زمان آن حساب می‌شود.
+- این عدد **هرگز پایین نمی‌آید**. verify یک پشتیبان قدیمی‌تر (دکمه‌ی verify یا
+  بررسی قبل از restore) آن را کم نمی‌کند (`metrics.set_backup_last_success`).
+- **زمان آینده نادیده گرفته می‌شود.** اگر `created_at` یک پشتیبان بیشتر از یک
+  ساعت در آینده باشد (ساعت اشتباه یا manifest دستی)، عدد تکان نمی‌خورد و در لاگ
+  ثبت می‌شود. چون این عدد هرگز پایین نمی‌آید، یک زمان آینده آن را برای همیشه نگه
+  می‌داشت و قاعده‌ی «کهنه» دیگر هرگز فعال نمی‌شد.
+- **متریک هرگز verify را خراب نمی‌کند.** اگر نوشتن متریک خطا بدهد، فقط در لاگ
+  ثبت می‌شود. `verify()`، کپی off-site بعد از آن و بررسی قبل از restore مثل قبل
+  کار می‌کنند.
+- **بعد از restart هم می‌ماند.** موقع شروع برنامه،
+  `pg_backup.seed_last_success_metric()` همه‌ی manifest های روی دیسک را می‌خواند
+  و تازه‌ترین پشتیبان verify شده را برمی‌دارد. manifest خراب (JSON نامعتبر،
+  `verification` که object نیست، یا `created_at` نامعتبر) رد می‌شود و در لاگ ثبت
+  می‌شود. خطا برای هر manifest جدا گرفته می‌شود، پس یک فایل خراب جلوی بقیه را
+  نمی‌گیرد. نبودن پوشه‌ی پشتیبان یا
+  هر خطای دیگر شروع برنامه را متوقف نمی‌کند. این کار به `DB_BACKEND` وابسته نیست.
+  روی نصب SQLite پوشه‌ی پشتیبان پستگرس خالی است، پس عدد ۰ می‌ماند.
+
+### فاصله‌ی زمان‌بند پشتیبان
+
+**`backup_schedule_interval_seconds`** زمان‌بند پشتیبان‌گیری خودکار را به
+Prometheus نشان می‌دهد. زمان‌بند در جدول `settings` است
+(`backup_auto_enabled` و `backup_interval_hours`) و Prometheus آن را نمی‌خواند.
+بدون این عدد، قاعده‌ی «پشتیبان کهنه است» فرق «پشتیبان خودکار عمداً خاموش است» یا
+«این نصب هر ۴۸ ساعت پشتیبان می‌گیرد» را با «پشتیبان‌گیری متوقف شده» نمی‌فهمید و
+هشدار دروغ می‌داد.
+
+- **مقدار** برابر `backup_interval_hours × 3600` است وقتی پشتیبان‌گیری خودکار
+  روشن است. اگر سطری در `settings` نباشد، پیش‌فرض‌های `backup.DEFAULTS` به کار
+  می‌روند (۲۴ ساعت، یعنی `86400`).
+- **مقدار ۰ یعنی زمان‌بند هیچ پشتیبان خودکاری نمی‌گیرد.** «روشن» دقیقاً همان
+  آزمونی است که خود زمان‌بند می‌کند (`get_schedule()["enabled"]`، یعنی مقدار
+  سطر دقیقاً رشته‌ی `true` باشد). پس این عدد هرگز با کار واقعی زمان‌بند فرق
+  ندارد. قاعده‌ی «کهنه» (برنامه‌ریزی شده، هنوز در این مخزن نیست) وقتی این عدد ۰
+  است فعال نمی‌شود.
+- **کی به‌روز می‌شود.** حلقه‌ی زمان‌بند (`scheduler_loop`) در هر worker موقع
+  شروع برنامه یک بار آن را set می‌کند، و بعد در هر چک (هر `CHECK_EVERY_SECONDS`،
+  یعنی ۶۰ ثانیه) دوباره. پس تغییر زمان‌بند در پنل مدیریت حداکثر حدود ۶۰ ثانیه
+  بعد در همه‌ی worker ها دیده می‌شود. حلقه یا timer تازه‌ای اضافه نشده است.
+- **خواندن ناموفق مقدار قبلی را نگه می‌دارد.** اگر خواندن `settings` خطا بدهد
+  (دیتابیس پایین است، یا `backup_interval_hours` با دست به چیزی غیر عددی عوض
+  شده)، عدد تکان نمی‌خورد و فقط در لاگ ثبت می‌شود. حدس زدن بدتر بود: ۰ هشدار
+  «کهنه» را خاموش می‌کرد و پیش‌فرض به نصبی با بازه‌ی ۴۸ ساعت هشدار دروغ می‌داد.
+  خطای نوشتن متریک هم فقط در لاگ ثبت می‌شود و جلوی پشتیبان‌گیری را نمی‌گیرد.
+- **اگر دیتابیس موقع شروع یک worker پایین باشد**، عدد تا اولین خواندن موفق
+  مقدار پیش‌فرض gauge یعنی ۰ را نشان می‌دهد و قاعده‌ی «کهنه» ساکت است. این
+  پذیرفته شده است، چون در این مدت هشدار «PostgreSQL پایین است»
+  (`HostPostgresDown`، برنامه‌ریزی شده) خودش فعال است و هیچ پشتیبانی هم
+  نمی‌تواند اجرا شود.
+- رفتار پشتیبان‌گیری و API مدیریت عوض نشده است. فقط این متریک اضافه شده.
+
+**موتور SQLite.** مسیر `backup_center` (فقط backend تست و نسخه‌ی بازگشت) مثل
+قبل است. این دو متریک فقط پشتیبان‌های پستگرس (`pg_dump`) را توصیف می‌کنند.
 
 ## Cardinality: why `route` is a template
 
@@ -86,7 +197,7 @@ raw URL path ever became a label value, any visitor could mint unlimited
 combinations just by requesting random paths, and the Prometheus server would
 run out of memory. That is the one failure mode this design must never have.
 
-`route_template()` (`app/services/metrics.py:87-104`) is the only function that
+`route_template()` (`app/services/metrics.py:184-201`) is the only function that
 produces the `route` label. It has three branches and none can return an
 unbounded value:
 
@@ -94,7 +205,7 @@ unbounded value:
    (`/chat`, `/api/things/{thing_id}`), never the raw path. This holds even
    when the request 404s or 422s inside the route.
 2. A path under a static mount collapses to its fixed prefix. The set is
-   `("/static", "/themes", "/media", "/LOGO")` (`metrics.py:80`).
+   `("/static", "/themes", "/media", "/LOGO")` (`metrics.py:177`).
 3. Everything else collapses to the fixed string `unmatched`.
 
 `tests/test_metrics.py:55` pins this: it requests a junk path and a junk asset,
@@ -108,7 +219,7 @@ instance rows an operator creates by hand.
 ## Security: `/metrics` is never anonymous
 
 The endpoint authenticates every scrape itself
-(`app/routers/metrics.py:32-46`). There are two modes.
+(`app/routers/metrics.py:35-49`). There are two modes.
 
 1. **`METRICS_TOKEN` set.** The scrape must send
    `Authorization: Bearer <METRICS_TOKEN>`, compared with
@@ -120,12 +231,12 @@ The endpoint authenticates every scrape itself
 Any failure is a **403**, never a 401. A 401 would tell a probe that some
 credential exists and would work. 403 tells it nothing. `verify_admin`'s 401 is
 caught and re-raised as 403 for that reason
-(`app/routers/metrics.py:44-46`).
+(`app/routers/metrics.py:47-49`).
 
 In session mode a Bearer header is meaningless and is not a side door.
 `tests/test_metrics.py:120` pins that.
 
-The router is included unconditionally in `app/main.py:604`, outside the
+The router is included unconditionally in `app/main.py:624`, outside the
 `ENABLED_MODULES` system. It is not an optional module, so every install has
 the endpoint and every install relies on the auth above.
 
@@ -191,7 +302,7 @@ METRICS_TOKEN = (os.getenv("METRICS_TOKEN") or "").strip()
 ```
 
 The router reads `config.METRICS_TOKEN` as an attribute at request time
-(`app/routers/metrics.py:33`), which is what lets a test monkeypatch it. It
+(`app/routers/metrics.py:36`), which is what lets a test monkeypatch it. It
 does **not** mean an operator can change `.env` and see the new value take
 effect. `os.getenv` already ran. **Changing the token in `.env` needs an app
 restart.**
@@ -227,16 +338,215 @@ quietly delete the evidence of their own actions.
 If a Prometheus server is ever added, its retention is configured on that
 server (for example `--storage.tsdb.retention.time=30d`), not in this repo.
 
+## چند worker و /metrics
+
+### مشکل
+
+در production سرویس با `uvicorn --workers ${WEB_CONCURRENCY}` اجرا می‌شود
+(پیش‌فرض ۳). هر worker یک process جدا است و registry خودش را در حافظه‌ی خودش
+دارد. یک scrape به هر worker برسد که هسته‌ی سیستم انتخاب کند. نتیجه این بود که
+counterها بین سه عدد مستقل می‌پریدند (Prometheus آن را reset می‌بیند) و gaugeها
+فقط یک worker را نشان می‌دادند.
+
+### حالا چطور کار می‌کند
+
+وقتی متغیر `PROMETHEUS_MULTIPROC_DIR` تنظیم باشد، کتابخانه‌ی
+`prometheus_client` به حالت multiprocess می‌رود. هر worker عددهایش را در فایل‌های
+memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metrics`، تابع
+`metrics.exposition()` فایل‌های همه‌ی process ها را می‌خواند و جمع می‌کند. پس
+مهم نیست کدام worker جواب scrape را بدهد.
+
+یک به‌روزرسانی متریک در این حالت یک نوشتن در فایل memory-mapped است. شبکه و
+دیتابیس و fsync ندارد.
+
+هر خانواده این‌طور جمع می‌شود:
+
+| خانواده | نوع | روش جمع‌کردن | دلیل |
+|---|---|---|---|
+| `http_requests_total`، `chat_tier_served_total`، `ai_calls_total`، `backup_outcome_total` | counter | جمع (sum) | هر worker فقط سهم خودش را می‌شمارد |
+| `backup_last_success_timestamp_seconds` | gauge | `max`: بیشترین مقدار بین همه‌ی process ها | worker ای که backup گرفته زمان را set می‌کند. worker های دیگر ۰ یا یک زمان قدیمی‌تر دارند و نباید آن را پنهان یا کم کنند. `live` نیست، چون backup بعد از خروج worker هنوز روی دیسک هست |
+| `http_request_duration_seconds` | histogram | جمع `_count` و `_sum` و همه‌ی bucketها | همان دلیل |
+| `http_inflight` | gauge | `livesum`: جمع روی worker های زنده | درخواست‌های در حال انجام همه‌ی worker ها باید جمع شوند. فایل worker ای که خارج شود حذف می‌شود |
+| `ai_circuit_state` (به ازای هر `instance`) | gauge | `mostrecent`: آخرین مقداری که هر process set کرده | دلیلش پایین‌تر آمده |
+| `backup_schedule_interval_seconds` | gauge | `mostrecent` | همه‌ی worker ها همان سطر جدول settings را می‌خوانند، پس تازه‌ترین مقدار همان زمان‌بند فعلی است. با `max`، خاموش کردن پشتیبان خودکار (۰) پشت یک ۸۶۴۰۰ قدیمی در فایل worker دیگر پنهان می‌ماند. `live` نیست، چون زمان‌بند بعد از خروج worker هنوز درست است |
+| `health_score` | gauge | `mostrecent` | همه‌ی worker ها از همان چک‌ها همان امتیاز را حساب می‌کنند، پس تازه‌ترین مقدار درست است |
+
+**چرا `ai_circuit_state` حالت `mostrecent` دارد، نه `max` و نه `live`.**
+وضعیت circuit در دیتابیس مشترک است. هر تغییر را فقط یک worker منتشر می‌کند:
+همان که UPDATE شرطی را برده است (`app/services/ai/circuit.py`). با `max` این
+اتفاق می‌افتد: worker A عدد ۲ (open) را set می‌کند، بعد worker B عدد ۰ (closed)
+را set می‌کند، A دیگر هرگز چیزی نمی‌نویسد، و scrape برای همیشه «open» نشان می‌دهد.
+با `live` هم درست نیست: تغییری که یک worker منتشر کرده و بعد خارج شده هنوز
+درست است و نباید گم شود. پس آخرین نوشته حقیقت است.
+
+### فقط ده خانواده
+
+پوشه‌ی مشترک هر متریکی را نگه می‌دارد که هر کدی در هر worker ساخته، از جمله
+متریک‌های کتابخانه‌های دیگر. برای همین `exposition()` نتیجه‌ی جمع‌شده را با
+`FAMILY_NAMES` فیلتر می‌کند. این مجموعه از registry اختصاصی ساخته می‌شود، پس
+هنوز همان یک منبع حقیقت است. در هر دو حالت همان ده خانواده دیده می‌شود.
+خانواده‌ای که هنوز هیچ worker در آن ننوشته (مثلاً `ai_circuit_state` قبل از اولین
+تغییر وضعیت circuit)
+بدون sample لیست می‌شود، مثل حالت یک process.
+
+دو تفاوت کوچک در حالت multiprocess:
+
+- gaugeهای `*_created` (مثل `http_requests_created`) نمایش داده نمی‌شوند.
+  زمان ساخته‌شدن یک counter وقتی چند process آن را دارند معنی ندارد. در حالت یک
+  process چیزی عوض نشده است.
+- `health_score` تا اولین باری که محاسبه شود هیچ sample ندارد. در حالت یک
+  process تا آن موقع عدد ۰ نشان می‌داد.
+
+### اتصال به systemd
+
+این سه خط در `deploy/systemd/padyar-app.service.template` اضافه شده‌اند:
+
+```ini
+RuntimeDirectory=padyar-{{SLUG}}
+RuntimeDirectoryMode=0700
+Environment=PROMETHEUS_MULTIPROC_DIR=/run/padyar-{{SLUG}}
+```
+
+- systemd پوشه‌ی `/run/padyar-<slug>` را در هر start **خالی** می‌سازد و در هر stop
+  پاک می‌کند. restart خودکار `Restart=always` هم همین‌طور است.
+  `RuntimeDirectoryPreserve` به‌طور پیش‌فرض `no` است. هرگز آن را تنظیم نکنید.
+- مالک پوشه User و Group سرویس است. حالت `0700` جلوی خواندن فایل‌های خام
+  توسط کاربران دیگر همان ماشین را می‌گیرد.
+- `ProtectSystem=full` پوشه‌ی `/run` را read-only نمی‌کند، و systemd یک
+  RuntimeDirectory را به هر حال قابل‌نوشتن نگه می‌دارد. هیچ خط سخت‌گیری
+  (`NoNewPrivileges`، `PrivateTmp`، `ProtectSystem`، `ProtectHome`،
+  `ReadWritePaths`) عوض نشده است.
+- **پوشه باید در هر start خالی باشد**، چون فایل‌ها با هم جمع می‌شوند. فایلی که از
+  اجرای قبلی مانده باشد در اجرای جدید دوباره شمرده می‌شود. خود برنامه نباید
+  پوشه را پاک کند: با چند worker، یکی از آن‌ها فایل‌هایی را پاک می‌کرد که worker
+  دیگر همین الان نوشته است. systemd این کار را قبل از شروع هر worker انجام می‌دهد.
+- متغیر را در `.env` نگذارید. systemd اجازه می‌دهد `EnvironmentFile=` روی
+  `Environment=` غلبه کند. پس مقدار داخل `.env` مقدار unit را عوض می‌کند.
+
+### هشدار موقع شروع
+
+اگر `WEB_CONCURRENCY` بیشتر از ۱ باشد و `PROMETHEUS_MULTIPROC_DIR` تنظیم نشده
+باشد، هر process موقع شروع یک خط WARNING می‌نویسد که می‌گوید `/metrics` اعداد
+فقط یک worker را نشان می‌دهد (`one worker only`). برنامه بالا می‌آید و کار
+می‌کند. با ۳ worker سه خط می‌بینید، از هر process یکی. اگر `WEB_CONCURRENCY` عدد
+نباشد این هشدار نمی‌آید، چون `app/prodcheck.py` آن را گزارش می‌کند.
+
+### اگر پوشه درست نباشد، برنامه بالا نمی‌آید
+
+اگر متغیر هست ولی پوشه وجود ندارد، پوشه نیست، این process نمی‌تواند در آن
+بخواند و بنویسد (قابل‌خواندن و قابل‌نوشتن نیست)، یا مقدارش خالی است، import
+ماژول `app/services/metrics.py` با `RuntimeError` قطع می‌شود. نوشتن را worker
+لازم دارد و خواندن را scrape، چون `/metrics` فایل‌ها را فهرست می‌کند. پوشه‌ی
+فقط‌نوشتنی بدون این بررسی بالا می‌آمد و `/metrics` بی‌صدا خالی می‌ماند. پیام
+خطا اسم `PROMETHEUS_MULTIPROC_DIR` و مقدار آن را دارد و می‌گوید چه کنید. هیچ
+worker ای با این تنظیم بالا نمی‌آید. برگشت بی‌صدا به یک process نداریم: همان
+باگ (عدد غلط) برمی‌گشت و کسی نمی‌فهمید.
+
+مقدار **خالی** هم خطا است. کتابخانه حالت multiprocess را وقتی روشن می‌کند که
+**کلید** در محیط باشد، حتی با مقدار خالی. برنامه هم همین‌طور تصمیم می‌گیرد: با
+وجود کلید، نه با درست‌بودن مقدار. نام قدیمی با حروف کوچک
+(`prometheus_multiproc_dir`) همین رفتار را دارد. اگر متغیر اصلاً نباشد، همه‌چیز
+مثل قبل است و یک process کار می‌کند.
+
+با `--workers N` این خطا سرویس را از کار نمی‌اندازد، ولی جواب هم نمی‌دهد. هر
+worker موقع import با همین پیام واضح می‌افتد، اما process اصلی uvicorn بالا
+می‌ماند و worker ها را پشت سر هم دوباره راه می‌اندازد. پس `systemctl status`
+سرویس را `active (running)` نشان می‌دهد در حالی که هیچ درخواستی جواب نمی‌گیرد.
+خطا را در journal ببینید:
+`sudo journalctl -u padyar-<slug> | grep PROMETHEUS_MULTIPROC_DIR`. حلقه‌ی صبر
+در دستورهای rollout پایین همین حالت را با STOP نشان می‌دهد. (این رفتار با
+uvicorn 0.53.0 روی یک ماشین محلی بررسی شد. نسخه‌ی uvicorn در `requirements.txt`
+pin نشده است.)
+
+### محدودیت‌ها
+
+- اگر یک worker را kill -9 کنند (یا OOM بکشد)، فایل live gauge آن می‌ماند و
+  `http_inflight` تا restart بعدی سرویس عدد کهنه‌ی آن را هم جمع می‌زند. خروج
+  عادی worker این را تمیز می‌کند: پایان `lifespan` تابع `mark_process_dead` را
+  برای pid همان worker صدا می‌زند. این فقط فایل‌های `gauge_live*` را پاک می‌کند.
+  counterها و gaugeهای `mostrecent` می‌مانند، چون آنچه یک worker شمرده یا منتشر
+  کرده بعد از خروجش هم درست است.
+- restart سرویس همه‌ی counterها را از صفر شروع می‌کند، چون پوشه خالی می‌شود.
+  Prometheus این را یک reset عادی می‌بیند.
+
+### روی نصب‌های موجود چه باید کرد
+
+اسکریپت deploy فقط سرویس را restart می‌کند و unit را دوباره نمی‌سازد. پس دو کار
+لازم است: کد جدید، و unit جدید. ترتیب برای ایمنی مهم نیست. کد جدید با unit قدیمی
+یعنی خروجی یک process به‌علاوه‌ی WARNING موقع شروع. unit جدید با کد قدیمی یعنی
+همان خروجی امروز. ولی فقط با هر دو، عددها درست می‌شوند.
+
+```bash
+sudo /usr/local/bin/padyar-deploy <slug> <port> <commit-sha>      # or the CI deploy: gets the new code
+TMP="$(mktemp)"
+if ! sed "s/{{SLUG}}/<slug>/g" /opt/padyar-<slug>/deploy/systemd/padyar-app.service.template > "$TMP"; then
+  echo "STOP: could not render the unit. Nothing was installed."
+elif grep -qF '{{' "$TMP" || ! grep -q '^ExecStart=' "$TMP"; then
+  echo "STOP: the rendered unit is incomplete. Nothing was installed."
+else
+  sudo install -m 0644 "$TMP" /etc/systemd/system/padyar-<slug>.service
+  sudo systemctl daemon-reload
+  SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
+  sudo systemctl restart padyar-<slug>
+  # Wait until the app answers, so every worker has logged its startup lines.
+  UP=""
+  for i in $(seq 1 60); do
+    curl -fsS --max-time 3 http://127.0.0.1:<port>/api/health >/dev/null 2>&1 && UP=1 && break
+    sleep 1
+  done
+  if [ -z "$UP" ]; then
+    echo "STOP: no answer from the app after 60 s. Read: sudo journalctl -u padyar-<slug> --since \"$SINCE\""
+  else
+    sudo ls -ld /run/padyar-<slug>     # expect: drwx------ padyar-<slug> padyar-<slug>
+    sudo journalctl -u padyar-<slug> --since "$SINCE" | grep -i "one worker only"   # expect: no lines
+  fi
+fi
+rm -f "$TMP"
+```
+
+unit اول در یک فایل موقت ساخته می‌شود و فقط وقتی نصب می‌شود که `sed` بدون خطا
+تمام شده باشد، فایل یک خط `ExecStart=` داشته باشد و هیچ `{{` در آن نمانده
+باشد. پس یک ساخت خراب یا خالی هیچ‌وقت نصب نمی‌شود. `--since` فقط خط‌های همین restart
+را نشان می‌دهد، نه هشدارهای قبل از آن. حلقه‌ی `curl` صبر می‌کند تا برنامه جواب
+بدهد، چون `Type=exec` قبل از بالا آمدن worker ها برمی‌گردد و بدون صبر ممکن است
+هشدار را نبینید. اگر برنامه در ۶۰ ثانیه جواب ندهد، بررسی‌ها اجرا نمی‌شوند و STOP
+چاپ می‌شود، چون «هیچ خطی پیدا نشد» در آن حالت معنی «درست است» ندارد.
+
+(`deploy/10-install-app.sh <slug>` هم unit را دوباره می‌سازد، ولی آن نصب‌کننده‌ی
+کامل است: کد را می‌گیرد و migrationها را اجرا می‌کند. فرمان‌های بالا قدم
+کوچک‌تر است.)
+
+### چطور بررسی کنیم
+
+```bash
+# بدون کلید یا با کلید اشتباه باید 403 بدهد
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/metrics
+
+# چند بار scrape کنید. عدد counter نباید بین scrapeها پایین برود.
+for i in 1 2 3 4 5 6; do
+  curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:<port>/metrics \
+    | grep '^http_requests_total{method="GET",route="/api/health"'
+done
+
+# فایل‌های همه‌ی worker ها (برای هر pid: یک counter، یک histogram و دو gauge)
+sudo ls /run/padyar-<slug>
+```
+
+تست‌ها: `.venv/bin/python -m pytest tests/test_metrics.py tests/test_metrics_multiprocess.py -q`.
+هر حالت multiprocess در یک subprocess واقعی اجرا می‌شود، چون کتابخانه حالتش را
+فقط موقع import انتخاب می‌کند.
+
 ## Checking it yourself
 
 ```bash
 # Run the endpoint's tests
-.venv/bin/python -m pytest tests/test_metrics.py -q
+.venv/bin/python -m pytest tests/test_metrics.py tests/test_metrics_multiprocess.py -q
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics
 ```
 
 Related files: `app/services/metrics.py`, `app/routers/metrics.py`,
-`app/main.py` (the `prometheus_metrics` middleware),
+`app/main.py` (the `prometheus_metrics` middleware and the `lifespan` hooks),
+`deploy/systemd/padyar-app.service.template`,
 `docs/features/metrics-endpoint/SPEC.md`.

@@ -84,6 +84,13 @@ async def lifespan(app: FastAPI):
     from app import prodcheck
     prodcheck.enforce_at_startup(logger)
 
+    # Several workers without a shared metrics directory make /metrics show
+    # ONE worker only. Never fatal: the app works, the numbers are just partial.
+    from app.services import metrics as _metrics
+    warning = _metrics.single_process_warning()
+    if warning:
+        logger.warning(warning)
+
     init_db()
 
     # Logging comes up FIRST so anything that fails during the rest of startup
@@ -142,6 +149,12 @@ async def lifespan(app: FastAPI):
     # Mount theme static directories
     _mount_themes(app)
 
+    # The last verified backup time must survive a restart, or every restart
+    # would look like "never backed up" until the next nightly run. Reads the
+    # manifests on disk only, and never raises.
+    from app.services import pg_backup
+    pg_backup.seed_last_success_metric()
+
     # Start the automatic-backup scheduler (honours the admin panel schedule)
     from app.services.backup import scheduler_loop
     backup_task = asyncio.create_task(scheduler_loop())
@@ -164,6 +177,13 @@ async def lifespan(app: FastAPI):
         from app.services.ai.adapters import base as _ai_base
         await _ai_base.aclose_shared_client()
     except Exception:  # noqa: BLE001 — shutdown best-effort
+        pass
+
+    # A live-sum gauge file of an exited pid would keep counting its
+    # in-flight requests forever. Best-effort, like the rest of shutdown.
+    try:
+        _metrics.mark_process_dead()
+    except Exception:  # noqa: BLE001
         pass
 
 
