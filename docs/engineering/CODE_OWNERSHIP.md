@@ -41,6 +41,7 @@
 | `tts` | `app/routers/tts.py`، `app/services/tts_lexicon.py`، `deploy/tts/` | `docs/features/text-to-speech/RESEARCH.md`، ADR-008 تا ADR-012 | `tests/test_tts_admin.py`، `tests/test_tts_server.py` | (تعیین توسط Sina) | pending |
 | `registration` | `app/routers/otp.py`، `app/services/otp.py`، `app/services/signup.py`، `app/services/sms.py`، `app/services/taxonomy.py`، `app/services/visit_plan.py` | `docs/features/otp-verification/RESEARCH.md` | `tests/test_otp.py`، `tests/test_signup_flow.py`، `tests/test_visit_plan.py`، `tests/test_sms_production_guard.py` | (تعیین توسط Sina) | pending |
 | `leads` | `app/routers/leads.py`، `app/services/leads.py`، `app/services/campaigns.py`، `app/services/sms_outbox.py` | `docs/features/exhibition-lead-capture/SPEC.md`، `docs/features/exhibition-lead-capture/PRD.md` | `tests/test_leads_edit_session.py`، `tests/test_leads_visitor_rotation.py`، `tests/test_leads_campaigns.py`، `tests/test_leads_edit_fields.py` | (تعیین توسط Sina) | pending |
+| `ingest` | `app/routers/ingest.py`، `app/services/ingest.py`، `app/services/ingest_extract.py`، `app/services/ingest_fetch.py`، `migrations/0030_ingest.sql` | `docs/features/knowledge-ingestion/SPEC.md`، `docs/features/knowledge-ingestion/RESEARCH.md`، ADR-023 | `tests/test_ingest_pipeline.py`، `tests/test_ingest_api.py`، `tests/test_ingest_extract.py`، `tests/test_ingest_fetch.py`، `tests/test_search_publish.py`، `tests/postgres/test_ingest_pg.py` | (تعیین توسط Sina) | pending |
 
 ## زیرسیستم‌های مشترک
 
