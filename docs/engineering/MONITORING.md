@@ -13,7 +13,7 @@ authenticated `GET /metrics` endpoint that serves Prometheus text.
 | `/metrics` endpoint | **Exists.** `app/routers/metrics.py` |
 | Metric definitions and registry | **Exists.** `app/services/metrics.py` |
 | Instrumentation hooks (HTTP, chat, AI, circuit, backup, health) | **Exists.** Wired at the call sites listed below |
-| Tests | **Exist.** `tests/test_metrics.py` (13 tests) and `tests/test_metrics_multiprocess.py` (38 tests, each multiprocess case in a real subprocess) |
+| Tests | **Exist.** `tests/test_metrics.py` (13 tests) and `tests/test_metrics_multiprocess.py` (40 tests, each multiprocess case in a real subprocess) |
 | A Prometheus server that scrapes it | **Does not exist.** No scrape config anywhere in the repo |
 | A Grafana (or any) dashboard | **Does not exist.** No dashboard file in the repo |
 | Metric retention | **Does not exist.** Retention is a property of a Prometheus server, and there is none |
@@ -41,7 +41,7 @@ but it is not a monitoring stack.
 ## The registry
 
 `/metrics` serves a **dedicated** `CollectorRegistry`, not the library default
-(`app/services/metrics.py:74`). Anything a third-party package registers onto
+(`app/services/metrics.py:79`). Anything a third-party package registers onto
 `prometheus_client.REGISTRY` never appears. Only the eight families below are
 exposed.
 
@@ -57,7 +57,7 @@ looked at.
 
 ## Metric list
 
-All eight are defined in `app/services/metrics.py:76-127`.
+All eight are defined in `app/services/metrics.py:81-132`.
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
@@ -96,7 +96,7 @@ raw URL path ever became a label value, any visitor could mint unlimited
 combinations just by requesting random paths, and the Prometheus server would
 run out of memory. That is the one failure mode this design must never have.
 
-`route_template()` (`app/services/metrics.py:146-163`) is the only function that
+`route_template()` (`app/services/metrics.py:151-168`) is the only function that
 produces the `route` label. It has three branches and none can return an
 unbounded value:
 
@@ -104,7 +104,7 @@ unbounded value:
    (`/chat`, `/api/things/{thing_id}`), never the raw path. This holds even
    when the request 404s or 422s inside the route.
 2. A path under a static mount collapses to its fixed prefix. The set is
-   `("/static", "/themes", "/media", "/LOGO")` (`metrics.py:139`).
+   `("/static", "/themes", "/media", "/LOGO")` (`metrics.py:144`).
 3. Everything else collapses to the fixed string `unmatched`.
 
 `tests/test_metrics.py:55` pins this: it requests a junk path and a junk asset,
@@ -317,6 +317,16 @@ worker ای با این تنظیم بالا نمی‌آید. برگشت بی‌�
 (`prometheus_multiproc_dir`) همین رفتار را دارد. اگر متغیر اصلاً نباشد، همه‌چیز
 مثل قبل است و یک process کار می‌کند.
 
+با `--workers N` این خطا سرویس را از کار نمی‌اندازد، ولی جواب هم نمی‌دهد. هر
+worker موقع import با همین پیام واضح می‌افتد، اما process اصلی uvicorn بالا
+می‌ماند و worker ها را پشت سر هم دوباره راه می‌اندازد. پس `systemctl status`
+سرویس را `active (running)` نشان می‌دهد در حالی که هیچ درخواستی جواب نمی‌گیرد.
+خطا را در journal ببینید:
+`sudo journalctl -u padyar-<slug> | grep PROMETHEUS_MULTIPROC_DIR`. حلقه‌ی صبر
+در دستورهای rollout پایین همین حالت را با STOP نشان می‌دهد. (این رفتار با
+uvicorn 0.53.0 روی یک ماشین محلی بررسی شد. نسخه‌ی uvicorn در `requirements.txt`
+pin نشده است.)
+
 ### محدودیت‌ها
 
 - اگر یک worker را kill -9 کنند (یا OOM بکشد)، فایل live gauge آن می‌ماند و
@@ -338,9 +348,10 @@ worker ای با این تنظیم بالا نمی‌آید. برگشت بی‌�
 ```bash
 sudo /usr/local/bin/padyar-deploy <slug> <port> <commit-sha>      # or the CI deploy: gets the new code
 TMP="$(mktemp)"
-sed "s/{{SLUG}}/<slug>/g" /opt/padyar-<slug>/deploy/systemd/padyar-app.service.template > "$TMP"
-if grep -qF '{{' "$TMP"; then
-  echo "STOP: unfilled placeholder. Nothing was installed."
+if ! sed "s/{{SLUG}}/<slug>/g" /opt/padyar-<slug>/deploy/systemd/padyar-app.service.template > "$TMP"; then
+  echo "STOP: could not render the unit. Nothing was installed."
+elif grep -qF '{{' "$TMP" || ! grep -q '^ExecStart=' "$TMP"; then
+  echo "STOP: the rendered unit is incomplete. Nothing was installed."
 else
   sudo install -m 0644 "$TMP" /etc/systemd/system/padyar-<slug>.service
   sudo systemctl daemon-reload
@@ -362,8 +373,9 @@ fi
 rm -f "$TMP"
 ```
 
-unit اول در یک فایل موقت ساخته می‌شود، پس ساخت خراب هیچ‌وقت نصب نمی‌شود و اگر
-placeholder خالی بماند هیچ چیز عوض نمی‌شود. `--since` فقط خط‌های همین restart
+unit اول در یک فایل موقت ساخته می‌شود و فقط وقتی نصب می‌شود که `sed` بدون خطا
+تمام شده باشد، فایل یک خط `ExecStart=` داشته باشد و هیچ `{{` در آن نمانده
+باشد. پس یک ساخت خراب یا خالی هیچ‌وقت نصب نمی‌شود. `--since` فقط خط‌های همین restart
 را نشان می‌دهد، نه هشدارهای قبل از آن. حلقه‌ی `curl` صبر می‌کند تا برنامه جواب
 بدهد، چون `Type=exec` قبل از بالا آمدن worker ها برمی‌گردد و بدون صبر ممکن است
 هشدار را نبینید. اگر برنامه در ۶۰ ثانیه جواب ندهد، بررسی‌ها اجرا نمی‌شوند و STOP

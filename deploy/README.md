@@ -274,9 +274,10 @@ When `deploy/systemd/padyar-app.service.template` changes, the CI deploy
 the unit. Re-render it by hand (more in `docs/engineering/MONITORING.md`):
 ```bash
 TMP="$(mktemp)"
-sed "s/{{SLUG}}/myevent/g" /opt/padyar-myevent/deploy/systemd/padyar-app.service.template > "$TMP"
-if grep -qF '{{' "$TMP"; then
-  echo "STOP: unfilled placeholder. Nothing was installed."
+if ! sed "s/{{SLUG}}/myevent/g" /opt/padyar-myevent/deploy/systemd/padyar-app.service.template > "$TMP"; then
+  echo "STOP: could not render the unit. Nothing was installed."
+elif grep -qF '{{' "$TMP" || ! grep -q '^ExecStart=' "$TMP"; then
+  echo "STOP: the rendered unit is incomplete. Nothing was installed."
 else
   sudo install -m 0644 "$TMP" /etc/systemd/system/padyar-myevent.service
   sudo systemctl daemon-reload && sudo systemctl restart padyar-myevent
