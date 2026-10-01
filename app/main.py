@@ -43,6 +43,12 @@ async def _retention_loop():
             # back, so nothing swept them: the dead rows outnumber the live
             # ones on an install that runs for years. This is the sweep.
             visitor_auth.purge_expired()
+            # Uploaded documents live on as proposal text. Thirty days after a
+            # job ends, with nothing left to review, that copy goes (REQ-041).
+            from app.config import is_module_enabled
+            if is_module_enabled("ingest"):
+                from app.services import ingest
+                ingest.purge_expired()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
