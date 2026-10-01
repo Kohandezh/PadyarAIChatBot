@@ -15,7 +15,7 @@ main ─◄─ A ─◄─ B ─◄─ C        PR A base: main, PR B base: A, P
 
 Prerequisite: `gh extension install github/gh-stack` (already installed if `gh stack view` runs). All slices must be branches in this repo. Cross-fork stacks are not supported.
 
-**Merging to `main` deploys.** The `deploy` job in `.github/workflows/ci.yml` runs on every push to `main`, after `test`, `postgres-tests`, `dependency-audit`, `secret-scan`, and `identity-guard`, and it ships to the production install on the self-hosted runner. Landing a stack is a release, so treat Step 5 as a release gate, not a formality.
+**Merging to `main` does not deploy.** CI has no deploy job and runs nothing on the production server. After a stack lands, an operator deploys it by hand with `sudo /usr/local/bin/padyar-deploy <slug> <port> <sha>` (`deploy/README.md`). What lands on `main` is what the next deploy ships, so still treat Step 5 as a release gate, not a formality.
 
 ## Golden rules
 
@@ -134,4 +134,4 @@ The line is blast radius and severity, not convenience: if it can lose data, cro
 4. Cancel CI on intermediate slices. Let it finish on the one being landed.
 5. Triage: blocking job red or a new Critical finding stops the merge. Advisory findings become a GitHub issue (dedupe first).
 6. `gh stack merge --yes --squash`: atomic, bottom-up. Re-sync if you merged only part of the stack.
-7. Remember the merge to `main` deploys to production. Watch the `deploy` job after it lands.
+7. The merge does not deploy. Tell the operator the merged sha so they can run `padyar-deploy` on the server.

@@ -511,7 +511,7 @@ def load_dataset_internal():
                     _questions_emb.matrix, _questions_data)
                 # The stored model when it is provably the model for this
                 # data (training fingerprint + weights sha256), else a fresh
-                # fit. See intent.load_or_train and ADR-022.
+                # fit. See intent.load_or_train and ADR-025.
                 _intent = intent.load_or_train(
                     vecs, _normalized_questions, labels, model)
                 _intent_refused = _intent is None

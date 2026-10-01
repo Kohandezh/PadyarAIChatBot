@@ -5,7 +5,7 @@
 | Created | 2026-09-30 |
 | Updated | 2026-09-30 |
 | کد | `app/services/intent.py` |
-| طراحی | `docs/features/intent-model/SPEC.md`، ADR-022 |
+| طراحی | `docs/features/intent-model/SPEC.md`، ADR-025 |
 
 این کارت فقط عددهایی را می‌گوید که با یک فرمان واقعی اندازه گرفته شده‌اند.
 هر عدد کنار فرمان، تاریخ و پیکره‌اش آمده. **هیچ عددی در این کارت عدد

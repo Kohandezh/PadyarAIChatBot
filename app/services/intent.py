@@ -11,7 +11,7 @@ the quality of the deployed classifier is measured, never assumed.
 
 THE MODEL IS A VERSIONED ARTIFACT, LOADED ONLY WHEN PROVABLY CURRENT
 --------------------------------------------------------------------
-See docs/features/intent-model/SPEC.md and ADR-022. In config.INTENT_MODEL_DIR:
+See docs/features/intent-model/SPEC.md and ADR-025. In config.INTENT_MODEL_DIR:
 
     intent-classifier.npz            the weights: plain numeric arrays plus the
                                      class labels as strings. No pickle.

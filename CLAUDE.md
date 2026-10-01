@@ -838,7 +838,7 @@ All config lives in `app/config.py`. Key thresholds:
 | `CHAT_TOKEN_TTL`        | 3600    | HMAC chat token lifetime (seconds) |
 | `VISITOR_SESSION_DAYS`  | 30      | Days a visitor stays signed in; slides on use, so this is inactivity |
 | `VISITOR_SESSION_MAX_HOURS` | 12  | Hard cap from when the session was minted; nothing renews it. The bound a shared kiosk can reach |
-| `ANSWER_TOPK`           | 8       | Records shown to the selection tier (recall@8 = 0.952, measured) |
+| `ANSWER_TOPK`           | 8       | Records shown to the selection tier (current recall@K curve: `docs/features/eval-benchmark/RESULTS.md`) |
 | `HISTORY_TURNS`         | 5       | Prior turns handed to the model as context |
 | `HISTORY_WINDOW_MINUTES` | 15     | How far back those turns are read (shared-kiosk bound) |
 | `OPTIONS_MAX`           | 5       | Most records offered as a numbered choice on one turn |

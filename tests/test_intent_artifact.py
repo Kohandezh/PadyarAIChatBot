@@ -3,7 +3,7 @@
 Every reindex trains this install's own logistic-regression head over its own
 question embeddings. Before this file the weights lived only in process
 memory: no file, no version, no recorded quality. An earlier write-only design
-(a pickle nobody ever read back) was replaced, see ADR-022.
+(a pickle nobody ever read back) was replaced, see ADR-025.
 
 These tests pin the contract in docs/features/intent-model/SPEC.md:
   * a serving reindex leaves `.npz` weights plus a JSON sidecar that describes

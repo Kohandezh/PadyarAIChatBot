@@ -7,9 +7,9 @@
 | Status | Approved |
 | Domain | search |
 | Author | تیم پادیار |
-| Sources | ارزیابی دانش‌بنیان («مدل اختصاصی ندارد»، «پوسته‌ای روی سرویس‌های آماده») + قرارداد مأموریت `20260930-danesh-t2/intentart-t1` + ADR-022 |
+| Sources | ارزیابی دانش‌بنیان («مدل اختصاصی ندارد»، «پوسته‌ای روی سرویس‌های آماده») + قرارداد مأموریت `20260930-danesh-t2/intentart-t1` + ADR-025 |
 
-این سند قرارداد پیش از کد است. تصمیم‌های طراحی در ADR-022 آمده‌اند و اینجا
+این سند قرارداد پیش از کد است. تصمیم‌های طراحی در ADR-025 آمده‌اند و اینجا
 دوباره باز نمی‌شوند.
 
 ---
@@ -330,11 +330,11 @@ endpoint تازه‌ای نیست. تغییرات در قراردادهای مو
 
 ## ۱۳. مستندات مرتبط
 
-- PRD: ندارد. انگیزه در بخش ۱ و در ADR-022.
+- PRD: ندارد. انگیزه در بخش ۱ و در ADR-025.
 - Spike: ندارد. الگوی موجود: نوشتن اتمی با فایل موقت و `os.replace`، همان
   مسیر نسخهٔ نوشتنی قبلی در `app/services/intent.py`، و fixtureهای
   redirect در `tests/conftest.py` (`_never_touch_the_real_env_file`).
-- ADR: ADR-022 در `docs/engineering/DECISIONS.md`.
+- ADR: ADR-025 در `docs/engineering/DECISIONS.md`.
 - Plan: ندارد. کار یک PR است با یک علت ریشه‌ای.
 - کارت مدل: `docs/features/intent-model/MODEL_CARD.md`.
 - مانیتورینگ: `docs/engineering/MONITORING.md`.
