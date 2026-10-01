@@ -287,6 +287,12 @@ async def test_chunks_of_one_section_get_numbered_titles_in_persian_digits(db, e
     assert titles == ["قوانین غرفه (بخش ۱ از ۳)", "قوانین غرفه (بخش ۲ از ۳)", "قوانین غرفه (بخش ۳ از ۳)"]
 
 
+async def test_a_split_title_keeps_the_heading_digits_as_written(db, extract_as):
+    job_id = await _run([_heading("Expo 2024 Plan"), _para(_sentences(12))], extract_as)
+    assert [p["title"] for p in _proposals(job_id)] == ["Expo 2024 Plan (بخش ۱ از ۲)", "Expo 2024 Plan (بخش ۲ از ۲)"]
+    job_id = await _run([_heading("Expo 2024 Plan"), _para("متن کوتاه این بخش است.")], extract_as)
+    assert [p["title"] for p in _proposals(job_id)] == ["Expo 2024 Plan"]
+
 async def test_a_chunk_without_a_heading_is_titled_by_its_first_sentence(db, extract_as):
     first = "این جمله اول است و عنوان پیشنهاد از همین جمله ساخته می‌شود تا مدیر بداند درباره چیست و بیشتر"
     job_id = await _run([_para(first + ". جمله دوم.")], extract_as)
@@ -521,6 +527,16 @@ def test_the_same_bytes_while_a_job_is_active_return_that_job(db):
     assert os.listdir(db) == [os.path.basename(_job(first["id"])["tmp_path"])]
 
 
+def test_the_temp_file_goes_when_the_database_cannot_be_reached(db, monkeypatch):
+    from app.services import ingest
+
+    def unreachable():
+        raise RuntimeError("pool timeout")
+    monkeypatch.setattr(ingest, "get_db_connection", unreachable)
+    with pytest.raises(RuntimeError):
+        ingest.create_job("file", "doc.txt", b"private bytes", "txt", "admin")
+    assert os.listdir(db) == []
+
 def test_the_same_bytes_after_a_job_finished_start_a_new_job(db):
     from app.services import ingest
     first, _ = ingest.create_job("file", "a.txt", b"same", "txt", "admin")
@@ -631,6 +647,14 @@ async def test_a_model_title_is_used_only_when_its_words_come_from_the_chunk(db,
             assert proposal["title"] == title
 
 
+@pytest.mark.parametrize("title", ["؟!", "و از به", "  "])
+async def test_a_model_title_without_a_content_word_is_not_used(db, extract_as, ai, title):
+    ai(_reply(title=title))
+    job_id = await _run([_para("ورود کودکان زیر ده سال به سالن اصلی رایگان است و نیازی به بلیت نیست.")],
+                        extract_as)
+    [proposal] = _proposals(job_id)
+    assert proposal["title_source"] == "local"
+
 async def test_a_truncated_or_broken_answer_keeps_the_local_proposal(db, extract_as, ai):
     ai(_reply(questions=["ساعت کاری چیست؟"], finish="length"),
        _reply(content="{not json"),
@@ -658,6 +682,17 @@ async def test_questions_and_synonyms_are_checked_one_by_one_and_capped_at_five(
                                     {"word": "پ", "suggestion": "ت"},
                                     {"word": "ث", "suggestion": "ج"}]
 
+
+async def test_a_question_number_must_be_a_whole_number_of_the_chunk(db, extract_as, ai):
+    ai(_reply(questions=["سالن ۳ کجاست؟", "آیا نمایشگاه ۵ روز است؟", "قیمت بلیت ۲۳۴ تومان است؟",
+                         "نمایشگاه ۱۵ روز طول می‌کشد؟", "تلفن غرفه ۰۲۱-۱۲۳۴۵۶۷۸ است؟"]))
+    job_id = await _run([_para("تلفن غرفه ۰۲۱۱۲۳۴۵۶۷۸ است و نمایشگاه ۱۵ روز طول می‌کشد.")], extract_as)
+    [proposal] = _proposals(job_id)
+    assert proposal["questions"] == ["نمایشگاه ۱۵ روز طول می‌کشد؟", "تلفن غرفه ۰۲۱-۱۲۳۴۵۶۷۸ است؟"]
+
+    ai(_reply(questions=["سالن ۳ کجاست؟"]))
+    job_id = await _run([_para("سالن ۳ در ضلع شمالی نمایشگاه است.")], extract_as)
+    assert _proposals(job_id)[0]["questions"] == ["سالن ۳ کجاست؟"]
 
 async def test_each_call_is_logged_without_the_document_text(db, extract_as, ai, monkeypatch):
     from app.services import applog
@@ -862,6 +897,36 @@ async def test_a_cancel_during_the_pacing_gap_sends_no_further_chunk(db, extract
     assert len(fake.calls) == 1
     assert _job(job_id)["status"] == "cancelled"
 
+
+@pytest.mark.parametrize("last_reply", ["answer", "open_circuit"])
+async def test_a_cancel_after_the_last_status_read_still_frees_the_slot(db, extract_as, ai, monkeypatch, last_reply):
+    from app.services import ingest
+    first = await _extracted_job(_five_chunks()[:4], extract_as, monkeypatch)
+    second = await _extracted_job(_five_chunks()[:4], extract_as, monkeypatch)
+    _later(second, 1)
+    real_status = ingest._status
+    armed = {"on": False}
+
+    def status_then_cancel(job_id):
+        state = real_status(job_id)
+        if armed["on"] and job_id == first:
+            armed["on"] = False
+            ingest.cancel_job(first, "admin")
+        return state
+    monkeypatch.setattr(ingest, "_status", status_then_cancel)
+    last = _reply() if last_reply == "answer" else _ai_error("all_routes_failed")
+    fake = ai(_reply(), last)
+    inner = fake.__call__
+
+    async def arming(messages, **kwargs):
+        if len(fake.calls) == 1:
+            armed["on"] = True
+        return await inner(messages, **kwargs)
+    from app.services.ai.wrapper import padyar_ai
+    monkeypatch.setattr(padyar_ai, "generate", arming)
+    await ingest.run_model_loop()
+    assert _job(first)["status"] == "cancelled"
+    assert _job(second)["status"] == "ready"
 
 # ── REQ-036: recovery ────────────────────────────────────────────────────
 
