@@ -10,17 +10,17 @@
 #
 # WHAT THIS IS
 # ------------
-# The whole server-side half of the auto-deploy pipeline. The GitHub Actions
-# job (deploy/padyar-deploy.yml in the runner's copy of the repo) does exactly
-# one privileged thing: call this script. Everything dangerous lives here,
-# root-owned, reviewed once, changed only through the repository — the runner
-# user itself can read the app but cannot touch systemd, postgres or nginx.
+# The whole deploy. An operator runs it by hand on the server after a merge
+# to main (deploy/README.md, "Deploying a new version"); CI no longer runs
+# anything on this host. Everything dangerous lives here, root-owned,
+# reviewed once, changed only through the repository.
 #
 # The script is idempotent and safe to re-run. It is NOT a rollback path for
 # an old sha: any sha that is not the tip of main exits with SUPERSEDED and
 # changes nothing (see the FETCHED check in step 2). To roll back by hand, run
-# `git revert` on main and deploy that commit the normal way. Only a red health
-# check (step 6) rolls the code back on its own.
+# `git revert` on main, wait for green CI, then run this script by hand with the
+# sha of the revert commit. Only a red health check (step 6) rolls the code back
+# on its own.
 #
 # THE ORDER IS THE SAFETY
 # -----------------------
@@ -46,8 +46,8 @@
 #                    needs that step-1 backup. See docs/engineering/DATABASE.md.
 #
 # DURING AN EVENT: do not deploy. Migrations and restarts are for quiet hours
-# (DEPLOYMENT_RUNBOOK.md says the same). The GitHub side has an approval
-# click; this script cannot know the calendar, so the operator is the calendar.
+# (DEPLOYMENT_RUNBOOK.md says the same). There is no CI approval step any more;
+# this script cannot know the calendar, so the operator is the calendar.
 set -euo pipefail
 
 SLUG="${1:-}"
@@ -124,11 +124,12 @@ fi
 
 # ── 2. Land the new code (old process keeps serving) ─────────────────────
 log "Fetching $NEW_SHA"
-# The fetch runs as the app user. PADYAR_GIT_TOKEN (optional) is the GitHub
-# job token, passed through sudo's env_keep — it authenticates the private
+# The fetch runs as the app user. PADYAR_GIT_TOKEN (optional) is a read-only
+# GitHub token passed on the sudo command line. It authenticates the private
 # repository without any stored credential, lives only for this deploy, and
 # reaches git through a one-shot credential helper so it never appears in
-# argv. Without it the fetch falls back to whatever credential helper the
+# git's argv (the sudo command line that passes it in is visible in `ps`
+# while the deploy runs). Without it the fetch falls back to whatever credential helper the
 # app user already has (a deploy key also works).
 if ! as_app_env fetch; then
   die "Fetch of main failed (bad/missing token? network?)."
