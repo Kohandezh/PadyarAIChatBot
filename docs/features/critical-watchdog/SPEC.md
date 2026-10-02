@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-08-30 |
-| Updated | 2026-08-30 |
+| Updated | 2026-10-01 |
 | Status | Implemented |
 | Domain | infrastructure |
 | Author | تیم پادیار |
@@ -195,7 +195,7 @@ the watchdog's messages come off the same Asanak credit as everything else.
 
 One JSON file per install: `/var/lib/padyar-watchdog/{install}/state.json`
 (`fail_count`, `down_since`, `last_alert`, `credit_day`, `credit_alerted`,
-`cached_phone`).
+`cached_phone`, plus the alert SMS keys of §11).
 
 - **Why per-install directories:** the per-install watchdog services run as
   distinct service users (the pattern is
@@ -271,3 +271,74 @@ whole window.
 - `tests/test_critical_alert_settings.py` — the writer side of the settings
   pair: defaults, `0912…` → `+98912…` canonicalization, refusals, empty-phone
   disables, Persian-digit threshold.
+
+## 11. Alert SMS step (monitoring stack)
+
+Added 2026-10-01. The full contract is section 5.5 of
+`docs/features/monitoring-stack/SPEC.md` (REQ-040 to REQ-054). This is the
+short version.
+
+On a host that runs the monitoring stack (`deploy/55-monitoring.sh`), every
+cycle ends with one more step, after the probe, the down-SMS and the credit
+check. Alertmanager itself sends nothing; the watchdog pulls, so it also
+notices when Alertmanager or Prometheus dies.
+
+- It reads `GET http://127.0.0.1:9093/api/v2/alerts?active=true` with basic
+  auth user `watchdog` (password from
+  `/etc/padyar-monitoring/alertmanager-watchdog.pass`, 5 s timeout per
+  socket read, 8 s for the whole GET, no proxy, no redirects followed). An
+  answer over 1 MiB is treated as a failure and never parsed.
+- It texts alerts with `page="sms"` and state `active` that carry this
+  install's `install` label, or no `install` label when
+  `/etc/padyar-monitoring/host-alerts-owner` names this install. While the
+  install is down (3 failed probes), its own alerts wait: the down-SMS
+  covers them.
+- At most one SMS per cycle and ten send attempts per UTC day per
+  install. The tenth is the "cap reached" notice. A still-firing alert is
+  reminded every 6 h. There is no "resolved" SMS.
+- These limits live only in the state file. So each SMS is recorded and
+  saved before the sender runs (write-ahead), and when the state cannot be
+  saved no alert SMS goes out at all. This is at most once: a process
+  killed between the save and the send loses that SMS, and a still-firing
+  alert is texted again only at its 6 h reminder.
+- The text comes only from a fixed table keyed by `alertname`. Label values
+  and annotations never reach the phone, because any install on the host can
+  post an alert.
+- The host-owner install also texts "monitoring is down" after 3 cycles in
+  a row in which Alertmanager does not answer or the always-firing
+  `MonitoringHeartbeat` alert is missing, and one notice for every new
+  silence. A cycle in which the install is not the owner, or skips the
+  step, ends that streak.
+
+| Condition | Behavior |
+|---|---|
+| Password file absent | Step skipped without a journal line. The install behaves exactly as before. |
+| Password file unreadable | Journal `monitoring alerts OFF: cannot read alertmanager-watchdog.pass (<Type>); re-run deploy/55-monitoring.sh <slug>` on every cycle. |
+| Alertmanager unreachable or bad answer (a body over 1 MiB, or a GET still running after 8 s, included) | Journal `alertmanager unreadable (<Type>)`. The host owner texts after 3 cycles. |
+| State cannot be saved (disk full, read-only directory) | Journal `alert SMS skipped: state not saved` on every cycle in which an alert SMS is due. No alert SMS until the state can be written. |
+| Send fails (a spent `sms_daily_budget` included) | Journal `alert send failed: <Type>`. Nothing is marked as sent, so the alert is tried again after 300 s, but the attempt counts against the daily cap. This deviates from REQ-051 of the feature SPEC, which says the counter does not go up. Reason: a gateway that accepts the SMS and then fails the call (a timeout after the accept) would otherwise deliver one SMS every 300 s, 288 a day. Counting attempts keeps the daily cap a bound in every failure mode. So about 45 minutes of gateway outage (ten tries, 300 s apart) uses up that day's alert cap. |
+| Alert phone empty | Journal `alert pending but no alert_critical_phone configured`. |
+
+New state keys, with defaults in `_fresh_state` so an older state file still
+loads: `alert_sent`, `alert_day`, `alert_sms_today`, `alert_retry_after`,
+`am_fail_count`, `am_down_since`, `am_last_alert`, `silence_seen`.
+`alert_sent` keeps at most 1000 fingerprints, the oldest dropped first, so
+forged alerts cannot grow the file without bound. With more than 1000 alerts
+held at once, the dropped ones look new on the next cycle and are texted
+again, but only until the daily cap: the spend stays bounded.
+
+The unit gained `TimeoutStartSec=300s`. A oneshot unit has no start timeout
+by default, so a process that never finished held this install's watchdog
+forever, the down-SMS included. 300 s ends only a truly stuck run. It is long
+on purpose: an Alertmanager stall is already cut by the 8 s GET deadline, and
+the down-SMS and the low-credit SMS save state only at the end of a cycle, so
+a shorter timeout that killed a slow but working cycle after one of them
+would make the next cycle send it again. A run still in progress makes the
+60 s timer skip a tick, never overlap. The group membership needs no unit change: systemd adds the groups the
+system group database lists for `User=` (so `padyar-alertread` from the
+installer applies at the next run), and `ProtectSystem=full` leaves `/etc`
+readable.
+
+Tests: the pure decisions are in `tests/test_watchdog_logic.py`, the cycle in
+`tests/test_watchdog_io.py`. Every Alertmanager reader and the SMS sender are
+fakes there, so no test sends an SMS.
