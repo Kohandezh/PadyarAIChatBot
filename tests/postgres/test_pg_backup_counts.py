@@ -326,33 +326,77 @@ def test_counting_past_its_total_budget_falls_back_to_the_plain_dump(
 
 
 @pytest.fixture
-def short_idle_timeout():
-    """The app role gets a 1s idle-in-transaction limit, like production's 60s."""
+def short_idle_role(monkeypatch):
+    """A throwaway login role with a 1s idle-in-transaction limit, like
+    production's 60s on the app role (deploy/05-create-databases.sh).
+
+    The real app role is never altered: this conftest promises the live
+    environment is untouched. The new role is a member of the app role, so it
+    can read and dump everything the app role owns, but role settings are not
+    inherited, so the 1s limit applies to its own sessions only. DATABASE_URL
+    points at it for this test, which is what `_conn_parts()` reads.
+    """
     import psycopg
+    from psycopg import sql
     from urllib.parse import urlparse
-    role = urlparse(dsn()).username
-    with psycopg.connect(dsn(), autocommit=True) as c:
-        c.execute(f'ALTER ROLE "{role}" SET idle_in_transaction_session_timeout = \'1s\'')
+
+    admin = dsn()
+    url = urlparse(admin)
+    role = f"padyar_idle_probe_{secrets.token_hex(3)}"
+    password = secrets.token_hex(12)
+    created = False
+
+    def drop_role():
+        # Only a role this fixture made. Without CREATEROLE even
+        # DROP ROLE IF EXISTS is refused, which would mask the skip below.
+        if not created:
+            return
+        with psycopg.connect(admin, autocommit=True) as c:
+            c.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
+                      " WHERE usename = %s", (role,))
+            c.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role)))
+
     try:
-        yield
+        with psycopg.connect(admin, autocommit=True) as c:
+            c.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
+                sql.Identifier(role), sql.Literal(password)))
+            created = True
+            c.execute(sql.SQL("GRANT {} TO {}").format(
+                sql.Identifier(url.username), sql.Identifier(role)))
+            c.execute(sql.SQL(
+                "ALTER ROLE {} SET idle_in_transaction_session_timeout = '1s'"
+            ).format(sql.Identifier(role)))
+    except Exception as exc:
+        drop_role()
+        if isinstance(exc, psycopg.errors.InsufficientPrivilege):
+            pytest.skip("needs CREATEROLE to make a throwaway role; "
+                        f"{url.username} has none here ({exc.sqlstate})")
+        raise
+    netloc = f"{role}:{password}@{url.hostname}:{url.port or 5432}"
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("DATABASE_URL", url._replace(netloc=netloc).geturl())
+            yield role
     finally:
-        with psycopg.connect(dsn(), autocommit=True) as c:
-            c.execute(f'ALTER ROLE "{role}" RESET idle_in_transaction_session_timeout')
+        drop_role()
 
 
 def test_the_exporting_session_survives_the_role_idle_in_transaction_timeout(
-        backups, probe, short_idle_timeout, monkeypatch):
+        backups, probe, short_idle_role, monkeypatch):
     import time
     real_run = backups._run
+    seen = {}
 
     def slow_start(argv, env, what):
         if what == "pg_dump":
+            seen["user"] = argv[argv.index("--username") + 1]
             time.sleep(2)
         return real_run(argv, env, what)
 
     monkeypatch.setattr(backups, "_run", slow_start)
     manifest = backups.create(actor="pytest", reason="idle-timeout")
 
+    assert seen["user"] == short_idle_role, "the backup ran as the throwaway role"
     assert manifest["row_counts_source"] == "dump_snapshot"
     dumped = _dump_row_counts(backups._dump_path(manifest["backup_id"]))
     assert manifest["row_counts"] == _owned(dumped)
