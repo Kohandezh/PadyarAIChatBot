@@ -618,6 +618,36 @@
   **نشد**؛ کار اپراتور بعد از merge است.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): انتشار وضعیت ذخیره‌شدهٔ circuit موقع شروع برنامه
+
+- **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5). بخش برنامهٔ WU3 از
+  `docs/features/monitoring-stack/SPEC.md` (DEP-3، SC-016، REQ-077). قاعدهٔ
+  R04 در فایل قواعد Prometheus جزو این کار نیست.
+- **ریشهٔ مشکل:** gauge `ai_circuit_state` فقط هنگام تغییر وضعیت set می‌شد
+  (`_metrics_state` در `app/services/ai/circuit.py`). بعد از restart هیچ worker
+  سری نداشت، پس circuit ای که در جدول هنوز `open` بود تا تغییر بعدی دیده نمی‌شد.
+- **کارهای انجام‌شده:**
+  1. تابع `publish_stored_states()` در `app/services/ai/circuit.py`: همهٔ
+     ردیف‌ها را با `snapshot()` می‌خواند و عدد هر وضعیت را از ثابت‌های
+     `CIRCUIT_CLOSED`، `CIRCUIT_HALF_OPEN`، `CIRCUIT_OPEN` در
+     `app/services/metrics.py` set می‌کند. وضعیت ناشناخته: رد می‌شود و یک خط
+     log با شناسهٔ instance. خطای دیتابیس: یک خط log، بدون raise. هیچ UPDATE
+     ندارد.
+  2. یک فراخوانی در lifespan در `app/main.py`، بعد از راه‌اندازی جدول‌های AI.
+  3. تست‌ها پیش از کد: `tests/test_circuit_state_metric.py` (۱۵ تست)، یک تست
+     SC-016 در `tests/test_metrics.py` (از راه `GET /metrics`)، و یک تست
+     multiprocess در `tests/test_metrics_multiprocess.py` (worker بدون هیچ
+     درخواست، scrape از process سوم).
+  4. سند: بخش `ai_circuit_state` در `docs/engineering/MONITORING.md`.
+- **راستی‌آزمایی ماشینی همین نشست:** پیش از کد، ۱۷ تست تازه: ۱۶ شکست و ۱ موفق
+  (تست کنترل «برنامه با خطای دیتابیس بالا می‌آید»). بعد از کد:
+  `tests/test_metrics.py`، `tests/test_metrics_multiprocess.py` و
+  `tests/test_circuit_state_metric.py` با هم ۷۸ موفق. تست‌های موجود circuit
+  (`grep -l circuit tests/*.py`): ۳۰۰ موفق، ۷ skip (تست‌های PostgreSQL، چون
+  سرور محلی نیست). با برداشتن موقت فراخوانی از `app/main.py`، سه تست شروع
+  برنامه شکست خوردند. کل suite محلی اجرا **نشد**؛ CI دروازه است.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.

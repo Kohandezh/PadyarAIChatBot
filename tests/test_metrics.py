@@ -238,6 +238,32 @@ def test_ai_circuit_state_gauge_tracks_transitions(tmp_path, monkeypatch):
         store._invalidate_runtime()
 
 
+def test_a_stored_open_circuit_is_on_metrics_after_a_restart(tmp_path, monkeypatch):
+    """SC-016 (REQ-077): a fresh app process with an `open` row and no event
+    shows `ai_circuit_state{instance=...} 2` on /metrics. Before DEP-3 the
+    gauge waited for the next transition, so the scrape had no series."""
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "metrics-restart.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    monkeypatch.setattr(config, "METRICS_TOKEN", "restart-token")
+    from app.db.connection import get_db_connection, init_db
+    from app.services.ai import store
+    init_db()
+    store.ensure_ai_tables()
+    iid = f"restart-{secrets.token_hex(4)}"
+    conn = get_db_connection()
+    conn.execute("INSERT INTO ai_circuit_state (provider_instance_id, state)"
+                 " VALUES (?, 'open')", (iid,))
+    conn.commit()
+    conn.close()
+
+    from app.main import app
+    with TestClient(app) as c:
+        res = c.get("/metrics", headers={"Authorization": "Bearer restart-token"})
+    assert res.status_code == 200
+    assert f'ai_circuit_state{{instance="{iid}"}} 2.0' in res.text
+
+
 def test_health_score_sets_gauge():
     from app.services import health, metrics
     result = health.health_score([])

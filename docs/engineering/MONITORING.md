@@ -64,14 +64,14 @@ All twelve are defined in `app/services/metrics.py:82-194`. The two `intent_*` g
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
-| `http_requests_total` | counter | `method`, `route`, `status` | Every HTTP request | `app/main.py:588` and `:595` (middleware) |
-| `http_request_duration_seconds` | histogram | `method`, `route` | Request latency in seconds. Buckets 0.005s to 10s | `app/main.py:598` |
-| `http_inflight` | gauge | none | Requests being served right now | `app/main.py:582` / `:592` |
+| `http_requests_total` | counter | `method`, `route`, `status` | Every HTTP request | `app/main.py:608` and `:615` (middleware) |
+| `http_request_duration_seconds` | histogram | `method`, `route` | Request latency in seconds. Buckets 0.005s to 10s | `app/main.py:618` |
+| `http_inflight` | gauge | none | Requests being served right now | `app/main.py:602` / `:612` |
 | `chat_tier_served_total` | counter | `tier` | Chat turns, by the tier that served them | `app/routers/chat.py:165`, inside `_log_turn` |
 | `ai_calls_total` | counter | `provider`, `outcome` | Routed AI requests by provider type and `success`/`failed` | `app/services/ai/engine.py:366`, inside `_record_usage` |
-| `ai_circuit_state` | gauge | `instance` | Circuit breaker per provider instance: `0` closed, `1` half_open, `2` open | `app/services/ai/circuit.py:83-92` (`_metrics_state`) |
+| `ai_circuit_state` | gauge | `instance` | Circuit breaker per provider instance: `0` closed, `1` half_open, `2` open | `app/services/ai/circuit.py:87-96` (`_metrics_state`) on every transition, and at app start in every worker from the stored rows (`publish_stored_states`, `app/services/ai/circuit.py:99`, called from `app/main.py:145`) |
 | `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts made by the scheduler path: `success` = created AND verified, `failed` = any other ending. Both series start at 0 | `app/services/backup.py:187`, `:205` and `:207` (`_run_backup_now`) |
-| `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:204`) and the startup seed (`app/main.py:156`) |
+| `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:204`) and the startup seed (`app/main.py:174`) |
 | `backup_schedule_interval_seconds` | gauge | none | فاصله‌ی پشتیبان‌گیری خودکار به ثانیه (`backup_interval_hours × 3600`). `0` = پشتیبان‌گیری خودکار خاموش است. بخش «فاصله‌ی زمان‌بند پشتیبان» را ببینید | `app/services/backup.py:70` (`_set_schedule_metric`)، صدا زده از `:241` (شروع حلقه‌ی زمان‌بند) و `:249` (هر چک) |
 | `health_score` | gauge | none | The 0 to 100 system health score | `app/services/health.py:339` |
 | `intent_holdout_accuracy` | gauge | none | Holdout accuracy (0 to 1) of the intent model this install serves. NaN when there is no measurement | `app/services/intent.py:813` (`_publish_gauges`, called by `record_artifact` on every reindex) |
@@ -244,7 +244,7 @@ caught and re-raised as 403 for that reason
 In session mode a Bearer header is meaningless and is not a side door.
 `tests/test_metrics.py:120` pins that.
 
-The router is included unconditionally in `app/main.py:624`, outside the
+The router is included unconditionally in `app/main.py:644`, outside the
 `ENABLED_MODULES` system. It is not an optional module, so every install has
 the endpoint and every install relies on the auth above.
 
@@ -388,14 +388,33 @@ memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metr
 با `live` هم درست نیست: تغییری که یک worker منتشر کرده و بعد خارج شده هنوز
 درست است و نباید گم شود. پس آخرین نوشته حقیقت است.
 
+**`ai_circuit_state` موقع شروع برنامه هم منتشر می‌شود.** قبلاً این gauge فقط
+هنگام تغییر وضعیت set می‌شد. بعد از restart هیچ worker سری نداشت، پس circuit ای
+که در جدول `ai_circuit_state` هنوز `open` بود تا تغییر بعدی در Prometheus دیده
+نمی‌شد و هشدار «circuit باز» ساکت می‌ماند. حالا هر worker موقع شروع (در lifespan)
+همهٔ ردیف‌های جدول را می‌خواند و عدد هر کدام را set می‌کند
+(`publish_stored_states` در `app/services/ai/circuit.py`). چند قاعده:
+
+- عدد دقیقاً همان ردیف دیتابیس است. ردیف `open` که cooldown آن گذشته هنوز ۲ است،
+  چون تا وقتی یک درخواست آن را به `half_open` نبرده، در دیتابیس `open` است.
+- ردیفی با وضعیت ناشناخته یا خالی منتشر نمی‌شود. یک خط log با شناسهٔ همان
+  instance نوشته می‌شود. هیچ عددی حدس زده نمی‌شود.
+- وقتی جدول هیچ ردیفی ندارد، هنوز هیچ سری‌ای نیست.
+- خطای دیتابیس موقع شروع (جدول نیست، دیتابیس در دسترس نیست) فقط یک خط log
+  می‌نویسد. برنامه مثل قبل بالا می‌آید.
+- یک پنجرهٔ کوچک شناخته‌شده: اگر یک worker درست همان لحظه شروع شود که worker دیگری
+  تغییری ثبت می‌کند، ممکن است ردیف قدیمی را بخواند و بعد از آن تغییر set کند. آن وقت
+  `mostrecent` تا تغییر بعدی یا شروع بعدی یک worker مقدار قدیمی را نشان می‌دهد.
+  این پنجره به اندازهٔ یک SELECT است، پس قفلی اضافه نشده است.
+
 ### فقط ده خانواده
 
 پوشه‌ی مشترک هر متریکی را نگه می‌دارد که هر کدی در هر worker ساخته، از جمله
 متریک‌های کتابخانه‌های دیگر. برای همین `exposition()` نتیجه‌ی جمع‌شده را با
 `FAMILY_NAMES` فیلتر می‌کند. این مجموعه از registry اختصاصی ساخته می‌شود، پس
 هنوز همان یک منبع حقیقت است. در هر دو حالت همان ده خانواده دیده می‌شود.
-خانواده‌ای که هنوز هیچ worker در آن ننوشته (مثلاً `ai_circuit_state` قبل از اولین
-تغییر وضعیت circuit)
+خانواده‌ای که هنوز هیچ worker در آن ننوشته (مثلاً `ai_circuit_state` وقتی جدول
+`ai_circuit_state` هیچ ردیفی ندارد)
 بدون sample لیست می‌شود، مثل حالت یک process.
 
 دو تفاوت کوچک در حالت multiprocess:
