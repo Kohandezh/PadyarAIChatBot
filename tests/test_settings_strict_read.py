@@ -11,7 +11,13 @@ cached-phone fallback never ran and no SMS went out at all.
 read_settings_strict() is the one read that raises. get_setting() runs on top
 of the same query and reveal code, so the two cannot drift apart, and keeps its
 swallow-and-default behaviour unchanged.
+
+The read can fail at two points: opening the connection, and running the
+query on a connection that opened. Both must raise. An unreachable path covers
+the first; a database file with no settings table covers the second.
 """
+import sqlite3
+
 import pytest
 
 
@@ -31,6 +37,14 @@ def unreachable_db(tmp_path, monkeypatch):
     import app.config as config
 
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "no-such-dir" / "settings.db"))
+    yield
+
+
+@pytest.fixture
+def db_without_settings_table(tmp_path, monkeypatch):
+    import app.config as config
+
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "empty.db"))
     yield
 
 
@@ -65,6 +79,22 @@ def test_an_unreachable_database_raises_instead_of_returning_nothing(unreachable
 
     with pytest.raises(Exception):
         read_settings_strict(["alert_critical_phone"])
+
+
+def test_a_failing_query_raises_even_though_the_connection_opened(db_without_settings_table):
+    from app.db.connection import get_db_connection
+    from app.db.queries import read_settings_strict
+
+    get_db_connection().close()
+
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        read_settings_strict(["alert_critical_phone"])
+
+
+def test_get_setting_still_swallows_a_failing_query(db_without_settings_table):
+    from app.db.queries import get_setting
+
+    assert get_setting("alert_critical_phone", "fallback", fresh=True) == "fallback"
 
 
 def test_get_setting_still_swallows_the_same_error(unreachable_db):

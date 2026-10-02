@@ -583,6 +583,15 @@ alert_critical_phone configured` (set the phone in the admin panel), and
 `alert SMS skipped: state not saved` (free disk space, or fix the owner of
 `/var/lib/padyar-watchdog/<slug>`).
 
+Expected while the database is down, no action needed (they stop when it is
+back): `pg.set_unavailable()` closes the pool without waiting, so psycopg logs
+`couldn't stop thread '<name>' within 0 seconds` once per pool thread still
+running, up to 4 per cycle (`padyar-worker-0` to `padyar-worker-2` and
+`padyar-scheduler`; 1 to 4 in 19 measured cycles). Each SMS sent in such a
+cycle also logs `[applog] dropped sms/sms.send.queued: DatabaseUnavailable`
+and `[sms-outbox] record failed: database marked unavailable in this process`,
+because the log store and the SMS outbox live in that database.
+
 ## Checking it yourself
 
 ```bash

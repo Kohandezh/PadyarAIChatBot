@@ -229,6 +229,18 @@ down-SMS and one `HostPostgresDown` SMS sent:
 So an outage costs one connect timeout plus about one second, far inside
 `TimeoutStartSec=300s`.
 
+Journal lines that are expected in an outage cycle and need no action:
+
+- `couldn't stop thread '<name>' within 0 seconds` (psycopg): up to 4 per
+  cycle, one per pool thread still running when `set_unavailable()` closes
+  the pool without waiting (`padyar-worker-0` to `padyar-worker-2` and
+  `padyar-scheduler`). Measured 1 to 4 in 19 cycles. Waiting for them cost
+  10 s with a host that drops packets, which is why the close does not wait.
+- Per SMS sent: `[applog] dropped sms/sms.send.queued: DatabaseUnavailable`
+  and `[sms-outbox] record failed: database marked unavailable in this
+  process`. The log store and the SMS outbox live in the database that is
+  down.
+
 Two conditions for an SMS during an outage, both unchanged by this fix:
 the Asanak credentials must be in the install's `.env` (with `SECRET_KEY`
 set, if they are stored encrypted there), and `SMS_DAILY_BUDGET` in `.env`
