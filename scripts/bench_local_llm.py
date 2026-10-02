@@ -12,6 +12,9 @@ HOW THE MODEL IS CALLED (also written to the output's `method` field):
     (BM25 + local embeddings + feature reranker), over the given corpus seeded
     into a THROWAWAY SQLite database. Never the developer's database, never
     PostgreSQL: the corpus seed deletes the dataset tables it writes to.
+    Each run's candidates are built for every query BEFORE the timed,
+    concurrent part, so neither `latency_ms` nor a run's `wall_s` includes
+    retrieval time.
   * The real `select_records` runs: the real `build_selection_prompt`, the
     real parse, the real grounding gate. Only `padyar_ai.generate` is replaced
     for the run, because the wrapper resolves the "chat" route from the
@@ -46,6 +49,14 @@ DEFINITIONS (per model reply):
                  expect null : mode none or converse (nothing served).
                A None decision (invalid reply, provider error, no candidates)
                is never correct.
+
+The summary gives each strict rate and a narrower one next to it, so a
+reader can tell the failure kinds apart:
+  grounded               over every model call (a malformed reply fails it)
+  grounded_of_mode_valid over calls whose reply parsed with a valid mode
+  ids_out_of_set_replies calls whose reply named an id outside the candidates
+  correct                over every query (a query with no candidates fails it)
+  correct_of_sent        over the queries the model actually saw
 
 USAGE (from the project root):
     .venv/bin/python scripts/bench_local_llm.py \\
@@ -83,8 +94,10 @@ if str(ROOT) not in sys.path:
 # silently overridden.
 _requested_backend = os.environ.get("DB_BACKEND", "").strip().lower()
 if _requested_backend and _requested_backend != "sqlite":
-    sys.exit(f"bench_local_llm.py is SQLite-only and cannot run with "
-             f"DB_BACKEND={_requested_backend!r}. Unset it for this command.")
+    print(f"bench_local_llm.py is SQLite-only and cannot run with "
+          f"DB_BACKEND={_requested_backend!r}. Unset it for this command.",
+          file=sys.stderr)
+    raise SystemExit(2)
 os.environ["DB_BACKEND"] = "sqlite"
 
 MODES = ("answer", "options", "converse", "none")
@@ -97,7 +110,8 @@ METHOD = (
     "failover or circuit breaker). A subclass overrides only BaseAdapter.http "
     "to read llama-server's 'timings' from the raw HTTP reply, which the "
     "adapter drops. Candidates: search.find_top_matches(strip_leading_greeting"
-    "(q), k=ANSWER_TOPK) over the corpus in a throwaway SQLite DB. Not "
+    "(q), k=ANSWER_TOPK) over the corpus in a throwaway SQLite DB, built for "
+    "every query before the timed concurrent part. Not "
     "reproduced: the router's unknown-token skip and conversational gate. "
     "History empty; lang 'fa' if the query has Arabic-script letters else 'en'."
 )
@@ -223,9 +237,20 @@ def summarise(records):
         "json_valid": _rate(sent, "json_valid"),
         "mode_valid": _rate(sent, "mode_valid"),
         "grounded": _rate(sent, "grounded"),
+        # `grounded` above also fails every malformed reply. These two isolate
+        # invented ids: over replies that parsed with a valid mode, and as a
+        # count of replies naming an id outside the candidate list.
+        "grounded_of_mode_valid": _rate([r for r in sent if r.get("mode_valid")], "grounded"),
+        "ids_out_of_set_replies": _rate(sent, "ids_out_of_set"),
         "correct": _rate(records, "correct"),
+        # A query retrieval found no candidates for never reached the model.
+        # `correct` counts it wrong; these leave it out.
+        "correct_of_sent": _rate(sent, "correct"),
         "expect_in_candidates": _rate(answerable, "expect_in_candidates"),
         "correct_by_category": {c: _rate(rs, "correct") for c, rs in sorted(by_cat.items())},
+        "correct_by_category_of_sent": {
+            c: _rate([r for r in rs if r.get("sent")], "correct")
+            for c, rs in sorted(by_cat.items()) if any(r.get("sent") for r in rs)},
         "latency": latency_summary(records),
         "tokens_per_second": tokens_per_second(records),
         "prompt_tokens_total": sum(r.get("prompt_tokens") or 0 for r in sent),
@@ -376,18 +401,28 @@ def _make_adapter():
     return TimingsAdapter()
 
 
-async def _one(run, index, item, sem, say):
+def _candidates(q):
+    """The router's candidate list for one query (see `method`).
+
+    Called for every query BEFORE the concurrent, timed part of a run: it is
+    synchronous CPU work, and inside the event loop it would sit in a sibling
+    request's latency window.
+    """
     from app.config import ANSWER_TOPK
-    from app.services.answer import select_records
-    from app.services.search import find_top_matches
+    from app.services import search
     from app.utils.normalizer import strip_leading_greeting
+
+    core, only_greeting = strip_leading_greeting(q)
+    match_query = q if only_greeting else core
+    return [{**entry, "score": float(score)}
+            for entry, score, _signals in search.find_top_matches(match_query, k=ANSWER_TOPK)]
+
+
+async def _one(run, index, item, candidates, sem, say):
+    from app.services.answer import select_records
 
     async with sem:
         q, expect = item["q"], item.get("expect")
-        core, only_greeting = strip_leading_greeting(q)
-        match_query = q if only_greeting else core
-        candidates = [{**entry, "score": float(score)}
-                      for entry, score, _signals in find_top_matches(match_query, k=ANSWER_TOPK)]
         cand_ids = [str(c.get("id", "")) for c in candidates]
         cap = {}
         _CAPTURE.set(cap)
@@ -440,8 +475,9 @@ async def _bench(args, queries, secret, say):
     try:
         for run in range(1, args.repeat + 1):
             sem = asyncio.Semaphore(args.concurrency)
+            prepared = [_candidates(item["q"]) for item in queries]
             t0 = time.perf_counter()
-            recs = await asyncio.gather(*[_one(run, i, item, sem, say)
+            recs = await asyncio.gather(*[_one(run, i, item, prepared[i], sem, say)
                                           for i, item in enumerate(queries)])
             wall = time.perf_counter() - t0
             recs = sorted(recs, key=lambda r: r["index"])
@@ -461,7 +497,14 @@ def main(argv=None) -> int:
     secret = ""
 
     def scrub(text):
-        return text.replace(secret, "[REDACTED]") if secret else text
+        if not secret:
+            return text
+        # The output is JSON: a key holding a quote, a backslash or a control
+        # character is written escaped, and only the escaped form would match.
+        for form in {secret, json.dumps(secret)[1:-1],
+                     json.dumps(secret, ensure_ascii=False)[1:-1]}:
+            text = text.replace(form, "[REDACTED]")
+        return text
 
     def say(msg):
         print(scrub(msg), file=sys.stderr, flush=True)
@@ -497,9 +540,12 @@ def main(argv=None) -> int:
               f"DB_BACKEND={config.DB_BACKEND!r}; this bench only runs on a "
               "throwaway SQLite database", file=sys.stderr)
         raise SystemExit(2)
-    saved = {k: getattr(config, k) for k in ("DB_PATH", "LOGS_DB_PATH")}
+    saved = {k: getattr(config, k) for k in ("DB_PATH", "LOGS_DB_PATH", "INTENT_MODEL_DIR")}
     config.DB_PATH = os.environ["DB_PATH"]
     config.LOGS_DB_PATH = os.environ["LOGS_DB_PATH"]
+    # Empty = no intent-model artifact is read or written (app/services/intent.py),
+    # so a bench over a test corpus can never touch the install's own model.
+    config.INTENT_MODEL_DIR = ""
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         from app.db.connection import init_db
@@ -521,7 +567,8 @@ def main(argv=None) -> int:
                      "embeddings": search.dataset_embedding_index is not None,
                      "embeddings_available": embeddings.available()}
     finally:
-        config.DB_PATH, config.LOGS_DB_PATH = saved["DB_PATH"], saved["LOGS_DB_PATH"]
+        for k, v in saved.items():
+            setattr(config, k, v)
         restore_env()
         clear_settings_cache()
         shutil.rmtree(tmp, ignore_errors=True)

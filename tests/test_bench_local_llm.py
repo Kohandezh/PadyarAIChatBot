@@ -17,7 +17,10 @@ No GPU, no network (the embedding model is switched off, so retrieval runs
 BM25-only and never downloads anything).
 """
 import json
+import logging
+import os
 import sqlite3
+import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -148,12 +151,12 @@ def hermetic(tmp_path, monkeypatch):
     return dev_db
 
 
-def _run(tmp_path, fake, queries, extra=()):
+def _run(tmp_path, fake, queries, extra=(), key=SECRET):
     golden = {"dataset_version": "bench-golden-1", "queries": queries}
     (tmp_path / "golden.json").write_text(json.dumps(golden, ensure_ascii=False), "utf-8")
     (tmp_path / "corpus.json").write_text(json.dumps(CORPUS, ensure_ascii=False), "utf-8")
     key_file = tmp_path / "key"
-    key_file.write_text(SECRET + "\n")
+    key_file.write_text(key + "\n")
     out = tmp_path / "result.json"
     code = bench.main([
         "--base-url", fake.base_url, "--model", "fake-model",
@@ -367,7 +370,8 @@ def test_repeat_and_concurrency_run_every_query_every_time(tmp_path, hermetic):
     assert len(fake.requests) == 8
 
 
-def test_the_api_key_never_reaches_the_output_or_the_logs(tmp_path, hermetic, capsys):
+def test_the_api_key_never_reaches_the_output_or_the_logs(tmp_path, hermetic, capsys, caplog):
+    caplog.set_level(logging.DEBUG)
     script = {
         Q_DATES: _reply(f"echo: Authorization: Bearer {SECRET}", status=401),
         Q_VENUE: _reply(f'{{"mode": "none", "ids": [], "reason": "{SECRET}"}}'),
@@ -379,8 +383,26 @@ def test_the_api_key_never_reaches_the_output_or_the_logs(tmp_path, hermetic, ca
     captured = capsys.readouterr()
     assert SECRET not in (tmp_path / "result.json").read_text("utf-8")
     assert SECRET not in captured.out + captured.err
+    assert "[selection] provider failed" in caplog.text, (
+        "the app logger is captured here, so the next line can see a leak")
+    assert SECRET not in caplog.text
     assert result["records"][0]["error_code"], "the 401 is recorded by code"
     assert result["records"][0]["json_valid"] is False
+
+
+def test_a_key_that_json_escapes_is_scrubbed_in_its_escaped_form(tmp_path, hermetic, capsys):
+    key = 'bench-notreal-"quoted\\key'
+    script = {Q_DATES: _reply(f"echo: Bearer {key}")}
+    with FakeModel(script) as fake:
+        _run(tmp_path, fake, [_q(Q_DATES, "faq-dates")], key=key)
+
+    text = (tmp_path / "result.json").read_text("utf-8")
+    assert fake.requests[0]["auth"] == f"Bearer {key}"
+    assert key not in text
+    assert json.dumps(key)[1:-1] not in text, "the JSON-escaped form is the one written"
+    assert "[REDACTED]" in text
+    captured = capsys.readouterr()
+    assert key not in captured.out + captured.err
 
 
 def test_an_api_key_on_the_command_line_is_refused(tmp_path, capsys):
@@ -430,3 +452,68 @@ def test_a_postgres_backend_is_refused_before_any_model_call(tmp_path, hermetic,
                         "--out", str(tmp_path / "o.json")])
     assert exc.value.code == 2
     assert fake.requests == []
+
+
+def test_grounding_is_also_reported_over_replies_that_parsed(tmp_path, hermetic):
+    q_bad = Q_DATES + " لطفا"
+    script = {
+        Q_DATES: _reply("not json at all"),
+        q_bad: _reply(json.dumps({"mode": "answer", "ids": ["invented-99"]})),
+        Q_VENUE: _answer("faq-venue"),
+    }
+    with FakeModel(script) as fake:
+        result = _run(tmp_path, fake, [_q(Q_DATES, "faq-dates"), _q(q_bad, "faq-dates"),
+                                       _q(Q_VENUE, "faq-venue")])
+
+    summary = result["summary"]
+    assert summary["grounded"] == {"count": 1, "of": 3, "rate": 0.3333}
+    assert summary["grounded_of_mode_valid"] == {"count": 1, "of": 2, "rate": 0.5}
+    assert summary["ids_out_of_set_replies"] == {"count": 1, "of": 3, "rate": 0.3333}
+
+
+def test_correctness_is_also_reported_over_queries_the_model_saw(tmp_path, hermetic):
+    nothing_in_common = "zzqx wvvk"
+    with FakeModel({Q_DATES: _answer("faq-dates")}) as fake:
+        result = _run(tmp_path, fake, [_q(Q_DATES, "faq-dates"),
+                                       _q(nothing_in_common, None, "unsupported")])
+
+    skipped = result["records"][1]
+    assert skipped["skipped"] is True and skipped["sent"] is False
+    assert len(fake.requests) == 1
+    summary = result["summary"]
+    assert summary["correct"] == {"count": 1, "of": 2, "rate": 0.5}
+    assert summary["correct_of_sent"] == {"count": 1, "of": 1, "rate": 1.0}
+    assert "unsupported" not in summary["correct_by_category_of_sent"]
+    assert summary["correct_by_category"]["unsupported"]["of"] == 1
+
+
+def test_slow_retrieval_never_counts_as_model_latency_under_concurrency(tmp_path, hermetic,
+                                                                       monkeypatch):
+    import time
+
+    from app.services import search
+
+    real = search.find_top_matches
+
+    def slow_find(query, k=8):
+        time.sleep(0.5)
+        return real(query, k=k)
+
+    monkeypatch.setattr(search, "find_top_matches", slow_find)
+    queries = [_q(Q_DATES, "faq-dates"), _q(Q_VENUE, "faq-venue"),
+               _q(Q_DATES + " لطفا", "faq-dates"), _q(Q_VENUE + " لطفا", "faq-venue")]
+    with FakeModel({}) as fake:
+        result = _run(tmp_path, fake, queries, extra=["--concurrency", "4"])
+
+    latencies = [r["latency_ms"] for r in result["records"]]
+    assert len(fake.requests) == 4
+    assert max(latencies) < 500, (
+        f"{latencies}: a sibling's synchronous retrieval ran inside a timed request")
+
+
+def test_a_non_sqlite_backend_in_the_environment_exits_2(tmp_path):
+    env = {**os.environ, "DB_BACKEND": "postgres"}
+    proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "bench_local_llm.py"), "--help"],
+                          env=env, capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 2
+    assert "SQLite-only" in proc.stderr
