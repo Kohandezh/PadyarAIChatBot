@@ -1,0 +1,34 @@
+/opt/padyar-llm/llama/bin:
+total 40
+-rwxr-xr-x 1 gpu gpu 17880 Sep 30 18:27 llama-bench
+-rwxr-xr-x 1 gpu gpu 17880 Sep 30 18:27 llama-server
+
+/opt/padyar-llm/llama/lib:
+total 897068
+-rw-r--r-- 1 gpu gpu 749205904 Sep 30 18:27 libcublasLt.so.12
+-rw-r--r-- 1 gpu gpu 105140976 Sep 30 18:27 libcublas.so.12
+-rw-r--r-- 1 gpu gpu    741088 Sep 30 18:27 libcudart.so.12
+lrwxrwxrwx 1 gpu gpu        17 Sep 30 18:27 libggml-base.so -> libggml-base.so.0
+lrwxrwxrwx 1 gpu gpu        22 Sep 30 18:27 libggml-base.so.0 -> libggml-base.so.0.25.1
+-rwxr-xr-x 1 gpu gpu    948848 Sep 30 18:27 libggml-base.so.0.25.1
+lrwxrwxrwx 1 gpu gpu        16 Sep 30 18:27 libggml-cpu.so -> libggml-cpu.so.0
+lrwxrwxrwx 1 gpu gpu        21 Sep 30 18:27 libggml-cpu.so.0 -> libggml-cpu.so.0.25.1
+-rwxr-xr-x 1 gpu gpu   1217704 Sep 30 18:27 libggml-cpu.so.0.25.1
+lrwxrwxrwx 1 gpu gpu        17 Sep 30 18:27 libggml-cuda.so -> libggml-cuda.so.0
+lrwxrwxrwx 1 gpu gpu        22 Sep 30 18:27 libggml-cuda.so.0 -> libggml-cuda.so.0.25.1
+-rwxr-xr-x 1 gpu gpu  41111672 Sep 30 18:27 libggml-cuda.so.0.25.1
+lrwxrwxrwx 1 gpu gpu        12 Sep 30 18:27 libggml.so -> libggml.so.0
+lrwxrwxrwx 1 gpu gpu        17 Sep 30 18:27 libggml.so.0 -> libggml.so.0.25.1
+-rwxr-xr-x 1 gpu gpu     60360 Sep 30 18:27 libggml.so.0.25.1
+-rwxr-xr-x 1 gpu gpu    485072 Sep 30 18:27 libllama-bench-impl.so
+lrwxrwxrwx 1 gpu gpu        20 Sep 30 18:27 libllama-common.so -> libllama-common.so.0
+lrwxrwxrwx 1 gpu gpu        24 Sep 30 18:27 libllama-common.so.0 -> libllama-common.so.0.5.0
+-rwxr-xr-x 1 gpu gpu   6066432 Sep 30 18:27 libllama-common.so.0.5.0
+-rwxr-xr-x 1 gpu gpu   6930360 Sep 30 18:27 libllama-server-impl.so
+lrwxrwxrwx 1 gpu gpu        13 Sep 30 18:27 libllama.so -> libllama.so.0
+lrwxrwxrwx 1 gpu gpu        17 Sep 30 18:27 libllama.so.0 -> libllama.so.0.5.0
+-rwxr-xr-x 1 gpu gpu   4695768 Sep 30 18:27 libllama.so.0.5.0
+lrwxrwxrwx 1 gpu gpu        12 Sep 30 18:27 libmtmd.so -> libmtmd.so.0
+lrwxrwxrwx 1 gpu gpu        16 Sep 30 18:27 libmtmd.so.0 -> libmtmd.so.0.5.0
+-rwxr-xr-x 1 gpu gpu   1965576 Sep 30 18:27 libmtmd.so.0.5.0
+877M	/opt/padyar-llm/llama/lib
