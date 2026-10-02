@@ -143,6 +143,37 @@ jobs:
       - name: Run PostgreSQL integration suite
         run: pytest tests/postgres -q
 
+  # The alert rules against the promtool the host runs. ubuntu-24.04 (not
+  # ubuntu-latest) because the host is Ubuntu noble and its archive has
+  # Prometheus 2.45: a rule file that passes promtool 3.x proves nothing about
+  # 2.45. The tests read `promtool --version` and skip with that reason when
+  # the version differs. This job runs only tests/test_monitoring_rules.py;
+  # the `test` job runs it too, where the promtool cases skip.
+  monitoring-rules:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install promtool from the Ubuntu archive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends prometheus
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run the monitoring rule tests
+        run: |
+          promtool --version
+          pytest tests/test_monitoring_rules.py -q -rs
+
   # Reporting, NOT blocking. An advisory can name a fix version that has not
   # been published yet, and a build that hard-fails on an unfixable finding is
   # a build nobody can ship. A human reads this and decides whether the finding
