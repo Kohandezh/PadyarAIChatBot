@@ -540,9 +540,9 @@ def _free_bytes() -> int:
 def _finish(manifest_file: str, backup_id: str, block: dict) -> None:
     """Write the block into the manifest and log the outcome.
 
-    The one place a drill ends. Step 2 publishes metrics from here. It never
-    raises: the checks have an answer, and a manifest that can not be written
-    (backup pruned mid-drill) is logged.
+    The one place a drill ends. It also publishes the drill metrics. It never
+    raises: the checks have an answer, a manifest that can not be written
+    (backup pruned mid-drill) is logged, and so is a metric that fails.
 
     The manifest is read again right before writing, and written through a
     temp file in the same folder plus os.replace, so a verify() write that
@@ -579,3 +579,81 @@ def _finish(manifest_file: str, backup_id: str, block: dict) -> None:
         metadata={"tables_checked": block["tables_checked"],
                   "mismatches": len(block["mismatches"]),
                   "checks": block["checks"]})
+    _publish_metrics(backup_id, block)
+
+
+# ── Metrics ─────────────────────────────────────────────────────────────
+
+def _passed_timestamp(block):
+    """Unix seconds of a passed block's checked_at, or None if unusable.
+
+    A time more than an hour ahead is refused, like
+    pg_backup.record_verified does. The last-success gauge only moves forward,
+    so one wrong clock would pin it in the future and a "drill is stale" alert
+    could never fire again.
+    """
+    moment = _parse_time(block.get("checked_at"))
+    if moment is None:
+        return None
+    timestamp = moment.timestamp()
+    if timestamp > time.time() + pg_backup._FUTURE_MARGIN_SECONDS:
+        return None
+    return timestamp
+
+
+def _publish_metrics(backup_id: str, block: dict) -> None:
+    """Show a finished drill in /metrics. Never raises.
+
+    A metric is a side effect. A drill that ran must still end with its block
+    saved and its outcome logged, so a failing metric write is only logged.
+    """
+    try:
+        from app.services import metrics
+        metrics.backup_drill_last_duration_seconds.set(
+            (block.get("duration_ms") or 0) / 1000)
+        metrics.backup_drill_last_ok.set(1 if block.get("status") == "passed" else 0)
+        _move_success_time(backup_id, block)
+    except Exception as e:  # noqa: BLE001 (see docstring)
+        logger.warning("[restore_drill] drill metrics not updated for %s: %s",
+                       backup_id, type(e).__name__)
+
+
+def _move_success_time(backup_id: str, block: dict) -> None:
+    """Move the last-success time to this block's checked_at if it passed."""
+    if block.get("status") != "passed":
+        return
+    timestamp = _passed_timestamp(block)
+    if timestamp is None:
+        logger.warning("[restore_drill] passed drill of %s has no usable "
+                       "checked_at; the time metric is not moved", backup_id)
+        return
+    from app.services import metrics
+    metrics.set_backup_drill_last_success(timestamp)
+
+
+def seed_metrics() -> None:
+    """At startup: the newest drill results already on disk -> the gauges.
+
+    Without this, every restart would show "no drill" until the next night, and
+    an alert would fire for a drill that passed. The time comes from the newest
+    PASSED drill. Duration and ok come from the newest drill of any status,
+    because that is what those gauges mean. Never raises: a missing directory or
+    a broken manifest must not stop the app from booting.
+    """
+    try:
+        manifests = pg_backup.list_backups()
+        newest = latest_drill(manifests)
+        if newest is not None:
+            _publish_metrics(newest.get("backup_id", "?"), newest)
+        # The newest drill may have failed while an older one passed. The time
+        # metric must still show that pass (it only moves forward, so this
+        # never undoes the step above).
+        passed = [m for m in manifests
+                  if isinstance(m, dict) and isinstance(m.get("drill"), dict)
+                  and m["drill"].get("status") == "passed"]
+        newest_pass = latest_drill(passed)
+        if newest_pass is not None:
+            _move_success_time(newest_pass.get("backup_id", "?"), newest_pass)
+    except Exception as e:  # noqa: BLE001 (see docstring)
+        logger.warning("[restore_drill] drill metrics not seeded: %s",
+                       type(e).__name__)

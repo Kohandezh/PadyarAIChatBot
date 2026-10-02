@@ -31,7 +31,7 @@ from prometheus_client.parser import text_string_to_metric_families
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SERVICE_TEMPLATE = REPO_ROOT / "deploy" / "systemd" / "padyar-app.service.template"
 
-# The `# TYPE` names of the twelve families /metrics may expose. A counter's
+# The `# TYPE` names of the fifteen families /metrics may expose. A counter's
 # TYPE line carries the `_total` suffix.
 TYPE_NAMES = {
     "http_requests_total",
@@ -46,6 +46,9 @@ TYPE_NAMES = {
     "health_score",
     "intent_holdout_accuracy",
     "intent_model_version",
+    "backup_drill_last_success_timestamp_seconds",
+    "backup_drill_last_duration_seconds",
+    "backup_drill_last_ok",
 }
 
 # A writer that touches every one of the twelve families at least once.
@@ -393,7 +396,7 @@ def test_intent_gauges_set_by_a_worker_that_then_exited_still_count(mp_dir):
     assert _value(text, "intent_model_version") == 4
 
 
-# ── AC3: exactly twelve families, in both modes ──────────────────────
+# ── AC3: exactly fifteen families, in both modes ──────────────────────
 
 
 def test_only_the_twelve_families_are_exposed_and_foreign_metrics_are_not(mp_dir):
@@ -415,7 +418,7 @@ def test_only_the_twelve_families_are_exposed_and_foreign_metrics_are_not(mp_dir
 
 
 def test_all_twelve_families_are_listed_even_before_anything_was_written(mp_dir):
-    """Single-process mode always lists all twelve (labelled families just have
+    """Single-process mode always lists all fifteen (labelled families just have
     no samples yet). Multiprocess mode must not hide a family only because no
     worker has written to it yet."""
     text = _scrape(mp_dir)
@@ -433,18 +436,20 @@ def test_single_process_output_is_unchanged_and_lists_the_twelve_families():
     metrics.http_request_duration_seconds.labels("GET", "/single").observe(0.1)
 
     assert metrics.exposition() == generate_latest(metrics.registry)
-    assert len(metrics.FAMILY_NAMES) == 12
+    assert len(metrics.FAMILY_NAMES) == 15
     assert metrics.FAMILY_NAMES == {
         "http_requests", "http_request_duration_seconds", "http_inflight",
         "chat_tier_served", "ai_calls", "ai_circuit_state",
         "backup_outcome", "backup_last_success_timestamp_seconds",
         "backup_schedule_interval_seconds", "health_score",
-        "intent_holdout_accuracy", "intent_model_version"}
+        "intent_holdout_accuracy", "intent_model_version",
+        "backup_drill_last_success_timestamp_seconds",
+        "backup_drill_last_duration_seconds", "backup_drill_last_ok"}
 
     names = _type_names(metrics.exposition().decode())
     # generate_latest also prints a `<family>_created` gauge for every counter
     # and histogram child. That is today's output and AC4 keeps it. Nothing
-    # else may appear next to the twelve.
+    # else may appear next to the fifteen.
     extra = {n for n in names if n not in TYPE_NAMES}
     assert all(n.endswith("_created") for n in extra), extra
     assert TYPE_NAMES <= names

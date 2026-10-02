@@ -166,6 +166,11 @@ async def lifespan(app: FastAPI):
     # manifests on disk only, and never raises.
     from app.services import pg_backup
     pg_backup.seed_last_success_metric()
+    # Same reason for the nightly restore drill: without this a restart would
+    # show "no drill" until the next night, and an alert would fire for a drill
+    # that passed.
+    from app.services import restore_drill
+    restore_drill.seed_metrics()
 
     # Start the automatic-backup scheduler (honours the admin panel schedule)
     from app.services.backup import scheduler_loop
