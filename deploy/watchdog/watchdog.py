@@ -411,6 +411,7 @@ def _fresh_state() -> dict:
         "credit_day": "",
         "credit_alerted": False,
         "cached_phone": "",
+        "cached_threshold": "",
         # Alertmanager SMS step. A host without the monitoring stack never
         # moves these off their defaults.
         "alert_sent": {},
@@ -482,12 +483,26 @@ def _probe(port: int) -> bool:
 
 
 def _read_settings():
-    """(phone, threshold_str) from the app DB. Lazy import: the core must
-    run without the app; only this default ever needs the database."""
-    from app.db.queries import get_setting
+    """(phone, threshold_str) from the app DB in ONE query that RAISES when
+    the database does not answer, so run_cycle falls back to the cached
+    values. An empty phone comes back only from a database that answered.
 
-    phone = (get_setting("alert_critical_phone", "") or "").strip()
-    threshold = (get_setting("alert_credit_threshold_toman", "300000") or "").strip()
+    After a failed read, pg.set_unavailable() makes every later DB access in
+    this one-shot process fail at once: the SMS path still gets its gateway
+    credentials from the .env fallback in app/services/sms.py, without
+    waiting DB_CONNECT_TIMEOUT per setting. Lazy import: the core must run
+    without the app; only this default ever needs the database.
+    """
+    from app.db import pg
+    from app.db.queries import read_settings_strict
+
+    try:
+        values = read_settings_strict(["alert_critical_phone", "alert_credit_threshold_toman"])
+    except Exception:
+        pg.set_unavailable()
+        raise
+    phone = (values.get("alert_critical_phone", "") or "").strip()
+    threshold = (values.get("alert_credit_threshold_toman", "300000") or "").strip()
     return phone, threshold
 
 
@@ -817,11 +832,14 @@ def run_cycle(
         # alerting nobody on fresh failure.
         try:
             phone, threshold_raw = settings_reader()
-            state["cached_phone"] = phone  # cache for the next DB-down cycle
+            # Only a successful read moves the cache, for the next DB-down cycle.
+            state["cached_phone"] = phone
+            state["cached_threshold"] = threshold_raw
         except Exception as e:  # noqa: BLE001
             print(f"[watchdog] {install}: settings unreadable "
                   f"({type(e).__name__}), using cached phone", flush=True)
-            phone, threshold_raw = state.get("cached_phone", ""), "300000"
+            phone = state.get("cached_phone", "")
+            threshold_raw = state.get("cached_threshold") or "300000"
         try:
             threshold_toman = int(threshold_raw)
         except (TypeError, ValueError):

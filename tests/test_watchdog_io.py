@@ -363,7 +363,8 @@ def test_an_install_without_the_monitoring_stack_keeps_todays_sms_and_state(tmp_
     disk = _disk_state(tmp_path)
     assert {k: disk[k] for k in NEW_KEY_DEFAULTS} == NEW_KEY_DEFAULTS
     assert set(disk) == set(NEW_KEY_DEFAULTS) | {
-        "fail_count", "down_since", "last_alert", "credit_day", "credit_alerted", "cached_phone"}
+        "fail_count", "down_since", "last_alert", "credit_day", "credit_alerted", "cached_phone",
+        "cached_threshold"}
 
 
 def test_alertmanager_down_three_cycles_texts_only_the_host_owner(tmp_path, capsys):

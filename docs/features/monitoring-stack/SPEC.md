@@ -255,7 +255,7 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
 - **REQ-023** چک پیامک (بدون ارسال): برای صاحب هشدارهای میزبان، اسکریپت این
   کلیدها را با روش SEC-010 از `.env` همان نصب می‌خواند و فقط هشدار چاپ می‌کند.
   `.env` منبع درست است، چون وقتی DB پایین است `get_setting` به‌جای خطا `None`
-  می‌دهد (`app/db/queries.py:33-43`) و `setting()` به env برمی‌گردد
+  می‌دهد (`app/db/queries.py:59-63`) و `setting()` به env برمی‌گردد
   (`app/services/sms.py:271-286`):
   - اگر `ASANAK_USERNAME` یا `ASANAK_SOURCE`، یا هر دوی `ASANAK_PASSWORD` و
     `ASANAK_API_KEY`، در `.env` خالی‌اند: «اعتبار Asanak فقط در DB است؛ وقتی
@@ -747,8 +747,8 @@ metricهای تازهٔ برنامه (قرارداد با قواعد):
 | Alertmanager بمیرد | API جواب نمی‌دهد؛ همان پیامک (REQ-048) |
 | برنامه پایین است | فقط پیامک probe امروز؛ هشدارهای همان نصب inhibit و فیلتر می‌شوند (REQ-036، REQ-049) |
 | DB پایین است، `SMS_DAILY_BUDGET` در `.env` خالی یا `0` | وقتی DB پایین است `daily_budget()` مقدار را از env می‌خواند (`app/services/sms.py:358-365`، `:271-286`). `_spend_budget` زود برمی‌گردد (`app/services/sms.py:393-395`)؛ پیامک می‌رود اگر اعتبار Asanak در `.env` باشد (`setting()` به env برمی‌گردد، `app/services/sms.py:271-286`) |
-| DB پایین است، `SMS_DAILY_BUDGET` در `.env` بزرگ‌تر از `0` | این مقدار وقتی در `.env` است که آینهٔ پنل ادمین کار کرده (`app/services/sms.py:289-327`). `_spend_budget` پیش از ارسال `set_setting` می‌زند (`app/services/sms.py:412-413`) و `set_setting` بدون DB خطا می‌دهد (`app/db/queries.py:274-279`). **هیچ پیامک هشداری نمی‌رود**، حتی «DB پایین است». journal: `alert send failed`. اسکریپت این را در نصب هشدار می‌دهد (REQ-023) |
-| DB پایین است و اعتبار Asanak فقط در DB است | `get_setting` به‌جای خطا `None` می‌دهد (`app/db/queries.py:33-43`)، اعتبار خالی است، `send_asanak` خطا می‌دهد. هیچ پیامکی نمی‌رود (REQ-023 هشدار می‌دهد) |
+| DB پایین است، `SMS_DAILY_BUDGET` در `.env` بزرگ‌تر از `0` | این مقدار وقتی در `.env` است که آینهٔ پنل ادمین کار کرده (`app/services/sms.py:289-327`). `_spend_budget` پیش از ارسال `set_setting` می‌زند (`app/services/sms.py:412-413`) و `set_setting` بدون DB خطا می‌دهد (`app/db/queries.py:294-299`). **هیچ پیامک هشداری نمی‌رود**، حتی «DB پایین است». journal: `alert send failed`. اسکریپت این را در نصب هشدار می‌دهد (REQ-023) |
+| DB پایین است و اعتبار Asanak فقط در DB است | `get_setting` به‌جای خطا `None` می‌دهد (`app/db/queries.py:59-63`)، اعتبار خالی است، `send_asanak` خطا می‌دهد. هیچ پیامکی نمی‌رود (REQ-023 هشدار می‌دهد) |
 | بودجهٔ روزانه تمام شده | `SmsError` (`app/services/sms.py:396-410`)؛ REQ-051 |
 | Asanak پایین یا اعتبار تمام | `SmsError` از `_call`؛ REQ-051. هشدار اعتبار کم امروز سر جایش است |
 | `alert_critical_phone` خالی | REQ-050 |

@@ -567,6 +567,7 @@ watchdog skips the step and behaves exactly as before.
 | Monitoring down | Host owner only: one SMS after 3 cycles without an answer or without the `MonitoringHeartbeat` alert |
 | Silences | Host owner only: one notice per new active silence, the operator's own included |
 | Sender | The same `send_asanak` path as the down-SMS, so a spent `sms_daily_budget` blocks it too (journal `alert send failed`). A failed send is retried after 300 s and counts against the daily cap; this deviates from REQ-051, so a gateway that delivers and then fails the call cannot send 288 SMS a day. About 45 minutes of gateway outage uses up that day's alert cap |
+| Database down | The settings read fails, so the cycle uses the phone and threshold cached from the last read that succeeded, and every later database access in that one-shot process fails at once (`pg.set_unavailable()`). The down-SMS and the alert SMS (`HostPostgresDown` included) still go out, with the Asanak credentials from `.env`. One outage cycle costs one `DB_CONNECT_TIMEOUT` plus about 1 s (measured: 11.2 s at 10 s). Needs `SMS_DAILY_BUDGET` empty or `0` in `.env`. Details: §6 of `docs/features/critical-watchdog/SPEC.md` |
 | Stuck cycle | `TimeoutStartSec=300s` in `padyar-watchdog@.service` ends only a truly stuck run. An Alertmanager stall is already cut by the 8 s GET deadline, and a run in progress makes the 60 s timer skip a tick, never overlap |
 
 Every journal line starts with `[watchdog] <slug>:`. To see them:
@@ -588,8 +589,8 @@ alert_critical_phone configured` (set the phone in the admin panel), and
 # Run the endpoint's tests
 .venv/bin/python -m pytest tests/test_metrics.py tests/test_metrics_multiprocess.py -q
 
-# Run the watchdog tests (alert SMS step included; every SMS is faked)
-.venv/bin/python -m pytest tests/test_watchdog_logic.py tests/test_watchdog_io.py -q
+# Run the watchdog tests (alert SMS step and database outage included; every SMS is faked)
+.venv/bin/python -m pytest tests/test_watchdog*.py -q
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics

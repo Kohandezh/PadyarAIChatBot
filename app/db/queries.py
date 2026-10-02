@@ -30,15 +30,35 @@ def clear_settings_cache() -> None:
     _settings_cache.clear()
 
 
+def read_settings_strict(keys) -> dict:
+    """{key: value} for the keys that have a row, in one query. RAISES on a
+    database error.
+
+    get_setting() turns every database error into its default, which is right
+    for the app and wrong for a caller that must tell "the row is empty" apart
+    from "the database did not answer". The watchdog is that caller: an empty
+    alert phone means alerts are off, an unreachable database means "use the
+    phone you cached last time". Values are decrypted like get_setting's.
+    Never cached: a cached value would hide an outage.
+    """
+    keys = list(keys)
+    if not keys:
+        return {}
+    from app.services.secure_store import reveal
+    conn = get_db_connection()
+    try:
+        placeholders = ", ".join("?" for _ in keys)
+        rows = conn.execute(
+            f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+            tuple(keys)).fetchall()
+    finally:
+        conn.close()
+    return {row["key"]: reveal(row["value"]) for row in rows}
+
+
 def _read_setting_uncached(key: str):
     try:
-        conn = get_db_connection()
-        row = conn.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
-        conn.close()
-        if row is None:
-            return None
-        from app.services.secure_store import reveal
-        return reveal(row['value'])
+        return read_settings_strict([key]).get(key)
     except Exception:
         return None
 
