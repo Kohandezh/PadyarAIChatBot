@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Created | 2026-09-30 |
-| Updated | 2026-09-30 (revision 2: review fixes, and the bench's thinking-mode finding) |
+| Updated | 2026-10-02 (revision 3: merged with main, re-verified at `56d879b`, review fixes) |
 | Status | Draft |
 | Domain | infrastructure |
 | Owner | Sina Shamsizadeh (technical owner) |
@@ -58,7 +58,9 @@ This spec defines those four pieces.
   that installs it without internet access to NVIDIA and without touching TTS or
   the running apps.
 - **US-005** As the person on call, I want an alert when the local model stops
-  serving, so the silent return to the cloud is not silent.
+  serving, so the silent return to the cloud is not silent. **This story has no
+  alert path until the monitoring stack ships** (REQ-045): that feature is
+  `Draft` / `Not started`, and its ADR-024 is `Proposed`.
 
 ## 2. Scope
 
@@ -462,16 +464,22 @@ key is empty (`app/routers/voice.py:62`), before the control plane is asked.
   in multiprocess mode a scrape reads only the shared files, so a
   `Gauge.set_function` value would never appear (`metrics.py:279-290`); and the
   monitoring stack can watch the same two states without app code (REQ-045).
-- **REQ-045** **Alerts belong to the monitoring stack.** Main's ADR-024
-  (Proposed) puts Prometheus, Alertmanager and blackbox_exporter on loopback;
-  the rules live in `docs/features/monitoring-stack/SPEC.md` §5.3 and reach the
-  host through `deploy/55-monitoring.sh`; SMS goes out through each install's
-  watchdog for alerts labelled `page="sms"`. This spec writes no rule. It names
-  what the monitoring track should cover, and where:
+- **REQ-045** **Alerts belong to the monitoring stack, which does not exist
+  yet.** Main's ADR-024 is `Proposed`, and the `monitoring-stack` feature is
+  `Draft` / `Not started` (`docs/features/INDEX.md:39`). Its design puts
+  Prometheus, Alertmanager and blackbox_exporter on loopback, keeps the rules in
+  `docs/features/monitoring-stack/SPEC.md` §5.3, and delivers them with a script,
+  `deploy/55-monitoring.sh`, that is **not in the repository** at `56d879b`; SMS
+  would go out through each install's watchdog for alerts labelled `page="sms"`.
+  **So until that feature ships, nothing alerts on the local services.** The
+  only signals are the ops health page (REQ-041) and the admin card (§10),
+  which a person has to open. This spec writes no rule. It names what the
+  monitoring feature should cover, and where. The two changes it needs are open
+  items 4 and 5 below:
 
 | Alert-worthy state | Signal | Owner and notes |
 |---|---|---|
-| Local LLM answers health but its calls fail, so chat is back on the cloud (or AI is off when there is no cloud) | `ai_circuit_state{instance="<local instance id>"}` | Already covered by rule R04 `PadyarAICircuitOpen`, which is per `exported_instance` (`docs/features/monitoring-stack/SPEC.md:346`, `:383-384`). **One point for that spec:** R04 is written `== 2` for 5 m. While a dead local model keeps being retried, the circuit row cycles open → half-open → open (`app/services/ai/circuit.py:95-127`, `:242-349`), so the `mostrecent` value alternates 2 and 1 and "`== 2` for 5 m" can restart on every cycle. `> 0` holds for the whole failure, and only a success or a manual reset returns it to 0 (`:201-220`, `:369-376`). The local instance id is shown on the admin card (REQ-058) |
+| Local LLM answers health but its calls fail, so chat is back on the cloud (or AI is off when there is no cloud) | `ai_circuit_state{instance="<local instance id>"}` | Would be covered by the monitoring SPEC's rule R04 `PadyarAICircuitOpen`, once that feature ships, which is per `exported_instance` (`docs/features/monitoring-stack/SPEC.md:346`, `:383-384`). **One point for that spec:** R04 is written `== 2` for 5 m. While a dead local model keeps being retried, the circuit row cycles open → half-open → open (`app/services/ai/circuit.py:95-127`, `:242-349`), so the `mostrecent` value alternates 2 and 1 and "`== 2` for 5 m" can restart on every cycle. `> 0` holds for the whole failure, and only a success or a manual reset returns it to 0 (`:201-220`, `:369-376`). The local instance id is shown on the admin card (REQ-058) |
 | Local LLM or local STT not answering at all | a blackbox `http` probe of `http://127.0.0.1:8004/health` and `http://127.0.0.1:8005/health`, the same exporter the stack already runs for `blackbox-origin` (`docs/features/monitoring-stack/SPEC.md:315-323`) | llama-server's `/health` needs no key (llama.cpp `tools/server/README.md` line 472). One server serves every install (§11), so these are host-level alerts with no `install` label, sent by the host-alerts owner (ADR-024 decision 6). The rule's `for` must be longer than the measured cold start (pending bench), because a loading model answers 503 |
 
 `ai_calls_total{provider,outcome}` is still **not** the signal for "local
@@ -1099,6 +1107,19 @@ without a model they would be code with no user.
    keeps audio and cannot be told not to is not pinned.
 3. **Every "pending bench" value** (§5.A, §5.B, REQ-052 step 8) waits for
    `BENCH.md`.
+4. **Ask for the monitoring-stack feature: R04 must use `> 0`, not `== 2`.**
+   Its rule is `max by (install, exported_instance) (ai_circuit_state{app="padyar"}) == 2`
+   for 5 m (`docs/features/monitoring-stack/SPEC.md:383-384`). A failing local
+   model's circuit cycles open and half-open, so `== 2` can restart every cycle;
+   `> 0` holds for the whole failure (REQ-045). Until that SPEC changes, a failing
+   local model may not alert even after the stack ships.
+5. **Ask for the monitoring-stack feature: probe the two local servers.** Add a
+   blackbox `http` probe of `http://127.0.0.1:8004/health` and
+   `http://127.0.0.1:8005/health` as host-level alerts, with a `for` longer than
+   the measured cold start (REQ-045, pending bench).
+
+Items 4 and 5 are requests to another feature's spec. This spec cannot close
+them; until they are accepted there, US-005 is not met.
 
 Closed in revision 2: the ports question. 127.0.0.1:8004, 8005 and 8010 were free
 on the host on 2026-09-30 (REQ-013).
