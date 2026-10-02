@@ -623,21 +623,42 @@
 - **مدل/ارکستراتور:** Claude Opus 5.5، عامل پیاده‌ساز `drill-t1-impl` در تیم
   foreman `drill-t1` (رهبر `foreman7`)، کار B1 از مأموریت `20260930-dbmaturity`.
 - **کارهای انجام‌شده:**
-  1. `app/services/pg_backup.py`: `create()` یک اتصال جدا باز می‌کند، تراکنش
-     `REPEATABLE READ READ ONLY`، `pg_export_snapshot()`، شمارش هر جدول
-     schemaهای `app` و `observability` با `psycopg.sql.Identifier`، و بعد
-     `pg_dump --snapshot=<id>` تا آخر dump تراکنش باز می‌ماند.
-  2. `manifest.json` دو فیلد تازه دارد: `row_counts` (کلیدهای مرتب) و
+  1. `app/services/pg_backup.py`: `create()` با دو اتصال جدا از pool کار می‌کند.
+     اتصال اول (`padyar-backup-snapshot`) فقط تراکنش `REPEATABLE READ READ ONLY`
+     را باز می‌کند و `pg_export_snapshot()` را صدا می‌زند. این اتصال هیچ قفل
+     جدولی ندارد و تا پایان `pg_dump --snapshot=<id>` باز می‌ماند. برای همین
+     `idle_in_transaction_session_timeout` را برای خودش صفر می‌کند، چون
+     `deploy/05-create-databases.sh` روی نقش برنامه 60 ثانیه گذاشته است.
+  2. اتصال دوم (`padyar-backup-count`) با `SET TRANSACTION SNAPSHOT` همان
+     snapshot را می‌گیرد، هر جدول schemaهای `app` و `observability` را با
+     `psycopg.sql.Identifier` می‌شمارد، و پیش از شروع `pg_dump` تراکنش را
+     `COMMIT` می‌کند. پس شمارش‌ها از همان snapshot است که `pg_dump` می‌خواند، و
+     هیچ قفل `ACCESS SHARE` در طول dump نگه داشته نمی‌شود.
+  3. شمارش سقف زمانی کل دارد (`_COUNT_BUDGET_SECONDS`، برابر 300 ثانیهٔ
+     `pg_dump`). هر دستور زمان باقی‌مانده را به‌عنوان `statement_timeout`
+     می‌گیرد، و `lock_timeout` برابر 10 ثانیه است.
+  4. `manifest.json` دو فیلد تازه دارد: `row_counts` (کلیدهای مرتب) و
      `row_counts_source` (`dump_snapshot` یا `unavailable`).
-  3. اگر شمارش شکست بخورد (اتصال باز نشود، قفل بیش از 10 ثانیه)، پشتیبان مثل
-     قبل بدون `--snapshot` گرفته می‌شود و هشدار در `logger` و `applog` ثبت می‌شود.
-  4. تست‌ها: `tests/postgres/test_pg_backup_counts.py` (6 تست روی PostgreSQL
-     واقعی، از جمله درج همزمان بین snapshot و dump) و
-     `tests/test_pg_backup_counts_fallback.py` (5 تست بدون سرور).
-- **پچ‌های ردشده/بازگردانده:** هیچ.
-- **راستی‌آزمایی ماشینی همین نشست:** 11 تست تازه سبز؛ کل `tests/postgres`
-  (128 تست) سبز روی `postgres:16-alpine`؛ آزمون جهش (حذف `--snapshot`) تست
-  درج همزمان را قرمز کرد (`assert 53 == 3`)؛ `python -m py_compile`.
+  5. اگر شمارش شکست بخورد (اتصال باز نشود، قفل بیش از 10 ثانیه، سقف زمانی تمام
+     شود)، پشتیبان مثل قبل بدون `--snapshot` گرفته می‌شود و هشدار در `logger` و
+     `applog` ثبت می‌شود. شکست خود `pg_dump` هنوز پشتیبان را شکست می‌دهد.
+  6. تست‌ها: `tests/postgres/test_pg_backup_counts.py` (9 تست روی PostgreSQL
+     واقعی) و `tests/test_pg_backup_counts_fallback.py` (5 تست بدون سرور). سه
+     تست تازهٔ دور اصلاح: یک `ALTER TABLE` در صف انتظار قفل `ACCESS EXCLUSIVE`
+     پشتیبان را متوقف نمی‌کند؛ تمام شدن سقف زمانی شمارش به dump ساده برمی‌گردد؛
+     اتصال اول با `idle_in_transaction_session_timeout` نقش (1 ثانیه در تست)
+     از کار نمی‌افتد.
+- **پچ‌های ردشده/بازگردانده:** طرح اول شمارش را در همان تراکنش صادرکننده انجام
+  می‌داد و قفل‌های `ACCESS SHARE` را تا پایان `pg_dump` نگه می‌داشت. بازبینی
+  دور اول (عامل بازبین، نه انسان) نشان داد که یک `ALTER` در صف، `pg_dump` را تا
+  حد زمانی متوقف می‌کند. آن طرح با طرح دو اتصالی بالا جایگزین شد.
+- **راستی‌آزمایی ماشینی همین نشست:** آزمون جهش (حذف `--snapshot`) تست درج
+  همزمان را قرمز کرد (`assert 53 == 3`). سه تست تازهٔ دور اصلاح روی کد قبلی
+  قرمز بودند (`f907376`: 3 failed) و بعد سبز شدند. دو آزمون جهش دیگر (حذف صفر
+  کردن `idle_in_transaction_session_timeout`، حذف سقف زمانی) هر کدام فقط تست
+  خودش را قرمز کرد. اجرای نهایی: 14 تست تازه سبز، کل `tests/postgres` (140 تست)
+  سبز روی `postgres:16-alpine`، 231 تست پشتیبان و metrics سبز،
+  `python -m py_compile`.
 - **بازبینی انسانی:** pending.
 
 ## نشست‌های پیش از این تاریخ
