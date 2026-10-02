@@ -54,6 +54,8 @@ FA_FILE_GONE = "این فایل در نسخهٔ پشتیبان وجود ندار
 FA_DRILL_POSTGRES_ONLY = "تمرین بازیابی فقط برای پایگاه دادهٔ پستگرس انجام می‌شود."
 FA_DRILL_BUSY = ("یک تمرین بازیابی همین حالا در حال اجراست. "
                  "چند دقیقه بعد دوباره امتحان کنید.")
+FA_DRILL_LOCK_UNAVAILABLE = ("تمرین بازیابی الان ممکن نیست. "
+                             "چند دقیقه بعد دوباره امتحان کنید.")
 FA_DRILL_STARTED = ("تمرین بازیابی شروع شد. نتیجه چند دقیقه دیگر "
                     "در همین صفحه نشان داده می‌شود.")
 
@@ -214,6 +216,10 @@ def drill_backup(backup_id: str, username: str = Depends(verify_admin)):
         raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
     except restore_drill.DrillAlreadyRunning:
         raise HTTPException(status_code=409, detail=FA_DRILL_BUSY)
+    except restore_drill.DrillLockUnavailable:
+        # The skipped block is already saved. 409, not 500: the drill was not
+        # tried, and a retry in a few minutes is the right next step.
+        raise HTTPException(status_code=409, detail=FA_DRILL_LOCK_UNAVAILABLE)
     except Exception as exc:  # noqa: BLE001
         raise _fail(500, FA_GENERIC, "backup.api.drill_failed", username,
                     backup_id, exc)

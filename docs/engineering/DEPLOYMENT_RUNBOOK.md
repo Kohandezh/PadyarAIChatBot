@@ -286,7 +286,11 @@ If the drill is skipped, the reason is one of these:
 - The drill database is missing. Run `sudo bash deploy/05-create-databases.sh <slug>`
   (see "Existing installs" below).
 - Not enough free disk. The rule is: size of the live database x 1.2 + 512 MB.
-  Free some space. The next drill checks again.
+  Free some space. The next drill checks again. The app cannot read
+  PostgreSQL's data folder, so this check measures the disk of the backups
+  folder. On the standard install that is the same disk as the database. If
+  PostgreSQL's data is on another disk, the check does not see it, and you
+  must watch that disk yourself.
 - The database name cannot be used to build the drill name (it is empty, it
   already ends in `_drill`, or the new name is longer than 63 bytes). Nothing
   is touched.

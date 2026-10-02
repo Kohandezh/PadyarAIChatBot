@@ -59,6 +59,29 @@ class DrillAlreadyRunning(Exception):
     """Another drill holds the lock for this database."""
 
 
+# Why a drill was skipped when the lock could not be taken. A module constant so
+# run(), start() and the tests use the same sentence.
+LOCK_FAILED_REASON_FA = ("قفل تمرین بازیابی گرفته نشد، چون اتصال به پایگاه داده "
+                         "برقرار نشد. تمرین انجام نشد و بعداً دوباره امتحان "
+                         "می‌شود.")
+
+
+class DrillLockUnavailable(Exception):
+    """The lock connection or lock query failed, so nobody knows if a drill runs.
+
+    Not the same as DrillAlreadyRunning (that one means another session holds
+    the lock). Here the drill must not run, because two drills could restore
+    into the same drill database at once. `message_fa` is the reason that is
+    saved in the skipped block. The router owns the sentence for the button.
+    """
+    message_fa = LOCK_FAILED_REASON_FA
+
+    def __init__(self, message_fa: str = ""):
+        if message_fa:
+            self.message_fa = message_fa
+        super().__init__(self.message_fa)
+
+
 class DrillRefused(Exception):
     """The drill would not be safe to run. Carries a Persian message."""
 
@@ -94,12 +117,12 @@ def drill_db_name(live_name: str) -> str:
 # ── Lock ────────────────────────────────────────────────────────────────
 
 def _take_lock():
-    """The lock connection, or None when the live database can not be reached.
+    """The lock connection. The caller must release it with _release_lock().
 
-    None is not an error here. The drill itself needs the live database on its
-    next step and records a failed result with a reason, which is better for
-    the operator than an exception from the nightly scheduler.
-    Raises DrillAlreadyRunning when another session holds the lock.
+    Fails closed. The one-drill-at-a-time rule is only true if the lock was
+    really taken, so a lock we could not ask for is not a free lock.
+    Raises DrillLockUnavailable when the lock connection or the lock query
+    fails, and DrillAlreadyRunning when another session holds the lock.
     """
     try:
         conn = pg_backup._connect(pg_backup._conn_parts(),
@@ -107,14 +130,14 @@ def _take_lock():
     except Exception as e:  # noqa: BLE001
         logger.warning("[restore_drill] lock connection failed: %s",
                        type(e).__name__)
-        return None
+        raise DrillLockUnavailable() from None
     try:
         got = conn.execute("SELECT pg_try_advisory_lock(%s)",
                            (_LOCK_KEY,)).fetchone()[0]
     except Exception as e:  # noqa: BLE001
         logger.warning("[restore_drill] lock query failed: %s", type(e).__name__)
         _close(conn)
-        return None
+        raise DrillLockUnavailable() from None
     if not got:
         _close(conn)
         raise DrillAlreadyRunning("یک تمرین بازیابی از قبل در حال اجراست.")
@@ -165,10 +188,15 @@ def run(backup_id: str, actor: str = "system") -> dict:
     """Run one drill now and return the `drill` block it wrote.
 
     Raises pg_backup.BackupError for a bad id and DrillAlreadyRunning when
-    another drill holds the lock. Any other problem is a result in the block.
+    another drill holds the lock. When the lock can not be taken at all, the
+    drill does not run and the returned block says "skipped". Any other
+    problem is a result in the block.
     """
     manifest = _load(backup_id)
-    lock = _take_lock()
+    try:
+        lock = _take_lock()
+    except DrillLockUnavailable as e:
+        return _record_lock_skip(backup_id, actor, e)
     return _execute(backup_id, manifest, actor, lock)
 
 
@@ -178,9 +206,15 @@ def start(backup_id: str, actor: str) -> threading.Thread:
     The id check and the lock happen in the caller's thread, so the HTTP
     answer can say "already running" at once. The thread keeps the lock and
     releases it when the drill ends. The thread is returned so a test can join.
+    Raises DrillLockUnavailable (after saving a "skipped" block) when the lock
+    can not be taken, so the button can answer at once.
     """
     manifest = _load(backup_id)
-    lock = _take_lock()
+    try:
+        lock = _take_lock()
+    except DrillLockUnavailable as e:
+        _record_lock_skip(backup_id, actor, e)
+        raise
     thread = threading.Thread(
         target=_in_thread, args=(backup_id, manifest, actor, lock),
         name="restore-drill", daemon=True)
@@ -190,6 +224,22 @@ def start(backup_id: str, actor: str) -> threading.Thread:
         _release_lock(lock)
         raise
     return thread
+
+
+def _record_lock_skip(backup_id: str, actor: str, error: DrillLockUnavailable) -> dict:
+    """Save a "skipped" block for a drill that never started. Never raises.
+
+    It goes through _finish(), like every other drill ending, so the manifest
+    gets the block, the outcome is logged and the metrics show ok=0. Without
+    this the operator would see nothing: no block, so no sign the drill did not
+    run. No restore and no cleanup happens here, so the drill database is
+    untouched.
+    """
+    block = _new_block(actor)
+    _skip(block, error.message_fa)
+    block["checked_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _finish(pg_backup._manifest_path(backup_id), backup_id, block)
+    return block
 
 
 def _in_thread(backup_id, manifest, actor, lock) -> None:
@@ -507,15 +557,17 @@ def _drop_app_schemas(conn, drill_name: str) -> None:
 
 
 def _free_bytes() -> int:
-    """Free bytes on the disk that holds the database.
+    """Free bytes on a disk, to compare with what the restore will write.
 
-    Asks the server for its data directory and measures that disk, when the
-    directory exists on this machine. `SHOW data_directory` needs a superuser
-    or pg_read_all_settings, which the app role does not have. Then the backups
-    folder is measured instead. In our deploys PostgreSQL and the app share one
-    host and one disk, so it is the right number there. On a remote server it
-    is the wrong disk, and the restore itself would fail later with a clear
-    error rather than silently.
+    The code asks the server for its data directory and measures that disk,
+    but only when the directory exists on this machine. The app role can not
+    read it: `SHOW data_directory` needs a superuser or pg_read_all_settings.
+    So in practice this measures the filesystem of the backups folder.
+
+    On the standard install, PostgreSQL and the app share one disk (the deploy
+    scripts set it up that way), so both are the same disk. If PostgreSQL's data
+    is on another disk, this check does not see that disk. The operator must
+    watch the data disk separately.
     """
     try:
         conn = pg_backup._connect(pg_backup._conn_parts(),

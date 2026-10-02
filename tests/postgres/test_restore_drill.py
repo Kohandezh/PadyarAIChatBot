@@ -504,6 +504,44 @@ def test_a_second_drill_is_refused_while_the_first_holds_the_lock_then_runs(dril
     assert restore_drill.run(backup_id, actor="pytest")["status"] == "passed"
 
 
+def test_a_broken_lock_connection_runs_no_drill_and_cleans_nothing(
+        drill, monkeypatch):
+    """Fail closed: when the lock can not be taken, nothing touches the twin."""
+    import psycopg
+    from app.services import pg_backup, restore_drill
+    backup_id = _backup()
+    calls = _spy_run(monkeypatch)
+    real_connect = pg_backup._connect
+
+    def connect(parts, application_name, options):
+        if application_name == "padyar-restore-drill-lock":
+            raise psycopg.OperationalError("lock connection down")
+        return real_connect(parts, application_name, options)
+
+    monkeypatch.setattr(pg_backup, "_connect", connect)
+    # A leftover schema in the twin proves nothing was cleaned either.
+    with psycopg.connect(drill.twin_url, autocommit=True) as c:
+        c.execute("CREATE SCHEMA app")
+    try:
+        block = restore_drill.run(backup_id, actor="pytest")
+        assert block["status"] == "skipped"
+        assert block["reason"] == restore_drill.LOCK_FAILED_REASON_FA
+        assert not calls, "no restore may start without the lock"
+        assert _read(backup_id)["drill"]["status"] == "skipped"
+        assert _twin_schemas(drill) == {"app"}, "the drill database was left alone"
+        with pytest.raises(restore_drill.DrillLockUnavailable):
+            restore_drill.start(backup_id, "pytest")
+        assert not calls
+    finally:
+        with psycopg.connect(drill.twin_url, autocommit=True) as c:
+            c.execute("DROP SCHEMA IF EXISTS app CASCADE")
+
+    # Allow-control: with the lock connection healthy again, the drill runs.
+    monkeypatch.setattr(pg_backup, "_connect", real_connect)
+    assert restore_drill.run(backup_id, actor="pytest")["status"] == "passed"
+    assert calls, "the restore ran once the lock worked"
+
+
 def test_the_lock_is_released_after_a_drill_and_after_a_failed_one(drill):
     import psycopg
     from app.services import restore_drill

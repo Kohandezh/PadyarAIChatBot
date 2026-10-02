@@ -269,6 +269,22 @@ def test_a_busy_drill_answers_409_and_then_clears(client, fake_pg, fake_start):
     assert res.status_code == 202
 
 
+def test_a_lock_that_could_not_be_taken_answers_409_try_later(
+        client, fake_pg, fake_start):
+    from app.services import restore_drill
+    from app.routers.backups import FA_DRILL_BUSY, FA_DRILL_LOCK_UNAVAILABLE
+    token = _login(client)
+    fake_start.state["raise"] = restore_drill.DrillLockUnavailable()
+    res = client.post(_url(), headers=_csrf_headers(token))
+    assert res.status_code == 409
+    assert res.json()["detail"] == FA_DRILL_LOCK_UNAVAILABLE
+    assert res.json()["detail"] != FA_DRILL_BUSY, "the two sentences differ"
+    # Allow-control: when the lock can be taken again, the drill starts.
+    fake_start.state["raise"] = None
+    res = client.post(_url(), headers=_csrf_headers(token))
+    assert res.status_code == 202
+
+
 def test_an_unexpected_error_is_a_safe_500(client, fake_pg, fake_start):
     from app.routers.backups import FA_GENERIC
     token = _login(client)
