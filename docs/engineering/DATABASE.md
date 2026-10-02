@@ -29,7 +29,7 @@ something that the previous release still uses.
 - Examples of drops already applied: `migrations/0006_lead_status.sql` (column
   `is_duplicate`, table `edit_sessions`), `0013_companies.sql` (table
   `company_profiles`), `0028_drop_pwa_leftovers.sql` (two columns).
-  `0029_drop_search_backend_setting.sql` deletes one settings row.
+  `0029` deletes one settings row (the retired search setting).
 
 ## Data Integrity
 
