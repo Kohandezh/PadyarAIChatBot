@@ -411,6 +411,7 @@ def _fresh_state() -> dict:
         "credit_day": "",
         "credit_alerted": False,
         "cached_phone": "",
+        "cached_threshold": "",
         # Alertmanager SMS step. A host without the monitoring stack never
         # moves these off their defaults.
         "alert_sent": {},
@@ -482,13 +483,41 @@ def _probe(port: int) -> bool:
 
 
 def _read_settings():
-    """(phone, threshold_str) from the app DB. Lazy import: the core must
-    run without the app; only this default ever needs the database."""
-    from app.db.queries import get_setting
+    """(phone, threshold_str) from the app DB in ONE query that RAISES when
+    the database does not answer, so run_cycle falls back to the cached
+    values. An empty phone comes back only from a database that answered.
 
-    phone = (get_setting("alert_critical_phone", "") or "").strip()
-    threshold = (get_setting("alert_credit_threshold_toman", "300000") or "").strip()
+    After a failed read, pg.set_unavailable() makes every later DB access in
+    this one-shot process fail at once: the SMS path still gets its gateway
+    credentials from the .env fallback in app/services/sms.py, without
+    waiting DB_CONNECT_TIMEOUT per setting. Lazy import: the core must run
+    without the app; only this default ever needs the database.
+    """
+    from app.db import pg
+    from app.db.queries import read_settings_strict
+
+    try:
+        values = read_settings_strict(["alert_critical_phone", "alert_credit_threshold_toman"])
+    except Exception:
+        pg.set_unavailable()
+        raise
+    phone = (values.get("alert_critical_phone", "") or "").strip()
+    threshold = (values.get("alert_credit_threshold_toman", "300000") or "").strip()
     return phone, threshold
+
+
+def _app_unimportable(install: str) -> bool:
+    """True, after one clear journal line, when the app package cannot be
+    imported. Every app-backed reader would then fail on its own with a
+    vague note; this line names the cause. `app/__init__.py` only reads
+    VERSION, so the check touches no database and no network."""
+    try:
+        import app  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        print(f"[watchdog] {install}: cannot import the app ({type(e).__name__}): "
+              "SMS disabled; check PYTHONPATH in the unit", flush=True)
+        return True
+    return False
 
 
 def _send(destination: str, text: str) -> None:
@@ -800,6 +829,14 @@ def run_cycle(
     path = (os.fspath(state_path) if state_path
             else os.path.join(STATE_DIR, install, "state.json"))
     state = _load_state(path, install)
+    # Without the app the default readers and the sender can only fail. Keep
+    # the cached phone and threshold and skip the credit check and every send,
+    # so the cycle reports the cause once and marks no alert as sent.
+    app_missing = settings_reader is _read_settings and _app_unimportable(install)
+    if app_missing:
+        settings_reader = lambda: (state.get("cached_phone", ""), state.get("cached_threshold", ""))  # noqa: E731
+        credit_reader = lambda: None  # noqa: E731
+        sender = lambda destination, text: None  # noqa: E731
 
     try:
         # The SMS names the install by its slug, uppercased — exactly the
@@ -817,11 +854,14 @@ def run_cycle(
         # alerting nobody on fresh failure.
         try:
             phone, threshold_raw = settings_reader()
-            state["cached_phone"] = phone  # cache for the next DB-down cycle
+            # Only a successful read moves the cache, for the next DB-down cycle.
+            state["cached_phone"] = phone
+            state["cached_threshold"] = threshold_raw
         except Exception as e:  # noqa: BLE001
             print(f"[watchdog] {install}: settings unreadable "
                   f"({type(e).__name__}), using cached phone", flush=True)
-            phone, threshold_raw = state.get("cached_phone", ""), "300000"
+            phone = state.get("cached_phone", "")
+            threshold_raw = state.get("cached_threshold") or "300000"
         try:
             threshold_toman = int(threshold_raw)
         except (TypeError, ValueError):
@@ -871,10 +911,13 @@ def run_cycle(
 
         # Last: Alertmanager alerts. Its own try, so a bug in this step can
         # never cost the probe verdict or the down-SMS state above.
+        # Without the app the step could only mark alerts as sent that never
+        # went out, so it is skipped and its state stays as it was.
         try:
-            _alert_step(install, state, phone, now,
-                        alerts_reader, owner_reader, silences_reader, sender,
-                        persist=lambda: _persist(path, state))
+            if not app_missing:
+                _alert_step(install, state, phone, now,
+                            alerts_reader, owner_reader, silences_reader, sender,
+                            persist=lambda: _persist(path, state))
         except Exception as e:  # noqa: BLE001
             print(f"[watchdog] {install}: alert step error: {type(e).__name__}", flush=True)
     except Exception as e:  # noqa: BLE001 — the shell is total: journal, persist, return
