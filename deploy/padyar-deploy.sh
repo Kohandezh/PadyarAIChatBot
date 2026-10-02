@@ -182,7 +182,8 @@ admin panel, Infrastructure > Backups. See docs/engineering/DATABASE.md."
     CONFIRM="${PADYAR_ROLLBACK_CONFIRM:-}"
     if [[ ! "$CONFIRM" =~ ^[0-9a-f]{7,40}$ || "$TARGET_SHA" != "$CONFIRM"* ]]; then
       die "Refusing to roll back over these migrations without confirmation. Nothing was changed. If you accept the list above, run:
-  sudo PADYAR_ROLLBACK_CONFIRM=$NEW_SHA $0 $SLUG $PORT --rollback $NEW_SHA"
+  sudo PADYAR_GIT_TOKEN=<read-only token> PADYAR_ROLLBACK_CONFIRM=$NEW_SHA $0 $SLUG $PORT --rollback $NEW_SHA
+(leave out PADYAR_GIT_TOKEN if the app user has a deploy key)"
     fi
     log "Confirmed by PADYAR_ROLLBACK_CONFIRM=$CONFIRM."
   fi
@@ -190,7 +191,7 @@ admin panel, Infrastructure > Backups. See docs/engineering/DATABASE.md."
   log "Rolling back $SLUG: $CURRENT_SHA -> $NEW_SHA"
 else
   if [[ "$CURRENT_SHA" == "$NEW_SHA" ]]; then
-    log "Already at $NEW_SHA — nothing to do."
+    log "Already at $NEW_SHA. Nothing to do."
     exit 0
   fi
   log "Deploying $SLUG: $CURRENT_SHA -> $NEW_SHA"
@@ -217,7 +218,7 @@ if [[ "$MODE" == "deploy" ]]; then
     # deploy never goes back: rolling back is --rollback or a git revert.
     # Exit 0, not 1: nothing was changed and nothing is wrong. The message is
     # loud on purpose so a human reading the log cannot mistake it for success.
-    log "SUPERSEDED: origin/main is at $FETCHED, expected $NEW_SHA — a newer commit landed. Nothing was changed; the newer run carries it."
+    log "SUPERSEDED: origin/main is at $FETCHED, expected $NEW_SHA: a newer commit landed. Nothing was changed; the newer run carries it."
     exit 0
   fi
 fi
@@ -240,7 +241,7 @@ else
   log "Applying database migrations"
   if ! as_app "cd '$APP_DIR' && set -a && . ./.env && set +a && \
               .venv/bin/python scripts/apply_migrations.py"; then
-    log "Migration failed — resetting code to $CURRENT_SHA. The old process never
+    log "Migration failed. Resetting code to $CURRENT_SHA. The old process never
 stopped, and a failed migration leaves no partial schema (each file is one
 transaction). The pre-deploy backup from step 1 exists if manual restoration
 is ever needed."

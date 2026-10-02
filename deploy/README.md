@@ -15,9 +15,9 @@ slug `myevent`, domain `myevent.example.com`, port `8010`.
 
 **Pick one port per install and use the same number everywhere** — it is
 `APP_PORT` in `/opt/padyar-<slug>/.env` (what the systemd unit and the
-watchdog read), the `<port>` argument to the nginx/watchdog/verify scripts,
-and `DEPLOY_PORT` in CI. A mismatch fails loudly (health checks probe the
-wrong port), never silently.
+watchdog read), and the `<port>` argument to the nginx/watchdog/verify
+scripts and to `padyar-deploy`. A mismatch fails loudly (health checks probe
+the wrong port), never silently.
 
 Everything here is idempotent — re-running a script is safe.
 
@@ -73,6 +73,41 @@ helper and is never stored. A read-only deploy key for the app user works
 too; then leave `PADYAR_GIT_TOKEN` out.
 
 During an event: do not deploy.
+
+### Rolling back
+
+Two ways. Both move the code only. The database is never rolled back.
+
+1. **Normal: `git revert` on `main`.** Revert the bad merge, wait for green
+   CI, then deploy the revert's sha exactly like above. Use this whenever
+   there is time for a merge. The revert goes through review and CI.
+2. **No time for a merge: `--rollback`.**
+
+   ```bash
+   sudo PADYAR_GIT_TOKEN=<read-only token> /usr/local/bin/padyar-deploy myevent 8010 --rollback <old-sha>
+   ```
+
+   `<old-sha>` must be a commit that `main` contains and that is behind the
+   running commit. Before it changes anything, the script fetches `main` and
+   runs `deploy/rollback-plan.sh`. That planner refuses any other target, and
+   lists every file in `migrations/` the old code has never seen, each marked
+   `additive` or `destructive`. If the list is not empty, the script stops and
+   prints the command to run again with `PADYAR_ROLLBACK_CONFIRM=<old-sha>`
+   (the same full or short sha). Then it runs the deploy steps without
+   migrations: backup, checkout, deps, restart, health check. A red health
+   check puts back the commit that was running before.
+
+   Listed migrations stay applied, because old code cannot undo them. An
+   `additive` one is harmless to old code. A `destructive` one means the old
+   code may look for a column or table that is gone, and data the newer code
+   wrote may be lost. Then the way back is the pre-deploy dump of the deploy
+   that applied it: admin panel, Infrastructure > Backups. The rule that keeps
+   this list harmless is "Destructive migrations: expand, then contract" in
+   `docs/engineering/DATABASE.md`.
+
+   `--rollback` needs the running commit to contain
+   `deploy/rollback-plan.sh`. On an older install it stops and changes
+   nothing; use `git revert` instead.
 
 **Why there is no auto-deploy.** Until 2026-10 a `deploy` job in
 `.github/workflows/ci.yml` ran on a self-hosted runner on this server
@@ -269,7 +304,7 @@ curl -s localhost:8003/health | jq
 sudo bash deploy/10-install-app.sh myevent
 ```
 
-When `deploy/systemd/padyar-app.service.template` changes, the CI deploy
+When `deploy/systemd/padyar-app.service.template` changes, the manual deploy
 (`deploy/padyar-deploy.sh`) only restarts the service. It does not re-render
 the unit. Re-render it by hand (more in `docs/engineering/MONITORING.md`):
 ```bash
