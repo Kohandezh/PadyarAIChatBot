@@ -271,6 +271,7 @@ def _create_sqlite_schema(cursor):
     _create_conversation_tables(cursor)
     _create_visitor_sessions_table(cursor)
     _create_guide_tables(cursor)
+    _create_ingest_tables(cursor)
 
     try:
         cursor.execute('SELECT salt FROM admins LIMIT 1')
@@ -570,6 +571,80 @@ def _create_guide_tables(cursor):
         featured      INTEGER NOT NULL DEFAULT 0
     )
     ''')
+
+
+def _create_ingest_tables(cursor):
+    """The SQLite half of migrations/0030_ingest.sql.
+
+    Read that file for WHY there are two tables with no foreign key and why
+    the two partial unique indexes, not a SELECT, keep one active job per
+    content hash and one job in the model stage. SQLite enforces both the
+    same way PostgreSQL does (measured in the knowledge-ingestion SPEC,
+    section 7). Timestamps are TEXT in the `datetime('now')` shape, the one
+    app/db/pg.py translates, so the service writes both backends alike.
+
+    SQLite-only helper: PostgreSQL never runs this, migrations/ owns it there.
+    """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ingest_jobs (
+        id            TEXT PRIMARY KEY,
+        source_kind   TEXT NOT NULL,
+        source_name   TEXT NOT NULL,
+        content_hash  TEXT NOT NULL,
+        byte_size     INTEGER NOT NULL,
+        format        TEXT NOT NULL DEFAULT '',
+        encoding_note TEXT NOT NULL DEFAULT '',
+        status        TEXT NOT NULL,
+        error_code    TEXT NOT NULL DEFAULT '',
+        chunk_count   INTEGER NOT NULL DEFAULT 0,
+        ai_stopped_at INTEGER,
+        tmp_path      TEXT NOT NULL DEFAULT '',
+        created_by    TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        heartbeat_at  TEXT,
+        finished_at   TEXT
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ingest_proposals (
+        id            TEXT PRIMARY KEY,
+        job_id        TEXT NOT NULL,
+        seq           INTEGER NOT NULL,
+        source_text   TEXT NOT NULL,
+        heading       TEXT NOT NULL DEFAULT '',
+        title         TEXT NOT NULL,
+        text          TEXT NOT NULL,
+        title_source  TEXT NOT NULL,
+        questions     TEXT NOT NULL DEFAULT '[]',
+        synonyms      TEXT NOT NULL DEFAULT '[]',
+        ai_state      TEXT NOT NULL,
+        similar_kind  TEXT NOT NULL DEFAULT '',
+        similar_to    TEXT NOT NULL DEFAULT '',
+        same_title_as TEXT NOT NULL DEFAULT '',
+        status        TEXT NOT NULL DEFAULT 'pending',
+        reject_reason TEXT NOT NULL DEFAULT '',
+        edited        INTEGER NOT NULL DEFAULT 0,
+        seen_at       TEXT,
+        seen_by       TEXT NOT NULL DEFAULT '',
+        reviewed_at   TEXT,
+        reviewed_by   TEXT NOT NULL DEFAULT '',
+        dataset_id    TEXT NOT NULL DEFAULT '',
+        created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_ingest_proposals_job_seq'
+                   ' ON ingest_proposals (job_id, seq)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_ingest_proposals_job_status'
+                   ' ON ingest_proposals (job_id, status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS ix_ingest_jobs_created ON ingest_jobs (created_at)')
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ingest_jobs_active_hash"
+                   " ON ingest_jobs (content_hash) WHERE status IN"
+                   " ('queued', 'extracting', 'extracted', 'proposing', 'cancelling', 'ready')")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ingest_jobs_one_proposing"
+                   " ON ingest_jobs ((1)) WHERE status IN ('proposing', 'cancelling')")
 
 
 def _seed_defaults(cursor):

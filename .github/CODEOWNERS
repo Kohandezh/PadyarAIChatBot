@@ -1,0 +1,5 @@
+# Who reviews a pull request in this repository.
+# The review process (who, what, how it is recorded) is in
+# docs/engineering/REVIEW_PROCESS.md. An approval from either account is
+# enough. GitHub never lets a PR author approve their own PR.
+* @Kohandezh @sinashamsizadeh

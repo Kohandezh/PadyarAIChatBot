@@ -217,6 +217,12 @@ def _dump_path(backup_id: str) -> str:
 # ── Create ──────────────────────────────────────────────────────────────
 
 def create(actor: str = "", reason: str = "manual") -> dict:
+    """Write one pg_dump archive and its manifest.
+
+    Counts no backup_outcome_total: a dump that was never verified is not a
+    backup we know we can restore. The attempt, create plus verify, is
+    counted by app/services/backup.py:_run_backup_now.
+    """
     os.makedirs(BACKUP_DIR, exist_ok=True)
     backup_id = "pg_%s_%s" % (datetime.now().strftime("%Y%m%d_%H%M%S"),
                               os.urandom(3).hex())
@@ -255,8 +261,6 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         shutil.rmtree(target, ignore_errors=True)
         applog.error("backup", "backup.failed", "پشتیبان‌گیری ناموفق بود",
                      actor=actor, target=backup_id, outcome="failed")
-        from app.services import metrics
-        metrics.backup_outcome_total.labels(result="failed").inc()
         raise
     finally:
         # Held open until pg_dump ends, then closed on every path. A leaked
@@ -294,8 +298,6 @@ def create(actor: str = "", reason: str = "manual") -> dict:
     applog.audit("admin.backup.created", "پشتیبان پستگرس ساخته شد",
                  actor=actor, target=backup_id, outcome="ok",
                  metadata={"bytes": size, "reason": reason})
-    from app.services import metrics
-    metrics.backup_outcome_total.labels(result="success").inc()
     return manifest
 
 
@@ -359,10 +361,103 @@ def verify(backup_id: str, actor: str = "", offsite: bool = True) -> dict:
         applog.info("backup", "backup.verify.completed", "پشتیبان سالم است",
                     actor=actor, target=backup_id, outcome="ok",
                     metadata={"toc_entries": manifest.get("toc_entries")})
+        # Every successful verify, not only the scheduler's: a manual backup
+        # the operator verifies later is a verified backup on disk too.
+        record_verified(manifest)
         if offsite:
             from app.services import backup_offsite
             backup_offsite.copy_verified_dump(backup_id, manifest, actor=actor)
     return manifest
+
+
+# ── Metrics: the newest verified backup ────────────────────────────────
+
+def _created_timestamp(created_at):
+    """Unix seconds of a manifest's created_at, or None if it is unusable.
+
+    create() writes an aware UTC ISO string. A naive one is read as UTC.
+    """
+    if not isinstance(created_at, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.timestamp()
+
+
+# The gauge only moves forward, so one created_at in the future (a wrong
+# clock, a hand-edited manifest) would pin it there and the stale alert could
+# never fire again. A small margin allows for clock drift between hosts.
+_FUTURE_MARGIN_SECONDS = 3600
+
+
+def record_verified(manifest) -> bool:
+    """True when `manifest` says the backup passed verification.
+
+    Then it also moves backup_last_success_timestamp_seconds forward to that
+    backup's created_at (never backward, see metrics.set_backup_last_success).
+    Anything else, a failed or unknown status or not a manifest at all, is
+    False and changes nothing.
+
+    The metric is a side effect. A created_at that is unusable or in the
+    future, or a metric write that fails, is logged and does not change the
+    answer, so verify() (and the restore pre-check behind it) never fails
+    because of a metric.
+    """
+    if not isinstance(manifest, dict):
+        return False
+    verification = manifest.get("verification")
+    if not isinstance(verification, dict) or verification.get("status") != "verified":
+        return False
+    backup_id = manifest.get("backup_id", "?")
+    timestamp = _created_timestamp(manifest.get("created_at"))
+    if timestamp is None:
+        logger.warning("[pg_backup] verified backup %s has no usable "
+                       "created_at; the metric is not moved", backup_id)
+        return True
+    if timestamp > time.time() + _FUTURE_MARGIN_SECONDS:
+        logger.warning("[pg_backup] verified backup %s has a created_at in the "
+                       "future; the metric is not moved", backup_id)
+        return True
+    try:
+        from app.services import metrics
+        metrics.set_backup_last_success(timestamp)
+    except Exception as e:  # noqa: BLE001 (see docstring)
+        logger.warning("[pg_backup] backup metric not updated for %s: %s",
+                       backup_id, type(e).__name__)
+    return True
+
+
+def seed_last_success_metric() -> None:
+    """At startup: the newest verified backup already on disk -> the gauge.
+
+    Without this, every restart would show "no verified backup" until the
+    next nightly run, and the stale alert would fire for a backup that exists.
+    Never raises: a missing directory or a broken manifest must not stop the
+    app from booting. Errors are caught per manifest, so one broken file is
+    skipped and logged and the others still seed.
+    """
+    try:
+        manifests = list_backups()
+    except Exception as e:  # noqa: BLE001 (see docstring)
+        logger.warning("[pg_backup] backup metric not seeded: %s",
+                       type(e).__name__)
+        return
+    for manifest in manifests:
+        name = (manifest.get("backup_id", "?")
+                if isinstance(manifest, dict) else "?")
+        if not isinstance(manifest, dict) or manifest.get("error"):
+            logger.warning("[pg_backup] skipped unreadable manifest of %s "
+                           "while seeding the backup metric", name)
+            continue
+        try:
+            record_verified(manifest)
+        except Exception as e:  # noqa: BLE001 (see docstring)
+            logger.warning("[pg_backup] skipped manifest of %s while seeding "
+                           "the backup metric: %s", name, type(e).__name__)
 
 
 # ── List / delete ───────────────────────────────────────────────────────

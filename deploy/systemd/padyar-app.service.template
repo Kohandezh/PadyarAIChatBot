@@ -25,6 +25,23 @@ Group=padyar-{{SLUG}}
 WorkingDirectory=/opt/padyar-{{SLUG}}
 EnvironmentFile=/opt/padyar-{{SLUG}}/.env
 
+# /metrics must add up ALL uvicorn workers, so every worker writes its numbers
+# into one shared directory (app/services/metrics.py, prometheus_client
+# multiprocess mode). systemd makes that directory: /run/padyar-<slug> is
+# created EMPTY on every start and deleted on every stop, including a
+# Restart= restart (RuntimeDirectoryPreserve defaults to no; never set it).
+# It is owned by User and Group, and 0700 keeps other local users from reading
+# the raw metric files. ProtectSystem=full does not make /run read-only, and
+# systemd keeps a RuntimeDirectory writable anyway. The directory must start
+# empty because the files are summed: a file left from an older run would be
+# added into the new run. The app cannot wipe it itself, because one worker
+# would delete files another worker has already written. Do not set
+# PROMETHEUS_MULTIPROC_DIR in the .env: systemd lets EnvironmentFile= override
+# Environment=, so a value there would replace the line below.
+RuntimeDirectory=padyar-{{SLUG}}
+RuntimeDirectoryMode=0700
+Environment=PROMETHEUS_MULTIPROC_DIR=/run/padyar-{{SLUG}}
+
 # --proxy-headers + --forwarded-allow-ips is not cosmetic: without it
 # request.client.host is 127.0.0.1 for every visitor, so the admin
 # brute-force lockout (app/routers/admin.py:37) blocks the real admin the
@@ -40,7 +57,8 @@ Restart=always
 RestartSec=3
 TimeoutStartSec=120
 
-# Hardening. The app writes only to its own state directory.
+# Hardening. The app writes only to its own state directory (and to the
+# RuntimeDirectory above).
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
