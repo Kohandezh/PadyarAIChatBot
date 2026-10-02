@@ -6,7 +6,7 @@
 | Status | Draft (هدف اولیه) |
 | Owner | Sina Shamsizadeh (مالک محصول) |
 | Author | پیش‌نویس با کمک AI (Claude Opus 5.5). بازبینی انسانی: pending |
-| Sources | `docs/features/monitoring-stack/RESEARCH.md` (D7)، `docs/features/monitoring-stack/SPEC.md` (REQ-082)، `deploy/monitoring/rules/padyar.rules.yml` (open PR)، `app/services/metrics.py` |
+| Sources | `docs/features/monitoring-stack/RESEARCH.md` (D7)، `docs/features/monitoring-stack/SPEC.md` (REQ-082)، `deploy/monitoring/rules/padyar.rules.yml` (#166)، `app/services/metrics.py` |
 
 ## این‌ها هدف‌اند، نه اندازه
 
