@@ -6,7 +6,7 @@
 | Status | Draft |
 | Owner | Sina Shamsizadeh (مالک محصول) |
 | Author | پیش‌نویس با کمک AI (Claude Opus 5.5). بازبینی انسانی: pending |
-| Sources | `docs/features/monitoring-stack/SPEC.md` (REQ-080، REQ-081)، `deploy/monitoring/rules/padyar.rules.yml` (open PR)، `deploy/monitoring/alertmanager.yml` (open PR)، `deploy/55-monitoring.sh` (open PR)، `deploy/watchdog/watchdog.py` (مرحلهٔ پیامک هشدار: open PR) |
+| Sources | `docs/features/monitoring-stack/SPEC.md` (REQ-080، REQ-081)، `deploy/monitoring/rules/padyar.rules.yml` (#166)، `deploy/monitoring/alertmanager.yml` (#166)، `deploy/55-monitoring.sh` (#166)، `deploy/watchdog/watchdog.py` (مرحلهٔ پیامک هشدار: #170) |
 
 ارجاع‌ها مسیر فایل به‌اضافهٔ نام تابع، قاعده یا بخش هستند، تا بعد از merge
 همهٔ PRهای پشتهٔ پایش هم درست بمانند. شمارهٔ خط فقط برای فایل‌هایی آمده که
@@ -681,7 +681,7 @@ DEP-3 بیاید. برای R05 و R06، metricها حالا در برنامه ه
 |---|---|---|---|
 | DEP-1 | `/metrics` جمع همهٔ workerها | #156 `fix(metrics): aggregate /metrics across uvicorn workers` | merge شده |
 | DEP-2 | metricهای پشتیبان verify‌شده | #157 `fix(backup): make backup metrics reflect verified backups` | merge شده |
-| DEP-3 | انتشار حالت مدار هوش مصنوعی موقع شروع | #168 `fix(metrics): publish the stored AI circuit state at app start` | open PR |
+| DEP-3 | انتشار حالت مدار هوش مصنوعی موقع شروع | #168 `fix(metrics): publish the stored AI circuit state at app start` | merge شده |
 | DEP-4 | gauge `backup_schedule_interval_seconds` | #160 `feat(metrics): expose the backup schedule interval` | merge شده |
 | قاعده‌های پشتیبان | افزودن R05 و R06 به فایل قواعد | `feat(monitoring): enable backup alerts` | هنوز PR ندارد |
 
