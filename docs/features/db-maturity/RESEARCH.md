@@ -75,7 +75,7 @@ drill، نه RPO/RTO نوشته‌شده.
    - `migrations/0006_lead_status.sql:51` و `:56` (یک ستون و جدول `edit_sessions`)
    - `migrations/0013_companies.sql:116` و `:119` (ردیف‌های `dataset` و جدول `company_profiles`)
    - `migrations/0028_drop_pwa_leftovers.sql:14-15` (دو ستون)
-   - `migrations/0029_drop_search_backend_setting.sql:11` (یک ردیف settings)
+   - migration شمارهٔ 0029، خط 11 (یک ردیف `settings` را حذف می‌کند: تنظیم موتور جست‌وجوی بازنشسته)
 5. **`/metrics` scraper ندارد.** در `3a4a415` هر worker registry جدای خودش را
    داشت. روی `main` این حل شد (ADR-022 روی main، #156): حالت multiprocess
    `prometheus_client`، با پوشهٔ `PROMETHEUS_MULTIPROC_DIR` که systemd می‌سازد
