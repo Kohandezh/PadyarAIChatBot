@@ -337,12 +337,17 @@ def bump_index_version() -> None:
     set_setting(INDEX_VERSION_KEY, str(_index_version))
 
 
-def _rebuild(publish: bool, version_floor: int = 0) -> None:
+def _rebuild(publish: bool, version_floor: int = 0) -> bool:
     """Single rebuild path. Never blocks: a rebuild already in progress wins
-    and the caller simply returns."""
+    and the caller simply returns.
+
+    True only when a full rebuild ran here (and published, if asked). False
+    when another rebuild held the lock or the load raised: in both cases
+    nothing new was indexed or published. Most callers ignore it;
+    reindex_and_publish_until_done cannot."""
     global _index_version
     if not _rebuild_lock.acquire(blocking=False):
-        return
+        return False
     try:
         try:
             started = time.monotonic()
@@ -355,9 +360,11 @@ def _rebuild(publish: bool, version_floor: int = 0) -> None:
                 _index_version = max(version_floor, _index_version)
             report_reindex(len(dataset), len(questions_data),
                            int((time.monotonic() - started) * 1000))
+            return True
         except Exception:  # noqa: BLE001 — a failed rebuild must retry on the next poll
             logger.exception("[search] index rebuild failed")
             _index_version = 0
+            return False
     finally:
         _rebuild_lock.release()
 
@@ -366,6 +373,49 @@ def reindex_and_publish() -> None:
     """Rebuild after THIS worker changed content, and stamp a new version so
     every other worker picks the change up within INDEX_REFRESH_SECONDS."""
     _rebuild(publish=True)
+
+
+PUBLISH_RETRY_SECONDS = 0.5
+
+
+def reindex_and_publish_until_done(timeout_s: float = 120.0) -> bool:
+    """reindex_and_publish that does not give up on a busy lock. Call it
+    after the write has committed.
+
+    reindex_and_publish returns silently when another rebuild holds the
+    lock. That rebuild may have read the tables before the caller's commit,
+    so the new rows would reach neither this worker's index nor, with no new
+    version published, any other worker (knowledge-ingestion SPEC, REQ-064).
+    Here every attempt starts after the call, so the first one that runs to
+    the end has read the committed rows.
+
+    Blocking and synchronous: run it from BackgroundTasks, never on the event
+    loop or in a response path. On timeout it still publishes a version so
+    the other workers rebuild; this worker's own poll will not, because
+    bump_index_version advances the local version too."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if _rebuild(publish=True):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(PUBLISH_RETRY_SECONDS, remaining))
+    from app.services import applog
+    applog.error("retrieval", "retrieval.publish_timeout",
+                 "بازسازی نمایه در زمان مقرر انجام نشد",
+                 outcome="timeout", duration_ms=int(timeout_s * 1000))
+    try:
+        bump_index_version()
+    except Exception:  # noqa: BLE001 (a background task: report the failure, do not raise)
+        logger.exception("[search] version bump after a publish timeout failed")
+    return False
+
+
+def published_index_version() -> int:
+    """The version the last publish stored in `settings`, read fresh. Not
+    this worker's `_index_version`, which a non-publishing rebuild moves."""
+    return _read_index_version()
 
 
 def _maybe_refresh() -> None:
@@ -420,6 +470,7 @@ def load_dataset_internal():
 
     _questions_data = []
     _normalized_questions = []
+    _questions_read = False
 
     try:
         conn = get_db_connection()
@@ -486,6 +537,7 @@ def load_dataset_internal():
         _questions_data = [dict(r) for r in rows]
         for q in _questions_data:
             _normalized_questions.append(normalize_persian(q.get("question", "")))
+        _questions_read = True
         logger.info(f"Loaded {len(_questions_data)} questions from database")
     except Exception as e:
         logger.error(f"Error loading questions: {e}")
@@ -495,6 +547,7 @@ def load_dataset_internal():
     _dataset_emb = None
     _questions_emb = None
     _intent = None
+    _intent_refused = False
     try:
         from app.db.queries import get_setting
         if embeddings.available():
@@ -506,11 +559,39 @@ def load_dataset_internal():
                 # Companies are NOT intent classes. See _intent_training_set.
                 vecs, labels = _intent_training_set(
                     _questions_emb.matrix, _questions_data)
-                _intent = intent.train(vecs, labels, model)
+                # The stored model when it is provably the model for this
+                # data (training fingerprint + weights sha256), else a fresh
+                # fit. See intent.load_or_train and ADR-025.
+                _intent = intent.load_or_train(
+                    vecs, _normalized_questions, labels, model)
+                _intent_refused = _intent is None
         else:
             logger.warning("model2vec is not installed; retrieval runs on BM25 alone")
     except Exception as e:
         logger.error(f"Embedding index build failed, retrieval runs on BM25: {e}")
+
+    # The run's durable record: the stored model files and the gauges.
+    # Outside the try above on purpose, so it runs on EVERY path, including
+    # the ones that end with no classifier, where its job is to clear an
+    # earlier run's files rather than leave a record claiming a model this
+    # install no longer has. The call cannot raise, so a full or read-only
+    # disk costs the install its record, never its answers.
+    #
+    # It writes nothing unless recording was turned on (the app lifespan in
+    # app/main.py, or the training CLI). That is how a plain out-of-band
+    # reindex (the debug script, a test) keeps its hands off the install's
+    # model.
+    #
+    # "No classifier" has two causes and only one may delete the record:
+    # training refused this data (or the data is below the floor, which needs
+    # no embedder to know), versus a passing fault (no embeddings this boot,
+    # the questions read failed). Deleting on the second would destroy a good
+    # model and re-record the same data as a new version on the next boot.
+    from app.services import intent
+    no_model_for_this_data = _intent_refused or (
+        _questions_read and intent.below_training_floor(
+            [q.get('dataset_id', '') for q in _questions_data]))
+    intent.record_artifact(_intent, no_model_for_this_data)
 
     # --- Unknown-entity vocabulary ------------------------------------
     # Every token any retriever could legitimately match against: normalized

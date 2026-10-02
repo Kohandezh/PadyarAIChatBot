@@ -132,6 +132,27 @@ class EmbeddingIndex:
         idxs = idxs[np.argsort(-sims[idxs])]
         return [(int(i), _calibrate(float(sims[i]))) for i in idxs]
 
+    def search_topk_raw(self, query: str, k: int = 1) -> List[Tuple[int, float]]:
+        """Top-k (row_index, raw cosine), best first.
+
+        For a threshold on similarity itself, not on retrieval confidence:
+        with the shipped band _calibrate reaches 1.0 at cosine 0.80, so a calibrated
+        score cannot tell a near copy (0.95) from a loose match (0.81). The
+        ingest module's near-duplicate label needs that difference.
+        """
+        model = _get_model(self.model_name)
+        vec = np.asarray(model.encode([query]), dtype=np.float32)[0]
+        norm = np.linalg.norm(vec)
+        if norm == 0:
+            return []
+        sims = self.matrix @ (vec / norm)
+        k = min(k, sims.shape[0])
+        if k <= 0:
+            return []
+        idxs = np.argpartition(-sims, k - 1)[:k]
+        idxs = idxs[np.argsort(-sims[idxs])]
+        return [(int(i), float(sims[i])) for i in idxs]
+
 
 def build_index(texts: List[str], model_name: str = DEFAULT_MODEL) -> Optional[EmbeddingIndex]:
     """Build an index, returning None (with a log line) on any failure so the
