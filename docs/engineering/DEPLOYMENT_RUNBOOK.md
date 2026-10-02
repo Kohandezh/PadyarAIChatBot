@@ -79,7 +79,8 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
 ```
 
 ## پشتیبان و بازیابی
-- خودکار: زمان‌بندی پنل ادمین (app/services/backup.py) → پوشهٔ backups/
+- خودکار: زمان‌بندی پنل ادمین (app/services/backup.py) → هر dump در
+  `backups/postgres/<backup_id>/` (فرمت `pg_dump --format=custom`، `app/services/pg_backup.py`)
 - کپی خارج از سرور (2026-09-14): اگر `OFFSITE_BACKUP_TARGET` در env تنظیم
   شده باشد، هر dump که verify موفق داشته باشد خودکار به مقصد دوم کپی
   می‌شود — `rsync:user@host:/path` (با `rsync -a --chmod=F600` روی ssh؛
@@ -88,13 +89,32 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
   `offsite` همان manifest.json ثبت می‌شود. شکست کپی هرگز پشتیبان محلی را
   باطل نمی‌کند؛ فقط رخداد `backup.offsite.failed` در لاگ سرویس ثبت می‌شود
   — هر شب مقصد را از روی همین رخداد ببینید، نه با فرض.
-- دستی: `python backup_db.py`
-- بازیابی: توقف سرویس → جایگزینی chat_history.db از پشتیبان → شروع سرویس
-  → بررسی `/api/ready` و شمارش dataset در `/api/health`.
+- پیش از هر استقرار: `deploy/padyar-deploy.sh` (گام ۱) قبل از هر تغییر یک dump
+  با `reason=deploy` می‌گیرد. اگر dump شکست بخورد، استقرار هیچ چیز را تغییر نمی‌دهد.
+- دستی: پنل ادمین → Infrastructure → Backups → ساخت پشتیبان.
+- بازیابی (پایگاه داده PostgreSQL 16 است، نه SQLite): پنل ادمین → Infrastructure →
+  Backups → بازیابی. باید دقیقاً `RESTORE BACKUP <id>` تایپ شود
+  (`app/services/pg_backup.py` تابع `restore()`). خود برنامه این مراحل را انجام می‌دهد:
+  تأیید سلامت dump، روشن‌کردن حالت تعمیر، ساخت پشتیبان ایمنی از وضعیت فعلی،
+  `pg_restore --single-transaction`، اعتبارسنجی. شناسهٔ پشتیبان ایمنی در نتیجه
+  برمی‌گردد. اگر چند پروسه اجرا می‌شود، بعد از بازیابی بقیه را ری‌استارت کنید.
+  سپس `/api/ready` و شمارش dataset در `/api/health` را بررسی کنید.
 
-## بازگشت (Rollback) دانش
-هر اجرای reset یک `chat_history.backup.<timestamp>.db` می‌سازد؛ بازگشت =
-همان مسیر بازیابی با فایل پشتیبان قبلی.
+## بازگشت (Rollback)
+- بازگشت دانش (reset): `scripts/reset-content-to-defaults.py` پیش از هر کار با
+  `pg_backup.create(reason="reset-content")` یک dump می‌گیرد
+  (`scripts/reset-content-to-defaults.py:80`). بازگشت = همان مسیر بازیابی بالا
+  با آن dump.
+- بازگشت کد بعد از استقرار قرمز: خودکار است. اگر `/api/health` پس از ری‌استارت
+  سالم نشود، `padyar-deploy.sh` کد را به commit قبلی برمی‌گرداند. دیتابیس برنگردانده
+  می‌شود (گام ۶ در اسکریپت).
+- بازگشت دستی کد: `git revert` روی `main`، سبز شدن CI، سپس اپراتور با sha جدید
+  (همان commit برگردان) `padyar-deploy` را دستی اجرا می‌کند. صدا زدن
+  اسکریپت با sha قدیمی بازگشت نیست: برای هر sha که نوک `main` نباشد با پیام
+  `SUPERSEDED` بدون تغییر خارج می‌شود (`deploy/padyar-deploy.sh`، بررسی `FETCHED`).
+- اگر استقرارِ برگشت‌خورده migration مخرب داشت (مثل `0028`)، `git revert` به‌تنهایی
+  ستون یا جدول حذف‌شده را برنمی‌گرداند. dump گام ۱ همان استقرار لازم است (مسیر
+  بازیابی بالا).
 
 ## عیب‌یابی سریع
 | علامت | اقدام |
