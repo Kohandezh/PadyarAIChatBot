@@ -53,15 +53,9 @@ REQUIRED_ALERTS = {
 # A rule whose metric is not merged yet, or whose enabling change has not
 # landed, stays OUT of the rules file and is listed here with what it waits
 # for (SPEC 11.1). The change that enables it adds the rule and deletes its
-# line here.
-WAITING = {
-    "PadyarAICircuitOpen": "DEP-1, DEP-3: ai_circuit_state is only written on a state change",
-    "PadyarBackupFailed": "DEP-2 is merged (backup_outcome_total counts verified scheduled "
-                          "backups); only the rule is left, in its own enabling change (WU6)",
-    "PadyarBackupStale": "DEP-2, DEP-4 are merged (backup_last_success_timestamp_seconds and "
-                         "backup_schedule_interval_seconds exist); only the rule is left, in its "
-                         "own enabling change (WU6)",
-}
+# line here. Empty since WU6 added PadyarAICircuitOpen, PadyarBackupFailed
+# and PadyarBackupStale.
+WAITING = {}
 
 # job label of a selector -> the allowlist that names its metrics.
 JOB_SOURCES = {
@@ -356,9 +350,12 @@ def test_each_required_alert_is_in_the_rules_file_or_waiting_with_its_reason():
         assert re.match(r"DEP-\d", reason), f"{name}: the reason must name its DEP"
 
 
-def test_the_waiting_list_is_what_this_unit_leaves_out():
-    """WU1 ships every rule whose metric exists today (SPEC Work breakdown)."""
-    assert set(WAITING) == {"PadyarAICircuitOpen", "PadyarBackupFailed", "PadyarBackupStale"}
+def test_nothing_is_waiting_and_every_required_alert_is_in_the_rules_file():
+    """WU6 enabled the last three (SPEC Work breakdown). The ticket's alerts
+    are all real rules now, none is only a promise in a list."""
+    assert WAITING == {}
+    present = {rule["alert"] for rule in rules()}
+    assert REQUIRED_ALERTS <= present, f"missing: {sorted(REQUIRED_ALERTS - present)}"
 
 
 # ── SPEC 5.3: the label rule and the annotations ───────────────────────

@@ -469,6 +469,12 @@ label_replace(up{app="padyar"} == 0, "probe_install", "$1", "install", "(.*)")
   (`app/services/metrics.py:46`)، پس p95 بالای ۱۰ ثانیه «10» خوانده می‌شود.
   آستانهٔ ۸ زیر این سقف است. هدف SLO (۹۵٪ زیر ۵ ثانیه) در سند SLO است، نه در
   این هشدار.
+- **R04 و سرویس‌دهندهٔ غیرفعال:** مداری که در جدول `open` ذخیره شده R04 را روشن
+  می‌کند، حتی اگر سرویس‌دهنده‌اش غیرفعال است یا در مسیریابی نیست. metric این را
+  نمی‌داند، و فیلتر کردن آن در PromQL قطعی واقعی یک سرویس‌دهندهٔ در حال استفاده را
+  پنهان می‌کرد. پس فیلتری نیست. annotation `description` می‌گوید مدار آن
+  سرویس‌دهنده را در پنل مدیریت بازنشانی کنید و اگر لازم نیست حذفش کنید. اول
+  بازنشانی: حذف ردیف جدول را پاک می‌کند ولی gauge منتشرشده را صفر نمی‌کند.
 - **R05 و پنجرهٔ 26h:** هشدار تا ۲۶ ساعت بعد از یک شکست روشن می‌ماند. یادآوری
   پیامکی آن هر ۶ ساعت است (REQ-044)، پس حداکثر حدود ۵ پیامک.
 - **نگهبان R06 برای `backup_auto_enabled=false`:** قاعده نمی‌تواند تنظیم DB را
@@ -893,15 +899,20 @@ metricهای تازهٔ برنامه (قرارداد با قواعد):
 
 | # | چه | کجا | چه کسی |
 |---|---|---|---|
-| DEP-1 | `/metrics` جمع همهٔ workerها | PR باز #156 (`fix/metrics-multiprocess`، draft نیست، gh در 2026-10-01) | در جریان |
-| DEP-2 | `backup_last_success_timestamp_seconds` (Unix time آخرین پشتیبان **verify‌شده**، `0` اگر هیچ، مقدار اولیه از دیسک موقع شروع)؛ `backup_outcome_total{result}` فقط تلاش‌های زمان‌بندی‌شده را می‌شمارد، `success` فقط وقتی ساخته **و** verify شد، `failed` برای هر پایان دیگر، و هر دو برچسب از شروع با مقدار صفر وجود دارند | PR draft #157 (`fix/backup-metrics-verified`، روی #156 stack شده) | در جریان |
-| DEP-3 | `ai_circuit_state` موقع شروع برنامه از جدول `ai_circuit_state` دوباره منتشر شود. امروز فقط هنگام تغییر حالت نوشته می‌شود (`app/services/ai/circuit.py:84-92`) | WU3 | این SPEC |
-| DEP-4 | gauge تازهٔ `backup_schedule_interval_seconds` (بخش 6) | WU4 | این SPEC |
+| DEP-1 | `/metrics` جمع همهٔ workerها | PR #156 (`fix/metrics-multiprocess`) | merge شد |
+| DEP-2 | `backup_last_success_timestamp_seconds` (Unix time آخرین پشتیبان **verify‌شده**، `0` اگر هیچ، مقدار اولیه از دیسک موقع شروع)؛ `backup_outcome_total{result}` فقط تلاش‌های زمان‌بندی‌شده را می‌شمارد، `success` فقط وقتی ساخته **و** verify شد، `failed` برای هر پایان دیگر، و هر دو برچسب از شروع با مقدار صفر وجود دارند | PR #157 (`fix/backup-metrics-verified`) | merge شد |
+| DEP-3 | `ai_circuit_state` موقع شروع برنامه از جدول `ai_circuit_state` دوباره منتشر شود. امروز فقط هنگام تغییر حالت نوشته می‌شود (`app/services/ai/circuit.py:84-92`) | WU3، PR #168 (`fix/circuit-state-at-start`) | باز؛ WU6 بعد از آن merge می‌شود |
+| DEP-4 | gauge تازهٔ `backup_schedule_interval_seconds` (بخش 6) | WU4، PR #160 (`feat/backup-interval-metric`) | merge شد |
 
 قانون تست برای وابستگی‌ها: تا وابستگی یک قاعده merge نشده، آن قاعده در فایل
 قواعد **نمی‌آید** و نامش در فهرست «منتظر» تست (REQ-074) با دلیل می‌ماند. هر
 PR وابستگی، قاعدهٔ خودش را اضافه و نامش را از فهرست «منتظر» برمی‌دارد. پس
 هشدار ساکتی که پوشش دروغ نشان بدهد ساخته نمی‌شود.
+
+**وضعیت امروز:** WU6 قاعده‌های R04، R05 و R06 را اضافه کرد و فهرست «منتظر»
+خالی است. metricهای هر سه در registry برنامه هستند (DEP-2 و DEP-4 merge شدند).
+R04 روی metricی است که از قبل بود؛ DEP-3 فقط باعث می‌شود بعد از restart هم
+مدار باز دیده شود، و WU6 بعد از آن merge می‌شود.
 
 R02 و R03 بدون DEP-1 هم در فایل قواعد می‌آیند، چون metricشان امروز هست. تا
 DEP-1 نیاید، هر scrape یک worker از سه را می‌بیند و این دو هشدار نویزی‌اند.
@@ -1058,10 +1069,10 @@ WU1 نباید روی production فعال شود پیش از merge شدن DEP-1 
 | WU0 | `fix(nginx): stop serving /metrics publicly` | REQ-061، تست REQ-066، SEC-002، SC-008 | ندارد | همه. می‌تواند پیش از همه merge و deploy شود |
 | WU1 | `feat(deploy): loopback monitoring stack installed by deploy/55-monitoring.sh` | اسکریپت، `deploy/monitoring/*`، قواعد بدون وابستگی (R01-R03، R07-R14)، تست REQ-070 تا REQ-075 و REQ-078، REQ-060، REQ-062 تا REQ-065 | DEP-1 فقط برای فعال شدن روی production، نه برای merge. چک REQ-022 فرض می‌کند WU0 روی میزبان است | WU0، WU3، WU4، WU5 |
 | WU2 | `feat(watchdog): text Alertmanager alerts through the install's own watchdog` | REQ-040 تا REQ-054، تست REQ-076، SC-019، SC-020 | WU1 (شکل API و فایل رمز). می‌تواند هم‌زمان با جعل نوشته شود، بعد از WU1 merge می‌شود | WU3، WU4 |
-| WU3 | `fix(metrics): publish the stored circuit state at startup` | DEP-3، قاعدهٔ R04، برداشتن R04 از «منتظر»، SC-016 | WU1 برای فایل قواعد (یا rebase روی آن) | WU2، WU4، WU5 |
+| WU3 | `fix(metrics): publish the stored circuit state at startup` | DEP-3، SC-016. قاعدهٔ R04 به WU6 رفت | ندارد | WU2، WU4، WU5 |
 | WU4 | `feat(metrics): expose the backup schedule interval` | DEP-4، SC-017 | ندارد | WU1، WU2، WU3، WU5 |
 | WU5 | `docs(engineering): incident runbook and SLO targets` | REQ-080، REQ-081، REQ-082 | متن نهایی بعد از WU1 و WU2 | همه، merge آخر |
-| WU6 | `feat(monitoring): enable backup alerts` | R05 و R06، برداشتن از «منتظر» | DEP-2، WU4، WU1 | ندارد |
+| WU6 | `feat(monitoring): enable the AI circuit and backup alerts` | R04، R05 و R06، خالی شدن «منتظر» | DEP-2، WU4، WU1؛ merge بعد از WU3 | ندارد |
 
 WU3 و WU4 دو ریشهٔ جدا هستند (یک metric که بعد از restart دروغ می‌گوید، و یک
 metric که نیست)، پس دو PR. WU0 هم ریشهٔ جدای خودش را دارد: `/metrics` امروز از
