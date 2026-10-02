@@ -173,6 +173,7 @@ bad news would train operators to ignore the unit state.
 
 | Condition | Behavior |
 |---|---|
+| App package not importable (the unit's `PYTHONPATH` is missing or wrong) | Journal ONE line per cycle: `cannot import the app (ModuleNotFoundError): SMS disabled; check PYTHONPATH in the unit`. The probe, the fail streak and `cached_phone` keep working. The credit check, every send and the alert SMS step (§11) are skipped, so no `send failed` line follows and no alert is marked as sent: it still goes out once the unit is fixed. No SMS can go out until then (see §8, "Rolling out the PYTHONPATH fix"). |
 | PostgreSQL down (settings unreadable) | The settings read raises. Use `cached_phone` and `cached_threshold` from state (the last read that succeeded; `300000` if the threshold was never read) and journal `settings unreadable (<Type>), using cached phone`. The down-SMS and the alert SMS still go out. Alerting the right person on stale data beats alerting nobody. See "During a PostgreSQL outage" below. |
 | PostgreSQL down, and no phone was ever read (fresh install) | Journal `DOWN but no alert_critical_phone configured`, no SMS, no crash. |
 | Alert phone empty (read from a database that answered) | Journal `DOWN but no alert_critical_phone configured`, no SMS. State (fail streak) is still persisted. The empty value is cached, so clearing the phone in the admin panel turns the SMS off. |
@@ -307,6 +308,51 @@ Expect: exactly one down-SMS (~3 min in), silence on recovery, and
 `https://myevent.example.com` serving the branded maintenance page for the
 whole window.
 
+### Rolling out the PYTHONPATH fix
+
+Until this fix, `padyar-watchdog@.service` had no `PYTHONPATH`. systemd runs
+`/opt/padyar-watchdog/watchdog.py`, and Python puts the script's directory on
+`sys.path`, not the working directory `/opt/padyar-<slug>`. So every lazy
+`from app...` import failed with `ModuleNotFoundError`: the watchdog could not
+read the alert phone, could not read the credit, and could not send any SMS.
+The journal only said `settings unreadable (ModuleNotFoundError), using cached
+phone`. The unit now sets `Environment=PYTHONPATH=/opt/padyar-%i`.
+
+**This was reproduced on a developer machine, not verified on the server.**
+
+A code deploy does not change the unit on a host. `deploy/17-watchdog.sh`
+copies the unit to `/etc/systemd/system/` and runs `systemctl daemon-reload`,
+so re-run it once per install, from a checkout that has this fix:
+
+Note the time right after the installer, in the same shell. The check
+below reads only the journal after that time. `START` comes after the
+installer because a timer run before its `daemon-reload` still uses the old
+unit and would leave a `ModuleNotFoundError` line after `START`.
+
+```bash
+sudo MAINTENANCE_TITLE='<visitor-facing name>' bash deploy/17-watchdog.sh <slug> <port> <domain>
+START="$(date '+%Y-%m-%d %H:%M:%S')"
+```
+
+`MAINTENANCE_TITLE` is required here: the script also re-renders the
+maintenance page, and without it the page goes back to the default title. The
+timer picks up the new unit on its next tick; nothing else needs a restart.
+
+Wait for two timer runs (about two minutes). The first command must count at
+least 2 runs, and the second must print nothing:
+
+```bash
+journalctl -u padyar-watchdog@<slug> --since "$START" | grep -c "Finished"
+journalctl -u padyar-watchdog@<slug> --since "$START" | grep -i "cannot import\|ModuleNotFound"
+```
+
+Do not use `journalctl -n 50` for this check. The last 50 lines still hold the
+`ModuleNotFoundError` lines from before the fix for several minutes, so a
+correct fix would look failed.
+
+Then do the end-to-end test above once, because before this fix no down-SMS
+could have reached the phone.
+
 ## 9. Wiring — reader/writer pairs that must never drift
 
 | Writer | Reader | What breaks if they drift |
@@ -317,6 +363,7 @@ whole window.
 | `deploy/17-watchdog.sh` renders pages at `/var/www/padyar/maintenance/{slug}/__maintenance.html` | vhost `location = /__maintenance.html` `root` in the vhost rendered from `deploy/nginx/instance.conf.template` | 502 falls through to nginx's default error page — the incident again |
 | Installer creates `/var/lib/padyar-watchdog/{slug}` owned by `padyar-{slug}`; unit `ReadWritePaths=/var/lib/padyar-watchdog` | `STATE_DIR` + `run_cycle` state path in `watchdog.py` | Persist fails on permissions; fail streak resets every run; alerts muted |
 | systemd instance names (generally `{slug}` — `User=padyar-%i`, `WorkingDirectory=/opt/padyar-%i`) and `APP_PORT` in each install's `.env` (the unit's `EnvironmentFile`) | `install_port()` in `watchdog.py` reads `APP_PORT` from that EnvironmentFile | Cycle journals "unknown install" forever, or probes the wrong port |
+| Unit `WorkingDirectory=/opt/padyar-%i` + `Environment=PYTHONPATH=/opt/padyar-%i`; the script itself lives in `/opt/padyar-watchdog` | The lazy `from app...` imports in `_read_settings()`, `_send()` and `_read_credit()` | `ModuleNotFoundError` every cycle: no phone, no credit, no SMS. The journal says `cannot import the app` |
 | Timer `OnUnitActiveSec=60s` | `FAILS_BEFORE_ALERT=3` (docs claim "~3 min") | The detection-lag promise silently changes |
 | `asanak_credit()` returns rial (`app/services/sms.py`) | `RIAL_PER_TOMAN = 10` conversion + toman rendering in the SMS | Alerts fire an order of magnitude early or late |
 | Admin stores phone canonical `+98…`; `asanak_destination()` strips the `+` at the gateway edge (`app/services/sms.py`) | `_send()` in `watchdog.py` applies it | Asanak rejects the destination (HTTP 406) and the alert dies in a journal note |
@@ -328,7 +375,13 @@ whole window.
   verbatim Persian texts, Tehran half-hour clock, `APP_PORT` resolution.
 - `tests/test_watchdog_io.py` — `run_cycle` with every dependency injected:
   exactly one SMS per 3 fails, cached-phone fallback on DB-down, no-phone
-  journal note, corrupt-state reset, per-install state directory.
+  journal note, corrupt-state reset, per-install state directory, and one
+  `cannot import the app` line per cycle when the app package is missing,
+  with no send tried and no alert marked as sent.
+- `tests/test_watchdog_unit_import.py`: runs a copy of the script from a
+  directory outside the repo, with cwd = a temp install dir and only the
+  unit's `Environment=` values, the way systemd runs it. It fails if the
+  script cannot import `app` in that shape, or if it reads the repo's `.env`.
 - `tests/test_watchdog_db_down.py`: the REAL settings reader against a
   database that does not answer: it raises, the cached phone and threshold
   are used and kept, the down-SMS and `HostPostgresDown` still go out, and

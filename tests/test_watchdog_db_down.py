@@ -186,6 +186,23 @@ def test_a_db_down_cycle_with_no_cached_phone_says_so_and_does_not_crash(db_down
     assert _disk(state_path)["fail_count"] == 3
 
 
+@pytest.mark.parametrize("cached", ["500000", ""])
+def test_a_cycle_without_the_app_leaves_the_cached_threshold_alone(tmp_path, monkeypatch, cached):
+    """No app means no settings read at all, so neither cache may move.
+    "" is the never-read value; turning it into "300000" would look like a
+    read that happened."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "app", None)
+    state_path = _state_file(tmp_path, cached_phone=PHONE, cached_threshold=cached)
+
+    _cycle(state_path, [])
+
+    disk = _disk(state_path)
+    assert disk["cached_threshold"] == cached
+    assert disk["cached_phone"] == PHONE
+
+
 # ── Allow-controls: the database is up ──────────────────────────────────
 
 def test_a_db_up_cycle_texts_the_phone_in_the_database_and_caches_it(db_up, tmp_path):

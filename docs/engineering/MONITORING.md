@@ -136,6 +136,9 @@ because the watchdog already texts "the app is down".
 | `PadyarAppDown` | Prometheus cannot read an install's `/metrics` (app down, or a 403 from a wrong token) | 2m |
 | `PadyarHigh5xxRate` | More than 5% of an install's requests in 10 minutes are 5xx, with at least 20 requests. Requests to `/metrics` and `/api/health` are not counted (see below). 503 counts, so turning on maintenance mode needs a silence | 5m |
 | `PadyarChatLatencyHigh` | p95 of `/chat` above 8 s, with at least 10 chats in 10 minutes | 10m |
+| `PadyarAICircuitOpen` | An AI provider's circuit is stored `open` (`ai_circuit_state == 2`). `half_open` (1) does not fire | 5m |
+| `PadyarBackupFailed` | A scheduled backup failed or was not verified in the last 26 hours | 0m |
+| `PadyarBackupStale` | The newest verified backup is older than the install's own backup interval plus 2 hours. Quiet when automatic backups are off (interval `0`) | 15m |
 | `HostDiskLow` | Under 10% free on a writable, non-tmpfs filesystem | 10m |
 | `HostPostgresDown` | `pg_up == 0`, or the exporter does not answer | 2m |
 | `HostCertExpiring` | The origin's Let's Encrypt certificate has under 14 days left | 1h |
@@ -157,13 +160,26 @@ is on all three parts of the rule: the errors, the total, and the floor.
 proves it. A real outage of `/api/health` is still seen: the watchdog texts
 it and `HostOriginProbeFailed` fires.
 
-Not in the file yet, on purpose: `PadyarAICircuitOpen` (waits for the circuit
-state to be published at startup; today `ai_circuit_state` is only written
-on a state change), and `PadyarBackupFailed` and `PadyarBackupStale`. The
-metrics those two read are now in the app (section «متریک‌های پشتیبان‌گیری»);
-their rules are a separate change. A rule whose metric does not exist would
-load, evaluate to nothing, and never fire. `tests/test_monitoring_rules.py` keeps that list and
-fails if a name is in both places or in neither.
+Every alert the ticket asks for is in the file. `tests/test_monitoring_rules.py`
+keeps a `WAITING` list for a rule whose metric is not in the app yet, because
+such a rule would load, evaluate to nothing, and never fire. That list is
+empty: the backup metrics (section «متریک‌های پشتیبان‌گیری») and
+`ai_circuit_state` are in the app registry.
+
+Three things to know about the newest rules:
+
+- `PadyarAICircuitOpen` also fires for a provider that is disabled or has no
+  route, because `ai_circuit_state` cannot tell. This is on purpose: a filter
+  in the rule could hide a real outage of a provider that is in use. To clear
+  it, reset that provider's circuit in Admin > هوش مصنوعی > سرویس‌دهنده‌ها
+  (the «مدار» button), and remove the provider if it is not needed. Reset
+  first: removing the provider deletes its row, but does not reset the gauge
+  the running app already published.
+- `PadyarBackupFailed` stays on for 26 hours after one failure, even when the
+  next backup succeeds. Only scheduled backups count.
+- `PadyarBackupStale` fires on a new install with no verified backup yet. This
+  is on purpose: "no backup at all" is a real risk. Take a manual backup and
+  verify it after installing.
 
 Disks mounted under `/mnt`, `/media` or `/run` have no `node_filesystem_*`
 series: the Ubuntu build of node_exporter excludes those mount points, so
@@ -845,6 +861,41 @@ cycle also logs `[applog] dropped sms/sms.send.queued: DatabaseUnavailable`
 and `[sms-outbox] record failed: database marked unavailable in this process`,
 because the log store and the SMS outbox live in that database.
 
+A fourth line means no SMS of any kind can go out: `cannot import the app
+(ModuleNotFoundError): SMS disabled; check PYTHONPATH in the unit`. systemd
+runs the script from `/opt/padyar-watchdog`, and Python puts that directory on
+`sys.path`, not the working directory. The unit therefore sets
+`Environment=PYTHONPATH=/opt/padyar-%i`. Units installed before that line
+existed cannot import the app, so the down-SMS, the low-credit SMS and the
+alert SMS above never reached a phone. While the app cannot be imported, the
+watchdog tries no send at all and marks no alert as sent; the probe and the
+down streak keep working. **This was reproduced on a developer
+machine, not verified on the server.** A deploy does not update the unit.
+Re-run the installer once per install (it copies the unit and runs
+`systemctl daemon-reload`):
+
+```bash
+sudo MAINTENANCE_TITLE='<visitor-facing name>' bash deploy/17-watchdog.sh <slug> <port> <domain>
+START="$(date '+%Y-%m-%d %H:%M:%S')"
+```
+
+`START` comes after the installer because a timer run before its
+`daemon-reload` still uses the old unit and would leave a
+`ModuleNotFoundError` line after `START`.
+
+After two timer runs (about two minutes), the first command must count at
+least 2 runs and the second must print nothing. Read only the journal since
+`$START`: the last 50 lines still hold the old `ModuleNotFoundError` lines for
+several minutes, so `-n 50` would make a correct fix look failed.
+
+```bash
+journalctl -u padyar-watchdog@<slug> --since "$START" | grep -c "Finished"
+journalctl -u padyar-watchdog@<slug> --since "$START" | grep -i "cannot import\|ModuleNotFound"
+```
+
+The steps and the end-to-end check are in §8 of
+`docs/features/critical-watchdog/SPEC.md`.
+
 ## Checking it yourself
 
 ```bash
@@ -856,7 +907,7 @@ because the log store and the SMS outbox live in that database.
 .venv/bin/python -m pytest tests/test_monitoring_rules.py tests/test_monitoring_install_script.py -q
 promtool test rules deploy/monitoring/tests/padyar_rules_test.yml
 
-# Run the watchdog tests (alert SMS step and database outage included; every SMS is faked)
+# Run the watchdog tests (alert SMS step, database outage and unit import included; every SMS is faked)
 .venv/bin/python -m pytest tests/test_watchdog*.py -q
 
 # Look at the live output with an admin session, on a running dev server

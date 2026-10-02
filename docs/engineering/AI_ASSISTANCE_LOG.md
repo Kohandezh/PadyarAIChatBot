@@ -3,6 +3,30 @@
 استفاده از کدنویسی با کمک AI پنهان نمی‌شود؛ این سند سابقهٔ آن است.
 هر مدخل: چه چیزی، با چه مدلی، و وضعیت بازبینی انسانی.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): حالت بازگشت صریح در padyar-deploy
+
+- **مدل/ارکستراتور:** Claude (claude-opus-5-5) در نقش پیاده‌ساز تیم `ops-t1`، کار D.
+- **کارهای انجام‌شده:**
+  1. اسکریپت تازهٔ `deploy/rollback-plan.sh`: فقط git می‌خواند. هدفی را که روی
+     `main` نیست، همان commit فعلی است، یا پشت commit فعلی نیست رد می‌کند، و
+     migrationهایی را که کد قدیمی ندیده با برچسب `additive` یا `destructive`
+     فهرست می‌کند.
+  2. `deploy/padyar-deploy.sh` حالت `--rollback <sha>` گرفت: اول plan، تأیید با
+     `PADYAR_ROLLBACK_CONFIRM` وقتی فهرست خالی نیست، هشدار برای migration مخرب،
+     بعد پشتیبان، checkout، deps، بدون migration، ری‌استارت، بررسی سلامت. HEAD حالا
+     بعد از گرفتن قفل خوانده می‌شود (در هر دو حالت). متن لاگ «they are additive»
+     و کامنت «The workflow asked» اصلاح شد.
+  3. `deploy/README.md` و بخش بازگشت `docs/engineering/DEPLOYMENT_RUNBOOK.md`
+     دو راه بازگشت را با دستور دقیق و اثر روی دیتابیس می‌گویند. ادعای «مهاجرت‌ها
+     فقط افزوده‌اند» در runbook اصلاح شد.
+- **پچ‌های ردشده/بازگردانده:** نسخهٔ اول planner خروجی `git show` را با pipe به
+  `grep -q` می‌داد. زیر `pipefail` این می‌تواند با SIGPIPE یک drop را «additive»
+  نشان دهد. قبل از commit به here-string عوض شد.
+- **راستی‌آزمایی ماشینی:** `tests/test_rollback_plan.py` اول قرمز (33 شکست، planner
+  وجود نداشت)، بعد سبز (54 تست). `bash -n` روی هر دو اسکریپت.
+  `padyar-deploy.sh` واقعاً اجرا نشد (نه sudo، نه سرور).
+- **بازبینی انسانی:** pending.
+
 ## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): پیامک watchdog وقتی PostgreSQL پایین است
 
 - **مدل و نقش‌ها:** Claude Opus 5.5 (claude-opus-5-5) در نقش پیاده‌ساز، در یک
@@ -843,6 +867,45 @@
   اجرا می‌شود.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): watchdog در production نمی‌توانست app را import کند
+
+- **مدل و نقش‌ها:** Claude Opus 5.5 (claude-opus-5-5). یک عامل پیاده‌ساز و یک
+  عامل بازبین مستقل که تست پذیرش خودش را جدا از روی قرارداد نوشت.
+- **ریشهٔ مشکل:** `deploy/systemd/padyar-watchdog@.service` اسکریپت را از
+  `/opt/padyar-watchdog/watchdog.py` اجرا می‌کند و `WorkingDirectory` آن
+  `/opt/padyar-<slug>` است. Python پوشهٔ خود اسکریپت را در `sys.path` می‌گذارد،
+  نه پوشهٔ کاری را. هیچ جای دیگری هم پوشهٔ app را اضافه نمی‌کرد. پس هر
+  `from app...` در خواننده‌های تنبل watchdog با `ModuleNotFoundError` شکست
+  می‌خورد: نه شمارهٔ هشدار، نه اعتبار، نه ارسال پیامک. در journal فقط
+  `settings unreadable (ModuleNotFoundError)` دیده می‌شد.
+- **کارهای انجام‌شده:**
+  1. `Environment=PYTHONPATH=/opt/padyar-%i` در unit، با یک توضیح کوتاه.
+  2. `_app_unimportable()` در `deploy/watchdog/watchdog.py` و یک فراخوانی در
+     `run_cycle`: اگر `import app` شکست بخورد، در هر چرخه یک خط روشن
+     `cannot import the app (...)` چاپ می‌شود. probe، شمارش خطا و شمارهٔ
+     cache شده مثل قبل کار می‌کنند. بررسی اعتبار، هر ارسال پیامک و مرحلهٔ
+     پیامک Alertmanager رد می‌شوند، پس خط `send failed` نمی‌آید و هیچ هشداری
+     «ارسال‌شده» ثبت نمی‌شود.
+  3. تست‌ها پیش از کد: `tests/test_watchdog_unit_import.py` (اسکریپت را بیرون
+     از repo کپی می‌کند و در یک پوشهٔ نصب موقت، مثل systemd، اجرا می‌کند؛ و
+     بررسی می‌کند که `.env` واقعی repo خوانده نشود) و یک تست در
+     `tests/test_watchdog_io.py` برای خط روشن و نبودن هیچ ارسال.
+  4. سند: §6، §8، §9 و §10 در `docs/features/critical-watchdog/SPEC.md` و بخش
+     watchdog در `docs/engineering/MONITORING.md`، با گام‌های اجرای دوبارهٔ
+     `deploy/17-watchdog.sh` و یک دستور `journalctl --since` برای بررسی (فقط
+     journal بعد از اجرای دوباره را می‌خواند).
+- **راستی‌آزمایی ماشینی همین نشست:** بازتولید محلی در همان شکل unit (کپی
+  اسکریپت بیرون از repo، cwd پوشهٔ app، محیط خالی): پیش از اصلاح
+  `ModuleNotFoundError`، با `PYTHONPATH` بدون آن. تست تازهٔ subprocess پیش از
+  اصلاح شکست خورد و بعد از آن موفق شد. با برداشتن موقت خط `PYTHONPATH` از unit
+  دوباره شکست خورد. تست «بدون ارسال» با برداشتن موقت sender بی‌اثر یا شرط
+  مرحلهٔ هشدار شکست خورد. `tests/test_watchdog*.py` و
+  `tests/test_critical_alert_settings.py`: ۹۴ موفق. کل suite محلی اجرا **نشد**؛
+  CI دروازه است.
+- **روی سرور راستی‌آزمایی نشده است.** unit روی میزبان فقط با اجرای دوبارهٔ
+  `deploy/17-watchdog.sh` عوض می‌شود.
+- **بازبینی انسانی:** pending.
+
 ## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): انتشار وضعیت ذخیره‌شدهٔ circuit موقع شروع برنامه
 
 - **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5). بخش برنامهٔ WU3 از
@@ -991,6 +1054,39 @@
   خودش را قرمز کرد. اجرای نهایی: 14 تست تازه سبز، کل `tests/postgres` (140 تست)
   سبز روی `postgres:16-alpine`، 231 تست پشتیبان و metrics سبز،
   `python -m py_compile`.
+- **بازبینی انسانی:** pending.
+
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): فعال کردن هشدارهای مدار هوش مصنوعی و پشتیبان
+
+- **مدل:** Claude Opus 5.5 (claude-opus-5-5)، به‌عنوان عامل پیاده‌ساز در یک git
+  worktree جدا. یک عامل دیگر جدا از آن تست‌های پذیرش را نوشت و diff را بازبینی کرد.
+- **مرجع رفتار:** `docs/features/monitoring-stack/SPEC.md` بخش 5.3 (عبارت،
+  `for`، برچسب‌ها و `summary` هر قاعده) و واحد کار WU6.
+- **ریشهٔ مشکل:** پشتهٔ پایش بدون R04، R05 و R06 آمد، چون metricهای آن‌ها هنوز
+  در برنامه نبود. حالا هستند، پس سه هشدار تیکت («مدار هوش مصنوعی باز» و
+  «پشتیبان ناموفق یا قدیمی») هنوز فقط در فهرست «منتظر» تست بودند.
+- **کارهای انجام‌شده:**
+  1. سه قاعدهٔ تازه در `deploy/monitoring/rules/padyar.rules.yml`:
+     `PadyarAICircuitOpen`، `PadyarBackupFailed` و `PadyarBackupStale`، با
+     `severity="critical"` و `page="sms"`. متن `description` هر سه نوشتهٔ این
+     نشست است (SPEC فقط `summary` را داده بود). R04 مدار `open` سرویس‌دهندهٔ
+     غیرفعال را هم گزارش می‌کند (تصمیم مالک)، و متنش می‌گوید مدار را بازنشانی کنید.
+  2. تست promtool برای هر قاعده، روشن و خاموش: R04 با حالت 2 و 1؛ R05 با یک
+     شکست و فقط موفقیت؛ R06 کهنه، تازه، بازهٔ ۴۸ ساعته، و بازهٔ 0 (خاموش).
+  3. `tests/test_monitoring_rules.py`: فهرست `WAITING` خالی شد و تستی چک می‌کند
+     هر یازده هشدار لازم در فایل قواعد است.
+  4. `docs/engineering/MONITORING.md` و بخش‌های 5.3، 11.1 و Work breakdown در
+     SPEC به‌روز شدند.
+  5. در `docs/engineering/INCIDENT_RUNBOOK.md` بخش «هشدارهای منتظر» به «هشدارهای
+     مدار و پشتیبان» تغییر نام داد، سطر وضعیت R04 تا R06 مثل بقیهٔ قواعد شد، و
+     anchor `runbook` هر ۱۴ قاعده با یک اسکریپت روی عنوان‌های سند چک شد.
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** تست‌ها اول بدون قاعده‌ها اجرا شدند و شکست
+  خوردند (promtool سه هشدار نیامده، pytest سه تست). بعد از افزودن قاعده‌ها
+  `promtool check rules` و `promtool test rules` (نسخهٔ 2.45.3) و دو فایل تست
+  پایش با pytest سبز شدند. پنج mutation دستی روی قاعده‌ها (بدون نگهبان بازهٔ 0،
+  سقف ثابت ۲۴ ساعت، روشن شدن با half_open، شمردن موفقیت‌ها، بدون `for`) همه
+  با تست promtool گرفته شدند. نصب روی میزبان انجام **نشد**.
 - **بازبینی انسانی:** pending.
 
 ## نشست‌های پیش از این تاریخ
