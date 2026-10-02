@@ -71,10 +71,14 @@ log "Writing the ingress configuration"
 # The hostname goes to nginx on HTTPS 127.0.0.1:443 rather than straight to
 # uvicorn, so media serving, the 500m upload limit and the proxy timeouts
 # still apply. originServerName makes the Let's Encrypt certificate validate,
-# which is what keeps this equivalent to Full (strict).
+# which is what keeps this equivalent to Full (strict). The metrics line pins
+# cloudflared's own metrics to loopback port 20241, where the host's
+# Prometheus reads them (deploy/55-monitoring.sh); left out, cloudflared picks
+# a port itself.
 cat > /etc/cloudflared/config.yml <<CONF
 tunnel: ${TUNNEL_ID}
 credentials-file: /etc/cloudflared/credentials.json
+metrics: 127.0.0.1:20241
 no-autoupdate: true
 loglevel: info
 

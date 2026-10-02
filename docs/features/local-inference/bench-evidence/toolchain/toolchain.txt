@@ -1,0 +1,83 @@
+## llama-server --list-devices
+0.00.001.579 I srv  llama_server: initializing ...
+Available devices:
+  CUDA0: Tesla P40 (24438 MiB, 19980 MiB free)
+  CUDA1: Tesla P40 (24438 MiB, 21008 MiB free)
+## source pin
+7fe450e19305b828c199d602c23a8337aaa1f03b Wed Sep 23 20:32:51 2026 +0300 llama.cpp : bump version to 0.5.0 (#29333)
+v0.5.0
+## image
+sha256:020bc241a628776338f4d4053fed4c38f6f7f3d7eb5919fecb8de313bb8ba47c nvidia/cuda@sha256:020bc241a628776338f4d4053fed4c38f6f7f3d7eb5919fecb8de313bb8ba47c
+## build script
+#!/bin/sh
+# Build llama.cpp (pinned source in /opt/padyar-llm/src) for Tesla P40 (sm_61)
+# inside the CUDA 12.9 devel image, then place binaries + the CUDA runtime
+# libraries they need under /opt/padyar-llm/llama/{bin,lib}. The host needs
+# only the NVIDIA driver to RUN them (no nvcc, no cmake on the host).
+set -eu
+IMG=nvidia/cuda:12.9.1-devel-ubuntu24.04
+docker run --rm --cpus 16 \
+  -v /opt/padyar-llm/src:/src -v /opt/padyar-llm:/dst "$IMG" bash -euc "
+  rm -f /etc/apt/sources.list.d/cuda*.list  # developer.download.nvidia.com is 403 here
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cmake ninja-build >/dev/null
+  # no driver in a build container: link against the CUDA stub libcuda
+  ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+  cmake --version | head -1; nvcc --version | tail -2
+  cmake -S /src -B /src/build-cuda -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61 -DGGML_NATIVE=ON \
+    -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA_NCCL=OFF \\
+    -DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,/usr/local/cuda/lib64/stubs
+  cmake --build /src/build-cuda --target llama-server llama-bench -j 16
+  mkdir -p /dst/llama/bin /dst/llama/lib
+  cp /src/build-cuda/bin/llama-server /src/build-cuda/bin/llama-bench /dst/llama/bin/
+  cp -P /src/build-cuda/bin/*.so* /dst/llama/lib/
+  for l in libcudart.so.12 libcublas.so.12 libcublasLt.so.12; do
+    cp -L /usr/local/cuda/lib64/\$l /dst/llama/lib/
+  done
+  chown -R 1000:1000 /src/build-cuda /dst/llama
+"
+echo BUILD_OK
+## ldd
+	linux-vdso.so.1 (0x0000770c2b643000)
+	libllama-server-impl.so => /opt/padyar-llm/llama/lib/libllama-server-impl.so (0x0000770c2b000000)
+	libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x0000770c2ac00000)
+	libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x0000770c2b5fd000)
+	libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0000770c2a800000)
+	libllama-common.so.0 => /opt/padyar-llm/llama/lib/libllama-common.so.0 (0x0000770c2a200000)
+	libmtmd.so.0 => /opt/padyar-llm/llama/lib/libmtmd.so.0 (0x0000770c2aa48000)
+	libllama.so.0 => /opt/padyar-llm/llama/lib/libllama.so.0 (0x0000770c29e00000)
+	libggml.so.0 => /opt/padyar-llm/llama/lib/libggml.so.0 (0x0000770c2b5ed000)
+	libggml-base.so.0 => /opt/padyar-llm/llama/lib/libggml-base.so.0 (0x0000770c2af2a000)
+	libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x0000770c2a717000)
+	/lib64/ld-linux-x86-64.so.2 (0x0000770c2b645000)
+	libggml-cpu.so.0 => /opt/padyar-llm/llama/lib/libggml-cpu.so.0 (0x0000770c29c64000)
+	libggml-cuda.so.0 => /opt/padyar-llm/llama/lib/libggml-cuda.so.0 (0x0000770c27600000)
+	libgomp.so.1 => /lib/x86_64-linux-gnu/libgomp.so.1 (0x0000770c2aed4000)
+	libcudart.so.12 => /opt/padyar-llm/llama/lib/libcudart.so.12 (0x0000770c27200000)
+	libcublas.so.12 => /opt/padyar-llm/llama/lib/libcublas.so.12 (0x0000770c20a00000)
+	libcuda.so.1 => /lib/x86_64-linux-gnu/libcuda.so.1 (0x0000770c1ac00000)
+	libdl.so.2 => /lib/x86_64-linux-gnu/libdl.so.2 (0x0000770c2aecf000)
+	libpthread.so.0 => /lib/x86_64-linux-gnu/libpthread.so.0 (0x0000770c2aeca000)
+	librt.so.1 => /lib/x86_64-linux-gnu/librt.so.1 (0x0000770c2aec5000)
+	libcublasLt.so.12 => /opt/padyar-llm/llama/lib/libcublasLt.so.12 (0x0000770be8800000)
+## lib sha256
+6dee0291acfa2603aa32b5f630dfe3d7f075a101887d8828482142c0c20bb7ec  /opt/padyar-llm/llama/bin/llama-bench
+0a37f4543ed6c722cbbc12a1d75b628adb3351c5ce57e7b407ee47f5a89daa16  /opt/padyar-llm/llama/bin/llama-server
+96ddf4891ca4f4ed1475966783a9185df2abd64a81c3cc713b96d036696fc541  /opt/padyar-llm/llama/lib/libcublasLt.so.12
+d63456d94f1b8e2408a8a9538c8740eb474c9eba48a84f420b15e2e10fbcd048  /opt/padyar-llm/llama/lib/libcublas.so.12
+256e6409e4f06f618e1fb53d4844a6b81cdded1013afa8ade40c22f99eb133b7  /opt/padyar-llm/llama/lib/libcudart.so.12
+e175df3256fc65cba26bdfca8e7e976d406cd6ae0dff65e35254550bd6a7dc9a  /opt/padyar-llm/llama/lib/libggml-base.so.0
+e175df3256fc65cba26bdfca8e7e976d406cd6ae0dff65e35254550bd6a7dc9a  /opt/padyar-llm/llama/lib/libggml-base.so.0.25.1
+bea34be21a17b5a8bb36b74d22be1117b1dd1d2564b121f5609982e9c3a2a340  /opt/padyar-llm/llama/lib/libggml-cpu.so.0
+bea34be21a17b5a8bb36b74d22be1117b1dd1d2564b121f5609982e9c3a2a340  /opt/padyar-llm/llama/lib/libggml-cpu.so.0.25.1
+0f334a288b74d8e67035bd3c6c1a74c432863a3889cc26f5c274fc21637905dc  /opt/padyar-llm/llama/lib/libggml-cuda.so.0
+0f334a288b74d8e67035bd3c6c1a74c432863a3889cc26f5c274fc21637905dc  /opt/padyar-llm/llama/lib/libggml-cuda.so.0.25.1
+6efe451b00b83abf1eee7930e66c6878ebf99eacd4a27f4fe0babfdca7fd6644  /opt/padyar-llm/llama/lib/libggml.so.0
+6efe451b00b83abf1eee7930e66c6878ebf99eacd4a27f4fe0babfdca7fd6644  /opt/padyar-llm/llama/lib/libggml.so.0.25.1
+50d2a1b589279e127abf2c62789e48e11d7515d1b28dc6d2e6e5debc32d04341  /opt/padyar-llm/llama/lib/libllama-common.so.0
+50d2a1b589279e127abf2c62789e48e11d7515d1b28dc6d2e6e5debc32d04341  /opt/padyar-llm/llama/lib/libllama-common.so.0.5.0
+e327898f0cb903245cb1b9a736122a7dbd555001c5b17123f1568d68205b943b  /opt/padyar-llm/llama/lib/libllama.so.0
+e327898f0cb903245cb1b9a736122a7dbd555001c5b17123f1568d68205b943b  /opt/padyar-llm/llama/lib/libllama.so.0.5.0
+e3fe6e9c4b3d04f9ee108942e1d356b9906785957a787809181641314994929c  /opt/padyar-llm/llama/lib/libmtmd.so.0
+e3fe6e9c4b3d04f9ee108942e1d356b9906785957a787809181641314994929c  /opt/padyar-llm/llama/lib/libmtmd.so.0.5.0

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Download the bench models in spec order; resumable (curl -C -), then sha256.
+set -u
+cd /var/lib/padyar/llm/models
+for spec in \
+  "unsloth/gemma-4-26B-A4B-it-GGUF gemma-4-26B-A4B-it-UD-Q4_K_M.gguf" \
+  "unsloth/gemma-4-12b-it-GGUF gemma-4-12b-it-Q4_K_M.gguf" \
+  "Qwen/Qwen3-14B-GGUF Qwen3-14B-Q4_K_M.gguf"; do
+  set -- $spec
+  echo "$(date -Is) start $1/$2"
+  curl -sSL --retry 20 --retry-delay 5 -C - -o "$2" "https://huggingface.co/$1/resolve/main/$2"
+  echo "$(date -Is) done rc=$? $2 size=$(stat -c %s "$2")"
+  sha256sum "$2" | tee -a SHA256SUMS
+done
+echo "$(date -Is) ALL DONE"
+---LOG---
+2026-09-30T17:46:34+00:00 start unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf
+2026-09-30T17:59:59+00:00 done rc=0 gemma-4-26B-A4B-it-UD-Q4_K_M.gguf size=16947541728
+f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f  gemma-4-26B-A4B-it-UD-Q4_K_M.gguf
+2026-09-30T18:00:59+00:00 start unsloth/gemma-4-12b-it-GGUF/gemma-4-12b-it-Q4_K_M.gguf
+2026-09-30T18:05:41+00:00 done rc=0 gemma-4-12b-it-Q4_K_M.gguf size=7121861440
+0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42  gemma-4-12b-it-Q4_K_M.gguf
+2026-09-30T18:06:04+00:00 start Qwen/Qwen3-14B-GGUF/Qwen3-14B-Q4_K_M.gguf
+2026-09-30T18:15:55+00:00 done rc=0 Qwen3-14B-Q4_K_M.gguf size=9001752960
+500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0  Qwen3-14B-Q4_K_M.gguf
+2026-09-30T18:16:39+00:00 ALL DONE
+---SHA256SUMS---
+f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f  gemma-4-26B-A4B-it-UD-Q4_K_M.gguf
+0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42  gemma-4-12b-it-Q4_K_M.gguf
+500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0  Qwen3-14B-Q4_K_M.gguf
+total 32296072
+-rw-rw-r-- 1 gpu gpu  7121861440 Sep 30 18:05 gemma-4-12b-it-Q4_K_M.gguf
+-rw-rw-r-- 1 gpu gpu 16947541728 Sep 30 17:59 gemma-4-26B-A4B-it-UD-Q4_K_M.gguf
+-rw-rw-r-- 1 gpu gpu  9001752960 Sep 30 18:15 Qwen3-14B-Q4_K_M.gguf
+-rw-rw-r-- 1 gpu gpu         281 Sep 30 18:16 SHA256SUMS

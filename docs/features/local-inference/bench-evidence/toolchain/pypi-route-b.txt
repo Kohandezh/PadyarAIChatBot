@@ -1,0 +1,13 @@
+# Route (b) PyPI wheels: tried and dropped. Output copied from the session transcript (2026-09-30).
+# 1) 17:47 UTC: python3 -m venv /opt/padyar-llm/venv; ./venv/bin/pip install -q --upgrade pip;
+#    ./venv/bin/pip download --no-deps -d /tmp/pdyr-llm-probe "nvidia-cuda-runtime-cu12==12.9.*" "nvidia-cublas-cu12==12.9.*" "nvidia-cuda-cccl-cu12==12.9.*"
+#    -> after ~22 minutes nothing had been saved to /tmp/pdyr-llm-probe (ls showed an empty dir at 17:58 and 18:10); process killed.
+# 2) 18:10 UTC: timeout 60 ./venv/bin/pip download --no-deps --timeout 15 -d /tmp/pdyr-llm-probe "nvidia-cuda-cccl-cu12==12.9.*" -v
+Collecting nvidia-cuda-cccl-cu12==12.9.*
+  Obtaining dependency information for nvidia-cuda-cccl-cu12==12.9.* from https://files.pythonhosted.org/packages/18/2a/d4cd8506d2044e082f8cd921be57392e6a9b5ccd3ffdf050362430a3d5d5/nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata
+  Using cached nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (1.7 kB)
+Downloading nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (3.2 MB)
+   3.2/3.2 MB 115.7 kB/s  0:00:25
+Saved /tmp/pdyr-llm-probe/nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+Successfully downloaded nvidia-cuda-cccl-cu12
+# /tmp/pdyr-llm-probe was removed at the end of the bench.

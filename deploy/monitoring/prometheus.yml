@@ -1,0 +1,44 @@
+# Prometheus for the whole host. Installed to /etc/prometheus/prometheus.yml
+# by deploy/55-monitoring.sh; re-run that script after changing this file.
+#
+# Every listener on this host stays on 127.0.0.1 (SPEC monitoring-stack
+# SEC-001). One file per install in scrape.d/ (rendered from templates/), so
+# a re-run for one install never rewrites another install's job.
+#
+# honor_labels stays at its default (false) everywhere. An app label that
+# collides with a target label is then renamed exported_<name>, which is why
+# rules read ai_circuit_state's own label as exported_instance.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_config_files:
+  - /etc/prometheus/scrape.d/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
+      basic_auth:
+        username: prometheus
+        password_file: /etc/prometheus/secrets/alertmanager-prometheus.pass
+
+scrape_configs:
+  - job_name: node
+    static_configs:
+      - targets: ["127.0.0.1:9100"]
+
+  # One exporter for the whole PostgreSQL cluster: every install on this
+  # host uses the same server (deploy/00-bootstrap-server.sh).
+  - job_name: postgres
+    static_configs:
+      - targets: ["127.0.0.1:9187"]
+
+  # The tunnel's own metrics port, pinned by the `metrics:` line the script
+  # adds to /etc/cloudflared/config.yml.
+  - job_name: cloudflared
+    static_configs:
+      - targets: ["127.0.0.1:20241"]

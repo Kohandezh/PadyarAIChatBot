@@ -1,0 +1,454 @@
+# promtool unit tests for rules/padyar.rules.yml (SPEC monitoring-stack SC-010).
+#
+#   promtool test rules deploy/monitoring/tests/padyar_rules_test.yml
+#
+# deploy/55-monitoring.sh copies this file to /etc/prometheus/tests/ and runs
+# it there before any restart, so the relative rule path below works in both
+# places. Every rule has a case where it fires and a case where it stays
+# quiet. The one exception is MonitoringHeartbeat: it is vector(1) and can
+# never be quiet, which is its whole point.
+#
+# promtool 2.45 compares labels and annotations EXACTLY, so every expected
+# alert lists all of them, rendered.
+rule_files:
+  - ../rules/padyar.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # R01: up == 0 for 2 minutes fires; a scrape that works does not.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="padyar-inotex",instance="127.0.0.1:8001",app="padyar",install="inotex"}'
+        values: '0x10'
+      - series: 'up{job="padyar-elecomp",instance="127.0.0.1:8002",app="padyar",install="elecomp"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PadyarAppDown
+      - eval_time: 3m
+        alertname: PadyarAppDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              app: padyar
+              install: inotex
+              job: padyar-inotex
+              instance: 127.0.0.1:8001
+            exp_annotations:
+              summary: "Prometheus نمی‌تواند /metrics نصب inotex را بخواند. یا برنامه پایین است، یا METRICS_TOKEN برنامه با فایل توکن یکی نیست (پاسخ 403)."
+              description: "اول sudo systemctl status padyar-inotex را ببینید. اگر برنامه بالا است، deploy/55-monitoring.sh inotex را دوباره اجرا کنید تا توکن دوباره چک شود."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarappdown"
+
+  # R02: inotex has 1 error in 6 requests at volume. elecomp has 50% errors
+  # but only ~10 requests in 10 minutes. quiet has volume but 1% errors.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",method="POST",route="/chat",status="200"}'
+        values: '0+10x20'
+      - series: 'http_requests_total{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",method="POST",route="/chat",status="503"}'
+        values: '0+2x20'
+      - series: 'http_requests_total{app="padyar",install="elecomp",job="padyar-elecomp",instance="127.0.0.1:8002",method="POST",route="/chat",status="200"}'
+        values: '0+0.5x20'
+      - series: 'http_requests_total{app="padyar",install="elecomp",job="padyar-elecomp",instance="127.0.0.1:8002",method="POST",route="/chat",status="500"}'
+        values: '0+0.5x20'
+      - series: 'http_requests_total{app="padyar",install="quiet",job="padyar-quiet",instance="127.0.0.1:8003",method="GET",route="/api/questions",status="200"}'
+        values: '0+99x20'
+      - series: 'http_requests_total{app="padyar",install="quiet",job="padyar-quiet",instance="127.0.0.1:8003",method="GET",route="/api/questions",status="500"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PadyarHigh5xxRate
+      - eval_time: 10m
+        alertname: PadyarHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+            exp_annotations:
+              summary: "بیش از ۵٪ درخواست‌های نصب inotex در ۱۰ دقیقهٔ گذشته خطای سرور (5xx) گرفتند. اگر حالت نگهداری روشن است، silence بگذارید."
+              description: "در رابط Prometheus، http_requests_total نصب inotex را به تفکیک route و status ببینید و journalctl -u padyar-inotex را بخوانید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarhigh5xxrate"
+
+  # R02 and the stack's own requests. Prometheus reads /metrics every 15 s,
+  # the origin probe and the watchdog read /api/health: about 90 successful
+  # requests per 10 minutes that no visitor made. They are left out of all
+  # three parts of the rule, and each install below proves one part:
+  #   busy:      5 errors in 30 real requests. Counting the stack's 90 would
+  #              dilute it to 4.2% and hide it (denominator).
+  #   fewreal:   6 errors in 10 real requests. Counting the stack's requests
+  #              would lift it over the 20-request floor (floor).
+  #   scrapeerr: only /metrics answers 5xx; real traffic is clean. Counting it
+  #              would make 10 errors in 30 requests (numerator).
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="GET",route="/metrics",status="200"}'
+        values: '0+4x30'
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="GET",route="/api/health",status="200"}'
+        values: '0+5x30'
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="POST",route="/chat",status="200"}'
+        values: '0+2.5x30'
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="POST",route="/chat",status="500"}'
+        values: '0+0.5x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="GET",route="/metrics",status="200"}'
+        values: '0+4x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="GET",route="/api/health",status="200"}'
+        values: '0+5x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="POST",route="/chat",status="200"}'
+        values: '0+0.4x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="POST",route="/chat",status="500"}'
+        values: '0+0.6x30'
+      - series: 'http_requests_total{app="padyar",install="scrapeerr",job="padyar-scrapeerr",instance="127.0.0.1:8013",method="GET",route="/metrics",status="500"}'
+        values: '0+1x30'
+      - series: 'http_requests_total{app="padyar",install="scrapeerr",job="padyar-scrapeerr",instance="127.0.0.1:8013",method="GET",route="/api/health",status="200"}'
+        values: '0+5x30'
+      - series: 'http_requests_total{app="padyar",install="scrapeerr",job="padyar-scrapeerr",instance="127.0.0.1:8013",method="POST",route="/chat",status="200"}'
+        values: '0+3x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PadyarHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: busy
+            exp_annotations:
+              summary: "بیش از ۵٪ درخواست‌های نصب busy در ۱۰ دقیقهٔ گذشته خطای سرور (5xx) گرفتند. اگر حالت نگهداری روشن است، silence بگذارید."
+              description: "در رابط Prometheus، http_requests_total نصب busy را به تفکیک route و status ببینید و journalctl -u padyar-busy را بخوانید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarhigh5xxrate"
+
+  # R03: inotex answers every chat in 5-10 s (p95 = 9.75 s). fast answers in
+  # under 5 s. slow is slow but has ~5 chats in 10 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",method="POST",route="/chat",le="5.0"}'
+        values: '0+0x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",method="POST",route="/chat",le="10.0"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",method="POST",route="/chat",le="+Inf"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_count{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",method="POST",route="/chat"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="fast",job="padyar-fast",instance="127.0.0.1:8002",method="POST",route="/chat",le="5.0"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="fast",job="padyar-fast",instance="127.0.0.1:8002",method="POST",route="/chat",le="10.0"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="fast",job="padyar-fast",instance="127.0.0.1:8002",method="POST",route="/chat",le="+Inf"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_count{app="padyar",install="fast",job="padyar-fast",instance="127.0.0.1:8002",method="POST",route="/chat"}'
+        values: '0+2x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="slow",job="padyar-slow",instance="127.0.0.1:8003",method="POST",route="/chat",le="5.0"}'
+        values: '0+0x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="slow",job="padyar-slow",instance="127.0.0.1:8003",method="POST",route="/chat",le="10.0"}'
+        values: '0+0.5x30'
+      - series: 'http_request_duration_seconds_bucket{app="padyar",install="slow",job="padyar-slow",instance="127.0.0.1:8003",method="POST",route="/chat",le="+Inf"}'
+        values: '0+0.5x30'
+      - series: 'http_request_duration_seconds_count{app="padyar",install="slow",job="padyar-slow",instance="127.0.0.1:8003",method="POST",route="/chat"}'
+        values: '0+0.5x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PadyarChatLatencyHigh
+      - eval_time: 20m
+        alertname: PadyarChatLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+            exp_annotations:
+              summary: "p95 زمان پاسخ چت نصب inotex بالای ۸ ثانیه است."
+              description: "در رابط Prometheus ببینید پاسخ‌ها از کدام tier می‌آیند (chat_tier_served_total) و سرویس هوش مصنوعی کند است یا نه (ai_calls_total)."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarchatlatencyhigh"
+
+  # R07 and R11: /data is 5% free (both fire), /var is 15% free (R11 only),
+  # / is 50% free (neither). /snap is full but read-only and /run is tmpfs:
+  # neither ever fires.
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node",instance="127.0.0.1:9100",device="/dev/sdb1",fstype="ext4",mountpoint="/data"}'
+        values: '5x40'
+      - series: 'node_filesystem_size_bytes{job="node",instance="127.0.0.1:9100",device="/dev/sdb1",fstype="ext4",mountpoint="/data"}'
+        values: '100x40'
+      - series: 'node_filesystem_readonly{job="node",instance="127.0.0.1:9100",device="/dev/sdb1",fstype="ext4",mountpoint="/data"}'
+        values: '0x40'
+      - series: 'node_filesystem_avail_bytes{job="node",instance="127.0.0.1:9100",device="/dev/sda2",fstype="ext4",mountpoint="/var"}'
+        values: '15x40'
+      - series: 'node_filesystem_size_bytes{job="node",instance="127.0.0.1:9100",device="/dev/sda2",fstype="ext4",mountpoint="/var"}'
+        values: '100x40'
+      - series: 'node_filesystem_readonly{job="node",instance="127.0.0.1:9100",device="/dev/sda2",fstype="ext4",mountpoint="/var"}'
+        values: '0x40'
+      - series: 'node_filesystem_avail_bytes{job="node",instance="127.0.0.1:9100",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '50x40'
+      - series: 'node_filesystem_size_bytes{job="node",instance="127.0.0.1:9100",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '100x40'
+      - series: 'node_filesystem_readonly{job="node",instance="127.0.0.1:9100",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '0x40'
+      - series: 'node_filesystem_avail_bytes{job="node",instance="127.0.0.1:9100",device="/dev/loop0",fstype="ext4",mountpoint="/snap"}'
+        values: '0x40'
+      - series: 'node_filesystem_size_bytes{job="node",instance="127.0.0.1:9100",device="/dev/loop0",fstype="ext4",mountpoint="/snap"}'
+        values: '100x40'
+      - series: 'node_filesystem_readonly{job="node",instance="127.0.0.1:9100",device="/dev/loop0",fstype="ext4",mountpoint="/snap"}'
+        values: '1x40'
+      - series: 'node_filesystem_avail_bytes{job="node",instance="127.0.0.1:9100",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '1x40'
+      - series: 'node_filesystem_size_bytes{job="node",instance="127.0.0.1:9100",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '100x40'
+      - series: 'node_filesystem_readonly{job="node",instance="127.0.0.1:9100",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostDiskLow
+      - eval_time: 15m
+        alertname: HostDiskLow
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              job: node
+              instance: 127.0.0.1:9100
+              device: /dev/sdb1
+              fstype: ext4
+              mountpoint: /data
+            exp_annotations:
+              summary: "کمتر از ۱۰٪ فضای /data آزاد است."
+              description: "با sudo du -xh --max-depth=1 /data | sort -h ببینید چه چیزی فضا را گرفته است. پشتیبان‌ها و لاگ‌ها اول."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostdisklow"
+      - eval_time: 20m
+        alertname: HostDiskFilling
+      - eval_time: 35m
+        alertname: HostDiskFilling
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: 127.0.0.1:9100
+              device: /dev/sdb1
+              fstype: ext4
+              mountpoint: /data
+            exp_annotations:
+              summary: "کمتر از ۲۰٪ فضای /data آزاد است."
+              description: "هنوز فوری نیست. پیش از آن‌که به ۱۰٪ برسد (HostDiskLow) فضا آزاد کنید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostdiskfilling"
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: 127.0.0.1:9100
+              device: /dev/sda2
+              fstype: ext4
+              mountpoint: /var
+            exp_annotations:
+              summary: "کمتر از ۲۰٪ فضای /var آزاد است."
+              description: "هنوز فوری نیست. پیش از آن‌که به ۱۰٪ برسد (HostDiskLow) فضا آزاد کنید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostdiskfilling"
+
+  # R08, first way: the exporter answers and says the database is down.
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{job="postgres",instance="127.0.0.1:9187"}'
+        values: '0x10'
+      - series: 'up{job="postgres",instance="127.0.0.1:9187"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: HostPostgresDown
+      - eval_time: 3m
+        alertname: HostPostgresDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              job: postgres
+              instance: 127.0.0.1:9187
+            exp_annotations:
+              summary: "PostgreSQL پاسخ نمی‌دهد، یا exporter آن پایین است."
+              description: "sudo systemctl status postgresql و sudo systemctl status prometheus-postgres-exporter را ببینید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostpostgresdown"
+
+  # R08, second way: the exporter itself does not answer, so there is no
+  # pg_up at all, only up == 0.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="postgres",instance="127.0.0.1:9187"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: HostPostgresDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              job: postgres
+              instance: 127.0.0.1:9187
+            exp_annotations:
+              summary: "PostgreSQL پاسخ نمی‌دهد، یا exporter آن پایین است."
+              description: "sudo systemctl status postgresql و sudo systemctl status prometheus-postgres-exporter را ببینید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostpostgresdown"
+
+  # R08 quiet: database and exporter both up.
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{job="postgres",instance="127.0.0.1:9187"}'
+        values: '1x10'
+      - series: 'up{job="postgres",instance="127.0.0.1:9187"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostPostgresDown
+
+  # R09: chat.example.com expires in 10 days (fires after 1h), bot.example.org
+  # in 30 days (quiet). The test clock starts at Unix time 0.
+  - interval: 1m
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox-origin",instance="chat.example.com",domain="chat.example.com",probe_install="inotex"}'
+        values: '864000x90'
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox-origin",instance="bot.example.org",domain="bot.example.org",probe_install="elecomp"}'
+        values: '2592000x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HostCertExpiring
+      - eval_time: 70m
+        alertname: HostCertExpiring
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              job: blackbox-origin
+              instance: chat.example.com
+              domain: chat.example.com
+              probe_install: inotex
+            exp_annotations:
+              summary: "گواهی مبدأ chat.example.com کمتر از ۱۴ روز اعتبار دارد؛ تمدید خودکار Let's Encrypt کار نکرده."
+              description: "sudo certbot renew --dry-run را اجرا کنید و خطای آن را بخوانید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostcertexpiring"
+
+  # R10, first way: cloudflared answers but holds no connection.
+  - interval: 1m
+    input_series:
+      - series: 'cloudflared_tunnel_ha_connections{job="cloudflared",instance="127.0.0.1:20241"}'
+        values: '0x10'
+      - series: 'up{job="cloudflared",instance="127.0.0.1:20241"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: HostTunnelDown
+      - eval_time: 3m
+        alertname: HostTunnelDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+            exp_annotations:
+              summary: "تونل Cloudflare هیچ اتصال فعالی ندارد، یا metrics آن خوانده نمی‌شود."
+              description: "sudo systemctl status cloudflared و sudo journalctl -u cloudflared -n 50 را ببینید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hosttunneldown"
+
+  # R10, second way: its metrics port does not answer at all.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="cloudflared",instance="127.0.0.1:20241"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: HostTunnelDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+            exp_annotations:
+              summary: "تونل Cloudflare هیچ اتصال فعالی ندارد، یا metrics آن خوانده نمی‌شود."
+              description: "sudo systemctl status cloudflared و sudo journalctl -u cloudflared -n 50 را ببینید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hosttunneldown"
+
+  # R10 quiet: four connections, as a healthy tunnel holds.
+  - interval: 1m
+    input_series:
+      - series: 'cloudflared_tunnel_ha_connections{job="cloudflared",instance="127.0.0.1:20241"}'
+        values: '4x10'
+      - series: 'up{job="cloudflared",instance="127.0.0.1:20241"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostTunnelDown
+
+  # R12: node_exporter stopped answering. A down postgres job is R08's, not
+  # this rule's, and a working blackbox job is quiet.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node",instance="127.0.0.1:9100"}'
+        values: '0x10'
+      - series: 'up{job="postgres",instance="127.0.0.1:9187"}'
+        values: '0x10'
+      - series: 'up{job="blackbox-origin",instance="chat.example.com",domain="chat.example.com",probe_install="inotex"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MonitoringTargetDown
+      - eval_time: 6m
+        alertname: MonitoringTargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: 127.0.0.1:9100
+            exp_annotations:
+              summary: "exporter node خوانده نمی‌شود."
+              description: "تا این exporter برنگردد، هشدارهای دیسک یا گواهی و سایت دیده نمی‌شوند. وضعیت سرویس prometheus-*-exporter مربوط را ببینید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#monitoringtargetdown"
+
+  # R13: always on, from the first evaluation. It has no quiet case: an
+  # expression of vector(1) cannot be quiet, and that is what makes its
+  # absence mean "Prometheus is not evaluating rules".
+  - interval: 1m
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: MonitoringHeartbeat
+        exp_alerts:
+          - exp_labels:
+              severity: none
+            exp_annotations:
+              summary: "ضربان سیستم پایش. این هشدار همیشه روشن است."
+              description: "اگر این هشدار در Alertmanager نیست، Prometheus قاعده‌ها را ارزیابی نمی‌کند یا به Alertmanager نمی‌رسد."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#monitoringheartbeat"
+
+  # R14 (SC-018): the probe through nginx fails for both installs. inotex's
+  # app is up, so the alert fires. elecomp's app is down, so the watchdog
+  # already texts it and R14 stays quiet for elecomp.
+  - interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-origin",instance="chat.example.com",domain="chat.example.com",probe_install="inotex"}'
+        values: '0x10'
+      - series: 'probe_success{job="blackbox-origin",instance="bot.example.org",domain="bot.example.org",probe_install="elecomp"}'
+        values: '0x10'
+      - series: 'up{job="padyar-inotex",instance="127.0.0.1:8001",app="padyar",install="inotex"}'
+        values: '1x10'
+      - series: 'up{job="padyar-elecomp",instance="127.0.0.1:8002",app="padyar",install="elecomp"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HostOriginProbeFailed
+      - eval_time: 4m
+        alertname: HostOriginProbeFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              job: blackbox-origin
+              instance: chat.example.com
+              domain: chat.example.com
+              probe_install: inotex
+            exp_annotations:
+              summary: "probe روی https://127.0.0.1:443/api/health برای chat.example.com شکست خورد در حالی که برنامه بالا است. nginx پایین است یا گواهی مبدأ منقضی یا نامعتبر است. تونل همین را رد می‌کند، پس بازدیدکننده خطا می‌بیند."
+              description: "sudo systemctl status nginx و sudo nginx -t را ببینید، سپس curl -skv --resolve chat.example.com:443:127.0.0.1 https://chat.example.com/api/health را اجرا کنید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#hostoriginprobefailed"
+
+  # R14 quiet: both probes succeed.
+  - interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-origin",instance="chat.example.com",domain="chat.example.com",probe_install="inotex"}'
+        values: '1x10'
+      - series: 'up{job="padyar-inotex",instance="127.0.0.1:8001",app="padyar",install="inotex"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HostOriginProbeFailed
