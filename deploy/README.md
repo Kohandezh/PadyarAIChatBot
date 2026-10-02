@@ -74,6 +74,16 @@ too; then leave `PADYAR_GIT_TOKEN` out.
 
 During an event: do not deploy.
 
+**Why there is no auto-deploy.** Until 2026-10 a `deploy` job in
+`.github/workflows/ci.yml` ran on a self-hosted runner on this server
+(`deploy/50-install-github-runner.sh`). It was removed so that no CI job
+runs on the production server. The runner script is kept for reference only.
+A server that still has the runner installed can remove it with the steps
+under "TO REMOVE" at the top of that script, with one change: keep
+`/usr/local/bin/padyar-deploy`, because the manual deploy above uses it.
+Remove only the runner service, the `gh-runner` user and
+`/etc/sudoers.d/gh-runner-deploy`.
+
 ### Rolling back
 
 Two ways. Both move the code only. The database is never rolled back.
@@ -108,16 +118,6 @@ Two ways. Both move the code only. The database is never rolled back.
    `--rollback` needs the running commit to contain
    `deploy/rollback-plan.sh`. On an older install it stops and changes
    nothing; use `git revert` instead.
-
-**Why there is no auto-deploy.** Until 2026-10 a `deploy` job in
-`.github/workflows/ci.yml` ran on a self-hosted runner on this server
-(`deploy/50-install-github-runner.sh`). It was removed so that no CI job
-runs on the production server. The runner script is kept for reference only.
-A server that still has the runner installed can remove it with the steps
-under "TO REMOVE" at the top of that script, with one change: keep
-`/usr/local/bin/padyar-deploy`, because the manual deploy above uses it.
-Remove only the runner service, the `gh-runner` user and
-`/etc/sudoers.d/gh-runner-deploy`.
 
 ## Things that will bite you, and why
 
