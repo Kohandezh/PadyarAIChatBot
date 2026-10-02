@@ -171,8 +171,9 @@ def test_a_timeout_says_it_took_longer_than_the_allowed_time(
     assert minutes in block["reason"] and "دقیقه" in block["reason"]
     assert "از حد زمانی گذشت" in block["reason"]
     assert "خراب" not in block["reason"], "a timeout is not a damaged file"
-    assert block["reason"].endswith(restore_drill._LOGS_HINT)
-    assert _english_left(block["reason"]) == []
+    assert block["reason"].endswith(restore_drill._logs_hint())
+    assert _english_left(block["reason"].replace(
+        restore_drill._server_log_command(), "")) == []
 
 
 def test_the_timeout_minutes_follow_the_module_constant(restore_args, monkeypatch):
@@ -200,10 +201,11 @@ def test_a_non_zero_exit_keeps_the_failure_text_and_the_logs_hint(
     assert block["status"] == "failed"
     assert "ناموفق بود" in block["reason"]
     assert restore_drill._RESTORE_WHAT in block["reason"]
-    assert block["reason"].endswith(restore_drill._LOGS_HINT)
+    assert block["reason"].endswith(restore_drill._logs_hint())
     assert "خراب" not in block["reason"], "nobody checked the file is damaged"
     assert "دقیقه" not in block["reason"]
-    assert _english_left(block["reason"]) == []
+    assert _english_left(block["reason"].replace(
+        restore_drill._server_log_command(), "")) == []
     assert block["restore_duration_ms"] is not None
 
 
@@ -216,3 +218,23 @@ def test_the_deploy_script_gives_the_drill_database_the_live_search_path():
     assert live in script
     assert drill in script
     assert script.index(drill) > script.index("CREATE DATABASE ${drill_db}")
+
+
+# ── The hint points at the server log, where pg_restore's own error goes ──
+
+@pytest.mark.parametrize("dbname, unit", [
+    ("padyar_inotex", "padyar-inotex"),
+    ("padyar_my-event", "padyar-my-event"),
+    ("customdb", "padyar-<slug>"),
+])
+def test_the_log_command_names_this_installs_service(monkeypatch, dbname, unit):
+    from app.services import pg_backup
+    monkeypatch.setattr(pg_backup, "_conn_parts", lambda: {"dbname": dbname})
+
+    command = restore_drill._server_log_command()
+
+    assert command == f"sudo journalctl -u {unit} --since today --no-pager"
+    assert restore_drill._logs_hint().endswith(command)
+    assert "لاگ سرور" in restore_drill._LOGS_HINT
+    assert "گزارش‌ها" not in restore_drill._LOGS_HINT, (
+        "the tool's error is not in the reports page")

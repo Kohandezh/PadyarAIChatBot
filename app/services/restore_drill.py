@@ -417,7 +417,27 @@ def _drill(backup_id: str, manifest: dict, block: dict) -> None:
 # the BackupError text can go into the reason as it is.
 _RESTORE_WHAT = "بازگردانی در پایگاه دادهٔ تمرین"
 
-_LOGS_HINT = "جزئیات در بخش گزارش‌ها ثبت شده است."
+# The tool's own error text (pg_restore stderr) goes only to the server log, through
+# pg_backup._run. It is not copied into the log store on purpose, because it can
+# name the host and the database. So the hint points at the server log and says
+# how to read it.
+_LOGS_HINT = "علت دقیق در لاگ سرور ثبت شده است. برای دیدن آن، این دستور را روی سرور اجرا کنید:"
+
+
+def _server_log_command() -> str:
+    """The command that shows this install's server log.
+
+    deploy/05-create-databases.sh names the database `padyar_<slug>` and
+    deploy/10-install-app.sh names the service `padyar-<slug>`, so the slug
+    comes from the live database name. Any other name gets a placeholder.
+    """
+    dbname = pg_backup._conn_parts().get("dbname", "")
+    slug = dbname[len("padyar_"):] if dbname.startswith("padyar_") else ""
+    return f"sudo journalctl -u padyar-{slug or '<slug>'} --since today --no-pager"
+
+
+def _logs_hint() -> str:
+    return f"{_LOGS_HINT} {_server_log_command()}"
 
 
 def _restore_failure_reason(error) -> str:
@@ -431,8 +451,8 @@ def _restore_failure_reason(error) -> str:
         minutes = pg_backup._RESTORE_TIMEOUT // 60
         return (f"{error.message_fa} این کار بیش از {minutes} دقیقه طول کشید و "
                 "متوقف شد. شاید پایگاه داده بزرگ است یا سرور کند است. "
-                + _LOGS_HINT)
-    return f"{error.message_fa} {_LOGS_HINT}"
+                + _logs_hint())
+    return f"{error.message_fa} {_logs_hint()}"
 
 
 def _restore_and_check(backup_id, manifest, block, parts, drill_parts) -> None:
@@ -451,8 +471,8 @@ def _restore_and_check(backup_id, manifest, block, parts, drill_parts) -> None:
         block["restore_duration_ms"] = int((time.perf_counter() - started) * 1000)
         block["status"] = "failed"
         block["reason"] = _restore_failure_reason(e)
-        # The tool's own error text is in the server log (pg_backup._run).
-        # This line makes the failure easy to find in the reports page.
+        # The tool's own error text is only in the server log (pg_backup._run).
+        # This line records that the drill failed and why, in the log store.
         applog.error("backup", "backup.drill.restore_failed", block["reason"],
                      actor=block["actor"], target=backup_id, outcome="failed",
                      metadata={"timeout": isinstance(e, pg_backup.BackupTimeout)})

@@ -304,19 +304,24 @@ def _dump_path(backup_id: str) -> str:
 def _update_manifest(backup_id: str, fields: dict) -> dict:
     """Set ONLY `fields` in the backup's manifest.json. Returns the new manifest.
 
-    Two writers touch one manifest after create(): verify() (its
-    `verification` and `toc_entries`) and the restore drill (its `drill`
-    block). Each used to read the file, change it in memory and write the whole
-    file back. If both did that at the same time, the one that wrote last erased
-    the other's key.
+    Three writers touch one manifest after create(): verify() (its
+    `verification` and `toc_entries`), the restore drill (its `drill` block)
+    and the off-site copy (its `offsite` key). verify() and the drill used to
+    read the file, change it in memory and write the whole file back. If both
+    did that at the same time, the one that wrote last erased the other's key.
 
-    So every writer goes through here. It takes an exclusive lock, reads the
-    file again, sets its own keys, and writes through a temp file in the same
-    folder plus os.replace. A reader never sees a half file. The lock is
-    needed because without it two writers can still read the same old file and
-    each write back only its own change, which loses one of them. flock is
+    So verify() and the drill go through here. It takes an exclusive lock,
+    reads the file again, sets its own keys, and writes through a temp file in
+    the same folder plus os.replace. A reader never sees a half file. The lock
+    is needed because without it two writers can still read the same old file
+    and each write back only its own change, which loses one of them. flock is
     per open file, so it also blocks a second thread of this process, not only
     another process.
+
+    One writer does not use this yet: app/services/backup_offsite.py
+    `_record()` writes the `offsite` key with its own re-read and replace,
+    without this lock, so it can still erase a key written at the same moment.
+    It will be moved under this lock in a later unit.
 
     The lock is a separate file, `manifest.json.lock`, because the manifest
     itself is replaced on every write and a lock on a replaced file protects

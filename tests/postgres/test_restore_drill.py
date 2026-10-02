@@ -735,7 +735,8 @@ def test_a_pg_restore_that_exits_non_zero_names_the_failure_not_a_damaged_file(
 
     assert block["status"] == "failed"
     assert "ناموفق بود" in block["reason"]
-    assert "جزئیات در بخش گزارش‌ها ثبت شده است." in block["reason"]
+    assert restore_drill._LOGS_HINT in block["reason"]
+    assert block["reason"].endswith(restore_drill._server_log_command())
     assert "خراب" not in block["reason"], "nobody checked the file is damaged"
     assert "timeout" not in block["reason"].lower()
 

@@ -302,15 +302,20 @@ button answers that a drill is running.
 If the drill failed:
 
 - Read the reason, then the per-table list. If the restore itself did not
-  finish, the reason holds the real error, and the details are in the log
-  entry «backup.drill.restore_failed» (reports page) and in the server log.
-  Read them first. The cause is not always the backup file.
+  finish, the reason holds the short error and the exact command that shows
+  the server log, for example
+  `sudo journalctl -u padyar-<slug> --since today --no-pager`. The tool's own
+  error text (what `pg_restore` printed) is only in that server log. It is not
+  copied to the reports page, because it can name the host and the database.
+  The reports page only records that the drill failed
+  (event «backup.drill.restore_failed»). Read the server log first. The cause
+  is not always the backup file.
   - The reason says the restore took longer than 30 minutes: the database is
     large or the server is slow. Look at the duration of earlier drills. A
     new backup will not help. Make the server faster, or raise
     `_RESTORE_TIMEOUT` in `app/services/pg_backup.py` (the panel restore uses
     it too).
-  - Any other restore failure: the log entry says why (for example a
+  - Any other restore failure: the server log says why (for example a
     permission problem on the drill database, or a full disk). Fix that cause.
     Make a new backup now only if the log shows the archive itself is broken
     (for example «input file does not appear to be a valid archive»).
