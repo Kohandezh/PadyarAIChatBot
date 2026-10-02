@@ -10,7 +10,7 @@
 | Prepared with | AI assistance (Claude Code). Human review of this draft is pending. |
 | Sources | `docs/features/local-inference/RESEARCH.md` (spike, status In Review); ADR-027 in `docs/engineering/DECISIONS.md` (Proposed); `docs/features/local-inference/BENCH.md` (pending bench, not written yet) |
 | Gate | Owner accepted direction 2026-09-30; spike status is the owner's to set |
-| Base commit for every code citation | `3a4a415` |
+| Base commit for every code citation | merge commit `56d879b` (`origin/main` merged into this branch on 2026-10-02). Files main did not change since `3a4a415` give the same line at both commits; the lines that moved were re-cited at `56d879b` |
 
 **How to read the numbers.** No model has been measured on the target host yet.
 Where a number depends on the model (context size, slot count, load time,
@@ -49,8 +49,8 @@ This spec defines those four pieces.
 - **US-004** As the server operator, I want one re-runnable script per service
   that installs it without internet access to NVIDIA and without touching TTS or
   the running apps.
-- **US-005** As the person on call, I want a metric that turns bad when the local
-  model stops serving, so the silent return to the cloud is not silent.
+- **US-005** As the person on call, I want an alert when the local model stops
+  serving, so the silent return to the cloud is not silent.
 
 ## 2. Scope
 
@@ -64,9 +64,10 @@ This spec defines those four pieces.
    int8 behind a pinned OpenAI-compatible server), and three fixes on the app's
    transcription path: it must go through `endpoint_policy`, send a language
    hint, and stop requiring a cloud key.
-3. **Health and metrics** (§5.D): the two local services appear in the ops
-   health checks and in `/metrics`; the AI health check stops reporting
-   "disabled" on an install that has no cloud key.
+3. **Health, and what to alert on** (§5.D): the two local services appear in
+   the ops health checks; the AI health check stops reporting "disabled" on an
+   install that has no cloud key; and the spec names the signals the monitoring
+   stack (main's ADR-024) should alert on. It adds no app metric.
 4. **Admin preset** (§5.E): one screen action, "use this server's own model",
    with a clear way back to the cloud.
 5. **Tests** the implementation must ship (§12, Tests).
@@ -79,8 +80,9 @@ This spec defines those four pieces.
 - This phase does not fine-tune or train any model.
 - This phase does not remove the cloud path. A customer who wants "no cloud at
   all" simply does not configure a cloud provider; nothing here deletes one.
-- This phase does not write alert rules. §5.D names the metric and condition
-  the monitoring track should alert on.
+- This phase does not write alert rules. They belong to the monitoring stack
+  (main's ADR-024, `docs/features/monitoring-stack/SPEC.md`); §5.D, REQ-045,
+  names the signals it should alert on.
 - This phase does not run the Persian prose rating (spike §9.2 Step 5b). That is
   part of the bench, done by a person.
 - This phase does not split admin features onto a different model (needs a new
@@ -191,7 +193,10 @@ its own.
   The host gets HTTP 403 from it (spike §3.1). The CUDA 12.9 toolchain must come
   from one of two routes, chosen by `LLM_BUILD_ROUTE`: PyPI wheels
   (`nvidia-cuda-nvcc-cu12==12.9.86` and the matching runtime and cuBLAS wheels),
-  or a build inside a container image from Docker Hub. The route is pinned: PyPI
+  or a build inside a container image from Docker Hub. (ADR-024 cites reports
+  that Docker Hub answers 403 from Iran; on this host it was reachable on
+  2026-09-30, spike §3.1. That difference is one more reason the bench, not this
+  spec, picks the route.) The route is pinned: PyPI
   wheels by exact version, a container image by digest (`image@sha256:...`).
   Which route works on this host is spike U19, settled by the bench.
 - **REQ-002** llama.cpp is fetched from github.com at a pinned tag, and the
@@ -286,7 +291,7 @@ its own.
   `deploy/padyar-deploy.sh` restarts only the app service (`:164`, `:191`), so the
   app deploy path never touches `padyar-llm` either.
 - **REQ-015** `deploy/README.md` gets a "Local LLM" section next to `### TTS`
-  (`:230`), a row in the port table (`:14`, loopback 8004, user `padyar-llm`),
+  (`:228`), a row in the port table (`:14`, loopback 8004, user `padyar-llm`),
   and the install line in the order of operations after `25-install-tts.sh`
   (`:47`). `deploy/30-verify.sh` checks `padyar-llm` is active **only when** its
   unit file exists (today it checks a fixed list, `:24`).
@@ -390,10 +395,9 @@ key is empty (`app/routers/voice.py:62`), before the control plane is asked.
   form field with the current UI language. The server accepts only `fa` or `en`;
   anything else, or no field, becomes `fa`. This closes the auto-detection risk
   in spike §4.9.4.
-- **REQ-034** *(Retired in revision 2.)* It added a per-process STT counter. A
-  per-process counter cannot be alerted on in this app (§5.D, REQ-044), so the
-  local STT signal is REQ-045's `local_service_up{service="stt"}` instead. The id
-  is kept so later references stay stable.
+- **REQ-034** *(Retired in revision 2.)* It added an STT counter. The local STT
+  signal is the monitoring stack's probe of the STT server (REQ-045) instead. The
+  id is kept so later references stay stable.
 - **REQ-035** Nothing else about `/api/transcribe` changes: the guard trio, the
   voice module 404, the `voice_enabled` 403, the 25 MB cap (`voice.py:21`).
 - **REQ-036** `ai_stt_provider_instance_id` accepts one reserved value, `legacy`,
@@ -409,7 +413,7 @@ key is empty (`app/routers/voice.py:62`), before the control plane is asked.
 
 - **REQ-040** `app/config.py` reads `LOCAL_LLM_URL`, `LOCAL_LLM_API_KEY`,
   `LOCAL_STT_URL`, `LOCAL_STT_API_KEY`, `LOCAL_STT_MODEL` next to `TTS_URL`
-  (`app/config.py:289`), each defaulting to empty. `.env.example` lists them.
+  (`app/config.py:296`), each defaulting to empty. `.env.example` lists them.
 - **REQ-041** Two rows are added to `REGISTRY` in `app/services/health.py`
   (`:265-276`): `local_llm` («مدل هوش مصنوعی همین سرور») and `local_stt`
   («گفتار به متن همین سرور»), both non-critical, no dependencies, default 15 s
@@ -429,51 +433,37 @@ key is empty (`app/routers/voice.py:62`), before the control plane is asked.
   `healthy`. The healthy detail names the instance that serves chat first
   («پیکربندی‌شده · <its display name>»), not the host of the legacy base URL it
   prints today (`:201-202`), which on a zero-cloud install is empty or stale.
-- **REQ-044** **Every metric in this app is per process.** Each install runs
-  `WEB_CONCURRENCY=3` workers (`deploy/env/instance.env.template:35`); each holds
-  its own in-memory registry (`app/services/metrics.py` docstring: "Every update
-  is an in-memory operation"), so a scrape reads whichever worker answered.
-  Event-driven values therefore disagree between workers:
-  - `ai_circuit_state` is set only by the worker that makes a transition
-    (`app/services/ai/circuit.py:84-92`); other workers keep a stale value, and
-    an open circuit turns half-open after the 60 s cooldown and back again, so
-    "`== 2` for 5 minutes" resets every cycle;
-  - a per-process counter such as `ai_calls_total` jumps between workers'
-    values, which `increase()` reads as resets.
+- **REQ-044** **Metrics on main are shared across workers.** Each install runs
+  `WEB_CONCURRENCY=3` workers (`deploy/env/instance.env.template:35`). Main's
+  ADR-022 put `prometheus_client` in multiprocess mode: every worker writes into
+  files under `PROMETHEUS_MULTIPROC_DIR`, and each scrape merges them
+  (`app/services/metrics.py:36-45`, `:252-290`). `ai_circuit_state` is merged as
+  `mostrecent` (`:118-121`), so a scrape shows the last circuit transition any
+  worker published, which is the shared state in the `ai_circuit_state` table
+  at that moment. An install whose unit does not set the directory yet logs a
+  warning and falls back to one worker's view (`:306-320`); ADR-022 lists the
+  one-time unit rebuild this needs.
 
-  So no alert in this spec uses an event-driven value. Alerts use REQ-045's two
-  gauges, which every worker computes at scrape time from **shared** state.
-  Moving the whole app to prometheus_client's multiprocess mode is out of scope
-  (§2).
-- **REQ-045** Two gauges, evaluated at scrape time with prometheus_client's
-  `Gauge.set_function`, are added to `app/services/metrics.py`:
-  - `local_service_up{service="llm"|"stt"}`: 1 when `probe_one("local_llm")` or
-    `probe_one("local_stt")` is `healthy`, else 0. The probes' 15 s cache applies
-    (`probe_one(name, force=False)`, `health.py:296`), so a scrape does at most one
-    2 s loopback call per service per worker per 15 s. A child series exists only
-    when that service's URL is configured (REQ-040), so an install without it
-    exports nothing, not a false 0.
-  - `local_llm_circuit_state`: the local instance's row in the shared
-    `ai_circuit_state` **table** (`app/services/ai/store.py:99-113`), mapped
-    closed 0, half_open 1, open 2; 0 when there is no local instance. The table is
-    the same for every worker.
+  This spec adds **no** app metric. The two scrape-time gauges of revision 2
+  (`local_service_up`, `local_llm_circuit_state`) are dropped for two reasons:
+  in multiprocess mode a scrape reads only the shared files, so a
+  `Gauge.set_function` value would never appear (`metrics.py:279-290`); and the
+  monitoring stack can watch the same two states without app code (REQ-045).
+- **REQ-045** **Alerts belong to the monitoring stack.** Main's ADR-024
+  (Proposed) puts Prometheus, Alertmanager and blackbox_exporter on loopback;
+  the rules live in `docs/features/monitoring-stack/SPEC.md` §5.3 and reach the
+  host through `deploy/55-monitoring.sh`; SMS goes out through each install's
+  watchdog for alerts labelled `page="sms"`. This spec writes no rule. It names
+  what the monitoring track should cover, and where:
 
-  Because a probe can take 2 s, `/metrics` must build its output off the event
-  loop: `generate_latest` runs through `anyio.to_thread.run_sync` (today it runs
-  inline, `app/routers/metrics.py:49-53`). `docs/engineering/MONITORING.md` gets
-  the per-process caveat and the two gauges in the same change (it says "All
-  eight are defined", `:52`).
+| Alert-worthy state | Signal | Owner and notes |
+|---|---|---|
+| Local LLM answers health but its calls fail, so chat is back on the cloud (or AI is off when there is no cloud) | `ai_circuit_state{instance="<local instance id>"}` | Already covered by rule R04 `PadyarAICircuitOpen`, which is per `exported_instance` (`docs/features/monitoring-stack/SPEC.md:346`, `:383-384`). **One point for that spec:** R04 is written `== 2` for 5 m. While a dead local model keeps being retried, the circuit row cycles open → half-open → open (`app/services/ai/circuit.py:95-127`, `:242-349`), so the `mostrecent` value alternates 2 and 1 and "`== 2` for 5 m" can restart on every cycle. `> 0` holds for the whole failure, and only a success or a manual reset returns it to 0 (`:201-220`, `:369-376`). The local instance id is shown on the admin card (REQ-058) |
+| Local LLM or local STT not answering at all | a blackbox `http` probe of `http://127.0.0.1:8004/health` and `http://127.0.0.1:8005/health`, the same exporter the stack already runs for `blackbox-origin` (`docs/features/monitoring-stack/SPEC.md:315-323`) | llama-server's `/health` needs no key (llama.cpp `tools/server/README.md` line 472). One server serves every install (§11), so these are host-level alerts with no `install` label, sent by the host-alerts owner (ADR-024 decision 6). The rule's `for` must be longer than the measured cold start (pending bench), because a loading model answers 503 |
 
-| Alert-worthy state | Signal for the monitoring track |
-|---|---|
-| Local LLM down or not answering health | `local_service_up{service="llm"} == 0` for 5 minutes |
-| Local LLM answers health but its calls fail, so traffic is back on the cloud (or AI is off when there is no cloud) | `local_llm_circuit_state > 0` for 5 minutes. While calls keep failing the row cycles between open and half-open (`app/services/ai/circuit.py:95-127`, `:242-349`) and returns to closed only on a success (`record_success`, `:201-220`) or a manual reset (`:369-376`) |
-| Local STT down (when voice is bound to it) | `local_service_up{service="stt"} == 0` for 5 minutes |
-
-`ai_calls_total{provider,outcome}` is **not** a usable signal for "local
-failing" on two counts: it is per process (above), and its `provider` label is
-the provider **type** (`engine.py:364-366`), which the local instance and a
-cloud gateway can share (`openai_compatible`).
+`ai_calls_total{provider,outcome}` is still **not** the signal for "local
+failing": its `provider` label is the provider **type** (`engine.py:364-366`),
+which the local instance and a cloud gateway can share (`openai_compatible`).
 
 ### 5.E Admin preset (work unit U5)
 
@@ -786,7 +776,7 @@ adds no visitor text.
 - **SEC-006** The transcription path gets the same DNS pin as the chat path
   (REQ-032). This closes the gap the spike found (spike §8.2, S1).
 - **SEC-007** Every apply and revert writes an audit row with the admin's name
-  (`_actor`, `admin_ai.py:429`). The existing store functions add their own rows
+  (`_actor`, `admin_ai.py:449`). The existing store functions add their own rows
   (`admin.ai_provider.created`, `.enabled`, `admin.ai_route.updated`, ...).
 - **SEC-008** Supply chain: the installers fetch only from PyPI, Docker Hub,
   github.com and the model URL, each pinned (version, digest, commit sha,
@@ -867,7 +857,7 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
 ## 11. Compatibility / Rollout
 
 - **Where it lives.** The admin AI control plane is always loaded as a core admin
-  surface (`app/main.py:606-608`), not a registry module. The preset only writes
+  surface (`app/main.py:640-642`), not a registry module. The preset only writes
   rows that control plane already owns, so it is part of it, not a new optional
   module. On an install without the local services, the card says «نصب نشده»
   and nothing else changes. The STT seam fixes live in the optional `voice`
@@ -909,7 +899,7 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
   own. U1 and U3 (installers) can ship in parallel. U4 needs nothing from them
   in code. U5 needs U2b (the `legacy` value) and U4.
 - **Documentation in the same PRs:** `deploy/README.md` (U1, U3), `CLAUDE.md`
-  env table, `.env.example` and `docs/engineering/MONITORING.md` (U4),
+  env table and `.env.example` (U4),
   `docs/features/INDEX.md` status when each ships.
 
 ## 12. Acceptance Criteria
@@ -958,11 +948,9 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
 - [ ] **SC-015** `bash -n` passes on `deploy/26-install-stt.sh` and
   `deploy/27-install-llm.sh`, and the static checks in
   `tests/test_deploy_local_services.py` pass (see Tests).
-- [ ] **SC-016** *(Replaced in revision 2.)* `/metrics` exposes
-  `local_service_up{service="llm"}` as 1 with a stub answering 200 and 0 with a
-  closed port, and exposes no such series when `LOCAL_LLM_URL` is empty;
-  `local_llm_circuit_state` follows the local instance's row in the
-  `ai_circuit_state` table (REQ-045).
+- [ ] **SC-016** *(Retired in revision 3.)* This spec adds no app metric
+  (REQ-044); the alert signals live in the monitoring stack (REQ-045). The id is
+  kept so later references stay stable.
 - [ ] **SC-017** Voice does not move. For each starting case (an implicit
   instance; the legacy settings; nothing configured; an explicit choice), apply
   with `stt=false`, and apply with `stt=true` while `local_stt` is down, leave
@@ -996,7 +984,7 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
 | U2a | adapter tests, plus `tests/test_stt_local.py` (new) | the shared pin helper in both forms; SC-004, SC-022; every existing adapter test still passes |
 | U2b | `tests/test_stt_local.py`, plus the existing `/api/transcribe` guard tests in `tests/test_security_hardening.py` and `tests/postgres/test_stt_binding.py`, which must still pass | SC-002, the `legacy` value (REQ-036); the negative path: no instance and no legacy key still gives today's 500 |
 | U2c | `tests/test_stt_local.py` | SC-003 |
-| U4 | `tests/test_health_surface.py` (extend), `tests/test_metrics.py` (extend) | SC-005, SC-006, SC-016, REQ-042 message texts |
+| U4 | `tests/test_health_surface.py` (extend) | SC-005, SC-006, REQ-042 message texts |
 | U5 | `tests/test_ai_local_preset.py` (new, TestClient) | SC-001, SC-007 to SC-014, SC-017 to SC-021, SC-023; plus: local service down after apply → `status()` reports `down` and `cloud_fallback` truthfully; STT asked for but not ready → LLM applied, STT skipped |
 | U5 | `tests/postgres/test_ai_local_preset.py` (new, the blocking PostgreSQL job) | SC-007, SC-008, SC-011, SC-018, SC-019: the behaviours that rest on `UNIQUE (task, priority)` and the two-phase reorder, which differ most between SQLite and PostgreSQL |
 | U5 | `tests/e2e/test_ai_local_preset_card.py` (new, async Playwright) | the card's default, active, partial and not-installed states and the revert confirm, with the API mocked |
@@ -1033,7 +1021,7 @@ be reverted alone.
 | **U2b** voice without a cloud key | voice assumes a legacy cloud key, REQ-030, REQ-036 | `app/routers/voice.py`, `app/services/ai/stt.py` (the `legacy` value), `tests/test_stt_local.py` | none (touches `stt.py` after U2a; merge in order) |
 | **U2c** language hint | the transcription call leaves Persian to auto-detection, REQ-033 | `app/services/openai.py` (the `language` field), `app/routers/voice.py` (the `lang` form field), `static/chat/core.js`, `tests/test_stt_local.py` | U2a (it rewrites the request the hint goes into) |
 | **U3** STT serving deploy | no local STT server exists on the host | `deploy/26-install-stt.sh`, `deploy/systemd/padyar-stt.service`, `deploy/stt/requirements.txt`, `deploy/README.md` (STT section, port row), `deploy/30-verify.sh`, `tests/test_deploy_local_services.py` (STT part) | U2a and U2b before it is useful in production, but it can merge in either order |
-| **U4** health, config and metrics | health reports "disabled" for a zero-cloud install, and nothing can see the local services, REQ-040 to REQ-045 | `app/config.py`, `.env.example`, `app/services/health.py`, `app/services/metrics.py`, `app/routers/metrics.py`, `docs/engineering/MONITORING.md`, `CLAUDE.md` (env table), `tests/test_health_surface.py`, `tests/test_metrics.py` | none in code |
+| **U4** health and config | health reports "disabled" for a zero-cloud install, and the ops page cannot see the local services, REQ-040 to REQ-043 | `app/config.py`, `.env.example`, `app/services/health.py`, `CLAUDE.md` (env table), `tests/test_health_surface.py` | none in code. The alert rules of REQ-045 are the monitoring track's work, not a unit here |
 | **U5** admin preset | pointing the app at the local server takes many expert steps in the right order, REQ-050 to REQ-062 | `app/services/ai/local_preset.py` (new), `app/routers/admin_ai.py`, `app/services/ai/adapters/openai_compatible.py` (REQ-060), `app/services/ai/health.py` (REQ-061), `templates/admin/ai_providers.html`, `static/admin/js/ai_providers.js`, `tests/test_ai_local_preset.py`, `tests/postgres/test_ai_local_preset.py`, `tests/e2e/test_ai_local_preset_card.py` | U2b (the `legacy` value) and U4 (config values and the two probes) |
 
 Why U1 and U3 are not merged: different services, different users, different
