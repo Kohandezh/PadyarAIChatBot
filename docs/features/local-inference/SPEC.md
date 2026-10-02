@@ -8,12 +8,20 @@
 | Domain | infrastructure |
 | Owner | Sina Shamsizadeh (technical owner) |
 | Prepared with | AI assistance (Claude Code). Human review of this draft is pending. |
-| Sources | `docs/features/local-inference/RESEARCH.md` (spike, status In Review); ADR-027 in `docs/engineering/DECISIONS.md` (Proposed); `docs/features/local-inference/BENCH.md` (pending bench, not written yet) |
+| Sources | `docs/features/local-inference/RESEARCH.md` (spike, status In Review); ADR-027 in `docs/engineering/DECISIONS.md` (Proposed); `docs/features/local-inference/BENCH.md` (not in this branch; it lands with the bench pull request, branch `feat/local-llm-bench`) |
 | Gate | Owner accepted direction 2026-09-30; spike status is the owner's to set |
 | Base commit for every code citation | merge commit `56d879b` (`origin/main` merged into this branch on 2026-10-02). Files main did not change since `3a4a415` give the same line at both commits; the lines that moved were re-cited at `56d879b` |
 
-**How to read the numbers.** No model has been measured on the target host yet.
-Where a number depends on the model (context size, slot count, load time,
+**How to read the numbers.** No model's speed or quality has been measured on
+the target host yet. One behaviour was, and REQ-008 quotes it:
+
+> measured 2026-09-30 on the host by the bench run (llama.cpp v0.5.0, commit 7fe450e1): all three benched
+> models (gemma-4-26B-A4B UD-Q4_K_M, gemma-4-12b Q4_K_M, Qwen3-14B Q4_K_M) think by default; with
+> max_tokens 64 a json_object probe returned empty or cut content; with chat_template_kwargs
+> enable_thinking=false it passed.
+
+Its source is `docs/features/local-inference/BENCH.md`, which lands with the
+bench pull request (branch `feat/local-llm-bench`). Where a number depends on the model (context size, slot count, load time,
 timeouts), this spec says **pending bench** and names the place in
 `BENCH.md` it will come from. Host facts come from the spike's §3.1 box,
 measured 2026-09-30.
@@ -242,13 +250,18 @@ its own.
   `tools/server/README.md` line 189 and 1251, commit `680a036285`). `-c` and `-np`
   are **pending bench**, starting point `-c 16384 -np 4` (spike §4.7.3). Two more
   flags:
-  - `--chat-template-kwargs '{"enable_thinking": false}'` (README line 216), so
-    thinking is off on the server even for a caller that sends no switch. The
-    per-request switch of REQ-052 stays the main control. Measured, see
-    `BENCH.md` (pending): `gemma-4-26B-A4B` in llama-server v0.5.0 thinks by
-    default, and a `json_object` probe with `max_tokens` 64 spends the budget in
-    `reasoning_content` and returns empty or cut content; it passes with
-    `enable_thinking=false`.
+  - `--chat-template-kwargs '{"enable_thinking": false}'` (README line 216). It is
+    meant to turn thinking off on the server for a caller that sends no switch;
+    that it does so was **not** measured, so the per-request switch of REQ-052
+    stays the main control. Why thinking must be off at all:
+
+    > measured 2026-09-30 on the host by the bench run (llama.cpp v0.5.0, commit 7fe450e1): all three benched
+    > models (gemma-4-26B-A4B UD-Q4_K_M, gemma-4-12b Q4_K_M, Qwen3-14B Q4_K_M) think by default; with
+    > max_tokens 64 a json_object probe returned empty or cut content; with chat_template_kwargs
+    > enable_thinking=false it passed.
+
+    Source: `docs/features/local-inference/BENCH.md`, which lands with the bench
+    pull request (branch `feat/local-llm-bench`).
   - `--log-verbosity 2` (warnings and errors only; README line 111, default 3),
     so request text stays out of the journal (checked by REQ-011).
 
@@ -491,10 +504,13 @@ one audit row.
   - Mode `local` ("preset active"): an enabled local instance exists, and the
     first target of both `chat` and `classify` in `store.ordered_targets` is that
     instance with model `padyar-local`.
-  - Mode `partial`: an enabled local instance exists with at least one route
-    target, but the `local` condition does not hold (for example `chat` is local
-    first and `classify` is not). See REQ-059.
-  - Mode `cloud`: anything else.
+  - Mode `partial`: the `local` condition does not hold and
+    `ai_local_preset_state` (REQ-062) is not empty. Apply writes that row in
+    step 5, before anything that can change traffic, so every failure from step
+    6 on reads as `partial`: for example `chat` local first and `classify` not,
+    or an enabled local instance with no route target yet. See REQ-059.
+  - Mode `cloud`: the `local` condition does not hold and
+    `ai_local_preset_state` is empty.
   - "Cloud fallback exists" means: `chat` has at least one enabled target on an
     enabled instance other than the local one.
 - **REQ-051** The local instance is found by matching, not by a stored id: an
@@ -521,7 +537,8 @@ one audit row.
      instance's `reasoning_param`, "off" makes the adapter send
      `chat_template_kwargs: {"enable_thinking": false}`
      (`app/services/ai/adapters/openai_compatible.py:141-146`). Without it the
-     probe fails on the likely model: measured, see `BENCH.md` (pending).
+     probe fails on every benched model (the thinking-mode measurement quoted
+     in REQ-008).
      If the test fails: 502 with a Persian reason. A new instance stays
      disabled; an existing one keeps its current state; no route changes. This is
      the "test" of the repo's order rule (`store.py:289-291`: save → test →
@@ -541,7 +558,9 @@ one audit row.
        `legacy` (REQ-036), so the result stays exactly what it was.
 
      Record the value written as the "wrote" value. If the setting is already
-     non-empty (an explicit choice), leave it and record nothing.
+     non-empty (an explicit choice), leave it and record no setting. In every
+     case step 5 writes `ai_local_preset_state` (REQ-062) before step 6, so a
+     later failure is visible as mode `partial` and revertable.
   6. `store.set_enabled(instance, True, actor)` (`store.py:374`). An enabled
      instance with no route target serves no traffic yet.
   7. **Thinking off on the chat route.** Record the current chat route reasoning
@@ -550,10 +569,28 @@ one audit row.
      `store.set_route_reasoning("chat", "off", actor)` (`store.py:699`) and record
      `off` as the "wrote" value.
      `classify` needs no change: the engine already sends reasoning off for it
-     (`engine.py:103-104`). This also turns reasoning off for a cloud target that
-     serves chat at priority 2; it is the same default the engine already uses
-     for classification, and revert restores the saved value. Done before step
-     8, so the local target never serves chat with thinking on.
+     (`engine.py:103-104`). Done before step 8, so the local target never serves
+     chat with thinking on. Revert restores the saved value.
+
+     **Side effect on a cloud fallback, exactly.** The route value applies to
+     every chat-side call, whichever target serves it (`engine.py:97-106`; no
+     caller passes its own `reasoning`). What "off" then does depends on the
+     fallback's provider type, all at `56d879b`:
+     - no change: `openai_compatible` without `reasoning_param`, which is what
+       the legacy import creates (the switch is sent only with that setting,
+       `app/services/ai/adapters/openai_compatible.py:141-142`); `openai` ("off"
+       is expressed by omission, `openai_adapter.py:76`); `qwen` and `sakoo`
+       (no "off" branch in their own adapter files);
+     - lower or no reasoning: `anthropic` (thinking disabled, or the lowest
+       effort on models that cannot disable it, `anthropic_adapter.py:144-153`),
+       `gemini` (thinking level "minimal", `gemini_adapter.py:125-126`),
+       `deepseek` (thinking disabled, `deepseek.py:79`, `:91`), `kimi` (thinking
+       disabled, or the lowest effort on K3, `kimi.py:96-108`), `mistral`
+       (`reasoning_effort` "none", `mistral.py:53-54`), `xai` and `zai` (the
+       cheapest level, `xai.py:76`, `zai.py:108`).
+
+     On those native types the fallback runs at a setting nobody benched. It is
+     the same setting the engine already uses for every classification call.
   8. For `chat` and `classify`: if the task has no target for
      (instance, `padyar-local`), `store.add_target` (it appends at the end,
      `store.py:755-759`, so while another enabled target is ahead of it, adding
@@ -594,7 +631,8 @@ one audit row.
 - **REQ-053** `revert` ("back to cloud"):
   1. Remove the local instance's route targets from `chat` and `classify`
      (`store.remove_target`, `store.py:774`, which closes the gap, so the old
-     cloud target becomes first again). Works the same from mode `partial`.
+     cloud target becomes first again). Works the same from mode `partial`,
+     including a partial state with no route target yet.
   2. Disable the local LLM instance and the local STT instance, if any
      (`store.set_enabled(..., False)`). Keep the rows, so applying again is quick
      and their usage history stays.
@@ -604,7 +642,8 @@ one audit row.
      `ai_local_preset_state` to empty (there is no settings delete function;
      `set_setting` writes, `app/db/queries.py:274`).
   4. Audit `admin.ai_local_preset.reverted`.
-  5. Revert is idempotent: pressing it when the mode is `cloud` returns 200
+  5. Revert acts whenever `ai_local_preset_state` is not empty (modes `local`
+     and `partial`). It is idempotent: pressing it in mode `cloud` returns 200
      with the unchanged status and writes an audit row with outcome `noop`.
 - **REQ-054** The preset never deletes an instance, a model, a price row, or a
   cloud route target.
@@ -652,7 +691,11 @@ one audit row.
   with, for each setting the preset changed (`ai_stt_provider_instance_id`,
   `ai_model_stt`, and the chat route reasoning), the value **before** the first
   apply and the value the preset **wrote**. Apply only adds "before" values that
-  are missing, so pressing twice never overwrites the original. Revert reads it
+  are missing, so pressing twice never overwrites the original. Step 5 writes
+  the row on every apply, even when it records no setting (then the object holds
+  only `"started": true`), so a non-empty row means "an apply has begun and has
+  not been reverted". That is what makes mode `partial` (REQ-050) visible after
+  any failure from step 6 on. Revert reads it
   (REQ-053 step 3) and then clears it. Its only writer is `apply`, its only
   reader is `revert`.
 
@@ -868,9 +911,12 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
   binding stay as they are. Applying the preset makes an implicit STT choice
   explicit (REQ-052 step 5); revert makes it implicit again.
 - **Chat route reasoning.** Applying sets the chat route's reasoning to `off`
-  (REQ-052 step 7). A cloud target at priority 2 then also runs with reasoning
-  off, the same default the engine already uses for classification
-  (`engine.py:103-104`). Revert restores the previous value if nobody changed it.
+  (REQ-052 step 7). On an `openai_compatible` cloud gateway (the common case,
+  since the legacy import creates one), an `openai` or a `qwen` fallback, that
+  changes nothing. On the native `anthropic`, `gemini`, `deepseek`, `kimi`,
+  `mistral`, `xai` and `zai` types the fallback runs with reasoning off or at its
+  lowest effort (REQ-052 step 7 lists the lines). Revert restores the previous
+  value if nobody changed it.
 - **Callers checked.**
   - `/api/transcribe` → `_transcribe_sync` is the only transcription caller
     (`voice.py:89`).
@@ -959,10 +1005,14 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
 - [ ] **SC-018** Partial state: make the `classify` reorder fail after the `chat`
   reorder succeeded. `status()` reports mode `partial`; a second apply reaches
   the SC-007 state; a revert from `partial` restores the original order
-  (REQ-059).
+  (REQ-059). Also make step 7 fail after step 6 (instance enabled, no route
+  target yet): `status()` reports `partial`, and revert disables the instance,
+  restores the STT binding, and clears `ai_local_preset_state` (REQ-050,
+  REQ-053, REQ-062).
 - [ ] **SC-019** Collision retry: make `add_target` raise a unique-constraint
   error once. The apply retries, and succeeds (REQ-052 step 8).
-- [ ] **SC-020** Thinking off (bench addendum, measured, see `BENCH.md`, pending):
+- [ ] **SC-020** Thinking off (the thinking-mode measurement quoted in REQ-008,
+  2026-09-30, `BENCH.md` from the bench pull request):
   after apply, a chat call and a classify call to the stub carry
   `chat_template_kwargs: {"enable_thinking": false}` in the request body, and
   `test_json_mode(..., reasoning="off")` sends the same (REQ-052 steps 2, 4, 7,
