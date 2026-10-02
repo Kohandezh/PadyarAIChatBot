@@ -1,0 +1,308 @@
+{
+  "corpus_version": "kavand-corpus-1.0",
+  "created_at": "2026-09-20",
+  "provenance": "Synthetic, fictional trade-fair knowledge base written for this repository's retrieval benchmark. The Kavand Technology Fair, the Absar Convention Centre and every fact below are invented: no real company, event, person or customer appears here. This corpus is NEVER seeded into an install - app/default_content.py stays empty. It is loaded only by scripts/run_eval.py, into a throwaway SQLite database that dies with the run. Each entry carries Persian title/text and English title_en/text_en so the reranker's cross-lingual path (coverage 0, dense must still win - see app/services/rerank.py) is exercised by the English queries in data/eval/golden.json. The curated `questions` below are deliberately worded differently from the golden queries: if the golden queries were copied in here, tier 0 would answer everything exactly and the benchmark would measure nothing.",
+  "synonyms": [
+    [
+      "بلیت",
+      "بلیط"
+    ],
+    [
+      "تعرفه",
+      "هزینه"
+    ],
+    [
+      "اتومبیل",
+      "خودرو"
+    ],
+    [
+      "ماشین",
+      "خودرو"
+    ],
+    [
+      "وایفای",
+      "بی سیم"
+    ],
+    [
+      "سمینار",
+      "کارگاه"
+    ]
+  ],
+  "entries": [
+    {
+      "id": "faq-overview",
+      "title": "نمایشگاه فناوری کاوند چیست",
+      "text": "نمایشگاه فناوری کاوند یک رویداد سالانه برای معرفی شرکت های فناور و استارتاپ هاست. کاوند هر سال در فصل پاییز برگزار می شود و بازدید از آن برای عموم مردم آزاد است.",
+      "title_en": "About the Kavand Technology Fair",
+      "text_en": "The Kavand Technology Fair is an annual exhibition that introduces technology companies and startups. Kavand runs every autumn and is open to the general public.",
+      "questions": [
+        "کاوند چیست",
+        "درباره نمایشگاه کاوند توضیح بده"
+      ]
+    },
+    {
+      "id": "faq-dates",
+      "title": "تاریخ برگزاری نمایشگاه",
+      "text": "نمایشگاه فناوری کاوند از 12 تا 15 آبان برگزار می شود. مدت برگزاری چهار روز پیوسته است و تاریخ ها هر سال روی سامانه اعلام می شود.",
+      "title_en": "Fair dates",
+      "text_en": "The Kavand Technology Fair runs from 3 to 6 November. It lasts four consecutive days and the dates are announced on the portal each year.",
+      "questions": [
+        "نمایشگاه کاوند چه تاریخی برگزار می شود",
+        "نمایشگاه چند روز طول می کشد"
+      ]
+    },
+    {
+      "id": "faq-venue",
+      "title": "محل برگزاری نمایشگاه",
+      "text": "نمایشگاه در مرکز همایش های آبسار، بلوار آبسار، پلاک 40 برگزار می شود. ورودی اصلی از درب جنوبی و ورودی غرفه داران از درب شمالی است.",
+      "title_en": "Venue",
+      "text_en": "The fair is held at the Absar Convention Centre on Absar Boulevard, number 40. Visitors use the south gate and exhibitors use the north gate.",
+      "questions": [
+        "نشانی مرکز همایش های آبسار چیست",
+        "درب ورودی بازدیدکنندگان کدام است"
+      ]
+    },
+    {
+      "id": "faq-hours",
+      "title": "ساعت بازدید",
+      "text": "درهای نمایشگاه هر روز از ساعت 9 صبح تا 18 باز است. در روز پایانی بازدید تا ساعت 16 ادامه دارد و پس از آن جمع آوری غرفه ها آغاز می شود.",
+      "title_en": "Opening hours",
+      "text_en": "Doors open every day from 9 in the morning until 18. On the final day visiting ends at 16 and dismantling begins.",
+      "questions": [
+        "نمایشگاه ساعت چند باز می شود",
+        "روز آخر تا چه ساعتی باز است"
+      ]
+    },
+    {
+      "id": "faq-ticket",
+      "title": "بلیط ورود",
+      "text": "قیمت بلیط ورود برای بازدیدکننده عادی 150 هزار تومان و برای دانشجو 70 هزار تومان است. کودکان زیر 12 سال رایگان وارد می شوند و بلیط گروهی تخفیف دارد.",
+      "title_en": "Entry ticket",
+      "text_en": "A standard visitor ticket costs 150 thousand toman and a student ticket 70 thousand toman. Children under 12 enter free and group tickets are discounted.",
+      "questions": [
+        "بلیط دانشجویی چقدر است",
+        "بلیط گروهی تخفیف دارد"
+      ]
+    },
+    {
+      "id": "faq-registration",
+      "title": "ثبت نام آنلاین بازدیدکننده",
+      "text": "برای ثبت نام آنلاین به سامانه نمایشگاه بروید، شماره موبایل خود را وارد کنید و کد پیامکی را تایید کنید. پس از ثبت نام یک کیوآر کد دریافت می کنید که در ورودی اسکن می شود.",
+      "title_en": "Online visitor registration",
+      "text_en": "To register online, open the fair portal, enter your mobile number and confirm the code sent by SMS. After registering you receive a QR code that is scanned at the entrance.",
+      "questions": [
+        "ثبت نام اینترنتی چطور انجام می شود",
+        "کیوآر کد ورود را از کجا بگیرم"
+      ]
+    },
+    {
+      "id": "faq-halls",
+      "title": "سالن ها و نقشه نمایشگاه",
+      "text": "نمایشگاه سه سالن دارد: سالن الف ویژه سخت افزار، سالن ب ویژه نرم افزار و سالن ج ویژه استارتاپ ها. نقشه سالن ها روی تابلوی ورودی اصلی نصب شده است.",
+      "title_en": "Halls and site map",
+      "text_en": "The fair has three halls: hall A for hardware, hall B for software and hall C for startups. A site map is posted on the board at the main entrance.",
+      "questions": [
+        "هر سالن مربوط به چه حوزه ای است",
+        "نقشه سالن ها کجا نصب شده"
+      ]
+    },
+    {
+      "id": "faq-parking",
+      "title": "پارکینگ",
+      "text": "پارکینگ طبقاتی با ظرفیت 600 خودرو در ضلع شرقی مرکز همایش ها قرار دارد. هزینه پارکینگ ساعتی 20 هزار تومان است و ظرفیت آن در روزهای پایانی زود پر می شود.",
+      "title_en": "Parking",
+      "text_en": "A multi storey car park with 600 spaces sits on the east side of the convention centre. Parking costs 20 thousand toman per hour and fills early on the last days.",
+      "questions": [
+        "ظرفیت پارکینگ چقدر است",
+        "هزینه ساعتی پارکینگ چقدر است"
+      ]
+    },
+    {
+      "id": "faq-transport",
+      "title": "دسترسی با حمل و نقل عمومی",
+      "text": "نزدیک ترین ایستگاه مترو، ایستگاه آبسار روی خط سه است. از ایستگاه یک اتوبوس تندرو تا درب شمالی نمایشگاه حرکت می کند و هر ده دقیقه سرویس دارد.",
+      "title_en": "Public transport",
+      "text_en": "The nearest metro station is Absar on line three. A shuttle bus runs from the station to the north gate of the fair every ten minutes.",
+      "questions": [
+        "با مترو چطور بیایم",
+        "اتوبوس تندرو از کجا حرکت می کند"
+      ]
+    },
+    {
+      "id": "faq-booth-booking",
+      "title": "رزرو غرفه",
+      "text": "برای رزرو غرفه فرم درخواست را در سامانه پر کنید، قرارداد را امضا کنید و پیش پرداخت را واریز کنید. تخصیص غرفه به ترتیب ثبت درخواست انجام می شود.",
+      "title_en": "Booking a booth",
+      "text_en": "To book a booth, fill in the request form on the portal, sign the contract and pay the deposit. Booths are allocated in the order that requests arrive.",
+      "questions": [
+        "مراحل رزرو غرفه چیست",
+        "پیش پرداخت غرفه چگونه واریز می شود"
+      ]
+    },
+    {
+      "id": "faq-booth-price",
+      "title": "هزینه غرفه",
+      "text": "هر متر مربع غرفه خودساز 9 میلیون تومان و هر متر مربع غرفه با تجهیزات 12 میلیون تومان است. حداقل متراژ قابل رزرو 6 متر مربع است.",
+      "title_en": "Booth pricing",
+      "text_en": "A bare space costs 9 million toman per square metre and an equipped booth 12 million toman per square metre. The smallest bookable area is 6 square metres.",
+      "questions": [
+        "غرفه خودساز چقدر است",
+        "حداقل متراژ غرفه چقدر است"
+      ]
+    },
+    {
+      "id": "faq-exhibitor-criteria",
+      "title": "شرایط غرفه داران",
+      "text": "شرکت های دارای پروانه فعالیت فناورانه و استارتاپ هایی که دست کم یک محصول قابل ارائه دارند می توانند غرفه بگیرند. کمیته پذیرش همه درخواست ها را بررسی می کند.",
+      "title_en": "Who can exhibit",
+      "text_en": "Companies holding a technology activity licence and startups with at least one demonstrable product may take a booth. An admissions committee reviews every request.",
+      "questions": [
+        "چه کسانی می توانند غرفه دار شوند",
+        "کمیته پذیرش چه می کند"
+      ]
+    },
+    {
+      "id": "faq-workshops",
+      "title": "کارگاه های آموزشی",
+      "text": "هر روز چهار کارگاه آموزشی رایگان در سالن کارگاه برگزار می شود. ظرفیت هر کارگاه 40 نفر است و ثبت نام کارگاه فقط به صورت حضوری انجام می شود.",
+      "title_en": "Workshops",
+      "text_en": "Four free workshops run each day in the workshop room. Each workshop seats 40 people and registration is only possible on site.",
+      "questions": [
+        "کارگاه ها کجا برگزار می شوند",
+        "ثبت نام کارگاه حضوری است یا اینترنتی"
+      ]
+    },
+    {
+      "id": "faq-pitch",
+      "title": "رقابت ارائه استارتاپ",
+      "text": "رقابت ارائه استارتاپ در روز سوم نمایشگاه برگزار می شود. ده تیم منتخب هر کدام پنج دقیقه فرصت ارائه دارند و به تیم برگزیده جایزه نقدی داده می شود.",
+      "title_en": "Startup pitch contest",
+      "text_en": "The startup pitch contest takes place on the third day of the fair. Ten selected teams each get five minutes on stage and the winning team receives a cash prize.",
+      "questions": [
+        "چند تیم در رقابت ارائه شرکت می کنند",
+        "جایزه رقابت ارائه چیست"
+      ]
+    },
+    {
+      "id": "faq-investors",
+      "title": "میز سرمایه گذاری",
+      "text": "میز سرمایه گذاری در سالن ج مستقر است و جلسات کوتاه میان تیم های فناور و سرمایه گذاران را هماهنگ می کند. نوبت جلسه از طریق سامانه رزرو می شود.",
+      "title_en": "Investor desk",
+      "text_en": "The investor desk is located in hall C and arranges short meetings between technology teams and investors. Meeting slots are booked through the portal.",
+      "questions": [
+        "جلسه با سرمایه گذار چطور رزرو می شود",
+        "میز سرمایه گذاری چه کاری انجام می دهد"
+      ]
+    },
+    {
+      "id": "faq-speakers",
+      "title": "سخنرانی های کلیدی",
+      "text": "سخنرانی های کلیدی هر روز ساعت 11 در سالن آمفی تئاتر شروع می شود. موضوع سخنرانی های امسال هوش مصنوعی در صنعت است و ورود به آن ها آزاد است.",
+      "title_en": "Keynote talks",
+      "text_en": "Keynote talks start at 11 every day in the amphitheatre. This year the keynote theme is artificial intelligence in industry and entry is free.",
+      "questions": [
+        "سخنرانی ها در کدام سالن است",
+        "موضوع سخنرانی های امسال چیست"
+      ]
+    },
+    {
+      "id": "faq-program",
+      "title": "برنامه زمانی رویدادها",
+      "text": "برنامه زمانی کامل رویدادها روی تابلوی اعلانات ورودی و در بخش برنامه سامانه نمایشگاه منتشر می شود. این برنامه هر روز صبح به روز می شود.",
+      "title_en": "Event schedule",
+      "text_en": "The full schedule of events is published on the notice board at the entrance and in the programme section of the fair portal. It is updated every morning.",
+      "questions": [
+        "برنامه رویدادها کجا منتشر می شود",
+        "برنامه چند وقت یک بار به روز می شود"
+      ]
+    },
+    {
+      "id": "faq-food",
+      "title": "رستوران و پذیرایی",
+      "text": "محوطه غذاخوری در طبقه همکف کنار سالن ب قرار دارد و از ساعت 11 تا 17 سرو می کند. آب آشامیدنی در همه سالن ها رایگان است.",
+      "title_en": "Food court",
+      "text_en": "The food court is on the ground floor next to hall B and serves between 11 and 17. Drinking water is free in every hall.",
+      "questions": [
+        "غذاخوری در کدام طبقه است",
+        "آب آشامیدنی رایگان است"
+      ]
+    },
+    {
+      "id": "faq-accessibility",
+      "title": "دسترسی برای معلولان",
+      "text": "همه سالن ها رمپ دارند و ویلچر رایگان در باجه اطلاعات تحویل داده می شود. سرویس بهداشتی ویژه معلولان کنار هر سالن قرار دارد.",
+      "title_en": "Accessibility",
+      "text_en": "Every hall has a ramp and free wheelchairs are handed out at the information desk. An accessible toilet sits beside each hall.",
+      "questions": [
+        "ویلچر از کجا تحویل گرفته می شود",
+        "سالن ها رمپ دارند"
+      ]
+    },
+    {
+      "id": "faq-wifi",
+      "title": "اینترنت بی سیم",
+      "text": "شبکه بی سیم رایگان با نام مهمان کاوند در همه سالن ها در دسترس است. رمز شبکه روی کارت ورودی چاپ شده و هر روز عوض می شود.",
+      "title_en": "Wireless internet",
+      "text_en": "A free wireless network named Kavand guest is available in every hall. The network key is printed on your entry card and changes daily.",
+      "questions": [
+        "نام شبکه بی سیم چیست",
+        "رمز شبکه کجا نوشته شده"
+      ]
+    },
+    {
+      "id": "faq-lost",
+      "title": "اشیای گمشده",
+      "text": "اشیای پیدا شده به باجه اطلاعات درب شمالی تحویل داده می شود. این اشیا تا یک هفته پس از پایان نمایشگاه نگهداری می شوند.",
+      "title_en": "Lost and found",
+      "text_en": "Found items are handed to the information desk at the north gate. They are kept for one week after the fair closes.",
+      "questions": [
+        "اشیای پیدا شده کجا تحویل داده می شود",
+        "اشیای گمشده چقدر نگهداری می شوند"
+      ]
+    },
+    {
+      "id": "faq-press",
+      "title": "اعتبارنامه خبرنگاران",
+      "text": "خبرنگاران باید تا دو هفته پیش از آغاز نمایشگاه درخواست اعتبارنامه بدهند. کارت خبرنگاری در اتاق رسانه واقع در سالن الف تحویل داده می شود.",
+      "title_en": "Press accreditation",
+      "text_en": "Reporters must request accreditation two weeks before the fair opens. Press cards are collected in the media room inside hall A.",
+      "questions": [
+        "مهلت درخواست اعتبارنامه چقدر است",
+        "کارت خبرنگاری کجا تحویل داده می شود"
+      ]
+    },
+    {
+      "id": "faq-volunteer",
+      "title": "همکاری داوطلبانه",
+      "text": "دانشجویان می توانند برای همکاری داوطلبانه ثبت نام کنند. داوطلبان در راهنمایی بازدیدکنندگان و پشتیبانی کارگاه ها کمک می کنند و گواهی همکاری دریافت می کنند.",
+      "title_en": "Volunteering",
+      "text_en": "Students can sign up to volunteer. Volunteers guide visitors and support the workshops, and they receive a certificate of cooperation.",
+      "questions": [
+        "داوطلبان چه کاری انجام می دهند",
+        "به داوطلبان گواهی داده می شود"
+      ]
+    },
+    {
+      "id": "faq-contact",
+      "title": "تماس با دبیرخانه",
+      "text": "تماس با دبیرخانه از طریق فرم تماس سامانه نمایشگاه انجام می شود. پاسخگویی دبیرخانه در روزهای کاری از ساعت 8 تا 16 است.",
+      "title_en": "Contacting the secretariat",
+      "text_en": "The secretariat is contacted through the contact form on the fair portal. The secretariat replies on working days between 8 and 16.",
+      "questions": [
+        "دبیرخانه چه ساعتی پاسخگو است",
+        "فرم تماس کجاست"
+      ]
+    },
+    {
+      "id": "faq-certificate",
+      "title": "گواهی بازدید",
+      "text": "گواهی بازدید پس از پایان نمایشگاه از بخش گواهی سامانه قابل دریافت است. صدور گواهی نیازمند تکمیل نظرسنجی بازدیدکننده است.",
+      "title_en": "Visit certificate",
+      "text_en": "A visit certificate can be downloaded from the certificate section of the portal after the fair ends. Issuing it requires completing the visitor survey.",
+      "questions": [
+        "گواهی بازدید از کجا دریافت می شود",
+        "برای گواهی چه چیزی لازم است"
+      ]
+    }
+  ]
+}

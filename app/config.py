@@ -31,6 +31,13 @@ DATABASE_URL = os.getenv(
     "postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar")
 VIDEO_DIR = os.path.join(BASE_DIR, "media", "videos")
 UPLOAD_DIR = os.path.join(BASE_DIR, "media", "uploads")
+# Where this install keeps its trained intent model: .npz weights, a JSON
+# sidecar, a version history (app/services/intent.py, ADR-025). Per-install
+# data (a customer's own weights), so the directory is gitignored and
+# env-overridable for a deployment that keeps state off the code volume.
+# Empty = never record, even in the serving app.
+INTENT_MODEL_DIR = os.getenv(
+    "INTENT_MODEL_DIR", os.path.join(BASE_DIR, "data", "intent-model"))
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 # --- Similarity thresholds ---
@@ -324,9 +331,10 @@ def is_module_enabled(module_name: str) -> bool:
 # settings rows in the admin panel instead.
 
 # How many retrieved records the model is shown before it chooses one.
-# Measured on the retired golden eval set (2026-08-28, embedding + rerank):
-# recall@1=0.786, @3=0.857, @5=0.929, @8=0.952, @13=0.952. The curve is flat
-# after 8, so eight records buy the whole ceiling and nothing beyond it.
+# Chosen from a recall@K curve measured on a retired golden set (2026-08-28)
+# that was deleted with its event install, so that measurement cannot be
+# reproduced. The current, reproducible curve is in
+# docs/features/eval-benchmark/RESULTS.md.
 ANSWER_TOPK = 8
 
 # Prior turns handed to the model as context. Five covers the follow-ups
