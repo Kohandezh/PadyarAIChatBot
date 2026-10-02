@@ -27,6 +27,51 @@
   `padyar-deploy.sh` واقعاً اجرا نشد (نه sudo، نه سرور).
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): پیامک watchdog وقتی PostgreSQL پایین است
+
+- **مدل و نقش‌ها:** Claude Opus 5.5 (claude-opus-5-5) در نقش پیاده‌ساز، در یک
+  git worktree جدا، زیر رهبری یک عامل هماهنگ‌کننده. یک بازبین مستقل تست‌های
+  پذیرش را پیش از دیدن کد، فقط از روی قرارداد، جدا نوشت.
+- **مشکل (ریشه، با اجرا تأیید شد):** `_read_settings` در
+  `deploy/watchdog/watchdog.py` تلفن هشدار را با `get_setting` می‌خواند، و
+  `get_setting` هیچ‌وقت خطا نمی‌دهد. وقتی DB پایین بود، تلفن خالی برمی‌گشت،
+  fallback به تلفن ذخیره‌شده هرگز اجرا نمی‌شد، و چرخه `cached_phone` را خالی
+  ذخیره می‌کرد. اندازه‌گیری با PostgreSQL روی یک پورت بسته: صفر پیامک، نه
+  پیامک «برنامه پایین است» و نه `HostPostgresDown`. هر پیامک واقعی هم در این
+  حالت ۱۱ بار به DB وصل می‌شد: حدود ۱۱۰ ثانیه با `DB_CONNECT_TIMEOUT=10`.
+- **کارهای انجام‌شده (پچ‌های پیشنهادی):**
+  1. `app/db/queries.py`: تابع `read_settings_strict(keys)` چند کلید را با یک
+     query می‌خواند و وقتی DB جواب نمی‌دهد خطا می‌دهد. مسیر بدون cache در
+     `get_setting` همین کد را صدا می‌زند، پس query تکراری نیست. رفتار
+     `get_setting` عوض نشد.
+  2. `app/db/pg.py`: کلید `set_unavailable()` و خطای `DatabaseUnavailable`.
+     بعد از آن، هر اتصال در همین پروسه فوراً خطا می‌دهد. فقط watchdog (یک
+     پروسهٔ یک‌باره) آن را صدا می‌زند؛ تستی هست که هیچ فایلی در `app/` آن را
+     صدا نزند. pool را بدون انتظار می‌بندد، چون با میزبانی که بسته‌ها را دور
+     می‌اندازد انتظار پیش‌فرض ۱۰ ثانیه طول کشید.
+  3. `deploy/watchdog/watchdog.py`: خواندن تنظیمات با یک query سخت‌گیر؛ اگر
+     خطا داد، `set_unavailable()` و بعد fallback. تلفن و آستانهٔ اعتبار
+     (`cached_threshold`، کلید تازهٔ state) فقط بعد از یک خواندن موفق عوض
+     می‌شوند.
+  4. مستندات: بخش ۶ و ۷ و ۹ و ۱۰ در `docs/features/critical-watchdog/SPEC.md`
+     و ردیف «Database down» در بخش watchdog فایل
+     `docs/engineering/MONITORING.md`.
+- **تست‌ها (اول نوشته شدند و روی کد پایه قرمز بودند):**
+  `tests/test_watchdog_db_down.py` (reader واقعی روی DB در دسترس‌نبودنی، و یک
+  چرخهٔ کامل روی PostgreSQL با پورت بسته)، `tests/test_settings_strict_read.py`،
+  `tests/test_pg_fail_fast.py`، `tests/postgres/test_settings_strict_read_pg.py`.
+- **اندازه‌گیری (روی ماشین توسعه، درگاه Asanak یک stub محلی):** یک چرخه با DB
+  پایین، پیامک «برنامه پایین است» و یک پیامک `HostPostgresDown`: ۴٫۱۷ ثانیه با
+  `DB_CONNECT_TIMEOUT=3` و ۱۱٫۱۶ ثانیه با `DB_CONNECT_TIMEOUT=10`.
+- **پچ‌های ردشده/بازگردانده:** وصله کردن `app.db.pg.pool` در زمان اجرا از
+  داخل watchdog رد شد، چون watchdog را به یک نام داخلی برنامه گره می‌زد. به
+  جای آن دو تابع صریح بالا اضافه شد.
+- **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی سه فایل؛
+  `pytest tests/test_watchdog*.py tests/test_critical_alert_settings.py
+  tests/test_settings_strict_read.py tests/test_pg_fail_fast.py` با ۱۱۲ تست
+  سبز. تست PostgreSQL واقعی اینجا اجرا نشد (سرور محلی نیست). CI اجرا نشده است.
+- **بازبینی انسانی:** pending.
+
 ## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): پیاده‌سازی ورود نیمه‌خودکار دانش (برش‌های S1، S2، S3a، S3، S4)
 
 - **مدل و نقش‌ها:** این کار با کمک AI (Claude) انجام شده است. همهٔ نقش‌ها نشست‌های

@@ -836,6 +836,7 @@ watchdog skips the step and behaves exactly as before.
 | Monitoring down | Host owner only: one SMS after 3 cycles without an answer or without the `MonitoringHeartbeat` alert |
 | Silences | Host owner only: one notice per new active silence, the operator's own included |
 | Sender | The same `send_asanak` path as the down-SMS, so a spent `sms_daily_budget` blocks it too (journal `alert send failed`). A failed send is retried after 300 s and counts against the daily cap; this deviates from REQ-051, so a gateway that delivers and then fails the call cannot send 288 SMS a day. About 45 minutes of gateway outage uses up that day's alert cap |
+| Database down | The settings read fails, so the cycle uses the phone and threshold cached from the last read that succeeded, and every later database access in that one-shot process fails at once (`pg.set_unavailable()`). The down-SMS and the alert SMS (`HostPostgresDown` included) still go out, with the Asanak credentials from `.env`. One outage cycle costs one `DB_CONNECT_TIMEOUT` plus about 1 s (measured: 11.2 s at 10 s). Needs `SMS_DAILY_BUDGET` empty or `0` in `.env`. Details: §6 of `docs/features/critical-watchdog/SPEC.md` |
 | Stuck cycle | `TimeoutStartSec=300s` in `padyar-watchdog@.service` ends only a truly stuck run. An Alertmanager stall is already cut by the 8 s GET deadline, and a run in progress makes the 60 s timer skip a tick, never overlap |
 
 Every journal line starts with `[watchdog] <slug>:`. To see them:
@@ -850,6 +851,15 @@ cannot read alertmanager-watchdog.pass` (re-run `deploy/55-monitoring.sh
 alert_critical_phone configured` (set the phone in the admin panel), and
 `alert SMS skipped: state not saved` (free disk space, or fix the owner of
 `/var/lib/padyar-watchdog/<slug>`).
+
+Expected while the database is down, no action needed (they stop when it is
+back): `pg.set_unavailable()` closes the pool without waiting, so psycopg logs
+`couldn't stop thread '<name>' within 0 seconds` once per pool thread still
+running, up to 4 per cycle (`padyar-worker-0` to `padyar-worker-2` and
+`padyar-scheduler`; 1 to 4 in 19 measured cycles). Each SMS sent in such a
+cycle also logs `[applog] dropped sms/sms.send.queued: DatabaseUnavailable`
+and `[sms-outbox] record failed: database marked unavailable in this process`,
+because the log store and the SMS outbox live in that database.
 
 A fourth line means no SMS of any kind can go out: `cannot import the app
 (ModuleNotFoundError): SMS disabled; check PYTHONPATH in the unit`. systemd
@@ -897,8 +907,8 @@ The steps and the end-to-end check are in §8 of
 .venv/bin/python -m pytest tests/test_monitoring_rules.py tests/test_monitoring_install_script.py -q
 promtool test rules deploy/monitoring/tests/padyar_rules_test.yml
 
-# Run the watchdog tests (alert SMS step included; every SMS is faked)
-.venv/bin/python -m pytest tests/test_watchdog_logic.py tests/test_watchdog_io.py tests/test_watchdog_unit_import.py -q
+# Run the watchdog tests (alert SMS step, database outage and unit import included; every SMS is faked)
+.venv/bin/python -m pytest tests/test_watchdog*.py -q
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics

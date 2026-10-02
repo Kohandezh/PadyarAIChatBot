@@ -43,6 +43,13 @@ from app.config import logger
 
 _pool = None
 _pool_lock = threading.Lock()
+# Off unless set_unavailable() ran in THIS process. Never stored anywhere else.
+_unavailable = False
+
+
+class DatabaseUnavailable(psycopg.OperationalError):
+    """pool() after set_unavailable(): this process already knows the
+    database is down, so it fails now instead of waiting DB_CONNECT_TIMEOUT."""
 
 
 def dsn() -> str:
@@ -51,9 +58,28 @@ def dsn() -> str:
         "postgresql://padyar_app:padyar_local_dev@127.0.0.1:5432/padyar")
 
 
+def set_unavailable() -> None:
+    """Make every later connection attempt in THIS process fail at once.
+
+    Only for a one-shot process that has just proven the database is down:
+    the watchdog calls it after its strict settings read failed. Without it,
+    each later checkout (the SMS gateway settings in app/services/sms.py, the
+    log writes) waits DB_CONNECT_TIMEOUT, about 110 s per SMS in production.
+    The app server must never call it: there is no way back but a restart.
+    Also closes an open pool, so its threads stop retrying in the background.
+    The close does not wait for them: against a host that drops packets each
+    thread sits in connect(), and the default wait cost 10 s (measured).
+    """
+    global _unavailable
+    _unavailable = True
+    close_pool(timeout=0)
+
+
 def pool() -> ConnectionPool:
     """The process-wide pool, created once."""
     global _pool
+    if _unavailable:
+        raise DatabaseUnavailable("database marked unavailable in this process")
     if _pool is None:
         with _pool_lock:
             if _pool is None:
@@ -86,11 +112,13 @@ def pool_stats() -> dict:
         return {"error": type(e).__name__}
 
 
-def close_pool() -> None:
+def close_pool(timeout: float = 5.0) -> None:
+    """Close the process-wide pool. `timeout` is how long to wait for its
+    background threads; 0 signals them to stop and returns at once."""
     global _pool
     with _pool_lock:
         if _pool is not None:
-            _pool.close()
+            _pool.close(timeout=timeout)
             _pool = None
 
 

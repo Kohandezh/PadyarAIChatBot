@@ -174,8 +174,9 @@ bad news would train operators to ignore the unit state.
 | Condition | Behavior |
 |---|---|
 | App package not importable (the unit's `PYTHONPATH` is missing or wrong) | Journal ONE line per cycle: `cannot import the app (ModuleNotFoundError): SMS disabled; check PYTHONPATH in the unit`. The probe, the fail streak and `cached_phone` keep working. The credit check, every send and the alert SMS step (§11) are skipped, so no `send failed` line follows and no alert is marked as sent: it still goes out once the unit is fixed. No SMS can go out until then (see §8, "Rolling out the PYTHONPATH fix"). |
-| PostgreSQL down (settings unreadable) | Use `cached_phone` from state (last healthy read) and the default threshold; journal `settings unreadable (…), using cached phone`. Alerting the right person on stale data beats alerting nobody. |
-| Alert phone empty | Journal `DOWN but no alert_critical_phone configured`, no SMS. State (fail streak) is still persisted. |
+| PostgreSQL down (settings unreadable) | The settings read raises. Use `cached_phone` and `cached_threshold` from state (the last read that succeeded; `300000` if the threshold was never read) and journal `settings unreadable (<Type>), using cached phone`. The down-SMS and the alert SMS still go out. Alerting the right person on stale data beats alerting nobody. See "During a PostgreSQL outage" below. |
+| PostgreSQL down, and no phone was ever read (fresh install) | Journal `DOWN but no alert_critical_phone configured`, no SMS, no crash. |
+| Alert phone empty (read from a database that answered) | Journal `DOWN but no alert_critical_phone configured`, no SMS. State (fail streak) is still persisted. The empty value is cached, so clearing the phone in the admin panel turns the SMS off. |
 | SMS send fails | Journal `send failed: SmsError` — the exception's **class name** only (`type(e).__name__`, e.g. `SmsError`), never its message; state still persisted, so the streak is not re-lived next tick. |
 | Threshold row is garbage | Falls back to the documented default `300000`, never to 0 (which would alert every cycle). |
 | Corrupt state file | Journal note, reset to fresh state — loses one alert cycle at most. |
@@ -192,11 +193,70 @@ default budget is 0 (no cap), so out-of-the-box installs are unaffected; an
 operator who sets a budget should keep headroom for critical alerts, because
 the watchdog's messages come off the same Asanak credit as everything else.
 
+### During a PostgreSQL outage
+
+Fixed 2026-10-02. Before that, the reader went through `get_setting()`,
+which never raises: on a database error it returns its default. So during an
+outage the reader returned an empty phone, the cached-phone fallback never
+ran, and the cycle saved `cached_phone = ""`. Measured with PostgreSQL at a
+closed port: 0 SMS, not the down-SMS and not `HostPostgresDown`.
+
+Now:
+
+- `_read_settings()` reads both keys in one query through
+  `read_settings_strict()` (`app/db/queries.py`), which raises on a database
+  error. An empty phone comes back only from a database that answered.
+- Only a successful read changes `cached_phone` and `cached_threshold`.
+- After a failed read the watchdog calls `pg.set_unavailable()`
+  (`app/db/pg.py`). Every later database access in that one-shot process
+  then fails at once instead of waiting `DB_CONNECT_TIMEOUT`. Without it one
+  SMS made 11 database attempts (the gateway settings in
+  `app/services/sms.py`, the log levels, the log write): about 110 s per SMS
+  at the production timeout of 10 s. The app server never calls it.
+- The Asanak credentials still come from the settings -> `.env` fallback in
+  `app/services/sms.py`, unchanged.
+
+Measured 2026-10-02 on a developer machine, one cycle with the real reader,
+the real `_send` and the real probe, a local stub as the Asanak gateway, the
+down-SMS and one `HostPostgresDown` SMS sent:
+
+| PostgreSQL | `DB_CONNECT_TIMEOUT` | Cycle |
+|---|---|---|
+| Closed port (connection refused) | 3 s | 4.17 s |
+| Closed port (connection refused) | 10 s | 11.16 s |
+| Host that drops packets | 3 s | 3.78 s |
+| Host that drops packets | 10 s | 10.57 s |
+
+So an outage costs one connect timeout plus about one second, far inside
+`TimeoutStartSec=300s`.
+
+Journal lines that are expected in an outage cycle and need no action:
+
+- `couldn't stop thread '<name>' within 0 seconds` (psycopg): up to 4 per
+  cycle, one per pool thread still running when `set_unavailable()` closes
+  the pool without waiting (`padyar-worker-0` to `padyar-worker-2` and
+  `padyar-scheduler`). Measured 1 to 4 in 19 cycles. Waiting for them cost
+  10 s with a host that drops packets, which is why the close does not wait.
+- Per SMS sent: `[applog] dropped sms/sms.send.queued: DatabaseUnavailable`
+  and `[sms-outbox] record failed: database marked unavailable in this
+  process`. The log store and the SMS outbox live in the database that is
+  down.
+
+Two conditions for an SMS during an outage, both unchanged by this fix:
+the Asanak credentials must be in the install's `.env` (with `SECRET_KEY`
+set, if they are stored encrypted there), and `SMS_DAILY_BUDGET` in `.env`
+must be empty or `0`. A budget above 0 makes `_spend_budget` write to the
+database before the send, so every SMS fails with `send failed` until the
+database is back (see `docs/features/monitoring-stack/SPEC.md`, the DB-down
+rows of section 8).
+
 ## 7. State
 
 One JSON file per install: `/var/lib/padyar-watchdog/{install}/state.json`
 (`fail_count`, `down_since`, `last_alert`, `credit_day`, `credit_alerted`,
-`cached_phone`, plus the alert SMS keys of §11).
+`cached_phone`, `cached_threshold`, plus the alert SMS keys of §11).
+`cached_phone` and `cached_threshold` hold the last settings read that
+succeeded; a failed read never changes them.
 
 - **Why per-install directories:** the per-install watchdog services run as
   distinct service users (the pattern is
@@ -299,6 +359,7 @@ could have reached the phone.
 |---|---|---|
 | Admin API stores `alert_critical_phone` (`set_setting`, `app/routers/admin.py`) | `_read_settings()` reads it every cycle (`deploy/watchdog/watchdog.py`) | SMS goes nowhere or to a stale number |
 | Admin API stores `alert_credit_threshold_toman` (same route) | Same reader; compared ×10 as rial | Wallet floor silently wrong |
+| `read_settings_strict()` raises on a database error (`app/db/queries.py`); `pg.set_unavailable()` makes later connections fail at once (`app/db/pg.py`) | `_read_settings()` in `watchdog.py` | A strict read that swallows errors again turns an outage into "no phone": no SMS at all. Without the switch, each SMS waits `DB_CONNECT_TIMEOUT` per setting, about 110 s at 10 s |
 | `deploy/17-watchdog.sh` renders pages at `/var/www/padyar/maintenance/{slug}/__maintenance.html` | vhost `location = /__maintenance.html` `root` in the vhost rendered from `deploy/nginx/instance.conf.template` | 502 falls through to nginx's default error page — the incident again |
 | Installer creates `/var/lib/padyar-watchdog/{slug}` owned by `padyar-{slug}`; unit `ReadWritePaths=/var/lib/padyar-watchdog` | `STATE_DIR` + `run_cycle` state path in `watchdog.py` | Persist fails on permissions; fail streak resets every run; alerts muted |
 | systemd instance names (generally `{slug}` — `User=padyar-%i`, `WorkingDirectory=/opt/padyar-%i`) and `APP_PORT` in each install's `.env` (the unit's `EnvironmentFile`) | `install_port()` in `watchdog.py` reads `APP_PORT` from that EnvironmentFile | Cycle journals "unknown install" forever, or probes the wrong port |
@@ -321,6 +382,15 @@ could have reached the phone.
   directory outside the repo, with cwd = a temp install dir and only the
   unit's `Environment=` values, the way systemd runs it. It fails if the
   script cannot import `app` in that shape, or if it reads the repo's `.env`.
+- `tests/test_watchdog_db_down.py`: the REAL settings reader against a
+  database that does not answer: it raises, the cached phone and threshold
+  are used and kept, the down-SMS and `HostPostgresDown` still go out, and
+  against PostgreSQL at a closed port one cycle waits for the pool once and
+  sends both SMS with the `.env` credentials. Allow-controls with the
+  database up.
+- `tests/test_settings_strict_read.py`, `tests/test_pg_fail_fast.py`,
+  `tests/postgres/test_settings_strict_read_pg.py`: the two app additions
+  the reader relies on.
 - `tests/test_critical_alert_settings.py` — the writer side of the settings
   pair: defaults, `0912…` → `+98912…` canonicalization, refusals, empty-phone
   disables, Persian-digit threshold.
