@@ -1,0 +1,6 @@
+# Metric names the alert rules may read from prometheus-blackbox-exporter
+# 0.24.0 (Ubuntu noble), with the source line at tag v0.24.0.
+# probe_ssl_earliest_cert_expiry is only created after a successful TLS
+# handshake (prober/http.go#L268), which is why R14 exists next to R09.
+probe_success https://github.com/prometheus/blackbox_exporter/blob/v0.24.0/prober/handler.go#L78
+probe_ssl_earliest_cert_expiry https://github.com/prometheus/blackbox_exporter/blob/v0.24.0/prober/prober.go#L35

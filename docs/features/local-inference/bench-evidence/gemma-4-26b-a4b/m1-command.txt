@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 CUDA_DEVICE_ORDER=PCI_BUS_ID LD_LIBRARY_PATH=/opt/padyar-llm/llama/lib /opt/padyar-llm/llama/bin/llama-server -m /var/lib/padyar/llm/models/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf --alias gemma-4-26b-a4b --host 127.0.0.1 --port 8010 --api-key-file /var/lib/padyar/llm/api-key -ngl 999 --split-mode layer -fa on -c 16384 -np 4 -ctk q8_0 -ctv q8_0 -lv 4

@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Created | 2026-10-01 |
-| Updated | 2026-10-01 |
+| Updated | 2026-10-02 |
 | Status | Draft |
 | Domain | infrastructure |
 | Author | Sina Shamsizadeh (مالک). پیش‌نویس با کمک AI (Claude Opus 5.5). بازبینی انسانی: pending |
@@ -158,10 +158,14 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
 - **REQ-006** توکن هر نصب در `/etc/prometheus/secrets/<slug>.token` نوشته
   می‌شود، مالک `root:prometheus`، مجوز `0640`. پوشهٔ
   `/etc/prometheus/secrets` با `root:prometheus` و `0750`.
-- **REQ-007** چک توکن زنده: بعد از نوشتن فایل توکن، اسکریپت
-  `GET http://127.0.0.1:<APP_PORT>/metrics` را با همان توکن می‌زند. 200: ادامه.
+- **REQ-007** چک توکن زنده، **پیش از نصب هر بسته و پیش از نوشتن فایل توکن**:
+  اسکریپت توکن `.env` را در یک فایل موقت `0600` می‌گذارد و
+  `GET http://127.0.0.1:<APP_PORT>/metrics` را با آن می‌زند (header مثل REQ-005).
+  200: ادامه. فایل توکن REQ-006 فقط بعد از همهٔ پیش‌شرط‌ها نوشته می‌شود.
   403: توقف با پیام «برنامه بعد از گذاشتن METRICS_TOKEN restart نشده:
-  `sudo systemctl restart padyar-<slug>`». هر چیز دیگر: توقف با کد HTTP.
+  `sudo systemctl restart padyar-<slug>`». هر چیز دیگر: توقف با کد HTTP. فایل
+  موقت در هر خروجی پاک می‌شود. دلیل این ترتیب: اگر فایل توکن اول نوشته شود و
+  چک 403 بگیرد، scrapeی که پیش از اجرا کار می‌کرد با توکن تازه می‌شکند.
 - **REQ-008** صاحب هشدارهای میزبان در `/etc/padyar-monitoring/host-alerts-owner`
   (`0644`، یک خط، فقط slug) نوشته می‌شود. قاعده:
   - با `--host-alerts <slug>`: همان slug. باید یکی از نصب‌های ثبت‌شده باشد
@@ -215,9 +219,12 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
   gossip خوشه `0.0.0.0:9094` است (`cmd/alertmanager/main.go:131` در تگ
   v0.26.0، و توضیح فلگ در `:218`: «Set to empty string to disable HA mode»).
 - **REQ-016** retention: 30 روز یا یک سقف اندازه، هر کدام زودتر برسد. سقف
-  اندازه = کمترِ `5GB` و ۳۰٪ فضای آزاد پارتیشن `/var/lib/prometheus` در لحظهٔ
-  اجرا (`df --output=avail`). اگر ۳۰٪ فضای آزاد کمتر از `1GB` بود، توقف (Q5).
-  اسکریپت عدد انتخاب‌شده را چاپ می‌کند.
+  اندازه = کمترِ `5GB` و ۳۰٪ از (فضای آزاد پارتیشن `/var/lib/prometheus` در
+  لحظهٔ اجرا (`df --output=avail`) + اندازهٔ فعلی TSDB (`du -sb /var/lib/prometheus`)).
+  اگر این ۳۰٪ کمتر از `1GB` بود، توقف (Q5). اسکریپت عدد انتخاب‌شده را چاپ
+  می‌کند. دلیل اضافه شدن اندازهٔ TSDB: دادهٔ خود TSDB «مصرف‌شده» حساب می‌شود،
+  پس با فضای آزاد تنها، هر اجرای دوباره سقف را کمی پایین می‌آورد و Prometheus
+  برای رسیدن به آن تاریخچه را پاک می‌کند.
 - **REQ-017** `MemoryMax=` با یک drop-in
   `/etc/systemd/system/<unit>.service.d/padyar-limits.conf` برای هر سرویس:
   prometheus `1G`، alertmanager `256M`، node_exporter و postgres_exporter و
@@ -233,7 +240,12 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
   `promtool test rules` روی فایل تست کپی‌شده (REQ-072)، و
   `amtool check-config /etc/prometheus/alertmanager.yml`. هر شکست: توقف، و
   سرویس‌ها با config قبلی می‌مانند (configها اول در فایل موقت نوشته و بعد با
-  `mv` جایگزین می‌شوند).
+  `mv` جایگزین می‌شوند). اگر اجرا پیش از restart متوقف شود، فایل‌های config
+  قبلی برمی‌گردند، رمزهایی که همین اجرا ساخته پاک می‌شوند (با هش قبلی
+  `alertmanager-web.yml` جور نیستند)، و سرویس بسته‌هایی که **همین اجرا** نصب
+  کرده stop و disable می‌شود. دلیل: apt آن‌ها را بلافاصله با پیش‌فرض Debian
+  روی همهٔ interfaceها روشن می‌کند (REQ-014). بسته‌های از قبل نصب‌شده دست
+  نمی‌خورند.
 - **REQ-020** بعد از restart، چک listener: برای پورت‌های 9090، 9093، 9100،
   9115، 9187 و 20241، `ss -ltnH` باید فقط آدرس `127.0.0.1` نشان بدهد. پورت
   9094 نباید اصلاً گوش بدهد. هر نقض: پیام با نام پورت و آدرس، و خروج 2.
@@ -246,7 +258,11 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
   موقع import ساخته می‌شوند. این چک خروج را شکست نمی‌دهد.
 - **REQ-022** چک nginx: برای هر دامنه،
   `curl -sk -o /dev/null -w '%{http_code}' --resolve <domain>:443:127.0.0.1 https://<domain>/metrics`.
-  اگر 404 نبود، یک هشدار پررنگ با دستور رفع:
+  اگر 404 نبود، یک هشدار پررنگ. دستور رفع فقط وقتی چاپ می‌شود که
+  `deploy/nginx/instance.conf.template` همان checkout بلوک `location = /metrics`
+  (WU0) را دارد؛ وگرنه هشدار می‌گوید ساختن دوبارهٔ vhost کمکی نمی‌کند. دلیل:
+  بدون WU0 آن دستور چیزی را عوض نمی‌کند، و `MAINTENANCE_TITLE` اشتباه صفحهٔ
+  نگهداری بازدیدکننده را عوض می‌کند. دستور رفع:
   `sudo MAINTENANCE_TITLE='<نام نصب برای بازدیدکننده>' bash deploy/17-watchdog.sh <slug> <port> <domain>`.
   آن اسکریپت vhost را از قالب دوباره می‌سازد (`deploy/17-watchdog.sh:65-80`).
   `MAINTENANCE_TITLE` لازم است: بدون آن، همان اسکریپت صفحهٔ نگهداری‌ای را که
@@ -257,13 +273,19 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
   `.env` منبع درست است، چون وقتی DB پایین است `get_setting` به‌جای خطا `None`
   می‌دهد (`app/db/queries.py:33-43`) و `setting()` به env برمی‌گردد
   (`app/services/sms.py:271-286`):
-  - اگر `ASANAK_USERNAME` یا `ASANAK_SOURCE`، یا هر دوی `ASANAK_PASSWORD` و
-    `ASANAK_API_KEY`، در `.env` خالی‌اند: «اعتبار Asanak فقط در DB است؛ وقتی
-    DB پایین است هیچ پیامک هشداری نمی‌رود».
-  - اگر `SMS_DAILY_BUDGET` در `.env` عددی بزرگ‌تر از صفر است: «با این بودجه،
-    وقتی DB پایین است هیچ پیامک هشداری نمی‌رود (ADR-024، تصمیم 7)». مقدار
-    همین کلید در جدول `settings` برای این ریسک مهم نیست، چون وقتی DB پایین
-    است خوانده نمی‌شود.
+  - اگر هر کدام از `ASANAK_USERNAME`، `ASANAK_PASSWORD` یا `ASANAK_SOURCE` در
+    `.env` خالی است: «اعتبار Asanak فقط در DB است؛ وقتی DB پایین است هیچ پیامک
+    هشداری نمی‌رود». دلیل: `send_asanak` همین سه را لازم دارد و
+    `ASANAK_API_KEY` را هرگز نمی‌خواند (`app/services/sms.py:515-519`، `:692-696`).
+  - اگر `ASANAK_PASSWORD` یک توکن `enc:` است و `SECRET_KEY` در `.env` خالی است:
+    همان هشدار، چون باز کردن رمز آن وقت به DB نیاز دارد.
+  - بودجه همان‌طور خوانده می‌شود که `daily_budget()` برنامه می‌خواند
+    (`max(0, int(value.strip()))`، `app/services/sms.py:358-365`). اگر آن بزرگ‌تر
+    از صفر است: «با این بودجه، وقتی DB پایین است هیچ پیامک هشداری نمی‌رود
+    (ADR-024، تصمیم 7)». اگر `int()` آن را نمی‌خواند: هشدار «برنامه آن را 0
+    (بدون سقف) می‌خواند»، بدون چاپ مقدار. دلیل: `int()` پایتون `+5`، `1_000` و
+    رقم فارسی را هم می‌خواند. مقدار همین کلید در جدول `settings` برای این ریسک
+    مهم نیست، چون وقتی DB پایین است خوانده نمی‌شود.
 - **REQ-024** کلید metrics تونل، **بدون بازنویسی config تونل:**
   - اگر `/etc/cloudflared/config.yml` خطی با `^metrics:` ندارد: یک کپی در
     `/root/padyar-backups/cloudflared-config.yml.<UTC timestamp>` گذاشته
@@ -364,14 +386,15 @@ R01 تا R10 ده هشدار تیکت‌اند. R14 هم جزو هشدارهای
 # R01 PadyarAppDown
 up{app="padyar"} == 0
 
-# R02 PadyarHigh5xxRate: بیش از ۵٪ خطای سرور در ۱۰ دقیقه، با حداقل ۲۰ درخواست
+# R02 PadyarHigh5xxRate: بیش از ۵٪ خطای سرور در ۱۰ دقیقه، با حداقل ۲۰ درخواست،
+# بدون درخواست‌های خود پشته (/metrics و /api/health)
 (
-  sum by (install) (increase(http_requests_total{app="padyar",status=~"5.."}[10m]))
+  sum by (install) (increase(http_requests_total{app="padyar",status=~"5..",route!~"/metrics|/api/health"}[10m]))
   /
-  sum by (install) (increase(http_requests_total{app="padyar"}[10m]))
+  sum by (install) (increase(http_requests_total{app="padyar",route!~"/metrics|/api/health"}[10m]))
 ) > 0.05
 and on (install)
-sum by (install) (increase(http_requests_total{app="padyar"}[10m])) >= 20
+sum by (install) (increase(http_requests_total{app="padyar",route!~"/metrics|/api/health"}[10m])) >= 20
 
 # R03 PadyarChatLatencyHigh: p95 چت بالای ۸ ثانیه، با حداقل ۱۰ درخواست چت
 histogram_quantile(0.95,
@@ -434,6 +457,14 @@ label_replace(up{app="padyar"} == 0, "probe_install", "$1", "install", "(.*)")
   (`app/services/maintenance.py:101-106`)، پس **روشن کردن حالت نگهداری یعنی
   یک silence** برای `PadyarHigh5xxRate` همان نصب. این قدم در runbook است
   (REQ-081). یک metric برای حالت نگهداری گزینهٔ آینده است، نه این کار.
+- **درخواست‌های خود پشته در R02:** `route!~"/metrics|/api/health"` روی هر سه
+  بخش است: خطاها، کل، و حداقل ۲۰. دلیل: Prometheus هر ۱۵ ثانیه `/metrics`
+  را می‌خواند، probe مبدأ هر ۱۵ ثانیه و watchdog هر ۶۰ ثانیه `/api/health` را؛
+  یعنی حدود ۹۰ درخواست موفق در ۱۰ دقیقه که هیچ بازدیدکننده‌ای نزده. اگر
+  شمرده شوند، نصب بی‌بازدیدکننده همیشه از حداقل ۲۰ می‌گذرد و نسبت خطای نصب
+  شلوغ رقیق می‌شود (۵ خطا در ۳۰ درخواست واقعی ۱۷٪ است، با ۹۰ تای پشته ۴٪).
+  قطعی واقعی `/api/health` همچنان دیده می‌شود: watchdog آن را پیامک می‌کند و
+  R14 روشن می‌شود.
 - **سقف p95 در R03:** بالاترین bucket محدود `10.0` است
   (`app/services/metrics.py:46`)، پس p95 بالای ۱۰ ثانیه «10» خوانده می‌شود.
   آستانهٔ ۸ زیر این سقف است. هدف SLO (۹۵٪ زیر ۵ ثانیه) در سند SLO است، نه در
@@ -701,7 +732,7 @@ label_replace(up{app="padyar"} == 0, "probe_install", "$1", "install", "(.*)")
 | `GET /api/v2/alerts` Alertmanager 0.26 | آرایهٔ هشدار با `labels`، `fingerprint`، `status.state` (`active`، `suppressed`، `unprocessed`) | `api/v2/openapi.yaml` تگ v0.26.0 (spike، D3) |
 | `GET /api/v1/label/__name__/values` Prometheus | فهرست نام‌ها | مستندات HTTP API |
 | فرمان‌های جدید `amtool` | `silence add`، `silence expire` با config در `/root/.config/amtool/config.yml` | REQ-037 |
-| خروجی اسکریپت | 0 موفق، 1 کاربرد غلط یا پیش‌شرط، 2 listener عمومی | REQ-001، REQ-020 |
+| خروجی اسکریپت | 0 موفق، 2 فقط listener عمومی، 1 هر شکست دیگر (کد خود فرمان شکست‌خورده، مثل 2 از psql یا 100 از apt-get، به 1 تبدیل می‌شود) | REQ-001، REQ-020 |
 
 metricهای تازهٔ برنامه (قرارداد با قواعد):
 
@@ -729,8 +760,31 @@ metricهای تازهٔ برنامه (قرارداد با قواعد):
   | `/root/.config/amtool/config.yml` | URL با رمز اپراتور | `root:root 0600` |
   | `/var/lib/padyar-watchdog/<slug>/state.json` | کلیدهای بخش 5.6 | `padyar-<slug>` |
 
-- برداشتن: `apt-get purge` پنج بسته و پاک کردن `/etc/prometheus` و
-  `/etc/padyar-monitoring`. کلیدهای تازهٔ state watchdog بی‌خطر می‌مانند.
+- برداشتن کامل (از خود نصب‌ها چیزی دست نمی‌خورد). دلیل فهرست کامل: purge و
+  پاک کردن دو پوشه، نقش PostgreSQL، گروه، drop-inها، دو فایل `/root` و کپی‌های
+  پشتیبان config (که رمز اپراتور را دارند) را جا می‌گذاشت:
+
+  ```bash
+  UNITS="prometheus prometheus-alertmanager prometheus-node-exporter prometheus-postgres-exporter prometheus-blackbox-exporter"
+  sudo systemctl disable --now $UNITS
+  sudo apt-get purge $UNITS
+  for u in $UNITS; do sudo rm -f /etc/systemd/system/$u.service.d/padyar-limits.conf; sudo rmdir /etc/systemd/system/$u.service.d 2>/dev/null; done
+  sudo systemctl daemon-reload
+  sudo rm -rf /etc/prometheus /etc/padyar-monitoring /var/lib/prometheus
+  sudo rm -f /root/.secrets/alertmanager-operator.pass /root/.config/amtool/config.yml
+  sudo bash -c 'rm -rf /root/padyar-backups/monitoring-*'
+  sudo -u postgres psql -c 'DROP ROLE prometheus'
+  sudo groupdel padyar-alertread
+  ```
+
+  خط `metrics: 127.0.0.1:20241` در config تونل بی‌خطر است و می‌تواند بماند.
+  برای برداشتنش فقط همان یک خط پاک می‌شود، config چک و تونل بیرون از ساعت
+  رویداد restart می‌شود:
+  `sudo sed -i '/^metrics: 127\.0\.0\.1:20241$/d' /etc/cloudflared/config.yml && sudo cloudflared --config /etc/cloudflared/config.yml ingress validate && sudo systemctl restart cloudflared`.
+  کپی‌ای که اولین اجرا از این فایل گرفته **برگردانده نمی‌شود**، چون
+  `deploy/40-cloudflare-tunnel.sh` کل فایل را برای یک دامنه بازنویسی می‌کند و
+  کپی قدیمی می‌تواند قاعدهٔ ingress سایتی را که بعداً اضافه شده پاک کند.
+  کلیدهای تازهٔ state watchdog بی‌خطر می‌مانند.
 
 ## 8. Error / Edge Cases
 
@@ -738,7 +792,7 @@ metricهای تازهٔ برنامه (قرارداد با قواعد):
 |---|---|
 | **اجرای دوبارهٔ `40-cloudflare-tunnel.sh` برای افزودن metrics** | ممنوع و لازم نیست. آن اسکریپت کل `/etc/cloudflared/config.yml` را با `cat >` برای **یک** دامنه بازنویسی می‌کند (`deploy/40-cloudflare-tunnel.sh:75-97`، یک `hostname: ${DOMAIN}` در `:88-93`). روی میزبانی با دو نصب، اجرای آن قاعدهٔ ingress نصب دیگر را پاک می‌کند. برای همین `55-monitoring.sh` فقط یک خط درج می‌کند (REQ-024). قالب `40` هم خط `metrics: 127.0.0.1:20241` را می‌گیرد (REQ-062)، فقط برای میزبان تازه. مشکل «یک دامنه» در `40` یک کار جدا است |
 | `METRICS_TOKEN` خالی | توقف، دستور یک‌خطی (REQ-004) |
-| توکن در `.env` هست ولی برنامه restart نشده | 403 از `/metrics`، توقف (REQ-007) |
+| توکن در `.env` هست ولی برنامه restart نشده | 403 از `/metrics`، توقف پیش از نصب هر بسته؛ فایل توکن Prometheus عوض نمی‌شود (REQ-007) |
 | اجرای دوباره با slugهای کمتر | فایل‌های نصب دیگر دست نمی‌خورند؛ فایل‌های مشترک از همهٔ `installs/*.conf` ساخته می‌شوند (REQ-009) |
 | دو اجرای هم‌زمان اسکریپت | REQ-026 |
 | `promtool` قاعده یا config را رد کند | توقف پیش از restart؛ سرویس‌ها با config قبلی (REQ-019) |
@@ -812,7 +866,9 @@ metricهای تازهٔ برنامه (قرارداد با قواعد):
     `grep -m1 '^APP_PORT=' <file> | cut -d= -f2-`)، بدون اجرای هیچ بخشی از مقدار؛
   - هر مقدار پیش از استفاده با regex خودش چک می‌شود: `APP_PORT` با `^[0-9]+$`،
     `METRICS_TOKEN` با `^[A-Za-z0-9_-]+$`، `SMS_DAILY_BUDGET` با `^[0-9]*$`.
-    مقدار نامعتبر چاپ نمی‌شود؛
+    مقدار نامعتبر چاپ نمی‌شود. `SMS_DAILY_BUDGET`ی که با regex نخواند فقط
+    به‌عنوان داده (stdin) به همان `int()` برنامه داده می‌شود (REQ-023)، هرگز
+    اجرا نمی‌شود؛
   - تست REQ-078 قرمز می‌شود اگر اسکریپت `source` یا `. ` روی مسیری با `.env`
     داشته باشد.
 - **کیوسک:** این کار هیچ چیزی در مرورگر بازدیدکننده عوض نمی‌کند. نفر بعدی پشت
@@ -925,7 +981,7 @@ WU1 نباید روی production فعال شود پیش از merge شدن DEP-1 
 | PC-02 | Q3: apt بستهٔ prometheus را دارد؟ | اسکریپت چک می‌کند (REQ-012) |
 | PC-03 | Q3: `apt.grafana.com` و GitHub releases از سرور | فقط برای Grafana و گزینهٔ (c). اپراتور وقتی لازم شد چک می‌کند |
 | PC-04 | Q4: نسخه و پورت cloudflared | اسکریپت `cloudflared --version` را چاپ و پورت را با `ss` چک می‌کند (REQ-020، REQ-024) |
-| PC-05 | Q5: فضای دیسک و mountpointها | اسکریپت retention را از فضای آزاد حساب می‌کند (REQ-016). فیلتر R07 به نام mountpoint وابسته نیست |
+| PC-05 | Q5: فضای دیسک و mountpointها | اسکریپت retention را از فضای آزاد + اندازهٔ فعلی TSDB حساب می‌کند (REQ-016). فیلتر R07 به نام mountpoint وابسته نیست |
 | PC-06 | Q5: RAM مصرفی با TTS | اپراتور `free -m` را پیش از اجرا می‌بیند. `MemoryMax` سقف می‌گذارد (REQ-017) |
 | PC-07 | Q6: SMTP | لازم نیست (کانال را مالک تعیین کرد) |
 | PC-08 | Q7: صاحب هشدارهای میزبان | `--host-alerts`، یا اولین slug (REQ-008). اپراتور تأیید می‌کند |
@@ -947,7 +1003,7 @@ WU1 نباید روی production فعال شود پیش از merge شدن DEP-1 
 - [ ] **SC-007** بعد از SC-001، `/etc/cloudflared/config.yml` همهٔ قواعد `ingress` قبلی را دارد (diff با کپی پشتیبان فقط یک خط `metrics:` است).
 - [ ] **SC-008** `curl -sk --resolve <domain>:443:127.0.0.1 https://<domain>/metrics` برای هر دو دامنه 404 می‌دهد، بعد از اجرای دوبارهٔ `17-watchdog.sh` با `MAINTENANCE_TITLE` همان نصب، و صفحهٔ نگهداری هر نصب عنوان قبلی خودش را دارد.
 - [ ] **SC-009** `curl http://127.0.0.1:9093/api/v2/alerts` بدون رمز 401 می‌دهد.
-- [ ] **SC-010** `promtool test rules deploy/monitoring/tests/padyar_rules_test.yml` برای هر قاعدهٔ موجود در فایل، حداقل یک حالت روشن و یک حالت خاموش را پاس می‌کند.
+- [ ] **SC-010** `promtool test rules deploy/monitoring/tests/padyar_rules_test.yml` برای هر قاعدهٔ موجود در فایل، حداقل یک حالت روشن و یک حالت خاموش را پاس می‌کند؛ جز `MonitoringHeartbeat` (R13) که `vector(1)` است و حالت خاموش ندارد، پس فقط حالت روشن دارد.
 - [ ] **SC-011** `tests/test_monitoring_rules.py` سبز است (شش بند REQ-070 تا REQ-075).
 - [ ] **SC-012** روی میزبان، یک هشدار آزمایشی با `amtool alert add PadyarHigh5xxRate install=<owner> page=sms severity=critical` در کمتر از ۲ دقیقه دقیقاً یک پیامک به `alert_critical_phone` همان نصب می‌فرستد، و چرخه‌های بعدی تا ۶ ساعت پیامک دیگری نمی‌فرستند. (هزینه: یک پیامک واقعی.)
 - [ ] **SC-013** با `systemctl stop prometheus-alertmanager`، watchdog صاحب میزبان بعد از ۳ چرخه دقیقاً یک پیامک «سیستم پایش کار نمی‌کند» می‌فرستد و watchdog نصب دیگر هیچ.
