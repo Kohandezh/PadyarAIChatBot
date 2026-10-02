@@ -1,0 +1,28 @@
+# Alertmanager for the whole host. Installed to /etc/prometheus/alertmanager.yml
+# by deploy/55-monitoring.sh.
+#
+# It sends NOTHING anywhere: one route, one receiver with no destination.
+# Each install's watchdog pulls the active page="sms" alerts from
+# GET /api/v2/alerts and texts them with that install's own SMS account
+# (ADR-024, decision 4). An alert that is silenced or inhibited shows as
+# "suppressed" there, and the watchdog does not text it.
+route:
+  receiver: ui-only
+  group_by: [alertname, install]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: ui-only
+
+inhibit_rules:
+  # The app is down: its error rate and latency say nothing new, and the
+  # watchdog's own probe already texts the outage.
+  - source_matchers: [alertname="PadyarAppDown"]
+    target_matchers: [alertname=~"PadyarHigh5xxRate|PadyarChatLatencyHigh|PadyarAICircuitOpen"]
+    equal: [install]
+  # The database is down: every install on this host fails with it. No
+  # `equal`, so this inhibits the matching alerts of ALL installs.
+  - source_matchers: [alertname="HostPostgresDown"]
+    target_matchers: [alertname=~"PadyarHigh5xxRate|PadyarChatLatencyHigh|PadyarBackupFailed"]

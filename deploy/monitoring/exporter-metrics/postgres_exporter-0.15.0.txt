@@ -1,0 +1,4 @@
+# Metric names the alert rules may read from prometheus-postgres-exporter
+# 0.15.0 (Ubuntu noble), with the source line at tag v0.15.0. Name "up"
+# under namespace "pg" (cmd/postgres_exporter/main.go#L59).
+pg_up https://github.com/prometheus-community/postgres_exporter/blob/v0.15.0/cmd/postgres_exporter/postgres_exporter.go#L548-L549
