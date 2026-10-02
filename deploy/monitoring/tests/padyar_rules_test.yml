@@ -161,6 +161,175 @@ tests:
               description: "در رابط Prometheus ببینید پاسخ‌ها از کدام tier می‌آیند (chat_tier_served_total) و سرویس هوش مصنوعی کند است یا نه (ai_calls_total)."
               runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarchatlatencyhigh"
 
+  # R04: inotex's openai-main circuit is stored open (2) from the first
+  # sample and fires after exactly 5 minutes: pending at 4m, firing at 5m.
+  # inotex's gapgpt circuit is half_open (1) and elecomp's is closed (0):
+  # neither fires. The app's own "instance" label arrives renamed
+  # exported_instance, because the scrape target already has an instance.
+  - interval: 1m
+    input_series:
+      - series: 'ai_circuit_state{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",exported_instance="openai-main"}'
+        values: '2x20'
+      - series: 'ai_circuit_state{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",exported_instance="gapgpt"}'
+        values: '1x20'
+      - series: 'ai_circuit_state{app="padyar",install="elecomp",job="padyar-elecomp",instance="127.0.0.1:8002",exported_instance="openai-main"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PadyarAICircuitOpen
+      - eval_time: 4m
+        alertname: PadyarAICircuitOpen
+      - eval_time: 5m
+        alertname: PadyarAICircuitOpen
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+              exported_instance: openai-main
+            exp_annotations:
+              summary: "مدار هوش مصنوعی openai-main در نصب inotex باز است؛ پاسخ‌ها فقط از tierهای محلی می‌آیند."
+              description: "در پنل مدیریت، هوش مصنوعی > سرویس‌دهنده‌ها، خطای آخر openai-main را ببینید. این هشدار برای سرویس‌دهندهٔ غیرفعال یا بی‌مسیر هم روشن می‌شود، چون metric این را نمی‌داند. اگر از آن استفاده نمی‌شود، اول مدارش را با دکمهٔ «مدار» بازنشانی کنید، بعد اگر لازم است حذفش کنید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyaraicircuitopen"
+      - eval_time: 10m
+        alertname: PadyarAICircuitOpen
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+              exported_instance: openai-main
+            exp_annotations:
+              summary: "مدار هوش مصنوعی openai-main در نصب inotex باز است؛ پاسخ‌ها فقط از tierهای محلی می‌آیند."
+              description: "در پنل مدیریت، هوش مصنوعی > سرویس‌دهنده‌ها، خطای آخر openai-main را ببینید. این هشدار برای سرویس‌دهندهٔ غیرفعال یا بی‌مسیر هم روشن می‌شود، چون metric این را نمی‌داند. اگر از آن استفاده نمی‌شود، اول مدارش را با دکمهٔ «مدار» بازنشانی کنید، بعد اگر لازم است حذفش کنید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyaraicircuitopen"
+
+  # R04 quiet: a circuit that is half_open for a long time is a probe in
+  # progress, not an outage.
+  - interval: 1m
+    input_series:
+      - series: 'ai_circuit_state{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",exported_instance="openai-main"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PadyarAICircuitOpen
+
+  # R05: inotex's scheduled backup fails at minute 30. elecomp's succeeds at
+  # minute 30 and its failed series stays 0: no alert. Both result series
+  # exist from the start with value 0, as the app registry makes them.
+  # The series run for 28 hours to pin the 26h window: the failure still
+  # fires 25h and 25h45m after it, and is gone 26h15m and 27h after it.
+  # A window of 25h30m or less, or of 26h30m or more, fails one of these.
+  - interval: 1m
+    input_series:
+      - series: 'backup_outcome_total{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",result="failed"}'
+        values: '0x29 1x1700'
+      - series: 'backup_outcome_total{app="padyar",install="inotex",job="padyar-inotex",instance="127.0.0.1:8001",result="success"}'
+        values: '0x1730'
+      - series: 'backup_outcome_total{app="padyar",install="elecomp",job="padyar-elecomp",instance="127.0.0.1:8002",result="failed"}'
+        values: '0x1730'
+      - series: 'backup_outcome_total{app="padyar",install="elecomp",job="padyar-elecomp",instance="127.0.0.1:8002",result="success"}'
+        values: '0x29 1x1700'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PadyarBackupFailed
+      - eval_time: 40m
+        alertname: PadyarBackupFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+            exp_annotations:
+              summary: "در ۲۶ ساعت گذشته یک پشتیبان خودکار نصب inotex شکست خورد یا verify نشد."
+              description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی، آخرین پشتیبان نصب inotex را ببینید و journalctl -u padyar-inotex را بخوانید. این هشدار تا ۲۶ ساعت بعد از شکست روشن می‌ماند، حتی اگر پشتیبان بعدی موفق شود."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupfailed"
+      - eval_time: 25h30m
+        alertname: PadyarBackupFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+            exp_annotations:
+              summary: "در ۲۶ ساعت گذشته یک پشتیبان خودکار نصب inotex شکست خورد یا verify نشد."
+              description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی، آخرین پشتیبان نصب inotex را ببینید و journalctl -u padyar-inotex را بخوانید. این هشدار تا ۲۶ ساعت بعد از شکست روشن می‌ماند، حتی اگر پشتیبان بعدی موفق شود."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupfailed"
+      - eval_time: 26h15m
+        alertname: PadyarBackupFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: inotex
+            exp_annotations:
+              summary: "در ۲۶ ساعت گذشته یک پشتیبان خودکار نصب inotex شکست خورد یا verify نشد."
+              description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی، آخرین پشتیبان نصب inotex را ببینید و journalctl -u padyar-inotex را بخوانید. این هشدار تا ۲۶ ساعت بعد از شکست روشن می‌ماند، حتی اگر پشتیبان بعدی موفق شود."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupfailed"
+      - eval_time: 26h45m
+        alertname: PadyarBackupFailed
+      - eval_time: 27h30m
+        alertname: PadyarBackupFailed
+
+  # R06: promtool's time() starts at 0, so a timestamp here is "seconds
+  # into the test". All installs back up every 24 hours (86400) unless
+  # stated, so the limit is 24h + 2h = 93600 s.
+  #   stale:    last verified backup at 1h, nothing after. Past the limit
+  #             from 27h01m (at 27h it is equal, not greater), so pending at
+  #             27h15m and firing at 27h16m, exactly 15 minutes later.
+  #   fresh:    last verified backup at 24h. At 28h it is 4 hours old.
+  #   every48h: backs up every 48 hours, last at 1h. At 28h it is 27 hours
+  #             old, inside its own 50-hour limit.
+  #   off:      automatic backups switched off (interval 0) and no backup at
+  #             all. The guard keeps it quiet.
+  - interval: 1m
+    input_series:
+      - series: 'backup_last_success_timestamp_seconds{app="padyar",install="stale",job="padyar-stale",instance="127.0.0.1:8001"}'
+        values: '3600x1700'
+      - series: 'backup_schedule_interval_seconds{app="padyar",install="stale",job="padyar-stale",instance="127.0.0.1:8001"}'
+        values: '86400x1700'
+      - series: 'backup_last_success_timestamp_seconds{app="padyar",install="fresh",job="padyar-fresh",instance="127.0.0.1:8002"}'
+        values: '86400x1700'
+      - series: 'backup_schedule_interval_seconds{app="padyar",install="fresh",job="padyar-fresh",instance="127.0.0.1:8002"}'
+        values: '86400x1700'
+      - series: 'backup_last_success_timestamp_seconds{app="padyar",install="every48h",job="padyar-every48h",instance="127.0.0.1:8003"}'
+        values: '3600x1700'
+      - series: 'backup_schedule_interval_seconds{app="padyar",install="every48h",job="padyar-every48h",instance="127.0.0.1:8003"}'
+        values: '172800x1700'
+      - series: 'backup_last_success_timestamp_seconds{app="padyar",install="off",job="padyar-off",instance="127.0.0.1:8004"}'
+        values: '0x1700'
+      - series: 'backup_schedule_interval_seconds{app="padyar",install="off",job="padyar-off",instance="127.0.0.1:8004"}'
+        values: '0x1700'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: PadyarBackupStale
+      - eval_time: 27h10m
+        alertname: PadyarBackupStale
+      - eval_time: 27h15m
+        alertname: PadyarBackupStale
+      - eval_time: 27h16m
+        alertname: PadyarBackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: stale
+            exp_annotations:
+              summary: "آخرین پشتیبان verify‌شدهٔ نصب stale از بازهٔ زمان‌بند به‌اضافهٔ ۲ ساعت قدیمی‌تر است."
+              description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی را ببینید، یک پشتیبان دستی بگیرید و آن را verify کنید. نصب تازه‌ای که هنوز هیچ پشتیبان verify‌شده‌ای ندارد هم این هشدار را می‌گیرد."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupstale"
+      - eval_time: 28h
+        alertname: PadyarBackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: stale
+            exp_annotations:
+              summary: "آخرین پشتیبان verify‌شدهٔ نصب stale از بازهٔ زمان‌بند به‌اضافهٔ ۲ ساعت قدیمی‌تر است."
+              description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی را ببینید، یک پشتیبان دستی بگیرید و آن را verify کنید. نصب تازه‌ای که هنوز هیچ پشتیبان verify‌شده‌ای ندارد هم این هشدار را می‌گیرد."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupstale"
+
   # R07 and R11: /data is 5% free (both fire), /var is 15% free (R11 only),
   # / is 50% free (neither). /snap is full but read-only and /run is tmpfs:
   # neither ever fires.

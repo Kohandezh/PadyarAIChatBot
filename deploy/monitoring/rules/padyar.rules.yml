@@ -7,11 +7,6 @@
 # PadyarAppDown: critical, but no page, because the watchdog's own probe
 # already texts "the app is down".
 #
-# Not here yet, on purpose (SPEC 11.1): PadyarAICircuitOpen (waits for
-# DEP-1, DEP-3), PadyarBackupFailed (DEP-2), PadyarBackupStale (DEP-2,
-# DEP-4). A rule whose metric does not exist yet would load, evaluate to
-# nothing, and never fire. tests/test_monitoring_rules.py keeps that list.
-#
 # Every app gauge or counter is aggregated with `sum by` or `max by`, so a
 # rule still works if a metric gets one series per worker process.
 groups:
@@ -66,6 +61,55 @@ groups:
           summary: "p95 زمان پاسخ چت نصب {{ $labels.install }} بالای ۸ ثانیه است."
           description: "در رابط Prometheus ببینید پاسخ‌ها از کدام tier می‌آیند (chat_tier_served_total) و سرویس هوش مصنوعی کند است یا نه (ai_calls_total)."
           runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarchatlatencyhigh"
+
+      # Stored "open" fires even when the provider is disabled or has no
+      # route: ai_circuit_state cannot tell, and filtering it here would
+      # hide a real outage of a provider that is in use. The description
+      # tells the operator how to clear it instead.
+      - alert: PadyarAICircuitOpen
+        expr: max by (install, exported_instance) (ai_circuit_state{app="padyar"}) == 2
+        for: 5m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "مدار هوش مصنوعی {{ $labels.exported_instance }} در نصب {{ $labels.install }} باز است؛ پاسخ‌ها فقط از tierهای محلی می‌آیند."
+          description: "در پنل مدیریت، هوش مصنوعی > سرویس‌دهنده‌ها، خطای آخر {{ $labels.exported_instance }} را ببینید. این هشدار برای سرویس‌دهندهٔ غیرفعال یا بی‌مسیر هم روشن می‌شود، چون metric این را نمی‌داند. اگر از آن استفاده نمی‌شود، اول مدارش را با دکمهٔ «مدار» بازنشانی کنید، بعد اگر لازم است حذفش کنید."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyaraicircuitopen"
+
+      # Counts scheduled backups only, and "success" only when the dump was
+      # also verified. The 26h window keeps one failure on for a day.
+      - alert: PadyarBackupFailed
+        expr: sum by (install) (increase(backup_outcome_total{app="padyar",result="failed"}[26h])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "در ۲۶ ساعت گذشته یک پشتیبان خودکار نصب {{ $labels.install }} شکست خورد یا verify نشد."
+          description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی، آخرین پشتیبان نصب {{ $labels.install }} را ببینید و journalctl -u padyar-{{ $labels.install }} را بخوانید. این هشدار تا ۲۶ ساعت بعد از شکست روشن می‌ماند، حتی اگر پشتیبان بعدی موفق شود."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupfailed"
+
+      # The limit is the install's own schedule plus 2 hours, so an install
+      # that backs up every 48 hours is not stale at 26. The second part is
+      # the guard: interval 0 means automatic backups are off, no alert.
+      # A timestamp of 0 (no verified backup known) fires on purpose.
+      - alert: PadyarBackupStale
+        expr: |
+          (
+            time() - max by (install) (backup_last_success_timestamp_seconds{app="padyar"})
+            > max by (install) (backup_schedule_interval_seconds{app="padyar"}) + 7200
+          )
+          and on (install)
+          max by (install) (backup_schedule_interval_seconds{app="padyar"}) > 0
+        for: 15m
+        labels:
+          severity: critical
+          page: sms
+        annotations:
+          summary: "آخرین پشتیبان verify‌شدهٔ نصب {{ $labels.install }} از بازهٔ زمان‌بند به‌اضافهٔ ۲ ساعت قدیمی‌تر است."
+          description: "در پنل مدیریت، زیرساخت > پشتیبان‌گیری و بازیابی را ببینید، یک پشتیبان دستی بگیرید و آن را verify کنید. نصب تازه‌ای که هنوز هیچ پشتیبان verify‌شده‌ای ندارد هم این هشدار را می‌گیرد."
+          runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarbackupstale"
 
   - name: padyar-host
     rules:
