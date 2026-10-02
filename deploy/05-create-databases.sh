@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Create one PostgreSQL database + least-privilege role per install.
+# Create one PostgreSQL database + least-privilege role per install, plus an
+# empty "<database>_drill" database for the nightly restore drill.
 #
 # The migrations in migrations/ assume the `app` and `observability` schemas
 # already exist (0001_initial.sql opens with `CREATE TABLE app.schema_migrations`),
@@ -64,6 +65,24 @@ for slug in "${INSTALLS[@]}"; do
   psql_su -d "${db}" -c "CREATE SCHEMA IF NOT EXISTS observability AUTHORIZATION ${role};"
   psql_su -d "${db}" -c "REVOKE ALL ON SCHEMA public FROM PUBLIC;"
   psql_su -d "${db}" -c "ALTER DATABASE ${db} SET search_path = app, observability, public;"
+
+  # The restore drill database: an empty copy target for the nightly drill.
+  # Every night the app restores the newest backup here and checks it, to prove
+  # a backup really brings a database back (app/services/restore_drill.py).
+  # The app role is NOCREATEDB, so the app cannot make this database itself.
+  # It must exist ahead of time, and this script is where it is made.
+  # No schemas are created here. The restore creates them, and the drill drops
+  # them again after each run, so this database is empty between drills.
+  # Re-running this script on an existing install is safe. It only adds the
+  # missing drill database. It still resets the role password (see above), so
+  # copy the new DATABASE_URL into .env and restart the app.
+  drill_db="${db}_drill"
+  if psql_su -tAc "SELECT 1 FROM pg_database WHERE datname='${drill_db}'" | grep -q 1; then
+    echo "  database ${drill_db} already exists, leaving it alone"
+  else
+    psql_su -c "CREATE DATABASE ${drill_db} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0 LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8';"
+  fi
+  psql_su -d "${drill_db}" -c "REVOKE ALL ON SCHEMA public FROM PUBLIC;"
 done
 
 log "Checking the connection budget"

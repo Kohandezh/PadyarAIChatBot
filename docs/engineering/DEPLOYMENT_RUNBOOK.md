@@ -242,3 +242,107 @@ A failing probe (`half_open → open`) is logged too: without it an operator see
 `half_open` and then silence, which is indistinguishable from a probe still in
 flight. All circuit logging is best-effort — a logging failure must never stop
 a circuit from opening or recovering.
+
+## Restore drill
+
+After each scheduled backup is made and verified, the app restores that backup
+into a separate database called `padyar_<slug>_drill`. It checks the result,
+then empties the drill database again. By default this is once a day.
+
+Why: `verify` only proves the backup file can be read. It never builds a
+database from the file. The drill proves a database really comes back.
+
+The drill checks three things:
+
+1. Row counts of every table, compared with the counts recorded when the backup
+   was taken.
+2. The applied migrations, compared with the list recorded at backup time.
+3. The same health checks a real restore runs.
+
+It only runs on PostgreSQL installs. Backups made by hand do not start a drill.
+The result is saved inside that backup's `manifest.json`.
+
+### How to read the result
+
+- Admin panel, Infrastructure > Backups. The line «آخرین تمرین بازیابی» shows
+  the newest drill: موفق (passed), ناموفق (failed) or انجام نشد (skipped).
+- Each backup row has its own result. Open it to see the reason and the list of
+  tables with the expected and the actual row count.
+- `/metrics` has `backup_drill_last_success_timestamp_seconds`,
+  `backup_drill_last_duration_seconds` and `backup_drill_last_ok`. See
+  `docs/engineering/MONITORING.md`. No alert rule reads them yet, so someone has
+  to look.
+
+What each status means and what to do:
+
+| Status | Meaning | What to do |
+|---|---|---|
+| موفق (passed) | The backup came back and every check was right | Nothing |
+| انجام نشد (skipped) | The drill did not run. The backup is not proven, and it is not known to be bad. `backup_drill_last_ok` is `0` | Read the reason on the page and fix it (see below) |
+| ناموفق (failed) | The drill ran and a check was wrong | Read the reason and the per-table list (see below) |
+
+If the drill is skipped, the reason is one of these:
+
+- The drill database is missing. Run `sudo bash deploy/05-create-databases.sh <slug>`
+  (see "Existing installs" below).
+- Not enough free disk. The rule is: size of the live database x 1.2 + 512 MB.
+  Free some space. The next drill checks again.
+- The database name cannot be used to build the drill name (it is empty, it
+  already ends in `_drill`, or the new name is longer than 63 bytes). Nothing
+  is touched.
+
+If another drill is already running (one at a time per install), the nightly
+drill does not run and nothing is saved, except a line in the app log. The
+button answers that a drill is running.
+
+If the drill failed:
+
+- Read the reason, then the per-table list. A restore that did not finish means
+  the backup file is probably damaged. Make a new backup now.
+- A row count that does not match can also come from DDL (a table structure
+  change) that ran while the backup was being made. The counts are taken a
+  moment before `pg_dump` locks the tables. So do not decide the backups are
+  broken yet. Run a manual drill on the next backup first. If it fails the same
+  way, treat the backups as broken.
+- A failed drill never deletes the backup. Prune does not look at drill results.
+- If the reason ends with a note that cleaning the drill database did not
+  finish, the next drill drops the old schemas first, so it fixes itself.
+
+### Run a drill by hand
+
+Infrastructure > Backups. Press «تمرین بازیابی» on the backup row. The page
+says the drill started, and the result appears after a few minutes. Only one
+drill can run at a time per install. A manual drill also updates the three
+metrics.
+
+### Existing installs
+
+The app role has no `CREATEDB` right, so the drill database must be made ahead
+of time by `deploy/05-create-databases.sh`. A new install gets it automatically.
+For an install that already exists, run this once:
+
+```bash
+sudo bash deploy/05-create-databases.sh <slug>
+```
+
+The script is safe to run again. It leaves the live database alone and only
+adds the missing `padyar_<slug>_drill` database.
+
+**Warning: this also sets a new password for the database role.** The script
+does this every time the role exists. The old `DATABASE_URL` in `.env` stops
+working. Do these steps right away, or the app cannot reach its database:
+
+1. Copy the `DATABASE_URL` line printed at the end of the script. It is shown
+   only once.
+2. Put it in `/opt/padyar-<slug>/.env`.
+3. Restart the app: `sudo systemctl restart padyar-<slug>`.
+
+If you do not re-run the script, nothing breaks. The drill records "skipped"
+with the reason "drill database missing" every night.
+
+### Disk use
+
+While a drill runs, the data exists twice on disk. This lasts a few minutes.
+The drill checks free space first and skips itself when there is not enough.
+The restored copy holds the same visitor and admin records as the live database,
+so the drill drops it as soon as the checks are done, also when they fail.
