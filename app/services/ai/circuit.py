@@ -21,9 +21,12 @@ Policy (tunable via settings, defaults conservative):
 All transitions are single UPDATE ... WHERE statements — concurrency-safe
 without long transactions, and never holding one across a provider call.
 """
+import logging
 import secrets
 
 from . import errors as ai_errors
+
+logger = logging.getLogger("PadyarAssistant")
 
 DEFAULT_THRESHOLD = 5
 DEFAULT_WINDOW_S = 120
@@ -87,9 +90,51 @@ def _metrics_state(instance_id: str, value: int) -> None:
     In-memory only (app/services/metrics.py) and called after the commit,
     on the same code paths that emit the applog transition event — so the
     gauge, the log row and the database always tell the same story.
+    publish_stored_states() also calls it at app start, with the stored row.
     """
     from app.services import metrics
     metrics.ai_circuit_state.labels(instance=instance_id).set(value)
+
+
+def publish_stored_states() -> None:
+    """Publish every stored circuit state to the gauge. Called once per worker
+    at app start.
+
+    The gauge used to be set only on a transition, so after a restart a
+    circuit stored as `open` had no series until its next transition, and the
+    "AI circuit open" alert stayed silent for the provider that was down.
+
+    The value mirrors the row and never guesses: an `open` row whose cooldown
+    has passed is still `open` until a request moves it. A state string this
+    module does not know is skipped, never mapped to a number.
+
+    Never raises. On a fresh SQLite test database the table may be missing,
+    and in production the database may be down; either way the app must boot
+    exactly as before, so the error is logged once and nothing is published.
+
+    Known window: a worker starting at the moment another worker records a
+    transition may read the old row and set it AFTER the transition was
+    published. `mostrecent` then shows the old value until the next
+    transition or the next worker start. The window is one SELECT long, so
+    no lock.
+    """
+    from app.services import metrics
+    values = {"closed": metrics.CIRCUIT_CLOSED,
+              "half_open": metrics.CIRCUIT_HALF_OPEN,
+              "open": metrics.CIRCUIT_OPEN}
+    try:
+        rows = snapshot()
+        for row in rows:
+            instance_id = row["provider_instance_id"]
+            value = values.get(row["state"])
+            if value is None:
+                logger.warning("[ai] circuit state of %s is %r, not published",
+                               instance_id, row["state"])
+                continue
+            _metrics_state(instance_id, value)
+    except Exception as e:  # noqa: BLE001 (a metric must never block boot)
+        logger.warning("[ai] stored circuit states not published: %s",
+                       type(e).__name__)
 
 
 def allows(instance_id: str) -> tuple:

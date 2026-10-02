@@ -9,6 +9,15 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# A oneshot unit has no start timeout by default, so a process that never
+# finishes would hold this install's watchdog forever, the down-SMS included.
+# 300s ends only a truly stuck run (SIGTERM, unit marked failed). It is long on
+# purpose: the down-SMS and the low-credit SMS save state only at the end of a
+# cycle, so a shorter timeout that killed a slow but working cycle after one
+# of them would make the next cycle send it again. An Alertmanager stall is
+# already cut by the 8s per-GET deadline in watchdog.py, and a run still in
+# progress makes the 60s timer skip a tick, never overlap.
+TimeoutStartSec=300s
 User=padyar-%i
 Group=padyar-%i
 # CWD + .env of the guarded install: the cycle lazily imports the app's DB
