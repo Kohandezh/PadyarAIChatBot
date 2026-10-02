@@ -281,15 +281,20 @@ exporters for the whole host, from the Ubuntu archive, under systemd, every
 one on `127.0.0.1` only. Full description: `docs/engineering/MONITORING.md`.
 
 ```bash
-# 1. Per install: a token in the .env, then restart the app (the script stops
-#    and prints this exact command when the token is empty).
-sudo sed -i "s/^METRICS_TOKEN=.*/METRICS_TOKEN=$(openssl rand -hex 32)/" /opt/padyar-myevent/.env \
-  && sudo systemctl restart padyar-myevent
-
-# 2. Once per host, and again after every rule change. Run the FIRST time
+# 1. Once per host, and again after every rule change. Run the FIRST time
 #    outside event hours: it restarts cloudflared, and every site on the host
 #    drops for a few seconds.
 sudo bash deploy/55-monitoring.sh myevent [otherevent ...] [--host-alerts myevent]
+
+# 2. An install without a usable METRICS_TOKEN stops the run before anything
+#    is installed, with the exact command for that install. Run it (it
+#    restarts the app), then step 1 again. The two forms it prints:
+#    installs created before the key was in the template (no line at all):
+echo "METRICS_TOKEN=$(openssl rand -hex 32)" | sudo tee -a /opt/padyar-myevent/.env >/dev/null \
+  && sudo systemctl restart padyar-myevent
+#    the line is there but empty:
+sudo sed -i "s/^METRICS_TOKEN=.*/METRICS_TOKEN=$(openssl rand -hex 32)/" /opt/padyar-myevent/.env \
+  && sudo systemctl restart padyar-myevent
 
 # 3. Look at it from your own machine, through SSH only. There is no public URL.
 ssh -N -L 9090:127.0.0.1:9090 -L 9093:127.0.0.1:9093 <user>@<host>
@@ -303,6 +308,12 @@ sudo amtool silence add alertname=PadyarHigh5xxRate install=myevent --duration=2
 Firing alerts show in those two UIs only. Nothing texts them yet: the
 watchdog step that will is a separate change. The watchdog's own "the app is
 down" SMS works as before.
+
+Until the nginx change that answers 404 on `/metrics` (pull request #159) is
+merged and deployed, the script warns on every install that `/metrics` is
+reachable through nginx. That is expected; re-rendering the site does not
+help before then. Removing the stack: `docs/engineering/MONITORING.md`,
+"Removing the stack".
 
 Running it again with fewer slugs never removes another install's scrape job
 or probe. Passwords and token files are created only when missing.

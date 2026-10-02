@@ -27,15 +27,21 @@ groups:
           description: "اول sudo systemctl status padyar-{{ $labels.install }} را ببینید. اگر برنامه بالا است، deploy/55-monitoring.sh {{ $labels.install }} را دوباره اجرا کنید تا توکن دوباره چک شود."
           runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarappdown"
 
+      # The stack's own requests are left out of all three parts: Prometheus
+      # reads /metrics every 15 s, the origin probe and the watchdog read
+      # /api/health, about 90 successful requests per 10 minutes that no
+      # visitor made. Counted, they would dilute the error ratio and always
+      # meet the 20-request floor. This differs from the SPEC text on purpose
+      # (docs/engineering/MONITORING.md, "The alert rules").
       - alert: PadyarHigh5xxRate
         expr: |
           (
-            sum by (install) (increase(http_requests_total{app="padyar",status=~"5.."}[10m]))
+            sum by (install) (increase(http_requests_total{app="padyar",status=~"5..",route!~"/metrics|/api/health"}[10m]))
             /
-            sum by (install) (increase(http_requests_total{app="padyar"}[10m]))
+            sum by (install) (increase(http_requests_total{app="padyar",route!~"/metrics|/api/health"}[10m]))
           ) > 0.05
           and on (install)
-          sum by (install) (increase(http_requests_total{app="padyar"}[10m])) >= 20
+          sum by (install) (increase(http_requests_total{app="padyar",route!~"/metrics|/api/health"}[10m])) >= 20
         for: 5m
         labels:
           severity: critical

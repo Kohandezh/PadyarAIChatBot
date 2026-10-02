@@ -469,16 +469,38 @@ def test_a_daily_budget_in_env_warns(tmp_path):
 
 
 @needs_bash
-@pytest.mark.parametrize("budget", ["5x", "-5"])
-def test_a_budget_that_is_not_a_whole_number_warns_and_the_run_goes_on(tmp_path, budget):
+@pytest.mark.parametrize("budget", ["5x", "1.5"])
+def test_a_budget_the_app_cannot_read_warns_and_the_run_goes_on(tmp_path, budget):
     """REQ-023 is warn-only, and daily_budget() in app/services/sms.py reads a
-    value it cannot parse as 0, so this must not stop the install."""
+    value int() refuses as 0 (no cap), so this must not stop the install."""
     path = env_file(tmp_path, GOOD_SMS.replace("SMS_DAILY_BUDGET=0", f"SMS_DAILY_BUDGET={budget}"))
     out = run(f'sms_env_warnings "{path}"')
     assert out.returncode == 0, out.stderr
-    assert "SMS_DAILY_BUDGET" in out.stdout and "not a whole number" in out.stdout
+    assert "SMS_DAILY_BUDGET" in out.stdout and "cannot read" in out.stdout
     assert "as 0" in out.stdout
     assert budget not in out.stdout + out.stderr
+
+
+@needs_bash
+@pytest.mark.parametrize("budget, effective", [("+5", "5"), ("1_000", "1000"), ("\u06f5", "5")])
+def test_a_budget_python_reads_as_a_number_gets_the_budget_warning(tmp_path, budget, effective):
+    """Python's int() in daily_budget() accepts a sign, underscores and
+    Persian digits. For those the app HAS a budget, so the database-down
+    warning applies, with the number the app will use."""
+    path = env_file(tmp_path, GOOD_SMS.replace("SMS_DAILY_BUDGET=0", f"SMS_DAILY_BUDGET={budget}"))
+    out = run(f'sms_env_warnings "{path}"')
+    assert out.returncode == 0, out.stderr
+    assert f"daily budget of {effective}" in out.stdout
+    assert "cannot read" not in out.stdout
+
+
+@needs_bash
+def test_a_negative_budget_is_no_cap_and_gives_no_warning(tmp_path):
+    """max(0, int("-5")) is 0 in the app: no cap, so nothing is written to the
+    database before a send, and there is nothing to warn about."""
+    path = env_file(tmp_path, GOOD_SMS.replace("SMS_DAILY_BUDGET=0", "SMS_DAILY_BUDGET=-5"))
+    out = run(f'sms_env_warnings "{path}"')
+    assert (out.returncode, out.stdout) == (0, "")
 
 
 @needs_bash
@@ -736,11 +758,34 @@ def test_nothing_is_stopped_after_the_config_is_accepted_or_on_success(tmp_path,
     assert _systemctl_calls(tmp_path) == []
 
 
+def _install_order_problems(text):
+    """Why the script would miss what it installed, or [] when it would not."""
+    problems = []
+    install = text.find("apt-get install -y --no-install-recommends")
+    record = text.find('mapfile -t NEW_PACKAGES < <(packages_to_install "${PACKAGES[@]}")')
+    trap = text.find("trap rollback_unless_accepted EXIT")
+    if install < 0:
+        problems.append("no apt-get install")
+    if not -1 < record < install:
+        problems.append("NEW_PACKAGES is not filled before apt-get install")
+    if not -1 < trap < install:
+        problems.append("the EXIT trap is not set before apt-get install")
+    return problems
+
+
 def test_the_new_packages_are_recorded_and_the_trap_set_before_apt_installs():
+    assert _install_order_problems(SCRIPT.read_text(encoding="utf-8")) == []
+
+
+def test_the_order_check_fails_when_the_record_moves_after_the_install():
+    """The mutation that the first version of this check let through."""
     text = SCRIPT.read_text(encoding="utf-8")
-    install = text.index("apt-get install -y --no-install-recommends")
-    assert -1 < text.find("NEW_PACKAGES") < install
-    assert -1 < text.find("trap rollback_unless_accepted EXIT") < install
+    record = 'mapfile -t NEW_PACKAGES < <(packages_to_install "${PACKAGES[@]}")\n'
+    install_line = next(line for line in text.splitlines(keepends=True)
+                        if "apt-get install -y --no-install-recommends" in line)
+    moved = text.replace("  " + record, "", 1).replace(install_line, install_line + "  " + record, 1)
+    assert moved != text
+    assert "NEW_PACKAGES is not filled before apt-get install" in _install_order_problems(moved)
 
 
 # ── SPEC section 6: exit 2 means a public listener, nothing else ───────
@@ -751,3 +796,127 @@ def test_exit_2_is_used_only_for_a_public_listener():
     twos = [i for i, line in enumerate(lines) if re.search(r"\bexit 2\b", line)]
     assert len(twos) == 1, [lines[i] for i in twos]
     assert "reachable beyond this host" in " ".join(lines[twos[0] - 3:twos[0]])
+    assert "PUBLIC_LISTENER=1" in lines[twos[0] - 1]
+
+
+@pytest.fixture
+def failing_tools(tmp_path):
+    """psql exits 2 (cannot connect), apt-get exits 100 (apt's own code)."""
+    bindir = tmp_path / "fail-bin"
+    bindir.mkdir()
+    for name, code in (("psql", 2), ("apt-get", 100)):
+        (bindir / name).write_text(f"#!/usr/bin/env bash\nexit {code}\n")
+        (bindir / name).chmod(0o755)
+    return {"PATH": f"{bindir}:{os.environ['PATH']}"}
+
+
+@needs_bash
+@pytest.mark.parametrize("command", ["psql -c 'CREATE ROLE prometheus LOGIN'", "apt-get install -y x"])
+def test_a_failing_command_ends_the_run_with_1_not_its_own_code(failing_tools, command):
+    """Under set -e a failing command ends the script with ITS code: psql 2
+    would read as "a port is public" (SPEC section 6), apt-get 100 as nothing."""
+    out = run(f"trap rollback_unless_accepted EXIT\n{command}\necho never", env=failing_tools)
+    assert out.returncode == 1
+    assert "never" not in out.stdout
+
+
+@needs_bash
+def test_only_the_listener_check_ends_the_run_with_2():
+    out = run("trap rollback_unless_accepted EXIT\nPUBLIC_LISTENER=1; exit 2")
+    assert out.returncode == 2
+
+
+def test_the_trap_is_set_before_the_first_command_that_can_fail_with_its_own_code():
+    text = SCRIPT.read_text(encoding="utf-8")
+    main = text.index("main() {")
+    trap = text.find("trap rollback_unless_accepted EXIT", main)
+    assert -1 < trap < text.index("apt-get update -qq", main)
+    assert trap < text.index("ufw status", main)
+
+
+# ── REQ-020: the listener check never gives an all-clear for a port it did not see ──
+
+
+@needs_bash
+def test_a_port_with_no_listener_is_named_as_not_checked():
+    snapshot = "\n".join(line for line in GOOD_SS.splitlines() if ":9090 " not in line)
+    out = run(f"listener_summary <<'SS'\n{snapshot}\nSS")
+    assert out.returncode == 0
+    assert "not checked: port 9090" in out.stdout
+    assert "every monitoring port is on 127.0.0.1" not in out.stdout
+
+
+@needs_bash
+def test_the_all_clear_only_comes_when_every_port_was_seen():
+    out = run(f"listener_summary <<'SS'\n{GOOD_SS}SS")
+    assert out.returncode == 0
+    assert "every monitoring port is on 127.0.0.1" in out.stdout
+    assert "not checked" not in out.stdout
+
+
+def test_main_prints_the_listener_summary_not_its_own_all_clear():
+    lines = code_lines()
+    body = lines[next(i for i, line in enumerate(lines) if line.startswith("main() {")):]
+    assert not [line for line in body if "every monitoring port is on 127.0.0.1" in line]
+    assert [line for line in body if "listener_summary" in line]
+
+
+# ── review: a failed token check must not replace a working token file ─
+
+
+def test_the_token_is_checked_before_its_file_is_written():
+    text = SCRIPT.read_text(encoding="utf-8")
+    main = text.index("main() {")
+    check = text.index('check_metrics_token "$slug"', main)
+    write = text.index('write_file "$token_file"', main)
+    assert check < write, "a 403 would leave the new token in the file Prometheus reads"
+
+
+@pytest.fixture
+def chown_stub(tmp_path):
+    bindir = tmp_path / "chown-bin"
+    bindir.mkdir()
+    (bindir / "chown").write_text("#!/usr/bin/env bash\nexit 0\n")
+    (bindir / "chown").chmod(0o755)
+    return {"PATH": f"{bindir}:{os.environ['PATH']}"}
+
+
+@needs_bash
+def test_a_password_made_by_a_failed_run_is_removed(tmp_path, chown_stub):
+    """Otherwise the new password stays while the rollback puts the old hash
+    back in alertmanager-web.yml, and Prometheus gets 401 until a good run."""
+    new = tmp_path / "new.pass"
+    out = run(f'ensure_password_file "{new}" "$(id -gn)" 0640\n'
+              '[[ -s "' + str(new) + '" ]] || exit 3\n'
+              "trap rollback_unless_accepted EXIT\nexit 1", env=chown_stub)
+    assert out.returncode == 1, out.stderr
+    assert not new.exists()
+
+
+@needs_bash
+def test_a_password_that_was_there_before_the_run_is_kept(tmp_path, chown_stub):
+    old = tmp_path / "old.pass"
+    old.write_text("synthetic-notreal")
+    out = run(f'ensure_password_file "{old}" "$(id -gn)" 0640\n'
+              "trap rollback_unless_accepted EXIT\nexit 1", env=chown_stub)
+    assert out.returncode == 1
+    assert old.read_text() == "synthetic-notreal"
+
+
+# ── REQ-022 before the nginx change: say why the warning is expected ───
+
+
+@needs_bash
+def test_the_metrics_warning_says_a_rerender_cannot_help_without_the_nginx_block(tmp_path):
+    template = tmp_path / "instance.conf.template"
+    template.write_text("location / { proxy_pass http://x; }\n")
+    out = run(f'metrics_exposed_warning inotex 8001 chat.example.com "{template}"')
+    assert "does not have the" in out.stdout and "17-watchdog.sh" not in out.stdout
+
+
+@needs_bash
+def test_the_metrics_warning_gives_the_rerender_command_once_the_block_exists(tmp_path):
+    template = tmp_path / "instance.conf.template"
+    template.write_text("location = /metrics { return 404; }\nlocation / { proxy_pass http://x; }\n")
+    out = run(f'metrics_exposed_warning inotex 8001 chat.example.com "{template}"')
+    assert "MAINTENANCE_TITLE='<install name for visitors>' bash deploy/17-watchdog.sh inotex 8001 chat.example.com" in out.stdout

@@ -180,15 +180,35 @@ sms_env_warnings() {
   fi
   rc=0; budget=$(env_value "$env" SMS_DAILY_BUDGET) || rc=$?
   (( rc == 2 )) && exit 1
-  if [[ ! "$budget" =~ $BUDGET_RE ]]; then
-    # Warn only: daily_budget() in app/services/sms.py reads a value it
-    # cannot parse as 0 (no cap). The value itself is never printed.
-    echo "SMS_DAILY_BUDGET in ${env} is not a whole number; the app treats a value it cannot read as 0 (no daily cap). Set a whole number in the admin panel."
+  local effective
+  effective=$(app_daily_budget "$budget")
+  if [[ "$effective" == unreadable ]]; then
+    # Warn only, and never print the value.
+    echo "SMS_DAILY_BUDGET in ${env} is a value the app cannot read as a number, so the app treats it as 0 (no daily cap). Set a whole number in the admin panel."
+  elif (( effective > 0 )); then
+    echo "SMS_DAILY_BUDGET in ${env} gives a daily budget of ${effective}. With a budget, the counter is written to the database before each send, so while the database is down no alert SMS goes out (ADR-024, decision 7)."
+  fi
+}
+
+# Print the daily SMS budget the app would use for VALUE, or "unreadable".
+# A plain whole number is read here. Anything else goes through the same
+# call as daily_budget() in app/services/sms.py, max(0, int(value.strip())),
+# because Python's int() also accepts a sign, underscores and non-ASCII
+# digits ("+5", "1_000", Persian digits). The value goes in on stdin, as
+# data; nothing in it is run.
+app_daily_budget() {
+  local value="$1"
+  if [[ "$value" =~ $BUDGET_RE ]]; then
+    printf '%s\n' "$(( 10#${value:-0} ))"
     return 0
   fi
-  if [[ -n "$budget" ]] && (( 10#$budget > 0 )); then
-    echo "SMS_DAILY_BUDGET is ${budget} in ${env}. With a budget, the counter is written to the database before each send, so while the database is down no alert SMS goes out (ADR-024, decision 7)."
-  fi
+  printf '%s' "$value" | python3 -c '
+import sys
+try:
+    print(max(0, int((sys.stdin.read() or "0").strip())))
+except ValueError:
+    print("unreadable")
+'
 }
 
 # ── what the host already says ──────────────────────────────────────────
@@ -281,6 +301,32 @@ public_listeners() {
   return "$bad"
 }
 
+# Read `ss -ltnH` on stdin. Print each monitoring port nothing listens on.
+missing_listeners() {
+  local listeners port
+  listeners=$(cat)
+  for port in "${LOOPBACK_PORTS[@]}"; do
+    grep -qE ":${port}[[:space:]]" <<< "$listeners" || printf '%s\n' "$port"
+  done
+}
+
+# Read `ss -ltnH` on stdin, after public_listeners found nothing. Print the
+# all-clear only when every monitoring port was in the snapshot; a port with
+# no listener yet was not checked, and is named as such (REQ-020).
+listener_summary() {
+  local listeners missing port
+  listeners=$(cat)
+  missing=$(missing_listeners <<< "$listeners")
+  if [[ -z "$missing" ]]; then
+    echo "  every monitoring port is on 127.0.0.1, and nothing listens on ${CLUSTER_PORT}"
+    return 0
+  fi
+  echo "  nothing listens on ${CLUSTER_PORT}, and every port that listens is on 127.0.0.1"
+  for port in $missing; do
+    echo "  not checked: port ${port} has no listener yet. Check its service, then run: ss -ltn | grep ':${port} '"
+  done
+}
+
 # Print absent | ours | other for the tunnel config's top-level metrics line
 # (REQ-024).
 metrics_line_state() {
@@ -344,6 +390,22 @@ check_metrics_token() {
     403) die "padyar-${slug} refused the token (403): the app has not been restarted since METRICS_TOKEN was set. Run: sudo systemctl restart padyar-${slug}" ;;
     *) die "GET http://127.0.0.1:${port}/metrics for ${slug} answered HTTP ${code:-000}, expected 200. Check: sudo systemctl status padyar-${slug}" ;;
   esac
+}
+
+# Print what to do when /metrics is reachable through nginx (REQ-022). The
+# fix is the `location = /metrics` block in TEMPLATE (a separate nginx
+# change). Without that block in this checkout, re-rendering the site changes
+# nothing, and a wrong MAINTENANCE_TITLE would change the page visitors see,
+# so the command is only given once the block is there.
+metrics_exposed_warning() {
+  local slug="$1" port="$2" domain="$3" template="$4"
+  if ! grep -qE 'location[[:space:]]*=[[:space:]]*/metrics' "$template"; then
+    echo "  This kit's nginx template does not have the 'location = /metrics' block yet, so re-rendering the site would not help. Expected until the nginx change that adds it is merged and deployed."
+    return 0
+  fi
+  echo "  Re-render the site:
+  sudo MAINTENANCE_TITLE='<install name for visitors>' bash deploy/17-watchdog.sh ${slug} ${port} ${domain}
+  (MAINTENANCE_TITLE is required: without it the visitors' maintenance page goes back to the default title.)"
 }
 
 # ── rendering (REQ-032, REQ-033) ────────────────────────────────────────
@@ -464,20 +526,41 @@ stop_new_services() {
 # failed token check, render, hash or promtool check) leaves the previous
 # config files in place, no service restarted with new ones, and no service
 # this run installed still running on the Debian defaults.
+#
+# It also owns the exit code. SPEC section 6: 0 done, 1 any failure, 2 only a
+# public listener. Under set -e a failing command ends the script with ITS
+# code (psql exits 2 when it cannot connect, apt-get 100), so every code but
+# the listener check's 2 becomes 1 here.
 CONFIG_ACCEPTED=0
+PUBLIC_LISTENER=0
 NEW_PACKAGES=()
+NEW_SECRETS=()
+TEMP_FILES=()
 RUN_BACKUP=""
 rollback_unless_accepted() {
   local rc=$?
-  (( rc != 0 && ! CONFIG_ACCEPTED )) || return "$rc"
-  if (( ${#CHANGED[@]} )); then
-    restore_configs
-    echo "55-monitoring: stopped before any restart; the previous configuration files are back in place." >&2
+  if (( ${#TEMP_FILES[@]} )); then
+    rm -f "${TEMP_FILES[@]}"
   fi
-  if (( ${#NEW_PACKAGES[@]} )); then
-    stop_new_services "${NEW_PACKAGES[@]}"
+  if (( rc != 0 && ! CONFIG_ACCEPTED )); then
+    if (( ${#CHANGED[@]} )); then
+      restore_configs
+      echo "55-monitoring: stopped before any restart; the previous configuration files are back in place." >&2
+    fi
+    # A password made by this run would no longer match the hash the
+    # rollback just put back in alertmanager-web.yml.
+    if (( ${#NEW_SECRETS[@]} )); then
+      rm -f "${NEW_SECRETS[@]}"
+      echo "55-monitoring: removed the passwords this run created; the next run makes them again." >&2
+    fi
+    if (( ${#NEW_PACKAGES[@]} )); then
+      stop_new_services "${NEW_PACKAGES[@]}"
+    fi
   fi
-  return "$rc"
+  if (( rc != 0 )) && ! (( rc == 2 && PUBLIC_LISTENER )); then
+    rc=1
+  fi
+  exit "$rc"
 }
 
 # Create a 48-hex-character password file only when it is missing, so a
@@ -487,6 +570,7 @@ ensure_password_file() {
   local path="$1" group="$2" mode="$3"
   if [[ ! -s "$path" ]]; then
     openssl rand -hex 24 | tr -d '\n' | write_file "$path" root "$group" "$mode"
+    NEW_SECRETS+=("$path")
   fi
   chown "root:${group}" "$path"
   chmod "$mode" "$path"
@@ -541,8 +625,10 @@ main() {
   cd /
   exec 9>"$LOCK_FILE"
   flock -n 9 || die "Another run of 55-monitoring.sh is in progress. Wait for it to finish."
+  trap rollback_unless_accepted EXIT
 
-  # ── 1. Preconditions. Nothing is installed or written before all of them pass.
+  # ── 1. Preconditions. Nothing is installed, and nothing outside a temp
+  # file is written, before all of them pass.
   log "Checking the preconditions"
   local codename
   codename=$(sed -nE 's/^VERSION_CODENAME="?([a-z]+)"?$/\1/p' /etc/os-release)
@@ -570,6 +656,19 @@ main() {
     tokens[$slug]="$INSTALL_TOKEN"
     domain=$(domain_for_slug "$SITES_DIR" "$slug") || exit 1
     domains[$slug]="$domain"
+  done
+
+  # The token from the .env goes through a 0600 temp copy, and the file
+  # Prometheus reads is written only after a 200. A run that stops on a 403
+  # then leaves a scrape that worked before the run working.
+  local token_check
+  for slug in "${slugs[@]}"; do
+    token_check=$(mktemp)
+    TEMP_FILES+=("$token_check")
+    printf '%s' "${tokens[$slug]}" > "$token_check"
+    check_metrics_token "$slug" "${ports[$slug]}" "$token_check"
+    rm -f "$token_check"
+    echo "  ${slug}: /metrics answers 200 with the token from its .env"
   done
 
   local -a registered=("${slugs[@]}")
@@ -603,7 +702,6 @@ main() {
   # restart, the trap stops exactly those services and nothing else.
   log "Installing the monitoring packages from the Ubuntu archive"
   mapfile -t NEW_PACKAGES < <(packages_to_install "${PACKAGES[@]}")
-  trap rollback_unless_accepted EXIT
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PACKAGES[@]}"
   local row exporter package expected installed
   for row in "${EXPORTER_PACKAGES[@]}"; do
@@ -655,12 +753,6 @@ main() {
   ensure_password_file "$PROMETHEUS_PASS" prometheus 0640
   ensure_password_file "$WATCHDOG_PASS" "$ALERT_GROUP" 0640
   ensure_password_file "$OPERATOR_PASS" root 0600
-
-  log "Checking each install's token against its running app"
-  for slug in "${slugs[@]}"; do
-    check_metrics_token "$slug" "${ports[$slug]}" "${SECRETS_DIR}/${slug}.token"
-    echo "  ${slug}: /metrics answers 200 with the token file"
-  done
 
   # ── 5. Configuration. Every file below is kept in RUN_BACKUP first and
   # put back if a check fails.
@@ -734,7 +826,7 @@ main() {
   done
 
   printf 'alertmanager.url: http://operator:%s@127.0.0.1:9093\n' "$(cat "$OPERATOR_PASS")" \
-    | write_file "$AMTOOL_CONFIG" root root 0600
+    | write_config "$AMTOOL_CONFIG" root root 0600
 
   # ── 6. Check before any restart (REQ-019).
   log "Checking the configuration before any restart"
@@ -769,25 +861,21 @@ main() {
 
   # ── 8. Nothing may listen beyond loopback (REQ-020).
   log "Checking that every monitoring port listens on 127.0.0.1 only"
-  local port listeners violations
-  for _ in $(seq 1 30); do
+  # Up to 3 minutes: on a re-run with weeks of data, Prometheus replays its
+  # WAL before it listens.
+  local listeners violations
+  for _ in $(seq 1 180); do
     listeners=$(ss -ltnH)
-    local all_up=1
-    for port in "${LOOPBACK_PORTS[@]}"; do
-      grep -qE ":${port}[[:space:]]" <<< "$listeners" || all_up=0
-    done
-    (( all_up )) && break
+    [[ -z "$(missing_listeners <<< "$listeners")" ]] && break
     sleep 1
-  done
-  for port in "${LOOPBACK_PORTS[@]}"; do
-    grep -qE ":${port}[[:space:]]" <<< "$listeners" || warn "nothing listens on port ${port} yet. Check its service with systemctl status."
   done
   if ! violations=$(public_listeners <<< "$listeners"); then
     echo "$violations" >&2
     echo "55-monitoring: a monitoring port is reachable beyond this host. Stop that service and fix its /etc/default file." >&2
+    PUBLIC_LISTENER=1
     exit 2
   fi
-  echo "  every monitoring port is on 127.0.0.1, and nothing listens on ${CLUSTER_PORT}"
+  listener_summary <<< "$listeners"
 
   # ── 9. Live checks. They print, they never fail the run.
   log "Waiting 60 seconds for the first scrapes, then listing rule metrics with no series"
@@ -819,9 +907,8 @@ main() {
     code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
       --resolve "${INSTALL_DOMAINS[$i]}:443:127.0.0.1" "https://${INSTALL_DOMAINS[$i]}/metrics") || true
     if [[ "$code" != 404 ]]; then
-      warn "https://${INSTALL_DOMAINS[$i]}/metrics answers ${code:-000} through nginx, not 404: /metrics is reachable from the internet. Re-render the site:
-  sudo MAINTENANCE_TITLE='<install name for visitors>' bash deploy/17-watchdog.sh ${INSTALL_SLUGS[$i]} ${INSTALL_PORTS[$i]} ${INSTALL_DOMAINS[$i]}
-  (MAINTENANCE_TITLE is required: without it the visitors' maintenance page goes back to the default title.)"
+      warn "https://${INSTALL_DOMAINS[$i]}/metrics answers ${code:-000} through nginx, not 404: /metrics is reachable from the internet (the app's own 403 still guards it).
+$(metrics_exposed_warning "${INSTALL_SLUGS[$i]}" "${INSTALL_PORTS[$i]}" "${INSTALL_DOMAINS[$i]}" "${HERE}/nginx/instance.conf.template")"
     fi
   done
 

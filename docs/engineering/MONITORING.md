@@ -44,15 +44,32 @@ sudo bash deploy/55-monitoring.sh <slug> [<slug>...] [--host-alerts <slug>]
 | `cloudflared` (already there) | `127.0.0.1:20241` | its own tunnel connections. The script adds one `metrics:` line to `/etc/cloudflared/config.yml` |
 
 Every listener is on `127.0.0.1`. The script checks this with `ss` after the
-restart and exits with code 2 if any monitoring port listens anywhere else.
+restart, waiting up to 3 minutes for every port (Prometheus replays its WAL
+before it listens). A port that still has no listener is printed as "not
+checked", never as part of an all-clear.
+
+Exit codes: `0` done, `2` a monitoring port listens on a non-loopback
+address, `1` every other failure, whatever code the failing command itself
+returned (psql exits 2 when it cannot connect, apt-get 100).
 
 apt starts each new package at once on its Debian defaults (every interface,
 Alertmanager without a password, cluster gossip on `0.0.0.0:9094`); UFW
 covers the seconds until the script restarts them with its own config. If a
-run stops before that restart (a failed check, a 403 from an app, ...), the
-script stops and disables the services that this run installed, says which,
-and leaves packages that were installed before the run alone. They stay off
-until a run succeeds.
+run stops before that restart (a failed check, a failed database step, ...),
+the script:
+
+- puts back every config file it replaced, including `amtool`'s config;
+- removes the Alertmanager passwords this run created (they would no longer
+  match the hashes it just put back), so the next run makes them again;
+- stops and disables the services that this run installed, says which, and
+  leaves packages that were installed before the run alone. They stay off
+  until a run succeeds.
+
+Each install's token is checked against its running app before anything is
+installed, from a temp copy of the `.env` value. The token file Prometheus
+reads is written only after a 200, so a run that stops on a 403 leaves a
+scrape that worked before the run working.
+
 The UIs are reached through an SSH tunnel only:
 
 ```bash
@@ -104,7 +121,7 @@ because the watchdog already texts "the app is down".
 | Rule | Fires when | For |
 |---|---|---|
 | `PadyarAppDown` | Prometheus cannot read an install's `/metrics` (app down, or a 403 from a wrong token) | 2m |
-| `PadyarHigh5xxRate` | More than 5% of an install's requests in 10 minutes are 5xx, with at least 20 requests. 503 counts, so turning on maintenance mode needs a silence | 5m |
+| `PadyarHigh5xxRate` | More than 5% of an install's requests in 10 minutes are 5xx, with at least 20 requests. Requests to `/metrics` and `/api/health` are not counted (see below). 503 counts, so turning on maintenance mode needs a silence | 5m |
 | `PadyarChatLatencyHigh` | p95 of `/chat` above 8 s, with at least 10 chats in 10 minutes | 10m |
 | `HostDiskLow` | Under 10% free on a writable, non-tmpfs filesystem | 10m |
 | `HostPostgresDown` | `pg_up == 0`, or the exporter does not answer | 2m |
@@ -114,6 +131,18 @@ because the watchdog already texts "the app is down".
 | `HostDiskFilling` (warning) | Under 20% free | 30m |
 | `MonitoringTargetDown` (warning) | node_exporter or the origin probe cannot be read | 5m |
 | `MonitoringHeartbeat` | Always. Its absence means Prometheus is not evaluating rules | 0m |
+
+**`PadyarHigh5xxRate` leaves out the stack's own requests. This differs from
+the feature SPEC text on purpose.** Prometheus reads `/metrics` every 15 s,
+the origin probe reads `/api/health` every 15 s and the watchdog every 60 s:
+about 90 successful requests per 10 minutes that no visitor made. Counted,
+they would meet the 20-request floor on an install nobody uses, and they
+would dilute the error ratio of a busy one (5 errors in 30 visitor requests
+is 17%, but 4% with the stack's 90 added). So `route!~"/metrics|/api/health"`
+is on all three parts of the rule: the errors, the total, and the floor.
+`deploy/monitoring/tests/padyar_rules_test.yml` has one install per part that
+proves it. A real outage of `/api/health` is still seen: the watchdog texts
+it and `HostOriginProbeFailed` fires.
 
 Not in the file yet, on purpose: `PadyarAICircuitOpen` (waits for the circuit
 state to be published at startup), `PadyarBackupFailed` and
@@ -274,10 +303,15 @@ than defence in depth. If you want the second layer, the options are:
   the scraper reach uvicorn on loopback instead.
 - Or reach the endpoint over a private network or tunnel only.
 
-Either change belongs in `deploy/nginx/instance.conf.template`. Nobody has made
-it yet. `deploy/55-monitoring.sh` checks each site and prints a loud warning,
-with the command that re-renders the site, when `/metrics` does not answer
-404 through nginx.
+Either change belongs in `deploy/nginx/instance.conf.template`. It is a
+separate change (the nginx pull request #159), not part of the monitoring
+stack, and it is not in this tree yet. `deploy/55-monitoring.sh` checks each
+site and prints a loud warning when `/metrics` does not answer 404 through
+nginx. Until the nginx change is merged and deployed, that warning is
+expected on every install, and the script says that re-rendering the site
+would not help. Once the template has the block, the warning carries the
+re-render command (`17-watchdog.sh` with the install's own
+`MAINTENANCE_TITLE`; a wrong title changes the maintenance page visitors see).
 
 ### Setting the token
 
@@ -296,15 +330,58 @@ restart.**
 
 On a host, the key is in `deploy/env/instance.env.template`, empty by
 default (empty means `/metrics` answers only to an admin session).
-`deploy/55-monitoring.sh` stops on an empty or missing token and prints the
-one-line fix. After a new token, restart the app and re-run
-`deploy/55-monitoring.sh <slug>` right away: between the two, every scrape
-gets a 403 and `PadyarAppDown` fires after 2 minutes.
+Installs created before this key was in the template have no
+`METRICS_TOKEN=` line at all, and a `sed` replace would change nothing. So run
+`deploy/55-monitoring.sh` first: it stops on a missing or empty token and
+prints the exact command for that install (an append when the line is
+missing, a `sed` replace when it is empty). Run that command, which restarts
+the app, then run the script again. After a token change, run the script
+right away: between the restart and the run, every scrape gets a 403 and
+`PadyarAppDown` fires after 2 minutes.
 
 `METRICS_TOKEN` is not listed in `.env.example` (the local development file).
 
 Treat the token like any other secret. Never in the repo, never in a
 screenshot.
+
+### Removing the stack
+
+From a checkout of the kit, as root. This removes everything the script
+creates; nothing of the installs themselves is touched.
+
+```bash
+UNITS="prometheus prometheus-alertmanager prometheus-node-exporter prometheus-postgres-exporter prometheus-blackbox-exporter"
+sudo systemctl disable --now $UNITS
+sudo apt-get purge $UNITS
+for u in $UNITS; do sudo rm -f /etc/systemd/system/$u.service.d/padyar-limits.conf; sudo rmdir /etc/systemd/system/$u.service.d 2>/dev/null; done
+sudo systemctl daemon-reload
+sudo rm -rf /etc/prometheus /etc/padyar-monitoring /var/lib/prometheus   # the last one is the metric history
+sudo rm -f /root/.secrets/alertmanager-operator.pass /root/.config/amtool/config.yml
+sudo bash -c 'rm -rf /root/padyar-backups/monitoring-*'   # old config copies; they hold the operator password
+sudo -u postgres psql -c 'DROP ROLE prometheus'
+sudo groupdel padyar-alertread
+```
+
+The `metrics: 127.0.0.1:20241` line in `/etc/cloudflared/config.yml` can
+stay: it is harmless. To remove it, delete that one line, check the config,
+then restart the tunnel, outside event hours (every site on the host drops
+for a few seconds):
+
+```bash
+sudo sed -i '/^metrics: 127\.0\.0\.1:20241$/d' /etc/cloudflared/config.yml
+sudo cloudflared --config /etc/cloudflared/config.yml ingress validate \
+  && sudo systemctl restart cloudflared
+```
+
+Do **not** restore the copy the first run made
+(`/root/padyar-backups/cloudflared-config.yml.<UTC time>`) instead.
+`deploy/40-cloudflare-tunnel.sh` rewrites the whole file for one domain, so
+the file may have changed since that copy, and an old copy can drop the
+ingress rule of a site added later.
+
+The `rm` of the backup copies runs inside `sudo bash -c`: `/root` is not
+readable by the operator's own shell, so a plain `sudo rm -rf /root/...-*`
+would not expand the `*` and would remove nothing.
 
 ## Retention
 

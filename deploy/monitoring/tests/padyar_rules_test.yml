@@ -52,9 +52,9 @@ tests:
         values: '0+0.5x20'
       - series: 'http_requests_total{app="padyar",install="elecomp",job="padyar-elecomp",instance="127.0.0.1:8002",method="POST",route="/chat",status="500"}'
         values: '0+0.5x20'
-      - series: 'http_requests_total{app="padyar",install="quiet",job="padyar-quiet",instance="127.0.0.1:8003",method="GET",route="/api/health",status="200"}'
+      - series: 'http_requests_total{app="padyar",install="quiet",job="padyar-quiet",instance="127.0.0.1:8003",method="GET",route="/api/questions",status="200"}'
         values: '0+99x20'
-      - series: 'http_requests_total{app="padyar",install="quiet",job="padyar-quiet",instance="127.0.0.1:8003",method="GET",route="/api/health",status="500"}'
+      - series: 'http_requests_total{app="padyar",install="quiet",job="padyar-quiet",instance="127.0.0.1:8003",method="GET",route="/api/questions",status="500"}'
         values: '0+1x20'
     alert_rule_test:
       - eval_time: 3m
@@ -69,6 +69,53 @@ tests:
             exp_annotations:
               summary: "بیش از ۵٪ درخواست‌های نصب inotex در ۱۰ دقیقهٔ گذشته خطای سرور (5xx) گرفتند. اگر حالت نگهداری روشن است، silence بگذارید."
               description: "در رابط Prometheus، http_requests_total نصب inotex را به تفکیک route و status ببینید و journalctl -u padyar-inotex را بخوانید."
+              runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarhigh5xxrate"
+
+  # R02 and the stack's own requests. Prometheus reads /metrics every 15 s,
+  # the origin probe and the watchdog read /api/health: about 90 successful
+  # requests per 10 minutes that no visitor made. They are left out of all
+  # three parts of the rule, and each install below proves one part:
+  #   busy:      5 errors in 30 real requests. Counting the stack's 90 would
+  #              dilute it to 4.2% and hide it (denominator).
+  #   fewreal:   6 errors in 10 real requests. Counting the stack's requests
+  #              would lift it over the 20-request floor (floor).
+  #   scrapeerr: only /metrics answers 5xx; real traffic is clean. Counting it
+  #              would make 10 errors in 30 requests (numerator).
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="GET",route="/metrics",status="200"}'
+        values: '0+4x30'
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="GET",route="/api/health",status="200"}'
+        values: '0+5x30'
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="POST",route="/chat",status="200"}'
+        values: '0+2.5x30'
+      - series: 'http_requests_total{app="padyar",install="busy",job="padyar-busy",instance="127.0.0.1:8011",method="POST",route="/chat",status="500"}'
+        values: '0+0.5x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="GET",route="/metrics",status="200"}'
+        values: '0+4x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="GET",route="/api/health",status="200"}'
+        values: '0+5x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="POST",route="/chat",status="200"}'
+        values: '0+0.4x30'
+      - series: 'http_requests_total{app="padyar",install="fewreal",job="padyar-fewreal",instance="127.0.0.1:8012",method="POST",route="/chat",status="500"}'
+        values: '0+0.6x30'
+      - series: 'http_requests_total{app="padyar",install="scrapeerr",job="padyar-scrapeerr",instance="127.0.0.1:8013",method="GET",route="/metrics",status="500"}'
+        values: '0+1x30'
+      - series: 'http_requests_total{app="padyar",install="scrapeerr",job="padyar-scrapeerr",instance="127.0.0.1:8013",method="GET",route="/api/health",status="200"}'
+        values: '0+5x30'
+      - series: 'http_requests_total{app="padyar",install="scrapeerr",job="padyar-scrapeerr",instance="127.0.0.1:8013",method="POST",route="/chat",status="200"}'
+        values: '0+3x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PadyarHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              page: sms
+              install: busy
+            exp_annotations:
+              summary: "بیش از ۵٪ درخواست‌های نصب busy در ۱۰ دقیقهٔ گذشته خطای سرور (5xx) گرفتند. اگر حالت نگهداری روشن است، silence بگذارید."
+              description: "در رابط Prometheus، http_requests_total نصب busy را به تفکیک route و status ببینید و journalctl -u padyar-busy را بخوانید."
               runbook: "docs/engineering/INCIDENT_RUNBOOK.md#padyarhigh5xxrate"
 
   # R03: inotex answers every chat in 5-10 s (p95 = 9.75 s). fast answers in
