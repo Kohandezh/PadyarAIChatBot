@@ -143,38 +143,89 @@ def _safe_dir(backup_id: str) -> str:
 _COUNTED_SCHEMAS = ("app", "observability")
 
 
+# Total time the count may take. restore() runs create() for its safety
+# backup while maintenance mode is on, so every second here is downtime.
+# Counting is optional: running out of budget falls back to the plain dump.
+_COUNT_BUDGET_SECONDS = _TIMEOUT
+
+
+def _connect(parts: dict, application_name: str, options: str):
+    """A direct connection with _conn_parts() settings, outside the app pool.
+    The password is a libpq parameter, never a command-line argument."""
+    import psycopg
+    return psycopg.connect(
+        host=parts["host"], port=parts["port"], user=parts["user"],
+        password=parts["password"] or None, dbname=parts["dbname"],
+        connect_timeout=10, autocommit=True,
+        application_name=application_name, options=options)
+
+
 def _open_snapshot(parts: dict):
     """Export a snapshot and count every table pg_dump will dump from it.
 
-    Returns `(connection, snapshot_id, counts)`. The caller passes the id to
-    `pg_dump --snapshot=<id>` and must keep the connection open until pg_dump
+    Returns `(exporter, snapshot_id, counts)`. The caller passes the id to
+    `pg_dump --snapshot=<id>` and must keep the exporter open until pg_dump
     ends: an exported snapshot lives only as long as its transaction.
 
     Why a snapshot: the restore drill compares restored row counts against
     these. Counting the live database at any other moment gives numbers that
     differ from the dump as soon as one visitor writes a row.
 
+    Two connections, on purpose. The exporter runs only pg_export_snapshot()
+    and then waits, holding no table lock. The counts run in a second
+    connection that imports the same snapshot and commits before pg_dump
+    starts. A count holds ACCESS SHARE until its transaction ends; held across
+    pg_dump, a queued ACCESS EXCLUSIVE (the boot-time ALTER in
+    app/services/otp.py, a migration) waited for it, and pg_dump's own LOCK
+    TABLE then waited behind the ALTER until the pg_dump timeout.
+    """
+    exporter = _connect(
+        parts, "padyar-backup-snapshot",
+        # deploy/05-create-databases.sh gives the app role a 60s
+        # idle_in_transaction_session_timeout. The exporter is idle in its
+        # transaction while the counts run, and that limit would end it and
+        # void the snapshot pg_dump has not imported yet.
+        "-c idle_in_transaction_session_timeout=0")
+    try:
+        exporter.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        snapshot_id = exporter.execute("SELECT pg_export_snapshot()").fetchone()[0]
+        counts = _count_in_snapshot(parts, snapshot_id)
+    except Exception:
+        _close_snapshot(exporter)
+        raise
+    return exporter, snapshot_id, counts
+
+
+def _count_in_snapshot(parts: dict, snapshot_id: str) -> dict:
+    """Rows of every counted table, read inside `snapshot_id`, sorted by key.
+
     Only ordinary tables (relkind 'r') hold dumped rows. Partitioned parents,
     views and foreign tables carry none, and tables owned by an extension are
     not dumped as data. The table list is read inside the snapshot too, so a
     table created after it is in neither the dump nor the counts.
+
+    Every statement gets the budget that is left as its statement_timeout, so
+    the whole count stops at _COUNT_BUDGET_SECONDS. lock_timeout stops a single
+    wait for a lock sooner than that.
     """
-    import psycopg
     from psycopg import sql
 
-    conn = psycopg.connect(
-        host=parts["host"], port=parts["port"], user=parts["user"],
-        password=parts["password"] or None, dbname=parts["dbname"],
-        connect_timeout=10, autocommit=True,
-        application_name="padyar-backup-snapshot",
-        # A count waits for locks like any query. Without a bound, a migration
-        # holding a table lock at backup time would hang the nightly backup
-        # forever. A timeout here falls back to the plain dump instead.
-        options=f"-c lock_timeout=10s -c statement_timeout={_TIMEOUT}s")
+    deadline = time.monotonic() + _COUNT_BUDGET_SECONDS
+    counter = _connect(parts, "padyar-backup-count", "-c lock_timeout=10s")
+
+    def bounded(query, params=None):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("row count budget used up")
+        counter.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(
+            sql.Literal(max(1, int(left * 1000)))))
+        return counter.execute(query, params)
+
     try:
-        conn.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        snapshot_id = conn.execute("SELECT pg_export_snapshot()").fetchone()[0]
-        tables = conn.execute(
+        counter.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        counter.execute(sql.SQL("SET TRANSACTION SNAPSHOT {}").format(
+            sql.Literal(snapshot_id)))
+        tables = bounded(
             "SELECT n.nspname, c.relname FROM pg_class c"
             " JOIN pg_namespace n ON n.oid = c.relnamespace"
             " WHERE c.relkind = 'r' AND n.nspname = ANY(%s)"
@@ -186,11 +237,12 @@ def _open_snapshot(parts: dict):
         for schema, table in tables:
             query = sql.SQL("SELECT count(*) FROM {}.{}").format(
                 sql.Identifier(schema), sql.Identifier(table))
-            counts[f"{schema}.{table}"] = conn.execute(query).fetchone()[0]
-    except Exception:
-        conn.close()
-        raise
-    return conn, snapshot_id, dict(sorted(counts.items()))
+            counts[f"{schema}.{table}"] = bounded(query).fetchone()[0]
+        # COMMIT releases every ACCESS SHARE lock before pg_dump starts.
+        counter.execute("COMMIT")
+    finally:
+        counter.close()
+    return dict(sorted(counts.items()))
 
 
 def _close_snapshot(conn) -> None:

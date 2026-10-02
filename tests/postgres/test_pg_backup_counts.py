@@ -21,7 +21,20 @@ What is asserted against a real server and a real pg_dump:
   * deny-case: a table in a schema the app does not own is not counted;
     allow-control: an `app.*` table in the same database is;
   * a pg_dump failure still fails the backup, and the snapshot session is
-    closed on every path (a leaked open transaction would hold back vacuum).
+    closed on every path (a leaked open transaction would hold back vacuum);
+  * no backup session holds a table lock while pg_dump runs. Review round 1
+    found that the counting transaction kept ACCESS SHARE on every counted
+    table until pg_dump ended. A queued ACCESS EXCLUSIVE (the boot-time
+    `ALTER TABLE otp_challenges ...` in app/services/otp.py, or a migration)
+    then waited for it, pg_dump's own LOCK TABLE waited behind the ALTER, and
+    the backup failed at the pg_dump timeout. Counting now runs in a second
+    connection that imports the snapshot and commits before pg_dump starts;
+  * counting has a total time budget, and running out of it falls back to the
+    plain dump like any other count failure;
+  * the exporting session survives a role-level
+    `idle_in_transaction_session_timeout` (production sets 60s in
+    deploy/05-create-databases.sh), because it sits idle in its transaction
+    while the counts run and until pg_dump imports the snapshot.
 
 The probe tables live in the real `app` schema (and one extra schema), under
 a random name, and are dropped afterwards. None of them is in the session
@@ -37,7 +50,7 @@ import pytest
 
 from tests.postgres.conftest import dsn
 
-SNAPSHOT_APP_NAME = "padyar-backup-snapshot"
+BACKUP_APP_NAMES = "padyar-backup-%"
 
 
 def _dump_row_counts(dump_path: str) -> dict:
@@ -75,8 +88,22 @@ def _snapshot_sessions() -> int:
     import psycopg
     with psycopg.connect(dsn(), autocommit=True) as c:
         return c.execute(
-            "SELECT count(*) FROM pg_stat_activity WHERE application_name = %s",
-            (SNAPSHOT_APP_NAME,)).fetchone()[0]
+            "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE %s",
+            (BACKUP_APP_NAMES,)).fetchone()[0]
+
+
+def _backup_table_locks() -> int:
+    """Relation locks held by any backup session on a user table."""
+    import psycopg
+    with psycopg.connect(dsn(), autocommit=True) as c:
+        return c.execute(
+            "SELECT count(*) FROM pg_locks l"
+            " JOIN pg_stat_activity a ON a.pid = l.pid"
+            " JOIN pg_class r ON r.oid = l.relation"
+            " JOIN pg_namespace n ON n.oid = r.relnamespace"
+            " WHERE a.application_name LIKE %s AND l.locktype = 'relation'"
+            " AND n.nspname NOT IN ('pg_catalog', 'information_schema')",
+            (BACKUP_APP_NAMES,)).fetchone()[0]
 
 
 @pytest.fixture
@@ -203,3 +230,129 @@ def test_a_pg_dump_failure_still_fails_the_backup_and_closes_the_snapshot(
 
     assert _snapshot_sessions() == 0
     assert not os.listdir(backups.BACKUP_DIR), "a failed backup leaves no directory"
+
+
+def test_a_queued_access_exclusive_lock_does_not_stall_the_backup(
+        backups, probe, monkeypatch):
+    import threading
+    import time
+
+    import psycopg
+    monkeypatch.setattr(backups, "_TIMEOUT", 15)
+    table = probe["table"]
+    seen, alter = {}, {}
+    real_run = backups._run
+
+    def run_alter():
+        started = time.monotonic()
+        with psycopg.connect(dsn(), autocommit=True,
+                             options="-c lock_timeout=30s") as c:
+            c.execute(f'ALTER TABLE app."{table}" ADD COLUMN IF NOT EXISTS note text')
+        alter["seconds"] = time.monotonic() - started
+
+    def alter_then_dump(argv, env, what):
+        if what == "pg_dump":
+            seen["table_locks"] = _backup_table_locks()
+            thread = threading.Thread(target=run_alter)
+            thread.start()
+            seen["thread"] = thread
+            deadline = time.monotonic() + 5
+            while thread.is_alive() and time.monotonic() < deadline:
+                with psycopg.connect(dsn(), autocommit=True) as c:
+                    waiting = c.execute(
+                        "SELECT count(*) FROM pg_locks WHERE NOT granted"
+                        " AND relation = %s::regclass",
+                        (f'app."{table}"',)).fetchone()[0]
+                if waiting:
+                    break
+                time.sleep(0.05)
+        return real_run(argv, env, what)
+
+    monkeypatch.setattr(backups, "_run", alter_then_dump)
+    started = time.monotonic()
+    try:
+        manifest = backups.create(actor="pytest", reason="queued-alter")
+    finally:
+        if "thread" in seen:
+            seen["thread"].join(60)
+    elapsed = time.monotonic() - started
+
+    assert seen["table_locks"] == 0, "no backup session may hold a table lock into pg_dump"
+    assert elapsed < 10, f"the backup waited {elapsed:.1f}s behind the ALTER"
+    assert alter["seconds"] < 10
+    assert manifest["row_counts_source"] == "dump_snapshot"
+    dumped = _dump_row_counts(backups._dump_path(manifest["backup_id"]))
+    assert manifest["row_counts"] == _owned(dumped)
+
+
+def test_counting_past_its_total_budget_falls_back_to_the_plain_dump(
+        backups, probe, monkeypatch):
+    import threading
+    import time
+
+    import psycopg
+    monkeypatch.setattr(backups, "_COUNT_BUDGET_SECONDS", 0.5, raising=False)
+    seen = []
+    real_run = backups._run
+
+    def spy(argv, env, what):
+        seen.append(list(argv))
+        return real_run(argv, env, what)
+
+    monkeypatch.setattr(backups, "_run", spy)
+    locked, release = threading.Event(), threading.Event()
+
+    def hold_lock():
+        with psycopg.connect(dsn()) as c:
+            c.execute(f'LOCK TABLE app."{probe["table"]}" IN ACCESS EXCLUSIVE MODE')
+            locked.set()
+            release.wait(3)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    locked.wait(5)
+    started = time.monotonic()
+    try:
+        manifest = backups.create(actor="pytest", reason="budget")
+    finally:
+        release.set()
+        holder.join(10)
+    elapsed = time.monotonic() - started
+
+    assert manifest["row_counts"] is None
+    assert manifest["row_counts_source"] == "unavailable"
+    assert not any(a.startswith("--snapshot") for a in seen[0])
+    assert elapsed < 8, f"counting ignored its budget and ran {elapsed:.1f}s"
+
+
+@pytest.fixture
+def short_idle_timeout():
+    """The app role gets a 1s idle-in-transaction limit, like production's 60s."""
+    import psycopg
+    from urllib.parse import urlparse
+    role = urlparse(dsn()).username
+    with psycopg.connect(dsn(), autocommit=True) as c:
+        c.execute(f'ALTER ROLE "{role}" SET idle_in_transaction_session_timeout = \'1s\'')
+    try:
+        yield
+    finally:
+        with psycopg.connect(dsn(), autocommit=True) as c:
+            c.execute(f'ALTER ROLE "{role}" RESET idle_in_transaction_session_timeout')
+
+
+def test_the_exporting_session_survives_the_role_idle_in_transaction_timeout(
+        backups, probe, short_idle_timeout, monkeypatch):
+    import time
+    real_run = backups._run
+
+    def slow_start(argv, env, what):
+        if what == "pg_dump":
+            time.sleep(2)
+        return real_run(argv, env, what)
+
+    monkeypatch.setattr(backups, "_run", slow_start)
+    manifest = backups.create(actor="pytest", reason="idle-timeout")
+
+    assert manifest["row_counts_source"] == "dump_snapshot"
+    dumped = _dump_row_counts(backups._dump_path(manifest["backup_id"]))
+    assert manifest["row_counts"] == _owned(dumped)
