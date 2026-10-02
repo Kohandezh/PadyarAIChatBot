@@ -1,0 +1,11 @@
+# Run on the server, 2026-09-30 about 18:12 UTC, in one shell, output copied from the run session:
+#   git ls-remote --tags https://github.com/ggml-org/llama.cpp | grep -E "refs/tags/v0\.5\.0"   -> lines 1-2
+#   git ls-remote --tags https://github.com/ggml-org/llama.cpp | tail -3                         -> lines 3-5
+#   git ls-remote https://github.com/ggml-org/llama.cpp HEAD                                     -> line 6
+# v0.5.0 is an annotated tag: object c13fcbf6..., pointing at commit 7fe450e1... (the ^{} line).
+c13fcbf684171d5e0bca3fc5c34be6a99174b05f	refs/tags/v0.5.0
+7fe450e19305b828c199d602c23a8337aaa1f03b	refs/tags/v0.5.0^{}
+b29c606e28a01b1bc8c1351026a0fa6e616bf6c4	refs/tags/v0.4.1^{}
+c13fcbf684171d5e0bca3fc5c34be6a99174b05f	refs/tags/v0.5.0
+7fe450e19305b828c199d602c23a8337aaa1f03b	refs/tags/v0.5.0^{}
+4f31296a907d73f3409f720429bcf31111615d77	HEAD

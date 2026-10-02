@@ -1,0 +1,4 @@
+gpu=1 health=200
+load_seconds=61.529558414
+## offload / backend lines from server.log
+1.00.820.574 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 4096, kv_unified = 'false'

@@ -1,0 +1,30 @@
+# M5 request bodies: RECONSTRUCTED after the run, not captured at run time.
+#
+# Source: the m5() function in toolchain/llm-bench.sh (the version that ran)
+# plus the EXTRA value on each command line of the run session. m5() appends
+# $EXTRA to both bodies. The fix that writes each body into its result file
+# was written later, but not applied: the server was no longer reachable from
+# the session when the evidence was copied into the repo, so M5 was not re-run.
+#
+# Command lines of the run (from the session that ran them):
+#   gemma-4-26b-a4b: llm-bench.sh probe gemma-4-26b-a4b                          -> m5-json-probe.txt          (EXTRA empty)
+#                    EXTRA=<thinking off> llm-bench.sh json gemma-4-26b-a4b -nothink -> m5-json-probe-nothink.txt
+#   gemma-4-12b:     llm-bench.sh probe gemma-4-12b                              -> m5-json-probe.txt          (EXTRA empty)
+#                    EXTRA=<thinking off> llm-bench.sh json gemma-4-12b -nothink  -> m5-json-probe-nothink.txt
+#   qwen3-14b:       EXTRA=<thinking off> llm-bench.sh probe qwen3-14b            -> m5-json-probe.txt
+#                    llm-bench.sh json qwen3-14b -thinking-default                -> m5-json-probe-thinking-default.txt (EXTRA empty)
+#
+# <thinking off> is exactly:
+#   ,"chat_template_kwargs":{"enable_thinking":false}
+# It is the same field the openai_compatible adapter sends when the provider
+# config has reasoning_param=enable_thinking and the request reasoning is "off".
+
+## M5a (spike Gate 4 probe), <alias> = the --alias of the server
+{"model":"<alias>","messages":[{"role":"user","content":"Reply with {\"ok\": true}"}],"response_format":{"type":"json_object"},"max_tokens":64}
+## M5a, thinking off
+{"model":"<alias>","messages":[{"role":"user","content":"Reply with {\"ok\": true}"}],"response_format":{"type":"json_object"},"max_tokens":64,"chat_template_kwargs":{"enable_thinking":false}}
+
+## M5b (the app's health.py probe form: system prompt, temperature 0, strict parse of the reply)
+{"model":"<alias>","messages":[{"role":"system","content":"Answer with exactly one JSON object and nothing else."},{"role":"user","content":"Reply with {\"ok\": true}"}],"response_format":{"type":"json_object"},"max_tokens":64,"temperature":0}
+## M5b, thinking off
+{"model":"<alias>","messages":[{"role":"system","content":"Answer with exactly one JSON object and nothing else."},{"role":"user","content":"Reply with {\"ok\": true}"}],"response_format":{"type":"json_object"},"max_tokens":64,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}

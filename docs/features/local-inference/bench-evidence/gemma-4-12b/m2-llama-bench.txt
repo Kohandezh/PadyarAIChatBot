@@ -1,0 +1,15 @@
+CUDA_VISIBLE_DEVICES=1 /opt/padyar-llm/llama/bin/llama-bench -m /var/lib/padyar/llm/models/gemma-4-12b-it-Q4_K_M.gguf -ngl 999 -fa 1 -ctk q8_0 -ctv q8_0 -p 512 -n 128 -r 3 -o md
+## before-bench 2026-09-30T18:35:41+00:00
+0, 4505 MiB, 19935 MiB, 24576 MiB
+1, 3785 MiB, 20655 MiB, 24576 MiB
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24438 MiB):
+  Device 0: Tesla P40, compute capability 6.1, VMM: yes, VRAM: 24438 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v |  fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | --: | --------------: | -------------------: |
+| gemma4 ?B Q4_K - Medium        |   6.62 GiB |    11.91 B | CUDA       | 999 |   q8_0 |   q8_0 |   1 |           pp512 |        566.49 ± 0.48 |
+| gemma4 ?B Q4_K - Medium        |   6.62 GiB |    11.91 B | CUDA       | 999 |   q8_0 |   q8_0 |   1 |           tg128 |         28.07 ± 0.01 |
+
+build: unknown (0)
+## after-bench 2026-09-30T18:36:02+00:00
+0, 4505 MiB, 19935 MiB, 24576 MiB
+1, 3785 MiB, 20655 MiB, 24576 MiB
