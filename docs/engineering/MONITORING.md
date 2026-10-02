@@ -19,7 +19,7 @@ to `app/services/metrics.py`, `app/routers/metrics.py`, the middleware in
 | Alert rules | **Exist.** `deploy/monitoring/rules/padyar.rules.yml`, 11 rules. Three more come in separate changes (see below) |
 | Alertmanager | **Exists, UI only.** One route, one receiver with no destination. It sends nothing anywhere |
 | Metric retention | **Exists.** 30 days or a size cap, whichever comes first (see "Retention") |
-| An SMS for a firing alert | **Does not exist yet.** The watchdog step that reads Alertmanager and texts `page="sms"` alerts is a separate change (SPEC monitoring-stack, WU2). Until it ships, an alert is only visible in the Prometheus and Alertmanager UIs. The watchdog's own "the app is down" SMS works as before |
+| An SMS for a firing alert | **Exists.** Each install's watchdog reads firing `page="sms"` alerts from Alertmanager and texts them through Asanak, with dedup, a daily cap of 10 send attempts and a write-ahead save. See "Watchdog alert SMS" below. The watchdog's own "the app is down" SMS works as before |
 | A Grafana (or any) dashboard | **Does not exist.** Not in this phase (ADR-024, decision 2). The Prometheus UI is the dashboard |
 | Distributed tracing (OpenTelemetry, Jaeger) | **Does not exist.** No tracing dependency in `requirements.txt` |
 
@@ -798,6 +798,43 @@ sudo ls /run/padyar-<slug>
 هر حالت multiprocess در یک subprocess واقعی اجرا می‌شود، چون کتابخانه حالتش را
 فقط موقع import انتخاب می‌کند.
 
+## Watchdog alert SMS
+
+The per-install watchdog (`deploy/watchdog/watchdog.py`, one oneshot run a
+minute) is what turns an Alertmanager alert into an SMS. Alertmanager itself
+has no receiver and sends nothing. The full contract is section 5.5 of
+`docs/features/monitoring-stack/SPEC.md`; the operator view is §11 of
+`docs/features/critical-watchdog/SPEC.md`.
+
+The step stays idle until the host runs the monitoring stack. Its switch is
+one file: without `/etc/padyar-monitoring/alertmanager-watchdog.pass` the
+watchdog skips the step and behaves exactly as before.
+
+| What | Value |
+|---|---|
+| Read | `GET http://127.0.0.1:9093/api/v2/alerts?active=true`, basic auth user `watchdog`, 5 s per socket read and 8 s for the whole GET, no proxy, no redirect followed, an answer over 1 MiB is a failure |
+| Texted | `page="sms"`, state `active`, this install's `install` label (or no label, on the host-owner install only) |
+| Not texted | `suppressed` alerts (silence or inhibit), and alerts of an install that is already down. There is no "resolved" SMS |
+| Volume | At most one SMS per cycle and ten send attempts per UTC day per install; a still-firing alert is reminded every 6 h. Each SMS is saved to the state file before it is sent; no save, no SMS |
+| Text | Fixed Persian labels keyed by `alertname` only. Labels and annotations never reach the phone |
+| Monitoring down | Host owner only: one SMS after 3 cycles without an answer or without the `MonitoringHeartbeat` alert |
+| Silences | Host owner only: one notice per new active silence, the operator's own included |
+| Sender | The same `send_asanak` path as the down-SMS, so a spent `sms_daily_budget` blocks it too (journal `alert send failed`). A failed send is retried after 300 s and counts against the daily cap; this deviates from REQ-051, so a gateway that delivers and then fails the call cannot send 288 SMS a day. About 45 minutes of gateway outage uses up that day's alert cap |
+| Stuck cycle | `TimeoutStartSec=300s` in `padyar-watchdog@.service` ends only a truly stuck run. An Alertmanager stall is already cut by the 8 s GET deadline, and a run in progress makes the 60 s timer skip a tick, never overlap |
+
+Every journal line starts with `[watchdog] <slug>:`. To see them:
+
+```bash
+journalctl -u padyar-watchdog@<slug>.service -n 50
+```
+
+The three lines that mean "an operator must act": `monitoring alerts OFF:
+cannot read alertmanager-watchdog.pass` (re-run `deploy/55-monitoring.sh
+<slug>`, usually after creating a new install), `alert pending but no
+alert_critical_phone configured` (set the phone in the admin panel), and
+`alert SMS skipped: state not saved` (free disk space, or fix the owner of
+`/var/lib/padyar-watchdog/<slug>`).
+
 ## Checking it yourself
 
 ```bash
@@ -808,6 +845,9 @@ sudo ls /run/padyar-<slug>
 # for the promtool cases; they skip with a reason otherwise)
 .venv/bin/python -m pytest tests/test_monitoring_rules.py tests/test_monitoring_install_script.py -q
 promtool test rules deploy/monitoring/tests/padyar_rules_test.yml
+
+# Run the watchdog tests (alert SMS step included; every SMS is faked)
+.venv/bin/python -m pytest tests/test_watchdog_logic.py tests/test_watchdog_io.py -q
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics
