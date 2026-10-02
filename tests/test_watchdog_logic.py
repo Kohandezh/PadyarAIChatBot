@@ -233,3 +233,18 @@ def test_new_silences_reports_unseen_active_ids_and_prunes_the_rest():
     ]
     assert watchdog.new_silences(s, silences) == ["new"]
     assert s["silence_seen"] == ["old"]
+
+
+def test_remember_sent_keeps_the_newest_entries_up_to_the_limit():
+    limit = watchdog.ALERT_SENT_MAX
+    s = {"alert_sent": {f"old{i}": 1000 + i for i in range(limit)}}
+    watchdog.remember_sent(s, ["new"], 5000)
+    assert len(s["alert_sent"]) == limit
+    assert "old0" not in s["alert_sent"], "the oldest entry goes first"
+    assert s["alert_sent"]["new"] == 5000 and s["alert_sent"]["old1"] == 1001
+
+
+def test_control_remember_sent_under_the_limit_keeps_everything():
+    s = {"alert_sent": {"a": 1000}}
+    watchdog.remember_sent(s, ["b", "c"], 2000)
+    assert s["alert_sent"] == {"a": 1000, "b": 2000, "c": 2000}

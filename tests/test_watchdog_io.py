@@ -319,7 +319,8 @@ def test_a_failed_send_marks_nothing_and_waits_before_the_next_try(tmp_path, cap
     assert f"[watchdog] {INSTALL}: alert send failed: SmsError" in out
     assert "budget spent" not in out
     disk = _disk_state(tmp_path)
-    assert disk["alert_sent"] == {} and disk["alert_sms_today"] == 0
+    assert disk["alert_sent"] == {}, "a failed send marks nothing, so the alert is retried"
+    assert disk["alert_sms_today"] == 1, "every attempt counts against the daily cap"
     assert disk["alert_retry_after"] == NOON_UTC + watchdog.ALERT_RETRY_SECONDS
     _am_cycle(tmp_path, NOON_UTC + 60, alerts=[alert])
     assert SENT == []
@@ -469,8 +470,8 @@ class _FakeResponse:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
-        return self._body
+    def read(self, amt=None):
+        return self._body if amt is None else self._body[:amt]
 
 
 def _fake_alertmanager(monkeypatch, status, body):
@@ -621,3 +622,317 @@ def test_default_reader_refuses_a_redirect_and_counts_it_as_a_failure(
     assert f"[watchdog] {INSTALL}: alertmanager unreadable" in out
     assert "s3cret" not in out
     assert SENT == []
+
+
+# ── Write-ahead: the cap, the dedup and the retry gap live only in state.json ──
+#
+# A state file that cannot be written (disk full, read-only directory) used to
+# mean "every cycle sends again". The send is now recorded and saved BEFORE
+# the sender runs, and a failed save means no SMS this cycle.
+
+def _unwritable_state_path(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file where the state directory should be", encoding="utf-8")
+    return blocker / "state.json"
+
+
+def test_no_alert_sms_goes_out_while_the_state_cannot_be_saved(tmp_path, capsys):
+    path = _unwritable_state_path(tmp_path)
+    for i in range(30):
+        _am_cycle(tmp_path, NOON_UTC + 60 * i, owner=INSTALL, state_path=path,
+                  alerts=[_alert("PadyarHigh5xxRate", "fp1")])
+    assert SENT == []
+    skipped = f"[watchdog] {INSTALL}: alert SMS skipped: state not saved"
+    assert capsys.readouterr().out.count(skipped) == 30
+
+
+def test_a_readable_but_unwritable_state_does_not_resend_every_cycle(tmp_path, monkeypatch, capsys):
+    path = tmp_path / f"{INSTALL}.json"
+    state = watchdog._fresh_state()
+    state["cached_phone"] = PHONE
+    path.write_text(json.dumps(state), encoding="utf-8")
+    monkeypatch.setattr(watchdog, "_persist", lambda path, state: False)
+    for i in range(5):
+        _am_cycle(tmp_path, NOON_UTC + 60 * i, alerts=[_alert("PadyarHigh5xxRate", "fp1")])
+    assert SENT == []
+    assert capsys.readouterr().out.count("alert SMS skipped: state not saved") == 5
+
+
+def test_control_a_writable_state_keeps_one_sms_per_cycle_and_the_cap(tmp_path):
+    for i in range(30):
+        _am_cycle(tmp_path, NOON_UTC + 60 * i, owner=INSTALL,
+                  alerts=[_alert("PadyarHigh5xxRate", f"fp{i}")])
+    assert len(SENT) == 10
+    assert SENT[9][1] == watchdog.cap_message("MYEVENT")
+    assert _disk_state(tmp_path)["alert_sms_today"] == 10
+
+
+def test_the_send_is_on_disk_before_the_sender_runs(tmp_path):
+    on_disk_during_send = []
+
+    def sender(dest, text):
+        on_disk_during_send.append(_disk_state(tmp_path))
+        SENT.append((dest, text))
+
+    _am_cycle(tmp_path, NOON_UTC, alerts=[_alert("PadyarHigh5xxRate", "fp1")], sender=sender)
+    during = on_disk_during_send[0]
+    assert during["alert_sent"] == {"fp1": NOON_UTC}
+    assert during["alert_sms_today"] == 1
+    assert during["alert_retry_after"] == NOON_UTC + watchdog.ALERT_RETRY_SECONDS
+    after = _disk_state(tmp_path)
+    assert after["alert_sent"] == {"fp1": NOON_UTC} and after["alert_sms_today"] == 1
+    assert after["alert_retry_after"] == 0.0, "a successful send leaves no retry gap"
+    _am_cycle(tmp_path, NOON_UTC + 60, alerts=[_alert("PadyarHigh5xxRate", "fp2")])
+    assert len(SENT) == 2
+
+
+def test_a_failed_send_after_a_saved_attempt_is_not_retried_in_the_same_cycle(tmp_path):
+    calls = []
+
+    def failing(dest, text):
+        calls.append(text)
+        raise SmsError("gateway down")
+
+    alert = _alert("PadyarHigh5xxRate", "fp1")
+    _am_cycle(tmp_path, NOON_UTC, alerts=[alert], sender=failing)
+    assert len(calls) == 1
+    disk = _disk_state(tmp_path)
+    assert disk["alert_sent"] == {} and disk["alert_sms_today"] == 1
+    assert disk["alert_retry_after"] == NOON_UTC + watchdog.ALERT_RETRY_SECONDS
+    _am_cycle(tmp_path, NOON_UTC + watchdog.ALERT_RETRY_SECONDS - 1, alerts=[alert],
+              sender=failing)
+    assert len(calls) == 1, "the retry gap holds"
+    _am_cycle(tmp_path, NOON_UTC + watchdog.ALERT_RETRY_SECONDS, alerts=[alert])
+    assert len(SENT) == 1
+
+
+def test_a_process_killed_mid_send_does_not_send_again(tmp_path):
+    def killed(dest, text):
+        raise SystemExit("killed by systemd while sending")
+
+    alert = _alert("PadyarHigh5xxRate", "fp1")
+    with pytest.raises(SystemExit):
+        _am_cycle(tmp_path, NOON_UTC, alerts=[alert], sender=killed)
+    _am_cycle(tmp_path, NOON_UTC + watchdog.ALERT_RETRY_SECONDS, alerts=[alert])
+    assert SENT == [], "at most once: the saved attempt counts as sent"
+
+
+# ── Bounded input and bounded state ──
+
+def _sized_alertmanager(monkeypatch, body):
+    """Fake opener serving `body` (bytes); records the size each read asked for."""
+    asked = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, amt=None):
+            asked.append(amt)
+            return body if amt is None else body[:amt]
+
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: Opener())
+    return asked
+
+
+def _body_of_size(size):
+    """A JSON alert list of about `size` bytes with one real alert in it."""
+    filler = {"labels": {"alertname": "Filler", "pad": ""}, "fingerprint": "pad",
+              "status": {"state": "active"}}
+    alerts = [_alert("PadyarHigh5xxRate", "fp1"), HEARTBEAT, filler]
+    base = len(json.dumps(alerts).encode("utf-8"))
+    filler["labels"]["pad"] = "x" * max(0, size - base)
+    return json.dumps(alerts).encode("utf-8")
+
+
+def _password(tmp_path, monkeypatch):
+    password_file = tmp_path / "alertmanager-watchdog.pass"
+    password_file.write_text("s3cret", encoding="utf-8")
+    monkeypatch.setattr(watchdog, "ALERTMANAGER_PASS_FILE", str(password_file))
+
+
+def test_an_alertmanager_body_over_the_limit_is_an_api_failure(tmp_path, monkeypatch, capsys):
+    _password(tmp_path, monkeypatch)
+    limit = watchdog.ALERTMANAGER_MAX_BODY_BYTES
+    asked = _sized_alertmanager(monkeypatch, _body_of_size(limit + 1))
+    _cycle(tmp_path, now=NOON_UTC, probe=lambda port: True, alerts_reader=None,
+           owner_reader=lambda: OTHER)
+    assert SENT == []
+    assert f"[watchdog] {INSTALL}: alertmanager unreadable" in capsys.readouterr().out
+    assert asked == [limit + 1], "the reader never asks for more than the limit plus one byte"
+
+
+def test_control_an_alertmanager_body_at_the_limit_is_read(tmp_path, monkeypatch):
+    _password(tmp_path, monkeypatch)
+    body = _body_of_size(watchdog.ALERTMANAGER_MAX_BODY_BYTES)
+    assert len(body) == watchdog.ALERTMANAGER_MAX_BODY_BYTES
+    _sized_alertmanager(monkeypatch, body)
+    _cycle(tmp_path, now=NOON_UTC, probe=lambda port: True, alerts_reader=None,
+           owner_reader=lambda: OTHER)
+    assert _texts() == ["پادیار | هشدار MYEVENT: خطای سرور زیاد. جزئیات در صفحهٔ هشدار."]
+
+
+def test_forged_alerts_cannot_grow_the_state_without_bound(tmp_path):
+    many = watchdog.ALERT_SENT_MAX + 50
+    _am_cycle(tmp_path, NOON_UTC, alerts=[_alert("PadyarHigh5xxRate", f"f{i}") for i in range(many)])
+    assert len(SENT) == 1
+    assert len(_disk_state(tmp_path)["alert_sent"]) == watchdog.ALERT_SENT_MAX
+
+
+# ── Every send attempt counts against the daily cap ──
+#
+# A gateway can accept an SMS and then fail the call (a timeout after the
+# accept, a reply that does not parse). Counting only successful sends let
+# such a gateway deliver one SMS every ALERT_RETRY_SECONDS: 288 a day. Now
+# the attempt counts, and only the "sent" marks are undone, so the alert is
+# still retried and the daily cap bounds spend in every failure mode.
+
+def test_a_gateway_that_delivers_then_raises_is_bounded_by_the_daily_cap(tmp_path):
+    def delivered_then_raised(dest, text):
+        SENT.append((dest, text))
+        raise TimeoutError("timed out after the gateway accepted the SMS")
+
+    alert = _alert("PadyarHigh5xxRate", "fp1")
+    midnight = NOON_UTC - 12 * 3600
+    for minute in range(24 * 60):
+        _am_cycle(tmp_path, midnight + 60 * minute, alerts=[alert],
+                  sender=delivered_then_raised)
+    assert len(SENT) == watchdog.ALERT_SMS_DAILY_CAP
+    assert SENT[-1][1] == watchdog.cap_message("MYEVENT")
+
+
+def test_control_a_failing_gateway_is_retried_every_300_s_until_the_cap(tmp_path):
+    clock, calls = {}, []
+
+    def failing(dest, text):
+        calls.append((clock["now"], text))
+        raise SmsError("gateway down")
+
+    alert = _alert("PadyarHigh5xxRate", "fp1")
+    for minute in range(120):
+        clock["now"] = NOON_UTC + 60 * minute
+        _am_cycle(tmp_path, clock["now"], alerts=[alert], sender=failing)
+    assert len(calls) == watchdog.ALERT_SMS_DAILY_CAP
+    assert {b - a for (a, _), (b, _) in zip(calls, calls[1:])} == {watchdog.ALERT_RETRY_SECONDS}
+    assert calls[-1][1] == watchdog.cap_message("MYEVENT")
+    assert _disk_state(tmp_path)["alert_sent"] == {}
+    _am_cycle(tmp_path, NOON_UTC + 86400, alerts=[alert])
+    assert _texts() == ["پادیار | هشدار MYEVENT: خطای سرور زیاد. جزئیات در صفحهٔ هشدار."], \
+        "the unmarked alert is sent once the gateway works again on a new day"
+
+
+# ── A wall-clock deadline for each Alertmanager GET ──
+#
+# urlopen's timeout bounds each socket read, not the whole GET. A listener on
+# 127.0.0.1:9093 that sends one byte at a time held a GET for many seconds,
+# and the oneshot unit had no start timeout, so one stuck cycle stopped the
+# watchdog for that install, the down-SMS included.
+
+import http.server
+import re
+import threading
+import time
+
+
+class _Dripping(http.server.BaseHTTPRequestHandler):
+    """Sends a little, then one byte every 0.2 s for at most 6 s."""
+    stop = None
+    where = "body"
+
+    def do_GET(self):
+        if self.where == "headers":
+            self.wfile.write(b"HTTP/1.0 200 OK\r\nX-Drip: ")
+        else:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "100000")
+            self.end_headers()
+        self.wfile.flush()
+        for _ in range(30):
+            if self.stop.wait(0.2):
+                return
+            try:
+                self.wfile.write(b" ")
+                self.wfile.flush()
+            except OSError:
+                return
+
+    def log_message(self, *args):
+        pass
+
+
+def _local_server(handler):
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+@pytest.mark.parametrize("where", ["headers", "body"])
+def test_a_dripping_alertmanager_is_cut_off_at_the_deadline(tmp_path, monkeypatch, capsys, where):
+    _password(tmp_path, monkeypatch)
+    monkeypatch.setattr(watchdog, "ALERTMANAGER_DEADLINE_SECONDS", 1.0, raising=False)
+    stop = threading.Event()
+    server = _local_server(type("Drip", (_Dripping,), {"stop": stop, "where": where}))
+    monkeypatch.setattr(watchdog, "ALERTMANAGER_URL", f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        started = time.monotonic()
+        _cycle(tmp_path, now=NOON_UTC, probe=lambda port: True, alerts_reader=None,
+               owner_reader=lambda: INSTALL)
+        elapsed = time.monotonic() - started
+    finally:
+        stop.set()
+        server.shutdown()
+        server.server_close()
+    assert elapsed < 2.0, f"the cycle waited {elapsed:.1f} s for a 1 s deadline"
+    assert f"[watchdog] {INSTALL}: alertmanager unreadable (TimeoutError)" in capsys.readouterr().out
+    assert _disk_state(tmp_path)["am_fail_count"] == 1
+    assert SENT == []
+
+
+def test_control_a_prompt_alertmanager_is_read_as_before(tmp_path, monkeypatch):
+    _password(tmp_path, monkeypatch)
+    body = json.dumps([_alert("PadyarHigh5xxRate", "fp1"), HEARTBEAT]).encode("utf-8")
+
+    class Prompt(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = _local_server(Prompt)
+    monkeypatch.setattr(watchdog, "ALERTMANAGER_URL", f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        _cycle(tmp_path, now=NOON_UTC, probe=lambda port: True, alerts_reader=None,
+               owner_reader=lambda: OTHER)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert _texts() == ["پادیار | هشدار MYEVENT: خطای سرور زیاد. جزئیات در صفحهٔ هشدار."]
+
+
+def test_the_unit_ends_only_a_truly_stuck_cycle():
+    """The down-SMS and the low-credit SMS save state only at the end of a
+    cycle, so a timeout that can kill a normal cycle after one of those sends
+    makes the next cycle send it again. 300 s ends only a truly stuck run;
+    the 8 s GET deadline already bounds an Alertmanager stall."""
+    unit = (WATCHDOG.parents[1] / "systemd" / "padyar-watchdog@.service").read_text(
+        encoding="utf-8")
+    timeout = re.search(r"^TimeoutStartSec=(\d+)s$", unit, re.M)
+    assert timeout, "a oneshot unit has no start timeout unless it sets one"
+    assert int(timeout.group(1)) == 300
+    assert int(timeout.group(1)) > 2 * watchdog.ALERTMANAGER_DEADLINE_SECONDS + 5, \
+        "room for the 5 s probe and two Alertmanager GETs"

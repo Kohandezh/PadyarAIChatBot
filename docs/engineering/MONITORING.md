@@ -214,14 +214,15 @@ watchdog skips the step and behaves exactly as before.
 
 | What | Value |
 |---|---|
-| Read | `GET http://127.0.0.1:9093/api/v2/alerts?active=true`, basic auth user `watchdog`, 5 s timeout, no proxy, no redirect followed |
+| Read | `GET http://127.0.0.1:9093/api/v2/alerts?active=true`, basic auth user `watchdog`, 5 s per socket read and 8 s for the whole GET, no proxy, no redirect followed, an answer over 1 MiB is a failure |
 | Texted | `page="sms"`, state `active`, this install's `install` label (or no label, on the host-owner install only) |
 | Not texted | `suppressed` alerts (silence or inhibit), and alerts of an install that is already down. There is no "resolved" SMS |
-| Volume | At most one SMS per cycle and ten per UTC day per install; a still-firing alert is reminded every 6 h |
+| Volume | At most one SMS per cycle and ten send attempts per UTC day per install; a still-firing alert is reminded every 6 h. Each SMS is saved to the state file before it is sent; no save, no SMS |
 | Text | Fixed Persian labels keyed by `alertname` only. Labels and annotations never reach the phone |
 | Monitoring down | Host owner only: one SMS after 3 cycles without an answer or without the `MonitoringHeartbeat` alert |
 | Silences | Host owner only: one notice per new active silence, the operator's own included |
-| Sender | The same `send_asanak` path as the down-SMS, so a spent `sms_daily_budget` blocks it too (journal `alert send failed`) |
+| Sender | The same `send_asanak` path as the down-SMS, so a spent `sms_daily_budget` blocks it too (journal `alert send failed`). A failed send is retried after 300 s and counts against the daily cap; this deviates from REQ-051, so a gateway that delivers and then fails the call cannot send 288 SMS a day. About 45 minutes of gateway outage uses up that day's alert cap |
+| Stuck cycle | `TimeoutStartSec=300s` in `padyar-watchdog@.service` ends only a truly stuck run. An Alertmanager stall is already cut by the 8 s GET deadline, and a run in progress makes the 60 s timer skip a tick, never overlap |
 
 Every journal line starts with `[watchdog] <slug>:`. To see them:
 
@@ -229,10 +230,12 @@ Every journal line starts with `[watchdog] <slug>:`. To see them:
 journalctl -u padyar-watchdog@<slug>.service -n 50
 ```
 
-The two lines that mean "an operator must act": `monitoring alerts OFF:
+The three lines that mean "an operator must act": `monitoring alerts OFF:
 cannot read alertmanager-watchdog.pass` (re-run `deploy/55-monitoring.sh
-<slug>`, usually after creating a new install), and `alert pending but no
-alert_critical_phone configured` (set the phone in the admin panel).
+<slug>`, usually after creating a new install), `alert pending but no
+alert_critical_phone configured` (set the phone in the admin panel), and
+`alert SMS skipped: state not saved` (free disk space, or fix the owner of
+`/var/lib/padyar-watchdog/<slug>`).
 
 ## Checking it yourself
 

@@ -109,15 +109,27 @@
   3. سه reader تزریقی تازه در `run_cycle`: `alerts_reader`، `owner_reader`،
      `silences_reader`. پیش‌فرض تولیدی فقط GET روی `127.0.0.1:9093` می‌زند،
      بدون proxy و بدون دنبال کردن redirect، تا رمز از میزبان بیرون نرود.
-  4. ۴۹ تست تازه در `tests/test_watchdog_logic.py` و
+     پاسخ بزرگ‌تر از ۱ مگابایت، یا GET طولانی‌تر از ۸ ثانیه، خطا حساب می‌شود.
+  4. هر پیامک پیش از ارسال در state ثبت و ذخیره می‌شود (write-ahead). اگر
+     state ذخیره نشود، پیامکی نمی‌رود؛ پس دیسک پر یا پوشهٔ فقط‌خواندنی
+     به ارسال در هر چرخه نمی‌رسد. `alert_sent` حداکثر ۱۰۰۰ fingerprint نگه
+     می‌دارد. هر تلاش ارسال، حتی ناموفق، در سقف روزانه شمرده می‌شود؛ این
+     انحراف آگاهانه از متن REQ-051 است، تا درگاهی که پیامک را می‌رساند و
+     بعد خطا می‌دهد نتواند روزی ۲۸۸ پیامک بفرستد.
+  5. `TimeoutStartSec=300s` در `deploy/systemd/padyar-watchdog@.service`، تا
+     یک پروسهٔ واقعاً گیرکرده تمام شود. عمداً بلند است: پیامک «برنامه پایین
+     است» و اعتبار کم state را فقط در پایان چرخه ذخیره می‌کنند، پس timeout
+     کوتاه‌تر می‌توانست بعد از یکی از آن‌ها چرخه را بکشد و چرخهٔ بعد آن را
+     دوباره بفرستد.
+  6. ۶۶ تست تازه در `tests/test_watchdog_logic.py` و
      `tests/test_watchdog_io.py`، اول نوشته شدند و قرمز بودند. هیچ تستی پیامک
      واقعی نمی‌فرستد؛ فرستنده و readerها جعلی‌اند.
-  5. مستندات: بخش 11 در `docs/features/critical-watchdog/SPEC.md` و بخش
+  7. مستندات: بخش 11 در `docs/features/critical-watchdog/SPEC.md` و بخش
      «Watchdog alert SMS» در `docs/engineering/MONITORING.md`.
 - **پچ‌های ردشده/بازگردانده:** هیچ.
 - **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی
-  `deploy/watchdog/watchdog.py`؛ `pytest tests/test_watchdog*.py` با ۶۸ تست
-  سبز (۱۹ تست قبلی بدون تغییر رفتار)؛ ۱۶ جهش عمدی در کد، هر کدام دست‌کم یک
+  `deploy/watchdog/watchdog.py`؛ `pytest tests/test_watchdog*.py` با ۸۵ تست
+  سبز (۱۹ تست قبلی بدون تغییر رفتار)؛ ۲۳ جهش عمدی در کد و unit، هر کدام دست‌کم یک
   تست را قرمز کرد. CI اجرا نشده است.
 - **بازبینی انسانی:** pending.
 

@@ -33,8 +33,10 @@ it); a host without the stack never reaches that step.
 """
 import argparse
 import base64
+import copy
 import json
 import os
+import threading
 import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -171,6 +173,10 @@ ALERT_REMIND_SECONDS = 21600
 ALERT_SMS_DAILY_CAP = 10
 ALERT_RETRY_SECONDS = 300
 
+# Most fingerprints alert_sent keeps. Real installs have a handful of rules;
+# the bound is for forged alerts, which any install on the host can post.
+ALERT_SENT_MAX = 1000
+
 # This Prometheus rule is always firing. A live Alertmanager without it means
 # Prometheus stopped evaluating rules, so every other alert went blind.
 HEARTBEAT_ALERT = "MonitoringHeartbeat"
@@ -249,6 +255,19 @@ def due_alerts(state: dict, selected: list, now: float) -> list:
         elif now - last >= ALERT_REMIND_SECONDS:
             due.append((alert, True))
     return due
+
+
+def remember_sent(state: dict, fingerprints: list, now: float) -> None:
+    """Mark fingerprints as texted at `now`. Past ALERT_SENT_MAX entries the
+    oldest go first, so forged alerts cannot grow the state file without
+    bound. Builds a new dict, so a caller's copy of the old one stays intact.
+    """
+    sent = dict(state.get("alert_sent") or {})
+    for fingerprint in fingerprints:
+        sent[fingerprint] = now
+    if len(sent) > ALERT_SENT_MAX:
+        sent = dict(sorted(sent.items(), key=lambda item: item[1])[-ALERT_SENT_MAX:])
+    state["alert_sent"] = sent
 
 
 def alert_label(alertname) -> str:
@@ -425,9 +444,10 @@ def _load_state(path: str, install: str) -> dict:
     return _fresh_state()
 
 
-def _persist(path: str, state: dict) -> None:
+def _persist(path: str, state: dict) -> bool:
     """Write atomically: tmp file + os.replace, so a crash mid-write can
     never leave a half-written JSON that the next cycle would choke on.
+    True when the state is on disk; the alert step refuses to send without it.
 
     The makedirs targets the PARENT of the state file, so it works both for
     the default layout (STATE_DIR/<install>/state.json — the per-install
@@ -441,6 +461,8 @@ def _persist(path: str, state: dict) -> None:
         os.replace(tmp, path)
     except Exception as e:  # noqa: BLE001 — persist failure is journaled, not raised
         print(f"[watchdog] state not persisted: {type(e).__name__}", flush=True)
+        return False
+    return True
 
 
 def _probe(port: int) -> bool:
@@ -500,6 +522,12 @@ ALERTMANAGER_URL = "http://127.0.0.1:9093"
 ALERTMANAGER_USER = "watchdog"
 ALERTMANAGER_PASS_FILE = "/etc/padyar-monitoring/alertmanager-watchdog.pass"
 HOST_ALERTS_OWNER_FILE = "/etc/padyar-monitoring/host-alerts-owner"
+# Largest API answer read. A real one is a few kB; anything past 1 MiB is
+# treated as an API failure, never parsed.
+ALERTMANAGER_MAX_BODY_BYTES = 1024 * 1024
+# Wall-clock limit for one whole GET, headers and body. Two GETs plus the
+# 5 s probe stay well inside the unit's TimeoutStartSec.
+ALERTMANAGER_DEADLINE_SECONDS = 8
 
 
 class PasswordFileUnreadable(Exception):
@@ -538,17 +566,41 @@ def _alertmanager_get(path: str):
     Only 127.0.0.1 and only GET. The opener gets an empty ProxyHandler (an
     http_proxy in the install's .env must never carry this password off the
     host) and refuses every redirect, for the same reason. Anything but
-    HTTP 200 raises.
+    HTTP 200, a body over ALERTMANAGER_MAX_BODY_BYTES, or a GET still running
+    after ALERTMANAGER_DEADLINE_SECONDS, raises.
     """
     password = _alertmanager_password()
     token = base64.b64encode(f"{ALERTMANAGER_USER}:{password}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(ALERTMANAGER_URL + path,
                                      headers={"Authorization": f"Basic {token}"})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
-    with opener.open(request, timeout=5) as response:
-        if response.status != 200:
-            raise RuntimeError(f"HTTP {response.status}")
-        return json.loads(response.read().decode("utf-8"))
+    outcome = {}
+
+    def fetch():
+        try:
+            with opener.open(request, timeout=5) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"HTTP {response.status}")
+                outcome["body"] = response.read(ALERTMANAGER_MAX_BODY_BYTES + 1)
+        except Exception as e:  # noqa: BLE001 (raised again below, in the cycle's thread)
+            outcome["error"] = e
+
+    # timeout=5 bounds each socket read, not the whole GET: a listener that
+    # sends one byte every few seconds could hold the cycle as long as it
+    # likes. So the GET runs in a daemon thread and the cycle waits for it at
+    # most ALERTMANAGER_DEADLINE_SECONDS. A thread still blocked then is left
+    # behind; it ends with this oneshot process.
+    worker = threading.Thread(target=fetch, daemon=True)
+    worker.start()
+    worker.join(ALERTMANAGER_DEADLINE_SECONDS)
+    if worker.is_alive():
+        raise TimeoutError("alertmanager GET over the deadline")
+    if "error" in outcome:
+        raise outcome["error"]
+    body = outcome["body"]
+    if len(body) > ALERTMANAGER_MAX_BODY_BYTES:
+        raise ValueError("body over the size limit")
+    return json.loads(body.decode("utf-8"))
 
 
 def _read_alerts():
@@ -570,12 +622,20 @@ def _read_host_owner() -> str:
         return ""
 
 
+# The state keys one alert SMS changes. All are saved before the send and
+# restored when the save fails. A failed send restores only the marks: the
+# attempt still counts against the daily cap and keeps its retry gap.
+_MARK_KEYS = ("alert_sent", "am_last_alert", "silence_seen")
+_SEND_KEYS = _MARK_KEYS + ("alert_sms_today", "alert_retry_after")
+
+
 def _alert_step(install: str, state: dict, phone: str, now: float,
-                alerts_reader, owner_reader, silences_reader, sender) -> None:
+                alerts_reader, owner_reader, silences_reader, sender, persist) -> None:
     """Text this install's Alertmanager alerts: at most one SMS per cycle.
 
     Runs after the probe and the down-SMS, so state["fail_count"] already
-    holds this cycle's verdict. Mutates `state`; run_cycle persists it.
+    holds this cycle's verdict. Mutates `state`; `persist()` saves it and
+    returns True on success. run_cycle persists the final state as usual.
     """
     name = install.upper()
     failure = "unexpected body"
@@ -662,21 +722,40 @@ def _alert_step(install: str, state: dict, phone: str, now: float,
         return
     if gate == "cap":
         text = cap_message(name)
+
+    # Write-ahead. The daily cap, the dedup and the retry gap exist only in
+    # the state file, so a state that cannot be saved (disk full, read-only
+    # directory) would mean a new SMS on every cycle, and nothing else bounds
+    # the spend. So the send is recorded as done and saved BEFORE the sender
+    # runs, with a retry gap in case the process dies mid-send: at most once.
+    before = {key: copy.deepcopy(state[key]) for key in _SEND_KEYS}
+    state["alert_sms_today"] += 1
+    state["alert_retry_after"] = now + ALERT_RETRY_SECONDS
+    if gate == "cap":
+        pass  # nothing is marked as sent, so today's leftovers go tomorrow
+    elif monitoring_due:
+        state["am_last_alert"] = now
+    else:
+        remember_sent(state, [alert["fingerprint"] for alert, _ in due], now)
+        state["silence_seen"] = state["silence_seen"] + fresh
+    if not persist():
+        state.update(before)
+        print(f"[watchdog] {install}: alert SMS skipped: state not saved", flush=True)
+        return
     try:
         sender(phone, text)
     except Exception as e:  # noqa: BLE001 (journal the class only, then wait)
+        # A gateway can accept the SMS and then fail the call (a timeout after
+        # the accept, a reply that does not parse). Were the attempt not
+        # counted, such a gateway would deliver one SMS every
+        # ALERT_RETRY_SECONDS, 288 a day. So the cap counter and the retry gap
+        # stay, and only the marks are undone: the alert is tried again later,
+        # and the daily cap bounds spend in every failure mode.
+        for key in _MARK_KEYS:
+            state[key] = before[key]
         print(f"[watchdog] {install}: alert send failed: {type(e).__name__}", flush=True)
-        state["alert_retry_after"] = now + ALERT_RETRY_SECONDS
         return
-    state["alert_sms_today"] += 1
-    if gate == "cap":
-        return  # nothing is marked as sent, so today's leftovers go tomorrow
-    if monitoring_due:
-        state["am_last_alert"] = now
-        return
-    for alert, _ in due:
-        state["alert_sent"][alert["fingerprint"]] = now
-    state["silence_seen"] = state["silence_seen"] + fresh
+    state["alert_retry_after"] = before["alert_retry_after"]
 
 
 def run_cycle(
@@ -794,7 +873,8 @@ def run_cycle(
         # never cost the probe verdict or the down-SMS state above.
         try:
             _alert_step(install, state, phone, now,
-                        alerts_reader, owner_reader, silences_reader, sender)
+                        alerts_reader, owner_reader, silences_reader, sender,
+                        persist=lambda: _persist(path, state))
         except Exception as e:  # noqa: BLE001
             print(f"[watchdog] {install}: alert step error: {type(e).__name__}", flush=True)
     except Exception as e:  # noqa: BLE001 — the shell is total: journal, persist, return
