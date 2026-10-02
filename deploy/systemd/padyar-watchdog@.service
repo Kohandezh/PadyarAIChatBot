@@ -24,6 +24,10 @@ Group=padyar-%i
 # layer (app.db.queries) to read the alert phone, and that import resolves
 # config relative to the install it belongs to.
 WorkingDirectory=/opt/padyar-%i
+# Python puts the SCRIPT's directory (/opt/padyar-watchdog) on sys.path, not
+# the working directory. Without this line `import app` fails on every cycle
+# and the watchdog can read no phone and send no SMS.
+Environment=PYTHONPATH=/opt/padyar-%i
 EnvironmentFile=/opt/padyar-%i/.env
 ExecStart=/opt/padyar-%i/.venv/bin/python /opt/padyar-watchdog/watchdog.py --install %i
 # Hardening. The cycle writes only its state file under /var/lib/padyar-watchdog.

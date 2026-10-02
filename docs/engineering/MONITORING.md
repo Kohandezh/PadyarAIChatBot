@@ -835,6 +835,41 @@ alert_critical_phone configured` (set the phone in the admin panel), and
 `alert SMS skipped: state not saved` (free disk space, or fix the owner of
 `/var/lib/padyar-watchdog/<slug>`).
 
+A fourth line means no SMS of any kind can go out: `cannot import the app
+(ModuleNotFoundError): SMS disabled; check PYTHONPATH in the unit`. systemd
+runs the script from `/opt/padyar-watchdog`, and Python puts that directory on
+`sys.path`, not the working directory. The unit therefore sets
+`Environment=PYTHONPATH=/opt/padyar-%i`. Units installed before that line
+existed cannot import the app, so the down-SMS, the low-credit SMS and the
+alert SMS above never reached a phone. While the app cannot be imported, the
+watchdog tries no send at all and marks no alert as sent; the probe and the
+down streak keep working. **This was reproduced on a developer
+machine, not verified on the server.** A deploy does not update the unit.
+Re-run the installer once per install (it copies the unit and runs
+`systemctl daemon-reload`):
+
+```bash
+sudo MAINTENANCE_TITLE='<visitor-facing name>' bash deploy/17-watchdog.sh <slug> <port> <domain>
+START="$(date '+%Y-%m-%d %H:%M:%S')"
+```
+
+`START` comes after the installer because a timer run before its
+`daemon-reload` still uses the old unit and would leave a
+`ModuleNotFoundError` line after `START`.
+
+After two timer runs (about two minutes), the first command must count at
+least 2 runs and the second must print nothing. Read only the journal since
+`$START`: the last 50 lines still hold the old `ModuleNotFoundError` lines for
+several minutes, so `-n 50` would make a correct fix look failed.
+
+```bash
+journalctl -u padyar-watchdog@<slug> --since "$START" | grep -c "Finished"
+journalctl -u padyar-watchdog@<slug> --since "$START" | grep -i "cannot import\|ModuleNotFound"
+```
+
+The steps and the end-to-end check are in §8 of
+`docs/features/critical-watchdog/SPEC.md`.
+
 ## Checking it yourself
 
 ```bash
@@ -847,7 +882,7 @@ alert_critical_phone configured` (set the phone in the admin panel), and
 promtool test rules deploy/monitoring/tests/padyar_rules_test.yml
 
 # Run the watchdog tests (alert SMS step included; every SMS is faked)
-.venv/bin/python -m pytest tests/test_watchdog_logic.py tests/test_watchdog_io.py -q
+.venv/bin/python -m pytest tests/test_watchdog_logic.py tests/test_watchdog_io.py tests/test_watchdog_unit_import.py -q
 
 # Look at the live output with an admin session, on a running dev server
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8000/metrics
