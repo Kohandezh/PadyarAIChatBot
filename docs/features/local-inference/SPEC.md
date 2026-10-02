@@ -8,7 +8,7 @@
 | Domain | infrastructure |
 | Owner | Sina Shamsizadeh (technical owner) |
 | Prepared with | AI assistance (Claude Code). Human review of this draft is pending. |
-| Sources | `docs/features/local-inference/RESEARCH.md` (spike, status In Review); ADR-022 in `docs/engineering/DECISIONS.md` (Proposed); `docs/features/local-inference/BENCH.md` (pending bench, not written yet) |
+| Sources | `docs/features/local-inference/RESEARCH.md` (spike, status In Review); ADR-027 in `docs/engineering/DECISIONS.md` (Proposed); `docs/features/local-inference/BENCH.md` (pending bench, not written yet) |
 | Gate | Owner accepted direction 2026-09-30; spike status is the owner's to set |
 | Base commit for every code citation | `3a4a415` |
 
@@ -1006,7 +1006,7 @@ Buttons «بله، برگرد» and «انصراف». Two clicks in total. Apply
 - **PRD:** none.
 - **Spike:** `docs/features/local-inference/RESEARCH.md` (status In Review; the
   owner sets it). Runtime and STT choices: §6.1, §6.3. Model gate: §9.2.
-- **ADR:** ADR-022 in `docs/engineering/DECISIONS.md` (Proposed). Rests on ADR-007
+- **ADR:** ADR-027 in `docs/engineering/DECISIONS.md` (Proposed). Rests on ADR-007
   (OpenAI-compatible contract), ADR-012 (one TTS instance per card, post-generation
   VRAM), ADR-018 (the model chooses, it does not write).
 - **Bench:** `docs/features/local-inference/BENCH.md`, pending. It supplies the

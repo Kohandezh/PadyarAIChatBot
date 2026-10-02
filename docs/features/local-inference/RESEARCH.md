@@ -2246,7 +2246,7 @@ than being worked around.
 **The model gate.** Gates 1 and 2 check the host once. Every §6.2 candidate must
 then pass all six checks below, in this order. A failed check moves the bench to
 the next candidate. If no candidate passes, the outcome is "do nothing" (§7).
-ADR-022 lists the same six checks under the same names.
+ADR-027 lists the same six checks under the same names.
 
 | Check | Pass bar |
 |---|---|
@@ -2489,7 +2489,7 @@ decide:
 4. What quality regression on `scripts/smoke_options.py` is acceptable — and the
    default answer, from `docs/features/chat-training/RESEARCH.md:32-55`, is none.
 
-**The ADR is drafted as ADR-022** in `docs/engineering/DECISIONS.md`, status
+**The ADR is drafted as ADR-027** in `docs/engineering/DECISIONS.md`, status
 Proposed. It records the direction and defers the model to the bench. It does
 not answer the four questions above; the owner does, when the ADR is accepted.
 
@@ -2499,7 +2499,7 @@ not answer the four questions above; the owner does, when the ADR is accepted.
 - **Spec:** none yet — `docs/features/local-inference/SPEC.md` follows the ADR.
 - **Bench results:** `docs/features/local-inference/BENCH.md`, from a bench run
   separately from this spike. It does not exist yet at this commit.
-- **ADR:** ADR-022 (`docs/engineering/DECISIONS.md`), Proposed, drafted from
+- **ADR:** ADR-027 (`docs/engineering/DECISIONS.md`), Proposed, drafted from
   this spike (§9.4). Existing ADRs this rests on:
   - **ADR-007** (`docs/engineering/DECISIONS.md:39-44`) — OpenAI-compatibility as
     the only external contract, base URL and key per install. This spike exercises
