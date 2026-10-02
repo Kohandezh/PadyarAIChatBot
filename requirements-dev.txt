@@ -13,13 +13,6 @@ pytest-playwright
 # informs, it must never turn a passing suite red). Local use is optional.
 pytest-cov
 
-# tests/test_booth_videos.py imports this at module level, and
-# scripts/import-content.py reads the customer's .xlsx with it. Neither
-# is part of a customer install, so it does not belong in
-# requirements.txt — but without it here, collection ERRORS rather than
-# skips, and the whole suite stops.
-openpyxl
-
 # tests/test_monitoring_rules.py and tests/test_monitoring_install_script.py
 # read the monitoring YAML (rules, promtool tests, rendered scrape files).
 # Today PyYAML only arrives as a dependency of huggingface_hub; naming it here

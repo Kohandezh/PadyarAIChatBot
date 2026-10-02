@@ -5,14 +5,16 @@ on:
     branches: [main]
   pull_request:
   # Manual trigger: "Run workflow" button (Actions tab) or
-  # `gh workflow run CI --ref main`. Same gates, same deploy — the only way
-  # this differs from a push is who asked.
+  # `gh workflow run CI --ref main`. Same gates. The only way this differs
+  # from a push is who asked.
   workflow_dispatch:
 
 jobs:
-  # The repo is public, so GitHub-hosted runners are free and unlimited.
-  # All checks run on ubuntu-latest and parallelize again. Only `deploy`
-  # stays on the self-hosted `padyar` runner on gpuserver (see below).
+  # Every job runs on GitHub-hosted ubuntu-latest runners. Nothing runs on
+  # the production server: there is no self-hosted job and no auto-deploy.
+  # Production is deployed by hand on the server with
+  # `sudo /usr/local/bin/padyar-deploy <slug> <port> <sha>`
+  # (deploy/README.md, "Deploying a new version").
   test:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +34,12 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
+      # pdftotext reads uploaded PDFs in the ingest module. Without it the PDF
+      # tests in tests/test_ingest_extract.py skip, and CI would report a pass
+      # it did not earn.
+      - name: Install poppler-utils for the PDF tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
       # The browser tests skip themselves when chromium is missing, so without
       # this step CI reports a pass it did not earn. They are the only check
       # that sees a DOM defect: the "New chat" button once wiped #loading-bubble
@@ -41,6 +49,16 @@ jobs:
       # --with-deps works and no mirror is needed.
       - name: Install chromium for the browser tests
         run: python -m playwright install --with-deps chromium
+
+      # tests/test_eval_harness.py drives scripts/run_eval.py in a subprocess,
+      # which loads the pinned embedding model. data/models is gitignored, so
+      # without this the suite downloads 513 MB on every run. Same key as the
+      # evaluation job below, so whichever finishes first fills the cache.
+      - name: Cache the pinned embedding model
+        uses: actions/cache@v4
+        with:
+          path: data/models
+          key: model2vec-potion-multilingual-128M-73908c3438cf03b6a01bcb9611d62b23d0726f08
 
       - name: Compile check
         run: |
@@ -106,6 +124,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+
+      # Same system package as the test job (knowledge-ingestion SPEC, REQ-015),
+      # so a PostgreSQL test that reads a PDF runs instead of skipping.
+      - name: Install poppler-utils for the PDF tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
 
       # The service container starts empty, but the suite assumes a
       # dev-machine-shaped database: test_isolation.py probes the LIVE
@@ -220,62 +243,85 @@ jobs:
           git rm -q --cached _scan_canary.py 2>/dev/null || true
           echo "scanner correctly rejected a planted key — ok"
 
-  # ── Auto-deploy ────────────────────────────────────────────────────────
-  # The production server runs a self-hosted runner (deploy/50-install-
-  # github-runner.sh, label `padyar`) that dials OUT to GitHub, so nothing
-  # inbound opens on the server. This job runs ON that server. It stays
-  # self-hosted now that the repo is public: the `if` below limits it to
-  # push/dispatch on main (write access required), so fork pull requests
-  # can never schedule code onto the server runner — and the production
-  # environment approval is a second gate on top of that.
+  # Blocking. The local retrieval layer — the tiered pipeline, hand-written
+  # BM25, the feature reranker, the per-install intent head — is the part of
+  # this product that is NOT a wrapper around somebody else's model. Until this
+  # job existed none of it was provable from a clean clone: scripts/run_eval.py
+  # is a real harness, but the golden set it needs was deleted with the event
+  # install it belonged to (4c4303f), app/default_content.py ships empty on
+  # purpose, and no job ever called the script. Every recall number in
+  # docs/engineering/ was therefore unreproducible.
   #
-  # Gate 1: every blocking CI job (including the identity-guard below) must
-  # be green.
-  # Gate 2: the `production` environment holds a required-reviewer approval
-  #         (repo Settings → Environments → production). One click per
-  #         deploy; set it up once after installing the runner.
-  #
-  # The job does exactly one privileged thing: call the root-owned deploy
-  # script with the ephemeral job token in its environment. No credential is
-  # stored on the server; the token dies when the job ends.
-  deploy:
-    needs: [test, postgres-tests, dependency-audit, secret-scan, identity-guard]
-    # Push to main deploys; so does a manual dispatch ON main (the button is
-    # the operator saying "deploy the current main again" — same gates).
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: [self-hosted, padyar]
-    timeout-minutes: 15
-    environment: production
-    permissions:
-      contents: read
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false   # queue merges; never race two deploys
+  # It runs OFFLINE against the committed fixtures in data/eval/: no AI
+  # provider, no customer data, no install database. It exits non-zero when a
+  # mode drops below one of its measured floors in data/eval/floors.json (or
+  # breaks an enforced control), and when the contamination or secret-leak
+  # gate trips. That is what makes it a gate rather than a report.
+  evaluation:
+    runs-on: ubuntu-latest
+    env:
+      # Empty, not unset: a regression that starts reaching for a provider has
+      # to fail here rather than quietly fall back to one.
+      OPENAI_API_KEY: ""
     steps:
-      # The install this host serves is named by repository variables, so
-      # one workflow deploys any install. If the deploy fails, the job fails
-      # red and the install is rolled back by its own health gate.
-      - name: Deploy to production
-        run: |
-          set -euo pipefail
-          # Fail closed, like every other gate in this file: a deploy
-          # without a configured target is a misconfiguration, not a no-op.
-          # DEPLOY_SLUG/DEPLOY_PORT live in repo Settings → Secrets and
-          # variables → Actions → Variables (DEPLOY_PORT is the install's
-          # APP_PORT — the port its systemd unit listens on).
-          if [ -z "${{ vars.DEPLOY_SLUG }}" ] || [ -z "${{ vars.DEPLOY_PORT }}" ]; then
-            echo "::error::DEPLOY_SLUG and DEPLOY_PORT repository variables are not set. Configure them in Settings → Secrets and variables → Actions → Variables, then re-run."
-            exit 1
-          fi
-          sudo PADYAR_GIT_TOKEN="${{ github.token }}" \
-            /usr/local/bin/padyar-deploy "${{ vars.DEPLOY_SLUG }}" "${{ vars.DEPLOY_PORT }}" "${{ github.sha }}"
+      - uses: actions/checkout@v4
 
-      - name: Report
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # requirements.txt only. The harness imports the app's own services, not
+      # pytest or Playwright.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # data/models is gitignored (the pinned weights are 513 MB), so a fresh
+      # runner has no model and fetches it once. The key is the EXACT snapshot
+      # pinned in app/services/embeddings.py (DEFAULT_MODEL_REVISION): a looser
+      # key would serve different weights on a later run and silently change a
+      # ranking — which is why that revision is a pin in the first place.
+      # tests/test_eval_harness.py fails if the key stops matching it.
+      - name: Cache the pinned embedding model
+        uses: actions/cache@v4
+        with:
+          path: data/models
+          key: model2vec-potion-multilingual-128M-73908c3438cf03b6a01bcb9611d62b23d0726f08
+
+      - name: Compile check
+        run: python -m py_compile scripts/run_eval.py
+
+      # Every mode, each against its own floors in data/eval/floors.json
+      # (docs/features/eval-benchmark/SPEC.md). A mode that breaks a floor, a
+      # ceiling or an enforced control exits 1; a broken input exits 2. All
+      # five run even when one fails, so one red run shows every regression.
+      - name: Run the retrieval benchmark in every mode
         run: |
-          echo "Deployed ${{ github.sha }}:"
-          echo "  - padyar-${{ vars.DEPLOY_SLUG }} (port ${{ vars.DEPLOY_PORT }})"
+          status=0
+          for mode in full full_no_intent hybrid dense bm25; do
+            echo "::group::mode $mode"
+            python scripts/run_eval.py \
+              --golden data/eval/golden.json \
+              --mode "$mode" \
+              --recall-k 1,3,5,8,13 \
+              --check data/eval/floors.json \
+              --out "retrieval-eval-$mode.json" \
+              --dump "retrieval-eval-$mode-dump.json" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      # The numbers in docs/features/eval-benchmark/RESULTS.md are only
+      # checkable if the runs that produced them are downloadable. The dumps
+      # carry the per-query evidence: what the router served, and why each
+      # deny-case was refused.
+      - name: Upload the benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-eval
+          path: retrieval-eval-*.json
+          if-no-files-found: warn
 
   # Blocking. The retired event brands must not come back: every scrubbed
   # surface (source, tests, scripts, docs) stays scrubbed. Each allowlist is

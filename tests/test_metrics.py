@@ -163,7 +163,13 @@ def pg_backup_env(tmp_path, monkeypatch):
     yield pg_backup
 
 
-def test_backup_outcome_counter_success(pg_backup_env):
+# create() alone is not a backup attempt any more: the outcome is counted by
+# backup._run_backup_now, after verify. tests/test_backup_metrics.py covers
+# that path. These two pin that create() itself no longer counts, so a dump
+# that is never verified can not show up as a success.
+
+
+def test_create_alone_does_not_count_a_success(pg_backup_env, monkeypatch):
     from app.services import metrics
     pg_backup = pg_backup_env
 
@@ -172,14 +178,14 @@ def test_backup_outcome_counter_success(pg_backup_env):
         os.makedirs(os.path.dirname(dump), exist_ok=True)
         with open(dump, "wb") as f:
             f.write(b"padyar-dump")
-    pg_backup._run = fake_run
+    monkeypatch.setattr(pg_backup, "_run", fake_run)
     before = _counter_value(metrics.backup_outcome_total, result="success")
     manifest = pg_backup.create(actor="test")
     assert manifest["bytes"] == len(b"padyar-dump")
-    assert _counter_value(metrics.backup_outcome_total, result="success") == before + 1
+    assert _counter_value(metrics.backup_outcome_total, result="success") == before
 
 
-def test_backup_outcome_counter_failure(pg_backup_env, monkeypatch):
+def test_create_alone_does_not_count_a_failure(pg_backup_env, monkeypatch):
     from app.services import metrics
     pg_backup = pg_backup_env
 
@@ -189,7 +195,7 @@ def test_backup_outcome_counter_failure(pg_backup_env, monkeypatch):
     before = _counter_value(metrics.backup_outcome_total, result="failed")
     with pytest.raises(pg_backup.BackupError):
         pg_backup.create(actor="test")
-    assert _counter_value(metrics.backup_outcome_total, result="failed") == before + 1
+    assert _counter_value(metrics.backup_outcome_total, result="failed") == before
 
 
 # ── AI + circuit + health hooks ────────────────────────────────────────

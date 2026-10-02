@@ -1,0 +1,144 @@
+{
+  "full": {
+    "mrr": {
+      "min": 0.884
+    },
+    "recall_at_1": {
+      "min": 0.833
+    },
+    "recall_at_k.3": {
+      "min": 0.958
+    },
+    "recall_at_k.5": {
+      "min": 0.958
+    },
+    "recall_at_k.8": {
+      "min": 0.958
+    },
+    "per_language.fa.recall_at_1": {
+      "min": 0.912
+    },
+    "per_language.en.recall_at_1": {
+      "min": 0.571
+    },
+    "answered_at_1": {
+      "min": 0.417
+    },
+    "per_language.fa.answered_at_1": {
+      "min": 0.588
+    },
+    "out_of_scope_refusal_rate": {
+      "min": 0.933
+    },
+    "refusal_precision": {
+      "min": 0.341
+    },
+    "false_confident_total": {
+      "max": 0
+    }
+  },
+  "full_no_intent": {
+    "mrr": {
+      "min": 0.884
+    },
+    "recall_at_1": {
+      "min": 0.833
+    },
+    "recall_at_k.3": {
+      "min": 0.958
+    },
+    "recall_at_k.5": {
+      "min": 0.958
+    },
+    "recall_at_k.8": {
+      "min": 0.958
+    },
+    "per_language.fa.recall_at_1": {
+      "min": 0.912
+    },
+    "per_language.en.recall_at_1": {
+      "min": 0.571
+    },
+    "answered_at_1": {
+      "min": 0.417
+    },
+    "per_language.fa.answered_at_1": {
+      "min": 0.588
+    },
+    "out_of_scope_refusal_rate": {
+      "min": 0.933
+    },
+    "refusal_precision": {
+      "min": 0.341
+    },
+    "false_confident_total": {
+      "max": 0
+    }
+  },
+  "hybrid": {
+    "mrr": {
+      "min": 0.874
+    },
+    "recall_at_1": {
+      "min": 0.812
+    },
+    "recall_at_k.3": {
+      "min": 0.958
+    },
+    "recall_at_k.5": {
+      "min": 0.958
+    },
+    "recall_at_k.8": {
+      "min": 0.958
+    },
+    "per_language.fa.recall_at_1": {
+      "min": 0.882
+    },
+    "per_language.en.recall_at_1": {
+      "min": 0.571
+    }
+  },
+  "dense": {
+    "mrr": {
+      "min": 0.884
+    },
+    "recall_at_1": {
+      "min": 0.833
+    },
+    "recall_at_k.3": {
+      "min": 0.938
+    },
+    "recall_at_k.5": {
+      "min": 0.938
+    },
+    "recall_at_k.8": {
+      "min": 0.958
+    },
+    "per_language.fa.recall_at_1": {
+      "min": 0.912
+    },
+    "per_language.en.recall_at_1": {
+      "min": 0.571
+    }
+  },
+  "bm25": {
+    "mrr": {
+      "min": 0.587
+    },
+    "recall_at_1": {
+      "min": 0.542
+    },
+    "recall_at_k.3": {
+      "min": 0.646
+    },
+    "recall_at_k.5": {
+      "min": 0.646
+    },
+    "recall_at_k.8": {
+      "min": 0.646
+    },
+    "per_language.fa.recall_at_1": {
+      "min": 0.765
+    }
+  }
+}

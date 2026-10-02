@@ -14,7 +14,7 @@ client already redacted by AIError.redacted_detail / scrub_text.
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth.security import verify_admin
-from app.services import applog
+from app.services import applog, intent, search
 from app.services.ai import catalog, circuit, errors as ai_errors, health, pricing, store
 from app.services.ai.adapters import provider_types
 
@@ -396,6 +396,26 @@ async def ai_summary():
         "tokens_today": row["tokens"] or 0,
         "cost_today": round(row["cost"] or 0, 6) if row["cost"] else 0.0,
     }
+
+
+# ── This install's own trained model ────────────────────────────────────
+
+@router.get("/admin/api/ai/own-model")
+def own_model():
+    """The card at the top of AI -> Models. Read-only: it describes the
+    intent model this process serves, confirmed against its record on disk
+    (docs/features/intent-model/SPEC.md section 14), and never trains, writes
+    or parses the weights. A plain `def`, so the file reads and the hash of
+    the weights run in the threadpool rather than on the event loop.
+
+    The version poll first, as on every query path: with several workers, the
+    one that took an admin edit records the new model, and the others catch
+    up only through this poll. Without it a worker that no visitor has
+    reached would show the old model, and so the warning, indefinitely. The
+    rebuild runs in the background, so the reload after it finishes shows the
+    new model."""
+    search._maybe_refresh()
+    return intent.read_record(search.intent_classifier)
 
 
 # ── RAG debugger ────────────────────────────────────────────────────────
