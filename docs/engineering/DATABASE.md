@@ -9,6 +9,8 @@ PostgreSQL is the production schema authority. SQLite exists for testing/rollbac
 - Every schema change must be versioned.
 - Migrations must be safe to apply in the supported deployment model.
 - Avoid destructive migrations without explicit migration/rollback planning.
+- Keep application queries and schema changes in the same feature change when the feature requires both.
+- Do not document a table or column that is not actually present.
 
 ### Destructive migrations: expand, then contract
 
@@ -28,8 +30,6 @@ something that the previous release still uses.
   `is_duplicate`, table `edit_sessions`), `0013_companies.sql` (table
   `company_profiles`), `0028_drop_pwa_leftovers.sql` (two columns).
   `0029_drop_search_backend_setting.sql` deletes one settings row.
-- Keep application queries and schema changes in the same feature change when the feature requires both.
-- Do not document a table or column that is not actually present.
 
 ## Data Integrity
 

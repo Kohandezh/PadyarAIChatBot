@@ -95,7 +95,7 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
 - بازیابی (پایگاه داده PostgreSQL 16 است، نه SQLite): پنل ادمین → Infrastructure →
   Backups → بازیابی. باید دقیقاً `RESTORE BACKUP <id>` تایپ شود
   (`app/services/pg_backup.py` تابع `restore()`). خود برنامه این مراحل را انجام می‌دهد:
-  تأیید سلامت dump، ساخت پشتیبان ایمنی از وضعیت فعلی، روشن‌کردن حالت تعمیر،
+  تأیید سلامت dump، روشن‌کردن حالت تعمیر، ساخت پشتیبان ایمنی از وضعیت فعلی،
   `pg_restore --single-transaction`، اعتبارسنجی. شناسهٔ پشتیبان ایمنی در نتیجه
   برمی‌گردد. اگر چند پروسه اجرا می‌شود، بعد از بازیابی بقیه را ری‌استارت کنید.
   سپس `/api/ready` و شمارش dataset در `/api/health` را بررسی کنید.

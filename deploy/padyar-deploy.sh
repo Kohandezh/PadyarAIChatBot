@@ -19,8 +19,9 @@
 # an old sha: any sha that is not the tip of main exits with SUPERSEDED and
 # changes nothing (see the FETCHED check in step 2). To roll back by hand, run
 # `git revert` on main, wait for green CI, then run this script by hand with the
-# sha of the revert commit. Only a red health check (step 6) rolls the code back
-# on its own.
+# sha of the revert commit. The script resets the code to the old commit on its
+# own in three cases: a failed pip install (step 3), a failed migration (step 4)
+# and a red health check (step 6).
 #
 # THE ORDER IS THE SAFETY
 # -----------------------
