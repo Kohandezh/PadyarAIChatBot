@@ -519,7 +519,7 @@ def main(argv=None) -> int:
     # app/config.py resolves DB_PATH at import time (CLI run), and a test
     # process has already imported it (so the attributes are set too, and put
     # back afterwards).
-    tmp = tempfile.mkdtemp(prefix="padyar-llmbench-")
+    tmp = tempfile.mkdtemp(prefix="padyar-local-llm-bench-")
     saved_env = {k: os.environ.get(k) for k in ("DB_PATH", "LOGS_DB_PATH")}
     os.environ["DB_PATH"] = os.path.join(tmp, "bench.db")
     os.environ["LOGS_DB_PATH"] = os.path.join(tmp, "application_logs.db")
