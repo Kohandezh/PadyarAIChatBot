@@ -49,6 +49,11 @@ BACKUP_DIR = os.path.join(BASE_DIR, "backups", "postgres")
 # enforced anyway so a crafted id can never escape BACKUP_DIR.
 _ID_RE = re.compile(r"^pg_\d{8}_\d{6}_[0-9a-f]{6}$")
 _TIMEOUT = 300
+# Restore is the slower direction. The db-maturity spike restored a database
+# about 15x the size of its dump file, and a 1.9 GB one took 4 min 23 s on a
+# dev Mac. restore() runs during maintenance mode, so the dump's 300 s cap must
+# not kill it half way. The nightly restore drill runs the same pg_restore.
+_RESTORE_TIMEOUT = 1800
 
 
 class BackupError(Exception):
@@ -104,10 +109,14 @@ def _env(parts: dict) -> dict:
     return env
 
 
-def _run(argv, env, what: str):
+def _run(argv, env, what: str, timeout=None):
+    # None means the dump timeout. It is read here, at call time, so a test can
+    # change _TIMEOUT after import.
+    if timeout is None:
+        timeout = _TIMEOUT
     try:
         result = subprocess.run(argv, env=env, capture_output=True,
-                                timeout=_TIMEOUT, text=True)
+                                timeout=timeout, text=True)
     except subprocess.TimeoutExpired:
         raise BackupError(f"{what} از حد زمانی گذشت.")
     if result.returncode != 0:
@@ -163,13 +172,15 @@ def _connect(parts: dict, application_name: str, options: str):
 def _open_snapshot(parts: dict):
     """Export a snapshot and count every table pg_dump will dump from it.
 
-    Returns `(exporter, snapshot_id, counts)`. The caller passes the id to
+    Returns `(exporter, snapshot_id, counts, migrations)`. The caller passes the id to
     `pg_dump --snapshot=<id>` and must keep the exporter open until pg_dump
     ends: an exported snapshot lives only as long as its transaction.
 
     Why a snapshot: the restore drill compares restored row counts against
     these. Counting the live database at any other moment gives numbers that
-    differ from the dump as soon as one visitor writes a row.
+    differ from the dump as soon as one visitor writes a row. The applied
+    migrations (`migrations`) are read in the same snapshot for the same
+    reason: the drill compares them with what the restored database holds.
 
     Two connections, on purpose. The exporter runs only pg_export_snapshot()
     and then waits, holding no table lock. The counts run in a second
@@ -189,15 +200,21 @@ def _open_snapshot(parts: dict):
     try:
         exporter.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         snapshot_id = exporter.execute("SELECT pg_export_snapshot()").fetchone()[0]
-        counts = _count_in_snapshot(parts, snapshot_id)
+        counts, migrations = _count_in_snapshot(parts, snapshot_id)
     except Exception:
         _close_snapshot(exporter)
         raise
-    return exporter, snapshot_id, counts
+    return exporter, snapshot_id, counts, migrations
 
 
-def _count_in_snapshot(parts: dict, snapshot_id: str) -> dict:
-    """Rows of every counted table, read inside `snapshot_id`, sorted by key.
+def _count_in_snapshot(parts: dict, snapshot_id: str) -> tuple:
+    """`(counts, migrations)`, both read inside `snapshot_id`.
+
+    `counts` is the rows of every counted table, sorted by key. `migrations`
+    is `[{"version", "checksum"}, ...]` from app.schema_migrations, sorted by
+    version, or None when the install has no such table. The table list is
+    already read inside the snapshot, so its answer decides this without a
+    second catalog query, and a missing table never aborts the transaction.
 
     Only ordinary tables (relkind 'r') hold dumped rows. Partitioned parents,
     views and foreign tables carry none, and tables owned by an extension are
@@ -238,11 +255,18 @@ def _count_in_snapshot(parts: dict, snapshot_id: str) -> dict:
             query = sql.SQL("SELECT count(*) FROM {}.{}").format(
                 sql.Identifier(schema), sql.Identifier(table))
             counts[f"{schema}.{table}"] = bounded(query).fetchone()[0]
+        migrations = None
+        if ("app", "schema_migrations") in tables:
+            rows = bounded("SELECT version, checksum FROM app.schema_migrations"
+                           " ORDER BY version").fetchall()
+            migrations = sorted(
+                ({"version": v, "checksum": c} for v, c in rows),
+                key=lambda m: m["version"])
         # COMMIT releases every ACCESS SHARE lock before pg_dump starts.
         counter.execute("COMMIT")
     finally:
         counter.close()
-    return dict(sorted(counts.items()))
+    return dict(sorted(counts.items())), migrations
 
 
 def _close_snapshot(conn) -> None:
@@ -288,9 +312,9 @@ def create(actor: str = "", reason: str = "manual") -> dict:
 
     # Row counts from the snapshot pg_dump will read. If this step fails the
     # backup is still taken the old way: a backup is worth more than its counts.
-    snapshot_conn, snapshot_id, row_counts = None, None, None
+    snapshot_conn, snapshot_id, row_counts, migrations = None, None, None, None
     try:
-        snapshot_conn, snapshot_id, row_counts = _open_snapshot(parts)
+        snapshot_conn, snapshot_id, row_counts, migrations = _open_snapshot(parts)
     except Exception as e:  # noqa: BLE001 (see the comment above)
         logger.warning("[pg_backup] row counts unavailable, taking a plain "
                        "dump: %s: %s", type(e).__name__, str(e)[:200])
@@ -340,6 +364,10 @@ def create(actor: str = "", reason: str = "manual") -> dict:
         "row_counts": row_counts,
         "row_counts_source": ("dump_snapshot" if row_counts is not None
                               else "unavailable"),
+        # Applied migrations, from the same snapshot. The restore drill checks
+        # the restored database holds exactly these. null when the count step
+        # failed or the install has no app.schema_migrations.
+        "schema_migrations": migrations,
     }
     with open(_manifest_path(backup_id), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -661,7 +689,7 @@ def restore(backup_id: str, actor: str = "", confirmation: str = "") -> dict:
               "--username", parts["user"], "--dbname", parts["dbname"],
               "--clean", "--if-exists", "--no-owner", "--no-privileges",
               "--single-transaction", _dump_path(backup_id)],
-             _env(parts), "pg_restore")
+             _env(parts), "pg_restore", timeout=_RESTORE_TIMEOUT)
     except BackupError:
         pg.close_pool()
         applog.audit("admin.backup.restore.failed", "بازیابی ناموفق بود",
@@ -712,12 +740,19 @@ def restore(backup_id: str, actor: str = "", confirmation: str = "") -> dict:
 
 # ── Post-restore validation ─────────────────────────────────────────────
 
-def validate_restored_database() -> dict:
+def validate_restored_database(conn=None) -> dict:
     """Prove the database is USABLE, not merely that pg_restore exited 0.
 
     An exit code says the archive replayed; it says nothing about whether the
     application can now log in an admin, read its settings, or render Persian.
     Each check below is something the app genuinely depends on at boot.
+
+    `conn=None` checks the live database through the app pool and closes the
+    connection it opened. With `conn`, the same checks run on that connection
+    (the restore drill passes one to its drill database, so the checks live in
+    one place) and the CALLER keeps ownership: it is not closed here. The
+    connection must return dict rows (`row_factory=dict_row`) and should be in
+    autocommit mode, so one failed query does not abort the checks after it.
     """
     checks, problems = {}, []
 
@@ -726,13 +761,23 @@ def validate_restored_database() -> dict:
         if not ok:
             problems.append(name)
 
-    from app.db import pg
-    ok, detail = pg.healthy()
-    record("reachable", ok, detail)
-    if not ok:
-        return {"ok": False, "checks": checks, "problems": problems}
+    owned = conn is None
+    if owned:
+        from app.db import pg
+        ok, detail = pg.healthy()
+        record("reachable", ok, detail)
+        if not ok:
+            return {"ok": False, "checks": checks, "problems": problems}
+        c = pg.connect()
+    else:
+        c = conn
+        try:
+            c.execute("SELECT 1")
+            record("reachable", True, "")
+        except Exception as e:  # noqa: BLE001
+            record("reachable", False, type(e).__name__)
+            return {"ok": False, "checks": checks, "problems": problems}
 
-    c = pg.connect()
     try:
         schemas = {r["nspname"] for r in c.execute(
             "SELECT nspname FROM pg_namespace WHERE nspname IN ('app','observability')").fetchall()}
@@ -779,6 +824,7 @@ def validate_restored_database() -> dict:
     except Exception as e:  # noqa: BLE001
         record("validation_query", False, type(e).__name__)
     finally:
-        c.close()
+        if owned:
+            c.close()
 
     return {"ok": not problems, "checks": checks, "problems": problems}
