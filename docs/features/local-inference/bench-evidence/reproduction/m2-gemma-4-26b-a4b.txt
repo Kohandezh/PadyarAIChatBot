@@ -1,0 +1,15 @@
+# Reproduction of M2 for gemma-4-26B-A4B, run by a second AI agent session (not a human).
+# Date: 2026-09-30, on the same server and card (GPU1), after the original M2.
+# The exact command line was not recorded in this file. The output format is the one
+# the M2 command produces: llama-bench ... -ngl 999 -fa 1 -ctk q8_0 -ctv q8_0 -p 512 -n 128 -r 3 -o md.
+# Original M2 (gemma-4-26b-a4b/m2-llama-bench.txt): pp512 1107.84 +/- 6.62, tg128 47.74 +/- 0.04.
+# The two lines after the table are that session's own checks (exit status, then no llama process left).
+
+| model                          |       size |     params | backend    | ngl | type_k | type_v |  fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | --: | --------------: | -------------------: |
+| gemma4 26B.A4B Q4_K - Medium   |  15.77 GiB |    25.23 B | CUDA       | 999 |   q8_0 |   q8_0 |   1 |           pp512 |       1107.83 ± 5.25 |
+| gemma4 26B.A4B Q4_K - Medium   |  15.77 GiB |    25.23 B | CUDA       | 999 |   q8_0 |   q8_0 |   1 |           tg128 |         47.73 ± 0.11 |
+
+build: unknown (0)
+0
+no-llama-left

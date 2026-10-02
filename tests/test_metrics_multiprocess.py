@@ -285,6 +285,34 @@ def test_circuit_state_set_by_a_worker_that_then_exited_still_counts(mp_dir):
     assert _value(_scrape(mp_dir), "ai_circuit_state", instance="gone") == 2
 
 
+def test_a_stored_circuit_state_is_scraped_after_a_worker_starts(tmp_path, mp_dir):
+    """DEP-3 in the production shape: one process leaves an `open` row in the
+    database, a worker starts and serves no request at all, and a scrape from
+    a third process still shows 2. The worker publishes from its lifespan."""
+    env = _app_env(tmp_path)
+    _run("""
+        from app.db.connection import get_db_connection, init_db
+        from app.services.ai import store
+        init_db()
+        store.ensure_ai_tables()
+        conn = get_db_connection()
+        conn.execute("INSERT INTO ai_circuit_state (provider_instance_id, state)"
+                     " VALUES ('stored-open', 'open')")
+        conn.commit()
+        conn.close()
+    """, mp_dir, **env)
+    assert _value(_scrape(mp_dir), "ai_circuit_state", instance="stored-open") is None
+
+    _run("""
+        from app.main import app
+        from fastapi.testclient import TestClient
+        with TestClient(app):
+            pass
+    """, mp_dir, **env)
+
+    assert _value(_scrape(mp_dir), "ai_circuit_state", instance="stored-open") == 2
+
+
 @pytest.mark.parametrize("first,second", [(40, 95), (95, 40)])
 def test_health_score_is_the_most_recently_set_value(mp_dir, first, second):
     _run(f"""

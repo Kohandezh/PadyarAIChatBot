@@ -1,0 +1,32 @@
+gpu=1 health=200
+load_seconds=7.364462907
+## offload / backend lines from server.log
+0.00.467.463 I cmn  common_param:   - CUDA0   : Tesla P40 (24438 MiB, 21008 MiB free)
+0.00.482.583 I cmn  common_init_: fitting params to device memory ...
+0.00.482.584 I cmn  common_init_: (for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on)
+0.00.482.749 I common_params_fit_impl: getting device memory data for initial parameters:
+0.01.644.071 I common_memory_breakdown_print: |   - CUDA0 (P40)        | 24438 = 21008 + (17101 = 16147 +     807 +     146) +      -13671 |
+0.01.805.215 I common_params_fit_impl: projected to use 17101 MiB of device memory vs. 21008 MiB of free device memory
+0.01.805.235 I common_params_fit_impl: will leave 3906 >= 1024 MiB of free device memory, no changes needed
+0.01.805.237 I common_fit_params: successfully fit params to free device memory
+0.01.805.243 I common_fit_params: fitting params to free memory took 1.32 seconds
+0.02.154.048 I llama_prepare_model_devices: using device CUDA0 (Tesla P40) (0000:13:00.0) - 21008 MiB free
+0.03.758.025 I load_tensors: offloading output layer to GPU
+0.03.758.053 I load_tensors: offloading 29 repeating layers to GPU
+0.03.758.054 I load_tensors: offloaded 31/31 layers to GPU
+0.03.758.063 I load_tensors:   CPU_Mapped model buffer size =   748.00 MiB
+0.03.758.065 I load_tensors:        CUDA0 model buffer size = 16147.43 MiB
+0.06.546.268 I llama_context: n_ctx                 = 16384
+0.06.546.269 I llama_context: n_ctx_seq             = 4096
+0.06.546.272 I llama_context: flash_attn            = enabled
+0.06.546.281 I llama_context: n_ctx_seq (4096) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+0.06.553.590 I llama_context:  CUDA_Host  output buffer size =     4.00 MiB
+0.06.554.265 I llama_kv_cache:      CUDA0 KV buffer size =   170.00 MiB
+0.06.555.855 I llama_kv_cache:      CUDA0 KV buffer size =   637.50 MiB
+0.06.603.167 I sched_reserve:      CUDA0 compute buffer size =   146.80 MiB
+0.06.603.184 I sched_reserve:  CUDA_Host compute buffer size =    17.80 MiB
+0.06.745.885 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 4096, kv_unified = 'false'
+0.06.745.963 I slot   load_model: id  0 | task -1 | new slot, n_ctx = 4096
+0.06.745.972 I slot   load_model: id  1 | task -1 | new slot, n_ctx = 4096
+0.06.745.973 I slot   load_model: id  2 | task -1 | new slot, n_ctx = 4096
+0.06.745.973 I slot   load_model: id  3 | task -1 | new slot, n_ctx = 4096

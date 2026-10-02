@@ -1,0 +1,12 @@
+# Metric names the alert rules may read from prometheus-node-exporter 1.7.0
+# (Ubuntu noble). One name per line, with the source line that builds it at
+# tag v1.7.0. Namespace "node" (collector/collector.go#L30), subsystem
+# "filesystem" (collector/filesystem_common.go#L110), labels device,
+# mountpoint, fstype (collector/filesystem_common.go#L63).
+# The Ubuntu package excludes mount points under /dev, /proc, /run, /sys,
+# /mnt and /media, so a disk mounted there has no node_filesystem_* series:
+# debian/patches/0001-Debian-defaults.patch, line 27, at 1.7.0-1ubuntu0.3
+# https://git.launchpad.net/ubuntu/+source/prometheus-node-exporter/tree/debian/patches/0001-Debian-defaults.patch?h=import/1.7.0-1ubuntu0.3#n27
+node_filesystem_avail_bytes https://github.com/prometheus/node_exporter/blob/v1.7.0/collector/filesystem_common.go#L129
+node_filesystem_size_bytes https://github.com/prometheus/node_exporter/blob/v1.7.0/collector/filesystem_common.go#L117
+node_filesystem_readonly https://github.com/prometheus/node_exporter/blob/v1.7.0/collector/filesystem_common.go#L147
