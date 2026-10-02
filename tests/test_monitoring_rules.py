@@ -50,14 +50,17 @@ REQUIRED_ALERTS = {
     "HostOriginProbeFailed",
 }
 
-# A rule whose metric is not merged yet stays OUT of the rules file and is
-# listed here with the dependency it waits for (SPEC 11.1). Each dependency
-# PR adds its rule and deletes its line here.
+# A rule whose metric is not merged yet, or whose enabling change has not
+# landed, stays OUT of the rules file and is listed here with what it waits
+# for (SPEC 11.1). The change that enables it adds the rule and deletes its
+# line here.
 WAITING = {
     "PadyarAICircuitOpen": "DEP-1, DEP-3: ai_circuit_state is only written on a state change",
-    "PadyarBackupFailed": "DEP-2: backup_outcome_total must count verified scheduled backups",
-    "PadyarBackupStale": "DEP-2, DEP-4: backup_last_success_timestamp_seconds and "
-                         "backup_schedule_interval_seconds do not exist yet",
+    "PadyarBackupFailed": "DEP-2 is merged (backup_outcome_total counts verified scheduled "
+                          "backups); only the rule is left, in its own enabling change (WU6)",
+    "PadyarBackupStale": "DEP-2, DEP-4 are merged (backup_last_success_timestamp_seconds and "
+                         "backup_schedule_interval_seconds exist); only the rule is left, in its "
+                         "own enabling change (WU6)",
 }
 
 # job label of a selector -> the allowlist that names its metrics.

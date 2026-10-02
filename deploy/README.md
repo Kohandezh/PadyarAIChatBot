@@ -323,11 +323,19 @@ Firing alerts show in those two UIs only. Nothing texts them yet: the
 watchdog step that will is a separate change. The watchdog's own "the app is
 down" SMS works as before.
 
-Until the nginx change that answers 404 on `/metrics` (pull request #159) is
-merged and deployed, the script warns on every install that `/metrics` is
-reachable through nginx. That is expected; re-rendering the site does not
-help before then. Removing the stack: `docs/engineering/MONITORING.md`,
-"Removing the stack".
+The `location = /metrics { return 404; }` block is in
+`deploy/nginx/instance.conf.template`. If the script warns that `/metrics` is
+reachable through nginx, that install's vhost was not re-rendered since the
+block was added. Re-render it with the install's own visitor-facing name (see
+"Closing `/metrics` on an existing host" below):
+
+```bash
+sudo MAINTENANCE_TITLE='<visitor-facing name>' bash deploy/17-watchdog.sh myevent 8010 myevent.example.com
+```
+
+`MAINTENANCE_TITLE` is required: without it the maintenance page visitors see
+goes back to the default title. Removing the stack:
+`docs/engineering/MONITORING.md`, "Removing the stack".
 
 Running it again with fewer slugs never removes another install's scrape job
 or probe. Passwords and token files are created only when missing.
