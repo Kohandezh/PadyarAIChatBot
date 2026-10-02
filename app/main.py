@@ -138,6 +138,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.error("[ai] control-plane startup hook failed: %s", type(e).__name__)
 
+    # Every worker runs this, so a scrape after a restart already shows a
+    # circuit the database still holds open. After the hook above, which
+    # creates the table on SQLite. Never raises (see the function).
+    from app.services.ai import circuit as ai_circuit
+    ai_circuit.publish_stored_states()
+
     # One-time at-rest encryption of the legacy AI key. Existing installs have
     # a plaintext `ai_api_key` settings row (new saves are encrypted by the
     # admin router); get_setting() decrypts transparently, so both forms keep

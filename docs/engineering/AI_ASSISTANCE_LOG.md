@@ -822,6 +822,114 @@
   اجرا می‌شود.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): انتشار وضعیت ذخیره‌شدهٔ circuit موقع شروع برنامه
+
+- **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5). بخش برنامهٔ WU3 از
+  `docs/features/monitoring-stack/SPEC.md` (DEP-3، SC-016، REQ-077). قاعدهٔ
+  R04 در فایل قواعد Prometheus جزو این کار نیست.
+- **ریشهٔ مشکل:** gauge `ai_circuit_state` فقط هنگام تغییر وضعیت set می‌شد
+  (`_metrics_state` در `app/services/ai/circuit.py`). بعد از restart هیچ worker
+  سری نداشت، پس circuit ای که در جدول هنوز `open` بود تا تغییر بعدی دیده نمی‌شد.
+- **کارهای انجام‌شده:**
+  1. تابع `publish_stored_states()` در `app/services/ai/circuit.py`: همهٔ
+     ردیف‌ها را با `snapshot()` می‌خواند و عدد هر وضعیت را از ثابت‌های
+     `CIRCUIT_CLOSED`، `CIRCUIT_HALF_OPEN`، `CIRCUIT_OPEN` در
+     `app/services/metrics.py` set می‌کند. وضعیت ناشناخته: رد می‌شود و یک خط
+     log با شناسهٔ instance. خطای دیتابیس: یک خط log، بدون raise. هیچ UPDATE
+     ندارد.
+  2. یک فراخوانی در lifespan در `app/main.py`، بعد از راه‌اندازی جدول‌های AI.
+  3. تست‌ها پیش از کد: `tests/test_circuit_state_metric.py` (۱۵ تست)، یک تست
+     SC-016 در `tests/test_metrics.py` (از راه `GET /metrics`)، و یک تست
+     multiprocess در `tests/test_metrics_multiprocess.py` (worker بدون هیچ
+     درخواست، scrape از process سوم).
+  4. سند: بخش `ai_circuit_state` در `docs/engineering/MONITORING.md`.
+- **راستی‌آزمایی ماشینی همین نشست:** پیش از کد، ۱۷ تست تازه: ۱۶ شکست و ۱ موفق
+  (تست کنترل «برنامه با خطای دیتابیس بالا می‌آید»). بعد از کد:
+  `tests/test_metrics.py`، `tests/test_metrics_multiprocess.py` و
+  `tests/test_circuit_state_metric.py` با هم ۷۸ موفق. تست‌های موجود circuit
+  (`grep -l circuit tests/*.py`): ۳۰۰ موفق، ۷ skip (تست‌های PostgreSQL، چون
+  سرور محلی نیست). با برداشتن موقت فراخوانی از `app/main.py`، سه تست شروع
+  برنامه شکست خوردند. کل suite محلی اجرا **نشد**؛ CI دروازه است.
+- **بازبینی انسانی:** pending.
+
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): پیامک هشدارهای Alertmanager از راه watchdog
+
+- **مدل:** Claude Opus 5.5 (claude-opus-5-5)، در نقش پیاده‌ساز، در یک git
+  worktree جدا. قرارداد از بخش 5.5 سند
+  `docs/features/monitoring-stack/SPEC.md` (REQ-040 تا REQ-054) می‌آید.
+- **کارهای انجام‌شده (پچ‌های پیشنهادی):**
+  1. مرحلهٔ تازه در `deploy/watchdog/watchdog.py`: هشدارهای `page="sms"` از
+     API محلی Alertmanager خوانده می‌شوند و در هر چرخه حداکثر یک پیامک
+     می‌روند.
+  2. تصمیم‌ها در هستهٔ خالص با ساعت تزریقی: انتخاب هشدار، dedup با
+     `fingerprint`، یادآوری ۶ ساعته، سقف ۱۰ پیامک در روز UTC، پیامک «سیستم
+     پایش کار نمی‌کند»، و خبر silence تازه. متن پیامک فقط از جدول ثابت
+     ساخته می‌شود.
+  3. سه reader تزریقی تازه در `run_cycle`: `alerts_reader`، `owner_reader`،
+     `silences_reader`. پیش‌فرض تولیدی فقط GET روی `127.0.0.1:9093` می‌زند،
+     بدون proxy و بدون دنبال کردن redirect، تا رمز از میزبان بیرون نرود.
+     پاسخ بزرگ‌تر از ۱ مگابایت، یا GET طولانی‌تر از ۸ ثانیه، خطا حساب می‌شود.
+  4. هر پیامک پیش از ارسال در state ثبت و ذخیره می‌شود (write-ahead). اگر
+     state ذخیره نشود، پیامکی نمی‌رود؛ پس دیسک پر یا پوشهٔ فقط‌خواندنی
+     به ارسال در هر چرخه نمی‌رسد. `alert_sent` حداکثر ۱۰۰۰ fingerprint نگه
+     می‌دارد. هر تلاش ارسال، حتی ناموفق، در سقف روزانه شمرده می‌شود؛ این
+     انحراف آگاهانه از متن REQ-051 است، تا درگاهی که پیامک را می‌رساند و
+     بعد خطا می‌دهد نتواند روزی ۲۸۸ پیامک بفرستد.
+  5. `TimeoutStartSec=300s` در `deploy/systemd/padyar-watchdog@.service`، تا
+     یک پروسهٔ واقعاً گیرکرده تمام شود. عمداً بلند است: پیامک «برنامه پایین
+     است» و اعتبار کم state را فقط در پایان چرخه ذخیره می‌کنند، پس timeout
+     کوتاه‌تر می‌توانست بعد از یکی از آن‌ها چرخه را بکشد و چرخهٔ بعد آن را
+     دوباره بفرستد.
+  6. ۶۶ تست تازه در `tests/test_watchdog_logic.py` و
+     `tests/test_watchdog_io.py`، اول نوشته شدند و قرمز بودند. هیچ تستی پیامک
+     واقعی نمی‌فرستد؛ فرستنده و readerها جعلی‌اند.
+  7. مستندات: بخش 11 در `docs/features/critical-watchdog/SPEC.md` و بخش
+     «Watchdog alert SMS» در `docs/engineering/MONITORING.md`.
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** `python -m py_compile` روی
+  `deploy/watchdog/watchdog.py`؛ `pytest tests/test_watchdog*.py` با ۸۵ تست
+  سبز (۱۹ تست قبلی بدون تغییر رفتار)؛ ۲۳ جهش عمدی در کد و unit، هر کدام دست‌کم یک
+  تست را قرمز کرد. CI اجرا نشده است.
+- **بازبینی انسانی:** pending.
+
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): راهنمای حادثه و هدف‌های SLO
+
+- **مدل:** Claude Opus 5.5 (claude-opus-5-5)، به‌عنوان عامل نویسنده در یک git
+  worktree جدا. فقط سند نوشت؛ هیچ کد، اسکریپت deploy یا تستی را عوض نکرد.
+- **مرجع رفتار:** `docs/features/monitoring-stack/SPEC.md` (REQ-080، REQ-081،
+  REQ-082) و بخش D7 در `docs/features/monitoring-stack/RESEARCH.md`. هر نام
+  هشدار، برچسب، فرمان و متن پیامک از فایل‌های واقعی پشته خوانده شد:
+  `deploy/monitoring/rules/padyar.rules.yml`، `deploy/monitoring/alertmanager.yml`،
+  `deploy/55-monitoring.sh` و `deploy/watchdog/watchdog.py`.
+- **کارهای انجام‌شده:**
+  1. `docs/engineering/INCIDENT_RUNBOOK.md` (تازه): کشیک امروز (یک نفر، مالک)،
+     راه‌های رسیدن هشدار، سطح‌های حادثه، 5 دقیقهٔ اول، خبر دادن، رفع، بررسی،
+     بستن، و قالب یادداشت پس از حادثهٔ بدون سرزنش؛ یک بخش برای هر قاعدهٔ
+     موجود (R01 تا R03، R07 تا R14)، برای سه قاعدهٔ منتظر (R04 تا R06، با
+     وابستگی‌شان)، و برای پیامک‌های غیر قاعده (برنامه پاسخ نمی‌دهد، سیستم پایش
+     کار نمی‌کند، silence تازه، سقف پیامک، اعتبار پیامک کم)؛ و بخش کارهای
+     اپراتور طبق REQ-081.
+  2. `docs/engineering/SLO.md` (تازه): چهار SLI بخش D7 با هدف اولیه، PromQL
+     هر کدام، بودجهٔ خطا به زبان ساده، و کار بعد از تمام شدن بودجه.
+  3. پس از دور اول بازبینی: دستور گذاشتن `METRICS_TOKEN` برای نصب تازه دیگر
+     خط تکراری نمی‌سازد؛ SLI خطای سرور درخواست‌های `/metrics` و `/api/health`
+     را کنار می‌گذارد (همان کاری که قاعدهٔ `PadyarHigh5xxRate` می‌کند)؛ بخش
+     «وقتی هیچ پیامکی نمی‌رسد» (همهٔ راه‌های پیامک روی همان میزبان‌اند) و
+     `systemctl list-timers 'padyar-watchdog@*'`؛ سه محدودیت شناخته‌شدهٔ
+     watchdog که هنوز رفع نشده‌اند (DB پایین یعنی هیچ پیامک، فایل state
+     نوشتنی‌نبودن، و نبودن سقف زمانی کل probe)؛ خط‌های تازهٔ journal؛ فرمان
+     پیامک آزمایشی؛ و اشاره به بخش «Removing the stack». متن‌ها با نسخهٔ نهایی
+     پشته و watchdog دوباره مقایسه شدند.
+- **راستی‌آزمایی ماشینی همین نشست:** هر لینک داخلی و هر anchor که annotation
+  `runbook` قواعد به آن اشاره می‌کند با `github-slugger` (الگوریتم anchor
+  GitHub) چک شد. هر بلوک PromQL دو سند با `promql-parser` تجزیه شد. `promtool`
+  روی این ماشین نبود، پس هیچ query روی Prometheus واقعی اجرا نشد.
+- **آنچه ادعا نمی‌شود:** هیچ هشدار، هیچ فرمان و هیچ عدد SLO آزموده یا
+  اندازه‌گیری نشده است. پشتهٔ پایش هنوز روی هیچ سروری نصب نشده. عددهای SLO
+  هدف اولیه‌اند و بعد از 30 روز داده بازبینی می‌شوند.
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.

@@ -268,9 +268,10 @@ class _OurFamiliesFromFiles:
                 seen.add(family.name)
                 yield family
         # Nothing has written this family yet (for example ai_circuit_state
-        # before the first circuit transition).
+        # when the ai_circuit_state table has no row: every worker publishes
+        # the stored rows at start, see circuit.publish_stored_states).
         # List it with no samples, as single-process mode does, so /metrics
-        # always shows the same ten families.
+        # always shows the same twelve families.
         for name, (documentation, typ) in _FAMILY_META.items():
             if name not in seen:
                 yield Metric(name, documentation, typ)

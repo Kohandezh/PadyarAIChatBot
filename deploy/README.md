@@ -354,9 +354,9 @@ ssh -N -L 9090:127.0.0.1:9090 -L 9093:127.0.0.1:9093 <user>@<host>
 sudo amtool silence add alertname=PadyarHigh5xxRate install=myevent --duration=2h --comment="maintenance"
 ```
 
-Firing alerts show in those two UIs only. Nothing texts them yet: the
-watchdog step that will is a separate change. The watchdog's own "the app is
-down" SMS works as before.
+Firing alerts show in those two UIs. Alerts labelled `page="sms"` are also
+texted by each install's watchdog (`docs/engineering/MONITORING.md`, "Watchdog
+alert SMS"). The watchdog's own "the app is down" SMS works as before.
 
 The `location = /metrics { return 404; }` block is in
 `deploy/nginx/instance.conf.template`. If the script warns that `/metrics` is
