@@ -666,6 +666,51 @@
   بدون کامنت با `origin/main` (یکسان). تست اجرا نشد (تغییر فقط مستندات).
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۰۹ (2026-10-01): پشتهٔ پایش روی loopback با deploy/55-monitoring.sh
+
+- **مدل:** Claude Opus 5.5 (claude-opus-5-5)، به‌عنوان عامل پیاده‌ساز در یک git
+  worktree جدا. یک ساب‌ایجنت Sonnet فقط برای خواندن کد منبع upstream (نام
+  metricهای exporterها در تگ هر نسخه، و فایل‌های Debian بسته‌های noble) به کار
+  رفت و هیچ فایلی را عوض نکرد.
+- **مرجع رفتار:** `docs/features/monitoring-stack/SPEC.md` (واحد کار WU1) و
+  ADR-024. یک انحراف عمدی از متن SPEC: سقف اندازهٔ TSDB از «فضای آزاد + اندازهٔ
+  فعلی TSDB» حساب می‌شود، نه فقط فضای آزاد (دلیل در
+  `docs/engineering/MONITORING.md`، بخش Retention).
+- **کارهای انجام‌شده:**
+  1. اسکریپت تازهٔ `deploy/55-monitoring.sh`: نصب Prometheus 2.45،
+     Alertmanager 0.26 و سه exporter از آرشیو Ubuntu، همه روی `127.0.0.1`؛
+     خواندن `.env` هر نصب بدون `source`؛ توکن و رمزها فقط در فایل، هرگز در argv
+     یا خروجی؛ چک promtool و amtool پیش از هر restart با برگرداندن فایل‌های قبلی
+     در صورت شکست؛ چک `ss` با خروج 2 برای listener عمومی.
+  2. `deploy/monitoring/`: `prometheus.yml`، `alertmanager.yml` (بدون گیرندهٔ
+     بیرونی)، ۱۱ قاعدهٔ هشدار، تست promtool برای هر قاعده (حالت روشن و خاموش)،
+     allowlist نام metric هر exporter با لینک به منبع در تگ همان نسخه، قالب‌های
+     scrape و blackbox، و `promql_names.py` (یک خوانندهٔ PromQL برای تست و
+     اسکریپت).
+  3. دو فایل تست تازه: `tests/test_monitoring_rules.py` و
+     `tests/test_monitoring_install_script.py`.
+  4. `deploy/env/instance.env.template` (کلید `METRICS_TOKEN`)،
+     `deploy/40-cloudflare-tunnel.sh` (خط `metrics:` برای میزبان تازه)،
+     `deploy/README.md`، `docs/engineering/MONITORING.md`، job تازهٔ
+     `monitoring-rules` در CI، و `PyYAML` در `requirements-dev.txt`.
+  5. پس از دور اول بازبینی: اجرایی که پیش از restart متوقف شود، سرویس‌هایی را که
+     خودش نصب کرده stop و disable می‌کند (بسته‌های از قبل نصب‌شده دست نمی‌خورند)؛
+     `SMS_DAILY_BUDGET` غیرعددی فقط هشدار می‌دهد؛ کد خروج 2 فقط برای listener
+     عمومی است؛ منبع Debian برای mount pointهای حذف‌شدهٔ node_exporter لینک شد.
+  6. پس از بازبینی نهایی: کد خروج هر شکستی جز listener عمومی 1 است؛ توکن پیش از
+     نصب با سرور چک و فایل آن فقط بعد از 200 نوشته می‌شود؛ رمزهای ساخته‌شده در
+     یک اجرای ناموفق پاک می‌شوند؛ چک listener درگاهی را که ندیده «چک‌نشده» می‌نامد؛
+     بودجهٔ پیامک مثل `daily_budget()` برنامه خوانده می‌شود؛ قاعدهٔ
+     `PadyarHigh5xxRate` درخواست‌های خود پشته (`/metrics`، `/api/health`) را
+     نمی‌شمارد (انحراف عمدی از متن SPEC)؛ مراحل برداشتن پشته کامل شد.
+- **پچ‌های ردشده/بازگردانده:** پیش‌نویس قبلی Docker Compose و Grafana (کار
+  نشده در repo) کنار گذاشته شد، طبق ADR-024.
+- **راستی‌آزمایی ماشینی همین نشست:** تست‌های تازه روی Mac با promtool 2.45.3،
+  amtool 0.26.0 و bash 5 سبز؛ mutation test دستی روی قواعد؛ shellcheck 0.11.0
+  بدون یافته روی اسکریپت تازه. اجرای خود اسکریپت روی یک میزبان انجام **نشد**
+  (root و systemd لازم دارد).
+- **بازبینی انسانی:** pending.
+
 ## نشست ۱۴۰۵/۰۷/۰۸ (2026-09-30): spike بلوغ پایگاه داده و استقرار
 
 - **مدل/ارکستراتور:** Claude (claude-opus-5-5) در نقش عامل پژوهش
