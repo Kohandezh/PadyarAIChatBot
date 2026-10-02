@@ -1,0 +1,194 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}افزودن دانش از فایل{% endblock %}
+
+{# The review page of the ingest module (docs/features/knowledge-ingestion/SPEC.md,
+   section F). This shell carries no document text: everything that came from a
+   file, a web page or a model arrives through the API and is written as text by
+   static/admin/js/ingest.js (SEC-020). #}
+{% block page_content %}
+<div id="ingest-root">
+<div class="topbar">
+    <h5 class="m-0 text-dark">افزودن دانش از فایل</h5>
+    <div class="user-profile">
+        <span class="text-muted small">مدیر سیستم</span>
+        <div class="user-avatar">A</div>
+    </div>
+</div>
+
+<div id="ingest-alert" class="alert alert-danger" role="alert" hidden>
+    <div class="ingest-alert-row">
+        <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+        <span id="ingest-alert-text" class="flex-grow-1 ingest-break"></span>
+        <button type="button" class="btn btn-sm btn-outline-danger" id="ingest-alert-retry">فایل دیگری بفرستید</button>
+    </div>
+</div>
+
+<section class="content-card" id="ingest-input" aria-labelledby="ingest-input-title">
+    <div class="card-header">
+        <strong id="ingest-input-title"><i class="fas fa-file-import me-1" aria-hidden="true"></i>یک فایل یا یک صفحهٔ وب بدهید</strong>
+    </div>
+    <div class="card-body">
+        <div id="ingest-drop" class="ingest-drop">
+            <i class="fas fa-cloud-arrow-up fa-2x text-muted ingest-drop-only" aria-hidden="true"></i>
+            <p class="ingest-drop-only my-2">فایل را اینجا بکشید یا انتخاب کنید</p>
+            <button type="button" class="btn btn-primary" id="ingest-pick">
+                <i class="fas fa-folder-open me-1" aria-hidden="true"></i>انتخاب فایل
+            </button>
+            <input type="file" id="ingest-file" class="visually-hidden" tabindex="-1" aria-hidden="true"
+                   accept=".pdf,.docx,.xlsx,.csv,.txt,.md">
+            {# Each Latin name is isolated so the list reads right to left in
+               this order; as one run the browser shows it reversed. #}
+            <p class="small text-muted mt-2 mb-0"><bdi>Word</bdi>، <bdi>PDF</bdi>، <bdi>Excel</bdi>، <bdi>CSV</bdi>، متن</p>
+        </div>
+
+        <form id="ingest-url-form" class="mt-3" novalidate>
+            <label class="form-label" for="ingest-url">یا نشانی یک صفحهٔ وب</label>
+            <div class="ingest-url-row">
+                <input type="url" class="form-control" id="ingest-url" dir="ltr" placeholder="https://"
+                       autocomplete="url">
+                <button type="submit" class="btn btn-primary" id="ingest-read" disabled>بخوان</button>
+            </div>
+        </form>
+
+        <p class="small text-muted mt-3 mb-1">برای شناسنامهٔ شرکت‌ها از {% if 'leads' in (enabled_modules or []) %}<a href="/secure-panel-admin/companies">صفحهٔ شرکت‌ها</a>{% else %}صفحهٔ شرکت‌ها{% endif %} استفاده کنید.</p>
+        <p class="small text-muted mb-0">متن فایل برای پیشنهاد پرسش به سرویس هوش مصنوعی همین نصب فرستاده می‌شود.</p>
+        {% if not pdf_available %}
+        <p class="small text-warning mt-1 mb-0" id="ingest-pdf-note">خواندن PDF روی این سرور فعال نیست.</p>
+        {% endif %}
+    </div>
+</section>
+
+<section class="content-card" id="ingest-progress" aria-live="polite" hidden>
+    <div class="card-header">
+        <strong class="ingest-break"><i class="fas fa-file-lines me-1" aria-hidden="true"></i><span id="ingest-job-name"></span></strong>
+    </div>
+    <div class="card-body" id="ingest-progress-body">
+        <div id="ingest-running">
+            <p id="ingest-stage" class="mb-2"></p>
+            <div class="progress ingest-progress-bar mb-3">
+                <div class="progress-bar" id="ingest-bar" role="progressbar" aria-label="پیشرفت"
+                     aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <button type="button" class="btn btn-outline-danger btn-sm" id="ingest-cancel">لغو</button>
+        </div>
+        <p id="ingest-ended" class="mb-0" hidden></p>
+        <p id="ingest-ai-stopped" class="small text-muted mt-2 mb-0" hidden></p>
+    </div>
+</section>
+
+<section class="content-card" id="ingest-review" aria-labelledby="ingest-review-title" hidden>
+    <div class="card-header">
+        <strong id="ingest-review-title"><i class="fas fa-list-check me-1" aria-hidden="true"></i>پیشنهادها</strong>
+    </div>
+    <div class="card-body">
+        <p id="ingest-summary" class="mb-3"></p>
+        <div class="ingest-bulk mb-2">
+            <button type="button" class="btn btn-success" id="ingest-approve-seen" disabled
+                    aria-describedby="ingest-approve-seen-hint">
+                <i class="fas fa-check-double me-1" aria-hidden="true"></i><span id="ingest-approve-seen-label">تأیید همهٔ موارد دیده‌شده (۰)</span>
+            </button>
+            <span class="small text-muted" id="ingest-approve-seen-hint">اول پیشنهادها را ببینید</span>
+        </div>
+        <p id="ingest-bulk-msg" class="small mb-3" aria-live="polite"><span id="ingest-bulk-result"></span> <span id="ingest-bulk-index"></span></p>
+        <div id="ingest-cards"></div>
+        <nav class="ingest-pager" id="ingest-cards-pager" aria-label="صفحه‌های پیشنهادها" hidden>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="ingest-cards-prev">قبلی</button>
+            <span class="small text-muted" id="ingest-cards-range"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="ingest-cards-next">بعدی</button>
+        </nav>
+    </div>
+</section>
+
+<section class="content-card" id="ingest-jobs-card" aria-labelledby="ingest-jobs-title">
+    <div class="card-header">
+        <strong id="ingest-jobs-title"><i class="fas fa-clock-rotate-left me-1" aria-hidden="true"></i>فایل‌های اخیر</strong>
+    </div>
+    <div class="card-body">
+        <p id="ingest-jobs-empty" class="text-muted mb-0" hidden>هنوز فایلی نفرستاده‌اید.</p>
+        <div id="ingest-jobs" class="list-group"></div>
+        <nav class="ingest-pager" id="ingest-jobs-pager" aria-label="صفحه‌های فایل‌ها" hidden>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="ingest-jobs-prev">قبلی</button>
+            <span class="small text-muted" id="ingest-jobs-range"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="ingest-jobs-next">بعدی</button>
+        </nav>
+    </div>
+</section>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Bootstrap's display utilities win over the hidden attribute; the page
+   shows and hides its parts with `hidden` only. */
+#ingest-root [hidden] { display: none !important; }
+
+.ingest-break { overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+.ingest-alert-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+
+.ingest-drop {
+    border: 2px dashed var(--tblr-border-color, #e6e7e9);
+    border-radius: 12px;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    background: var(--light-bg);
+}
+.ingest-drop.dragover { border-color: var(--primary-color); }
+.ingest-url-row { display: flex; gap: .5rem; }
+.ingest-url-row .form-control { flex: 1 1 auto; min-width: 0; }
+.ingest-progress-bar { height: .6rem; }
+
+.ingest-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.ingest-pager { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1rem; }
+
+.ingest-card { margin-bottom: 1rem; }
+.ingest-card[data-state="approved"], .ingest-card[data-state="live"],
+.ingest-card[data-state="slow"] { border-color: var(--success-color); }
+.ingest-card h3 { font-size: 1rem; font-weight: 700; margin: 0; }
+.ingest-card h4 { font-size: .8rem; font-weight: 700; color: var(--secondary-color); margin-bottom: .5rem; }
+/* A chunk is at most 900 characters (REQ-030); 18 lines then an inner
+   scroll keeps one card from filling the screen (section 10). */
+.ingest-source, .ingest-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.8;
+    max-height: calc(1.8em * 18);
+    overflow-y: auto;
+}
+.ingest-source {
+    background: var(--light-bg);
+    border: 1px solid var(--tblr-border-color, #e6e7e9);
+    border-radius: 8px;
+    padding: .75rem;
+}
+.ingest-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.ingest-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.ingest-chips .badge { white-space: normal; text-align: start; overflow-wrap: anywhere; }
+.ingest-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: 1rem; }
+.ingest-card-msg { margin: .75rem 0 0; }
+.ingest-card-msg:empty { display: none; }
+.ingest-editor .form-label { font-size: .85rem; margin-bottom: .25rem; }
+.ingest-editor .ingest-field { margin-bottom: .75rem; }
+#ingest-root .btn:focus-visible, #ingest-root a:focus-visible, .ingest-source:focus-visible {
+    outline: 3px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Below Bootstrap's lg breakpoint the source sits above the proposal
+   (.col-lg-6), the card buttons take the full width, and the drop area
+   becomes one «انتخاب فایل» button: there is nothing to drag on a phone. */
+@media (max-width: 991.98px) {
+    .ingest-actions .btn { flex: 1 1 100%; }
+    .ingest-drop { border: 0; padding: 0; background: none; text-align: start; }
+    .ingest-drop-only { display: none; }
+    #ingest-pick { width: 100%; }
+}
+</style>
+{% endblock %}
+
+{% block page_js %}
+<script type="module">
+    import { initIngest } from '/static/admin/js/ingest.js?v={{ js_version }}';
+    initIngest();
+</script>
+{% endblock %}
