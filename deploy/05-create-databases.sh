@@ -83,6 +83,11 @@ for slug in "${INSTALLS[@]}"; do
     psql_su -c "CREATE DATABASE ${drill_db} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0 LC_COLLATE 'C.UTF-8' LC_CTYPE 'C.UTF-8';"
   fi
   psql_su -d "${drill_db}" -c "REVOKE ALL ON SCHEMA public FROM PUBLIC;"
+  # Same search_path as the live database. A check that uses a table name
+  # without its schema then works the same here as on the live database. If
+  # this differed, such a check could pass live and fail only in the drill,
+  # and that would look like a bad backup.
+  psql_su -d "${drill_db}" -c "ALTER DATABASE ${drill_db} SET search_path = app, observability, public;"
 done
 
 log "Checking the connection budget"

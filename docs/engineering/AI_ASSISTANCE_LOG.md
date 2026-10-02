@@ -976,10 +976,21 @@
      `verify_admin` و CSRF، پاسخ 202، و 409 برای تمرین در حال اجرا).
   6. `deploy/05-create-databases.sh`: ساخت `<database>_drill` خالی برای هر نصب.
      `docs/engineering/MONITORING.md` و `docs/engineering/DEPLOYMENT_RUNBOOK.md`.
-  7. تست‌ها: `tests/postgres/test_restore_drill.py` (25 تست روی PostgreSQL
-     واقعی، با یک جفت پایگاه دادهٔ دورریختنی)، و چهار فایل تازهٔ بدون سرور
-     (unit، metrics، scheduler، API). در `tests/test_metrics_multiprocess.py` فقط
-     فهرست خانواده‌های metric (اصلاحیه‌های 1 و 2 در SPEC-B2).
+  7. اصلاح‌های بازبینی نهایی: بلوک `drill` آخرین چیزی است که دیده می‌شود (اول
+     آزاد کردن قفل، بعد metricها، بعد نوشتن بلوک)؛ پاک‌سازی بازماندهٔ تمرین
+     پیش از بررسی دیسک؛ دلیل شکست restore متن واقعی خطا را نگه می‌دارد و
+     timeout را جدا می‌گوید (`BackupTimeout`)؛ `search_path` برای پایگاه دادهٔ
+     تمرین در `deploy/05`؛ poll بیست‌ثانیه‌ای وقتی پنجره باز است صبر می‌کند؛
+     توضیح درست دربارهٔ تأخیر پشتیبان بعدی؛ یک نام برای هر بررسی در سرور و
+     صفحه؛ و `pg_backup._update_manifest` (قفل `flock` + نوشتن اتمی) تا
+     `verify()` و تمرین فقط کلید خودشان را عوض کنند.
+  8. تست‌ها: `tests/postgres/test_restore_drill.py` (31 تست روی PostgreSQL
+     واقعی، با یک جفت پایگاه دادهٔ دورریختنی)، و هشت فایل تازهٔ بدون سرور:
+     unit (18)، lock (9)، API (25)، metrics (24)، scheduler (10)، order (5)،
+     text (13) و manifest (12)، جمعاً 116 تست. به‌علاوه یک فایل مرورگر واقعی،
+     `tests/e2e/test_backups_poll_e2e.py` (3 تست، Playwright async). در
+     `tests/test_metrics_multiprocess.py` فقط فهرست خانواده‌های metric
+     (اصلاحیه‌های 1 و 2 در SPEC-B2).
 - **پچ‌های ردشده/بازگردانده:** هیچ.
 - **راستی‌آزمایی ماشینی همین نشست:** هر قدم پیش از commit دوباره اجرا شد و
   برای هر قدم دو آزمون جهش تست خودش را قرمز کرد. تست‌های بازگردانی روی این Mac

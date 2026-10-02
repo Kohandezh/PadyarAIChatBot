@@ -410,3 +410,18 @@ def test_page_script_starts_a_drill_through_fetchauth():
     # rejected with 403.
     assert "/drill`" in source
     assert not re.search(r"\bfetch\(", source.replace("fetchAuth(", ""))
+
+
+def test_page_poll_looks_for_an_open_dialog_before_it_reloads():
+    """The browser test is tests/e2e/test_backups_poll_e2e.py. This one needs no
+    browser, so it still runs where Chromium is not installed."""
+    source = (REPO / "static/admin/js/infra_backups.js").read_text(encoding="utf-8")
+    check = re.search(r"function dialogOpen\(\) \{(.*?)\n\}", source, re.S).group(1)
+    assert "document.querySelector('.modal.show')" in check
+    poll = re.search(r"function poll\(\) \{(.*?)\n\}", source, re.S).group(1)
+    assert poll.index("dialogOpen()") < poll.index("load(true)")
+    # The timer runs poll(), not load(): a normal load() is unchanged.
+    assert "setInterval(poll, 20000)" in source
+    assert "setInterval(load" not in source
+    # An answer that arrives after a dialog opened is dropped, not drawn.
+    assert re.search(r"if \(fromPoll && dialogOpen\(\)\) return;\n\s+renderSchedule", source)

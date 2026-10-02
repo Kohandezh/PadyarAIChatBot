@@ -25,11 +25,16 @@ RESULT
 ------
 One `drill` block in the backup's manifest.json. `_finish()` is the only place
 that block is written and the only place the outcome is logged.
+
+The block is the LAST thing a finished drill makes visible. A client that sees
+it takes the drill as done: it may start the next drill (needs the lock free)
+or read /metrics (needs the final values). So the order is: release the lock,
+publish the metrics, write the block, log the outcome. `tests/postgres/` pins
+this with a probe on a second connection.
 """
 import json
 import os
 import shutil
-import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -229,16 +234,16 @@ def start(backup_id: str, actor: str) -> threading.Thread:
 def _record_lock_skip(backup_id: str, actor: str, error: DrillLockUnavailable) -> dict:
     """Save a "skipped" block for a drill that never started. Never raises.
 
-    It goes through _finish(), like every other drill ending, so the manifest
-    gets the block, the outcome is logged and the metrics show ok=0. Without
+    It goes through _finish(), like every other drill ending, so the metrics
+    show ok=0, the manifest gets the block and the outcome is logged. Without
     this the operator would see nothing: no block, so no sign the drill did not
     run. No restore and no cleanup happens here, so the drill database is
-    untouched.
+    untouched. There is no lock to release: it was never taken.
     """
     block = _new_block(actor)
     _skip(block, error.message_fa)
     block["checked_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    _finish(pg_backup._manifest_path(backup_id), backup_id, block)
+    _finish(backup_id, block)
     return block
 
 
@@ -310,7 +315,12 @@ def _new_block(actor: str) -> dict:
 
 
 def _execute(backup_id: str, manifest: dict, actor: str, lock) -> dict:
-    """Run the drill, write its block, release the lock. Never raises."""
+    """Run the drill, release the lock, save its block. Never raises.
+
+    The lock goes first and the block goes last (see _finish). By the time the
+    drill database has been cleaned, nothing needs the lock any more, so it is
+    released before anything is made visible.
+    """
     started = time.perf_counter()
     block = _new_block(actor)
     try:
@@ -330,9 +340,9 @@ def _execute(backup_id: str, manifest: dict, actor: str, lock) -> dict:
                                "بود. جزئیات در گزارش‌ها ثبت شده است.")
         block["duration_ms"] = int((time.perf_counter() - started) * 1000)
         block["checked_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        _finish(pg_backup._manifest_path(backup_id), backup_id, block)
     finally:
         _release_lock(lock)
+    _finish(backup_id, block)
     return block
 
 
@@ -360,24 +370,27 @@ def _drill(backup_id: str, manifest: dict, block: dict) -> None:
     finally:
         _close(live)
     if not exists:
-        _skip(block, "پایگاه دادهٔ تمرین وجود ندارد (drill database missing). "
-                     "deploy/05-create-databases.sh را دوباره اجرا کنید.")
-        return
-
-    need = int(live_size * _DISK_FACTOR) + _DISK_MARGIN
-    free = _free_bytes()
-    if free < need:
-        _skip(block, f"فضای خالی دیسک برای تمرین کافی نیست: {free // _MB} MB "
-                     f"آزاد است و {need // _MB} MB لازم است.")
+        _skip(block, "پایگاه دادهٔ تمرین ساخته نشده است (drill database missing). "
+                     "اسکریپت ساخت پایگاه داده را دوباره اجرا کنید.")
         return
 
     drill_parts = {**parts, "dbname": drill_name}
-    # A drill that crashed earlier may have left schemas behind.
+    # A drill that crashed earlier may have left a restored copy behind. This
+    # runs BEFORE the disk check on purpose. The copy is about as big as the
+    # live database and sits on the same disk the check measures, so with the
+    # check first, a leftover could keep every later drill skipped forever.
     conn = _connect_drill(drill_parts)
     try:
         _drop_app_schemas(conn, drill_name)
     finally:
         _close(conn)
+
+    need = int(live_size * _DISK_FACTOR) + _DISK_MARGIN
+    free = _free_bytes()
+    if free < need:
+        _skip(block, f"فضای خالی دیسک برای تمرین کافی نیست: {free // _MB} مگابایت "
+                     f"آزاد است و {need // _MB} مگابایت لازم است.")
+        return
 
     try:
         _restore_and_check(backup_id, manifest, block, parts, drill_parts)
@@ -400,6 +413,28 @@ def _drill(backup_id: str, manifest: dict, block: dict) -> None:
         block["reason"] += " پاک‌سازی پایگاه دادهٔ تمرین کامل نشد."
 
 
+# The name of the restore step as pg_backup._run shows it. Plain Persian, so
+# the BackupError text can go into the reason as it is.
+_RESTORE_WHAT = "بازگردانی در پایگاه دادهٔ تمرین"
+
+_LOGS_HINT = "جزئیات در بخش گزارش‌ها ثبت شده است."
+
+
+def _restore_failure_reason(error) -> str:
+    """The reason for a pg_restore that did not finish.
+
+    The real error text is kept. It tells a timeout from other failures, and
+    the two need different advice. The old text said "the file is probably
+    damaged" for all of them, and nobody had checked that.
+    """
+    if isinstance(error, pg_backup.BackupTimeout):
+        minutes = pg_backup._RESTORE_TIMEOUT // 60
+        return (f"{error.message_fa} این کار بیش از {minutes} دقیقه طول کشید و "
+                "متوقف شد. شاید پایگاه داده بزرگ است یا سرور کند است. "
+                + _LOGS_HINT)
+    return f"{error.message_fa} {_LOGS_HINT}"
+
+
 def _restore_and_check(backup_id, manifest, block, parts, drill_parts) -> None:
     drill_name = drill_parts["dbname"]
     started = time.perf_counter()
@@ -410,13 +445,17 @@ def _restore_and_check(backup_id, manifest, block, parts, drill_parts) -> None:
              "--username", parts["user"], "--dbname", drill_name,
              "--clean", "--if-exists", "--no-owner", "--no-privileges",
              "--single-transaction", pg_backup._dump_path(backup_id)],
-            pg_backup._env(parts), "pg_restore (drill)",
+            pg_backup._env(parts), _RESTORE_WHAT,
             timeout=pg_backup._RESTORE_TIMEOUT)
-    except pg_backup.BackupError:
+    except pg_backup.BackupError as e:
         block["restore_duration_ms"] = int((time.perf_counter() - started) * 1000)
         block["status"] = "failed"
-        block["reason"] = ("بازیابی پشتیبان در پایگاه دادهٔ تمرین ناموفق بود. "
-                           "فایل پشتیبان احتمالاً خراب است.")
+        block["reason"] = _restore_failure_reason(e)
+        # The tool's own error text is in the server log (pg_backup._run).
+        # This line makes the failure easy to find in the reports page.
+        applog.error("backup", "backup.drill.restore_failed", block["reason"],
+                     actor=block["actor"], target=backup_id, outcome="failed",
+                     metadata={"timeout": isinstance(e, pg_backup.BackupTimeout)})
         return
     block["restore_duration_ms"] = int((time.perf_counter() - started) * 1000)
 
@@ -485,10 +524,12 @@ def _check_schema_migrations(conn, expected, block) -> None:
         f"missing or changed {lost}, unexpected {extra}")
 
 
+# The same three names are in static/admin/js/infra_backups.js (CHECK_LABELS).
+# tests/test_restore_drill_text.py fails if the two lists drift apart.
 _CHECK_LABELS = {
     "row_counts": "تعداد ردیف‌ها",
-    "schema_migrations": "نسخه‌های مایگریشن",
-    "validation": "اعتبارسنجی پایگاه داده",
+    "schema_migrations": "نسخه‌های پایگاه داده",
+    "validation": "سلامت پایگاه داده",
 }
 
 
@@ -510,8 +551,8 @@ def _conclude(block: dict) -> None:
         block["reason"] += (f" {len(block['mismatches'])} جدول با شمارش زمان "
                             "پشتیبان نمی‌خواند. این اختلاف ممکن است از DDL "
                             "(تغییر ساختار جدول) هم بیاید که هنگام پشتیبان‌گیری "
-                            "اجرا شده است، چون شمارش‌ها پیش از قفل شدن جدول‌ها "
-                            "توسط pg_dump گرفته می‌شوند.")
+                            "اجرا شده است، چون شمارش‌ها کمی پیش از گرفتن فایل "
+                            "پشتیبان انجام می‌شوند.")
 
 
 # ── Database access ─────────────────────────────────────────────────────
@@ -589,37 +630,24 @@ def _free_bytes() -> int:
 
 # ── The result ──────────────────────────────────────────────────────────
 
-def _finish(manifest_file: str, backup_id: str, block: dict) -> None:
-    """Write the block into the manifest and log the outcome.
+def _finish(backup_id: str, block: dict) -> None:
+    """Publish the metrics, save the block, log the outcome. Never raises.
 
-    The one place a drill ends. It also publishes the drill metrics. It never
-    raises: the checks have an answer, a manifest that can not be written
-    (backup pruned mid-drill) is logged, and so is a metric that fails.
+    The one place a drill ends. The order is fixed:
 
-    The manifest is read again right before writing, and written through a
-    temp file in the same folder plus os.replace, so a verify() write that
-    landed during the drill is kept and a reader never sees a half file.
+      1. metrics, so a scrape after the block is visible sees the final values;
+      2. the block in manifest.json, the signal "this drill is done";
+      3. the log line.
+
+    The caller has already released the lock (see _execute). So when a client
+    sees the block, the lock is free and the gauges are set.
+
+    It never raises: the checks have an answer, a manifest that can not be
+    written (backup pruned mid-drill) is logged, and so is a metric that fails.
     """
     status = block["status"]
-    try:
-        with open(manifest_file, encoding="utf-8") as f:
-            current = json.load(f)
-        current["drill"] = block
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(manifest_file),
-                                   prefix=".manifest.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(current, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, manifest_file)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-    except (OSError, ValueError) as e:
-        logger.error("[restore_drill] could not write the drill block for %s: %s",
-                     backup_id, type(e).__name__)
+    _publish_metrics(backup_id, block)
+    _write_block(backup_id, block)
 
     logger.info("[restore_drill] %s: %s (%s ms)", backup_id, status,
                 block["duration_ms"])
@@ -631,7 +659,20 @@ def _finish(manifest_file: str, backup_id: str, block: dict) -> None:
         metadata={"tables_checked": block["tables_checked"],
                   "mismatches": len(block["mismatches"]),
                   "checks": block["checks"]})
-    _publish_metrics(backup_id, block)
+
+
+def _write_block(backup_id: str, block: dict) -> None:
+    """Put `block` in the backup's manifest. Changes no other key. Never raises.
+
+    pg_backup._update_manifest reads the file again under a lock, so a
+    verify() write that landed during the drill is kept, and verify() keeps
+    the drill block in the same way.
+    """
+    try:
+        pg_backup._update_manifest(backup_id, {"drill": block})
+    except (OSError, ValueError, pg_backup.BackupError) as e:
+        logger.error("[restore_drill] could not write the drill block for %s: %s",
+                     backup_id, type(e).__name__)
 
 
 # ── Metrics ─────────────────────────────────────────────────────────────

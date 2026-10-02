@@ -183,7 +183,14 @@ def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
     A scheduled backup that verified is then drilled: restored into the
     separate drill database and checked (app/services/restore_drill.py). It
     runs before prune so the backup being drilled is not pruned under it. The
-    drill result never changes the outcome, the backup or the return value."""
+    drill result never changes the outcome, the backup or the return value.
+
+    The drill runs INSIDE this call, so it takes time here. The scheduler loop
+    that claimed the slot waits for this call, and the loop waits for the whole
+    drill (a restore can take up to 30 minutes). With one worker and a backup
+    interval shorter than the drill, the next backup can start late. With the
+    default 24 hour interval this does not matter. Prune and `backup_last_run`
+    also wait for the drill."""
     if _backup_engine() == "postgres":
         from app.services import metrics, pg_backup
         try:
@@ -237,7 +244,13 @@ def _drill_backup(backup_id: str, actor: str) -> None:
     """Run the restore drill for a fresh backup. Never raises.
 
     A drill is a bonus on top of a backup that already exists. Nothing it does
-    may fail the run, stop the prune, or delay the next scheduled backup.
+    may fail the run or stop the prune. It does take time. It runs inside
+    _run_backup_now, in the executor thread of the worker whose scheduler loop
+    claimed this slot, and that loop waits for it. With one worker and a backup
+    interval shorter than the drill, the next backup can start late. With the
+    default 24 hour interval this does not matter. The drill has no thread of
+    its own here on purpose: one place to look, and no second lifetime to
+    manage.
     """
     from app.services import restore_drill
     try:

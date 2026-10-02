@@ -163,7 +163,24 @@ function startWatching() {
     // A drill may restore a large database. Stop looking after 45 minutes.
     watchUntil = Date.now() + 45 * 60 * 1000;
     el('drill-running').hidden = false;
-    if (!watchTimer) watchTimer = setInterval(load, 20000);
+    if (!watchTimer) watchTimer = setInterval(poll, 20000);
+}
+
+/* True while a Bootstrap dialog is open or opening. Bootstrap adds
+ * `modal-open` to the body at once, and `.show` to the dialog only after its
+ * fade, so both are checked. */
+function dialogOpen() {
+    return document.body.classList.contains('modal-open')
+        || Boolean(document.querySelector('.modal.show'));
+}
+
+/* The 20 second refresh after a manual drill. load() rebuilds the rows, and
+ * that clears the ticked backups. An operator with the bulk-delete dialog open
+ * would lose the choice while typing the confirmation. So the poll does
+ * nothing while a dialog is open, and tries again on the next tick. */
+function poll() {
+    if (dialogOpen()) return;
+    load(true);
 }
 
 function stopWatching() {
@@ -412,7 +429,10 @@ function renderRows(rows, isPg) {
     syncBulkButton();
 }
 
-async function load() {
+/* `fromPoll` is true only for the timer. A normal load() always draws. The
+ * timer's request may have been sent before a dialog opened, so the dialog is
+ * checked again when the answer arrives. */
+async function load(fromPoll = false) {
     try {
         const res = await fetchAuth(API);
         if (!res.ok) {
@@ -420,6 +440,7 @@ async function load() {
             return;
         }
         const data = await res.json();
+        if (fromPoll && dialogOpen()) return;
         renderSchedule(data.schedule);
         const isPg = data.engine === 'postgresql';
         // The drill exists only for PostgreSQL, so SQLite shows no drill box.

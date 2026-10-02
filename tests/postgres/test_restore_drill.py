@@ -368,7 +368,9 @@ def test_a_missing_drill_database_is_skipped_not_failed_and_nothing_raises(
                 sql.Identifier(renamed), sql.Identifier(drill.twin)))
 
     assert block["status"] == "skipped"
-    assert "05-create-databases.sh" in block["reason"]
+    # SPEC-B2 asks for this exact English token. The rest is plain Persian.
+    assert "drill database missing" in block["reason"]
+    assert "05-create-databases.sh" not in block["reason"]
     assert not calls, "no restore may start without the drill database"
     assert _read(backup_id)["drill"]["status"] == "skipped"
 
@@ -382,7 +384,7 @@ def test_not_enough_disk_is_skipped_before_any_restore(drill, monkeypatch):
     block = restore_drill.run(backup_id, actor="pytest")
 
     assert block["status"] == "skipped"
-    assert "100" in block["reason"] and "MB" in block["reason"]
+    assert "100" in block["reason"] and "مگابایت" in block["reason"]
     assert not calls
     assert block["restore_duration_ms"] is None
     assert _twin_schemas(drill) == set()
@@ -628,3 +630,134 @@ def test_validate_reports_a_dead_given_connection_as_not_reachable(drill):
 
     assert result["ok"] is False
     assert result["problems"] == ["reachable"]
+
+
+# ── The block is the last visible step (final review, item 1) ───────────
+
+def test_when_the_block_is_visible_the_lock_is_free_and_the_gauges_are_set(
+        drill, monkeypatch):
+    """block_in_manifest=True implies lock_free=True and the gauges set.
+
+    A client that sees the block takes the drill as done. It may start the next
+    drill at once (needs the lock) or scrape /metrics (needs the final values).
+    The probe runs from a SEPARATE connection at the moment os.replace makes
+    the block visible.
+    """
+    import psycopg
+    from app.services import metrics, pg_backup, restore_drill
+    backup_id = _backup()
+    manifest_file = pg_backup._manifest_path(backup_id)
+    metrics.backup_drill_last_ok.set(0)  # the value a stale scrape would show
+    seen = []
+    real_replace = os.replace
+
+    def probe(src, dst, *a, **kw):
+        real_replace(src, dst, *a, **kw)
+        if os.path.abspath(dst) != os.path.abspath(manifest_file):
+            return
+        with open(manifest_file, encoding="utf-8") as f:
+            visible = "drill" in json.load(f)
+        with psycopg.connect(drill.url, autocommit=True) as c:
+            free = c.execute("SELECT pg_try_advisory_lock(%s)",
+                             (restore_drill._LOCK_KEY,)).fetchone()[0]
+            if free:
+                c.execute("SELECT pg_advisory_unlock(%s)", (restore_drill._LOCK_KEY,))
+        seen.append({"block_in_manifest": visible, "lock_free": free,
+                     "ok_gauge": metrics.backup_drill_last_ok._value.get()})
+
+    monkeypatch.setattr(os, "replace", probe)
+
+    block = restore_drill.run(backup_id, actor="pytest")
+
+    assert block["status"] == "passed", block
+    assert seen == [{"block_in_manifest": True, "lock_free": True,
+                     "ok_gauge": 1.0}]
+
+
+# ── A leftover copy must not keep the drill skipped (item 2) ────────────
+
+def test_a_leftover_copy_is_dropped_even_when_the_disk_check_skips_the_drill(
+        drill, monkeypatch):
+    """The leftover uses the same disk the check measures.
+
+    If the check ran first, a leftover could push free space under the limit
+    and nothing would ever drop it. The clean-up runs before the check.
+    """
+    import psycopg
+    from app.services import restore_drill
+    backup_id = _backup()
+    calls = _spy_run(monkeypatch)
+    with psycopg.connect(drill.twin_url, autocommit=True) as c:
+        c.execute("CREATE SCHEMA app")
+        c.execute("CREATE TABLE app.crashed_leftover (id int)")
+    assert _twin_schemas(drill) == {"app"}
+    monkeypatch.setattr(restore_drill, "_free_bytes", lambda: 100 * 1024 * 1024)
+
+    block = restore_drill.run(backup_id, actor="pytest")
+
+    assert block["status"] == "skipped"
+    assert "مگابایت" in block["reason"]
+    assert _twin_schemas(drill) == set(), "the leftover copy must be gone"
+    assert not calls, "no restore may start when the disk is too small"
+
+
+def test_a_missing_drill_database_has_nothing_to_clean_and_nothing_is_touched(
+        drill, monkeypatch):
+    """The clean-up needs the drill database. Without it the drill just skips."""
+    import psycopg
+    from psycopg import sql
+    from app.services import restore_drill
+    backup_id = _backup()
+    renamed = drill.twin + "_away"
+    with psycopg.connect(dsn(), autocommit=True) as c:
+        c.execute(sql.SQL("ALTER DATABASE {} RENAME TO {}").format(
+            sql.Identifier(drill.twin), sql.Identifier(renamed)))
+    try:
+        block = restore_drill.run(backup_id, actor="pytest")
+    finally:
+        with psycopg.connect(dsn(), autocommit=True) as c:
+            c.execute(sql.SQL("ALTER DATABASE {} RENAME TO {}").format(
+                sql.Identifier(renamed), sql.Identifier(drill.twin)))
+    assert block["status"] == "skipped"
+    assert "drill database missing" in block["reason"]
+
+
+# ── The real restore error stays in the reason (item 3) ─────────────────
+
+def test_a_pg_restore_that_exits_non_zero_names_the_failure_not_a_damaged_file(
+        drill):
+    from app.services import pg_backup, restore_drill
+    backup_id = _backup()
+    with open(pg_backup._dump_path(backup_id), "wb") as f:
+        f.write(b"this is not a pg_dump archive")
+
+    block = restore_drill.run(backup_id, actor="pytest")
+
+    assert block["status"] == "failed"
+    assert "ناموفق بود" in block["reason"]
+    assert "جزئیات در بخش گزارش‌ها ثبت شده است." in block["reason"]
+    assert "خراب" not in block["reason"], "nobody checked the file is damaged"
+    assert "timeout" not in block["reason"].lower()
+
+
+def test_a_pg_restore_that_times_out_says_it_took_too_long(drill, monkeypatch):
+    import subprocess
+    from app.services import pg_backup, restore_drill
+    backup_id = _backup()
+    real_run = subprocess.run
+
+    def run(argv, *a, **kw):
+        if os.path.basename(argv[0]) == "pg_restore" and "--dbname" in argv:
+            raise subprocess.TimeoutExpired(argv, kw.get("timeout"))
+        return real_run(argv, *a, **kw)
+
+    monkeypatch.setattr(pg_backup.subprocess, "run", run)
+
+    block = restore_drill.run(backup_id, actor="pytest")
+
+    assert block["status"] == "failed"
+    minutes = str(pg_backup._RESTORE_TIMEOUT // 60)
+    assert minutes in block["reason"] and "دقیقه" in block["reason"]
+    assert "خراب" not in block["reason"]
+    assert block["cleanup_ok"] is True
+    assert _twin_schemas(drill) == set()

@@ -301,8 +301,19 @@ button answers that a drill is running.
 
 If the drill failed:
 
-- Read the reason, then the per-table list. A restore that did not finish means
-  the backup file is probably damaged. Make a new backup now.
+- Read the reason, then the per-table list. If the restore itself did not
+  finish, the reason holds the real error, and the details are in the log
+  entry «backup.drill.restore_failed» (reports page) and in the server log.
+  Read them first. The cause is not always the backup file.
+  - The reason says the restore took longer than 30 minutes: the database is
+    large or the server is slow. Look at the duration of earlier drills. A
+    new backup will not help. Make the server faster, or raise
+    `_RESTORE_TIMEOUT` in `app/services/pg_backup.py` (the panel restore uses
+    it too).
+  - Any other restore failure: the log entry says why (for example a
+    permission problem on the drill database, or a full disk). Fix that cause.
+    Make a new backup now only if the log shows the archive itself is broken
+    (for example «input file does not appear to be a valid archive»).
 - A row count that does not match can also come from DDL (a table structure
   change) that ran while the backup was being made. The counts are taken a
   moment before `pg_dump` locks the tables. So do not decide the backups are
@@ -310,7 +321,17 @@ If the drill failed:
   way, treat the backups as broken.
 - A failed drill never deletes the backup. Prune does not look at drill results.
 - If the reason ends with a note that cleaning the drill database did not
-  finish, the next drill drops the old schemas first, so it fixes itself.
+  finish, the next drill drops the old schemas first, so it fixes itself. It
+  does this before the disk check, so a leftover copy can not keep the drill
+  skipped for lack of disk space.
+
+### Drill time and the next backup
+
+The scheduled drill runs inside the same scheduler step that made the backup.
+That step waits for the drill, and a restore can take up to 30 minutes.
+
+With one worker and a backup interval shorter than the drill, the next backup
+can start late. With the default 24 hour interval this does not matter.
 
 ### Run a drill by hand
 

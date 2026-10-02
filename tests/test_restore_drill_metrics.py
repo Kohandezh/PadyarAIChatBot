@@ -88,7 +88,7 @@ def folder(tmp_path, monkeypatch):
 
 def _finish(folder, block, backup_id="pg_20260914_030000_ab12cd"):
     path = _write_manifest(folder, backup_id)
-    restore_drill._finish(path, backup_id, block)
+    restore_drill._finish(backup_id, block)
     return path
 
 
