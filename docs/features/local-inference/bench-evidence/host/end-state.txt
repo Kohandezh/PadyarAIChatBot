@@ -1,0 +1,21 @@
+2026-09-30T18:37:56+00:00
+## llama processes
+none
+## port 8010
+free
+## TTS
+{"status":"ok","model_loaded":true,"error":null,"device":"cuda","workers":[{"index":0,"device":"cuda:0"},{"index":1,"device":"cuda:1"}],"workers_configured":2,"gpu":"Tesla P40","sample_rate":24000,"language":"fa","audio_format":"audio/mpeg","cpu_threads":null} http=200
+## inotex
+{"status":"ok","version":"0.1.0"} http=200
+## services
+active
+active
+active
+active
+index, memory.used [MiB], memory.free [MiB]
+0, 4611 MiB, 19829 MiB
+1, 3785 MiB, 20655 MiB
+## what this team added on the server
+1.3G	/opt/padyar-llm
+31G	/var/lib/padyar/llm
+nvidia/cuda:12.9.1-devel-ubuntu24.04 15.9GB
