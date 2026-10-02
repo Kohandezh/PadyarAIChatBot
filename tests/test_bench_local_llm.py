@@ -487,28 +487,74 @@ def test_correctness_is_also_reported_over_queries_the_model_saw(tmp_path, herme
     assert summary["correct_by_category"]["unsupported"]["of"] == 1
 
 
-def test_slow_retrieval_never_counts_as_model_latency_under_concurrency(tmp_path, hermetic,
+def test_retrieval_runs_outside_every_measured_window_under_concurrency(tmp_path, hermetic,
                                                                        monkeypatch):
+    """Ordering, not wall-clock: the result must not depend on machine load.
+
+    A request's latency window opens at the call into adapter.invoke (the
+    harness starts its timer right before it, with no await in between) and
+    closes when invoke returns. Deny-case: a retrieval that ends after any
+    window opened would sit inside a sibling's measured latency. Allow-control:
+    each window still contains its own model call (the fake server saw the
+    request between that window's open and close).
+    """
     import time
 
     from app.services import search
 
-    real = search.find_top_matches
+    retrieval_ends, windows, arrivals = [], [], []
+    real_find = search.find_top_matches
 
-    def slow_find(query, k=8):
-        time.sleep(0.5)
-        return real(query, k=k)
+    def stamped_find(query, k=8):
+        try:
+            return real_find(query, k=k)
+        finally:
+            retrieval_ends.append(time.monotonic())
 
-    monkeypatch.setattr(search, "find_top_matches", slow_find)
+    monkeypatch.setattr(search, "find_top_matches", stamped_find)
+
+    real_make = bench._make_adapter
+
+    def stamped_adapter():
+        adapter = real_make()
+        real_invoke = adapter.invoke
+
+        async def invoke(rt, model, req):
+            opened = time.monotonic()
+            try:
+                return await real_invoke(rt, model, req)
+            finally:
+                windows.append((opened, time.monotonic()))
+
+        adapter.invoke = invoke
+        return adapter
+
+    monkeypatch.setattr(bench, "_make_adapter", stamped_adapter)
+
+    class StampedModel(FakeModel):
+        def __init__(self, script):
+            super().__init__(script)
+            handler = self.server.RequestHandlerClass
+            original = handler.do_POST
+
+            def do_post(handler_self):
+                arrivals.append(time.monotonic())
+                original(handler_self)
+
+            handler.do_POST = do_post
+
     queries = [_q(Q_DATES, "faq-dates"), _q(Q_VENUE, "faq-venue"),
                _q(Q_DATES + " لطفا", "faq-dates"), _q(Q_VENUE + " لطفا", "faq-venue")]
-    with FakeModel({}) as fake:
-        result = _run(tmp_path, fake, queries, extra=["--concurrency", "4"])
+    with StampedModel({}) as fake:
+        _run(tmp_path, fake, queries, extra=["--concurrency", "4"])
 
-    latencies = [r["latency_ms"] for r in result["records"]]
-    assert len(fake.requests) == 4
-    assert max(latencies) < 500, (
-        f"{latencies}: a sibling's synchronous retrieval ran inside a timed request")
+    assert len(retrieval_ends) == 4 and len(windows) == 4 and len(arrivals) == 4
+    assert max(retrieval_ends) <= min(opened for opened, _ in windows), (
+        "a retrieval ended after a measured window opened, so its CPU time "
+        "counts as model latency")
+    for opened, closed in windows:
+        assert any(opened <= t <= closed for t in arrivals), (
+            "a measured window must contain its own request to the model")
 
 
 def test_a_non_sqlite_backend_in_the_environment_exits_2(tmp_path):
