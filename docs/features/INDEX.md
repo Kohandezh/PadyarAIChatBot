@@ -34,6 +34,12 @@ Central tracking for all features.
 | freshness-schedule | Removed (2026-09-15, retired with the event install) | — | infrastructure | 2026-09-14 | 2026-09-15 |
 | synonym-suggestions | Implemented | Ready | search | 2026-09-14 | 2026-09-14 |
 | question-assist | Implemented | Ready | content | 2026-09-14 | 2026-09-14 |
+| eval-benchmark | Draft | Not started | search | 2026-09-30 | 2026-09-30 |
+| own-model-next | Draft | Not started | chat | 2026-09-30 | 2026-09-30 |
+| monitoring-stack | Draft | Not started | infrastructure | 2026-09-30 | 2026-10-01 |
+| intent-model | Approved | In review | search | 2026-09-30 | 2026-09-30 |
+| review-governance | Draft | In review | infrastructure | 2026-09-30 | 2026-09-30 |
+| knowledge-ingestion | Approved (`docs/features/knowledge-ingestion/SPEC.md`, spike: `RESEARCH.md`) | In review: S1، S2، S3a در main (#151، #153، #152)؛ S3 (#162) و S4 در بازبینی | content | 2026-09-30 | 2026-10-01 |
 
 ## Quick Features
 

@@ -15,11 +15,14 @@ docs/engineering/MONITORING.md for the security model):
 
 Read at REQUEST time through `config.METRICS_TOKEN`, never imported
 by value, so an operator (or a test) can switch modes without a restart.
+
+The body comes from metrics.exposition(). With several workers it adds up the
+numbers of all of them, so it does not matter which worker answers the scrape.
+Auth always runs first, before anything is collected.
 """
 import secrets
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from prometheus_client import generate_latest
 
 from app import config
 from app.services import metrics
@@ -49,5 +52,4 @@ async def _require_metrics_auth(request: Request) -> None:
 @router.get("/metrics")
 async def scrape_metrics(request: Request):
     await _require_metrics_auth(request)
-    return Response(content=generate_latest(metrics.registry),
-                    media_type=MEDIA_TYPE)
+    return Response(content=metrics.exposition(), media_type=MEDIA_TYPE)

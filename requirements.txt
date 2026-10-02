@@ -6,6 +6,10 @@ openai
 python-multipart
 numpy
 httpx
+# Installed with httpx, but declared because app/services/ingest_fetch.py
+# imports it directly for the network backend that holds the fetch deadline.
+# An undeclared direct import breaks the day httpx stops depending on it.
+httpcore
 # Already installed transitively by FastAPI/Starlette and httpx, but declared
 # because app/services/ai/adapters/base.py imports it directly to run the
 # blocking DNS resolution off the event loop. An undeclared direct import
@@ -32,3 +36,10 @@ qrcode
 # Prometheus client for the /metrics endpoint (app/services/metrics.py).
 # Own dedicated CollectorRegistry — nothing registers onto the global one.
 prometheus-client
+# Parsers for the knowledge-ingestion module (app/services/ingest_extract.py).
+# defusedxml refuses a DTD in DOCX XML, and openpyxl only protects itself
+# against entity expansion when defusedxml is installed. Both are small and
+# pure Python, and ENABLED_MODULES changes without a new pip install, so they
+# live here rather than in a per-module file.
+defusedxml
+openpyxl

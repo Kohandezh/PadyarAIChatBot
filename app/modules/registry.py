@@ -123,6 +123,12 @@ MODULES: dict[str, ModuleDef] = {
         is_core=False,
         router_module="app.routers.leads",
     ),
+    "ingest": ModuleDef(
+        name="ingest",
+        description="Semi-automatic knowledge ingestion from documents and web pages, with human approval",
+        is_core=False,
+        router_module="app.routers.ingest",
+    ),
 }
 
 CORE_MODULE_NAMES = [m.name for m in MODULES.values() if m.is_core]
