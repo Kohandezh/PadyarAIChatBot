@@ -1,0 +1,12 @@
+0.00.001.478 I srv  llama_server: initializing ...
+0.00.024.427 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.038.322 I srv    load_model: loading model '/var/lib/padyar/llm/models/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf'
+0.02.871.240 W load: control-looking token:    212 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.02.871.828 W load: control-looking token:     50 '<|tool_response>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.02.879.744 W load: control-looking token:      1 '<eos>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.02.903.231 W load: special_eog_ids contains '<|tool_response>', removing '</s>' token from EOG list
+1.00.597.881 I cmn          init: llama threadpool init, n_threads = 36
+1.00.820.574 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 4096, kv_unified = 'false'
+1.00.839.316 I srv  llama_server: model loaded
+1.00.839.343 I srv  llama_server: listening on http://127.0.0.1:8010
+1.57.246.927 I srv    operator(): operator(): cleaning up before exit...
