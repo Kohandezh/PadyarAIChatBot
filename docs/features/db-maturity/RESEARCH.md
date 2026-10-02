@@ -46,7 +46,7 @@
 | زمان‌بند | هر شب ساعت 03:00، بعد verify، بعد prune به 14 عدد | `app/services/backup.py:21-29`، `:182-212` |
 | کپی بیرون از سرور | کد اختیاری است، با `OFFSITE_BACKUP_TARGET` (فقط `rsync:` یا `dir:`)، فقط بعد از verify موفق. **روی سرور تنظیم نشده است** (مالک محصول در گفتگو تأیید کرد، 2026-09-30). پس امروز هیچ نسخه‌ای از سرور بیرون نمی‌رود | `app/services/pg_backup.py:272-274`، `app/services/backup_offsite.py:38-81` |
 | بازیابی | از پنل ادمین، با عبارت تأیید دقیق، پشتیبان ایمنی قبلش، `--single-transaction`، و اعتبارسنجی بعدش | `app/services/pg_backup.py:443-563`، `:568-637` |
-| استقرار | شش مرحله: dump، checkout، pip، migrate، restart، health با 12 تلاش | `deploy/padyar-deploy.sh:108-203` |
+| استقرار | شش مرحله: dump، checkout، pip، migrate، restart، health با 12 تلاش | `deploy/padyar-deploy.sh:117-212` |
 | CI و استقرار | CI فقط بررسی‌ها را روی runnerهای GitHub اجرا می‌کند؛ job `deploy` حذف شد (#155). بعد از merge و سبز شدن CI، اپراتور روی سرور دستی `padyar-deploy` را اجرا می‌کند | `.github/workflows/ci.yml:13-17`، `docs/engineering/DEPLOYMENT_RUNBOOK.md:21-27`، `:53`، `deploy/README.md:52-56` |
 | متریک | `/metrics` در حالت multiprocess است (ADR-022 روی main): همهٔ workerها در یک پوشهٔ مشترک می‌نویسند. سه متریک پشتیبان: `backup_outcome_total` (شمارش در `_run_backup_now`)، `backup_last_success_timestamp_seconds` (gauge با `max`، از manifestها در شروع برنامه پر می‌شود)، `backup_schedule_interval_seconds` | `app/services/metrics.py:127-130`، `:140-144`، `:155-158`؛ `docs/engineering/MONITORING.md:73-75` |
 | scraper | هیچ Prometheus یا scraper در مخزن نیست | `docs/engineering/MONITORING.md:18` |
@@ -65,13 +65,22 @@ drill، نه RPO/RTO نوشته‌شده.
    نقش محدود بسازد. `tests/postgres/conftest.py:30-32` همین محدودیت را می‌گوید.
 2. **دو نصب یک cluster مشترک دارند.** آرشیو WAL و PITR در سطح cluster کار
    می‌کنند، نه در سطح یک دیتابیس. آزمایش 3 (پایین) نشان می‌دهد این یعنی چه.
-3. **rollback با sha قدیمی کار نمی‌کند.** توضیح بالای اسکریپت می‌گوید «صدا زدن
-   با sha قدیمی همان مسیر rollback است» (`deploy/padyar-deploy.sh:18-19`)، ولی
-   اسکریپت هر sha که نوک `main` نباشد را با `SUPERSEDED` و کد موفق رها می‌کند
-   (`deploy/padyar-deploy.sh:129-139`). پس مسیر rollback مستند، امروز کار نمی‌کند.
-4. **migrationها فقط افزایشی نیستند.** اسکریپت دو بار می‌گوید دیتابیس
-   «additive-only» است (`deploy/padyar-deploy.sh:34-36`، `:187-188`). ولی چهار
-   migration داده یا ساختار حذف می‌کنند:
+3. **rollback با sha قدیمی کار نمی‌کرد** (یافتهٔ نوبت 1؛ **توضیحش با PR #165 در
+   2026-10-02 درست شد**). در `3a4a415` توضیح بالای اسکریپت می‌گفت «صدا زدن با sha
+   قدیمی همان مسیر rollback است» (`3a4a415:deploy/padyar-deploy.sh:19-20`)، ولی
+   اسکریپت هر sha که نوک `main` نباشد را با `SUPERSEDED` و کد موفق رها می‌کرد
+   (`3a4a415:deploy/padyar-deploy.sh:129-139`). رفتار عوض نشده است
+   (`deploy/padyar-deploy.sh:138-148`)؛ ولی امروز توضیح درست است: «It is NOT a
+   rollback path for an old sha» و مسیر دستی `git revert` را می‌نویسد
+   (`deploy/padyar-deploy.sh:18-24`).
+4. **migrationها فقط افزایشی نیستند** (یافتهٔ نوبت 1؛ **بیشترش با PR #165 در
+   2026-10-02 درست شد**). در `3a4a415` اسکریپت دو بار می‌گفت دیتابیس «additive-only»
+   است (`3a4a415:deploy/padyar-deploy.sh:35-37`، `3a4a415:deploy/padyar-deploy.sh:187-188`).
+   امروز توضیح مرحلهٔ 6 درست است و migrationهای حذف‌کننده را نام می‌برد
+   (`deploy/padyar-deploy.sh:38-47`)، و `docs/engineering/DATABASE.md:15-32` قاعدهٔ
+   expand/contract را دارد. **هنوز باز:** متن لاگ زمان rollback هنوز می‌گوید «they
+   are additive» (`deploy/padyar-deploy.sh:196-197`)؛ کار PR D. چهار migration داده
+   یا ساختار حذف می‌کنند:
    - `migrations/0006_lead_status.sql:51` و `:56` (یک ستون و جدول `edit_sessions`)
    - `migrations/0013_companies.sql:116` و `:119` (ردیف‌های `dataset` و جدول `company_profiles`)
    - `migrations/0028_drop_pwa_leftovers.sql:14-15` (دو ستون)
@@ -88,10 +97,20 @@ drill، نه RPO/RTO نوشته‌شده.
 
 ### چند یافتهٔ دیگر از خواندن کد
 
-- بخش «بازیابی» در `docs/engineering/DEPLOYMENT_RUNBOOK.md:92` هنوز جایگزینی
-  `chat_history.db` (SQLite) را توضیح می‌دهد. برای production پستگرس غلط است.
-- توضیح مرحلهٔ 6 اسکریپت «`/health × 3`» می‌گوید (`deploy/padyar-deploy.sh:33`)،
-  ولی کد 12 تلاش روی `/api/health` می‌کند (`:65`، `:176-184`).
+- (یافتهٔ نوبت 1؛ **با PR #165 در 2026-10-02 درست شد**) بخش «بازیابی» runbook
+  جایگزینی `chat_history.db` (SQLite) را توضیح می‌داد
+  (`3a4a415:docs/engineering/DEPLOYMENT_RUNBOOK.md:84`)، که برای production پستگرس
+  غلط بود. امروز همان بخش بازیابی پستگرس را از پنل ادمین، با عبارت
+  `RESTORE BACKUP <id>` و پشتیبان ایمنی، توضیح می‌دهد
+  (`docs/engineering/DEPLOYMENT_RUNBOOK.md:95-101`).
+- (یافتهٔ نوبت 1؛ **با PR #165 در 2026-10-02 درست شد**) توضیح مرحلهٔ 6 اسکریپت
+  «`/health × 3`» می‌گفت (`3a4a415:deploy/padyar-deploy.sh:34`)، ولی کد 12 تلاش روی
+  `/api/health` می‌کرد. امروز توضیح با کد یکی است
+  (`deploy/padyar-deploy.sh:38`، `:74`، `:185-193`).
+- **هنوز باز بعد از PR #165:** `deploy/README.md` دو جا هنوز استقرار حذف‌شدهٔ CI را
+  نام می‌برد: «`DEPLOY_PORT` in CI» (`deploy/README.md:19`) و «the CI deploy»
+  (`deploy/README.md:270`). توضیح بالای بررسی `SUPERSEDED` هم هنوز از «The
+  workflow» حرف می‌زند (`deploy/padyar-deploy.sh:140`). کار PR D.
 - `backup_offsite.py` هیچ‌وقت کپی‌های قدیمی مقصد را پاک نمی‌کند (در فایل هیچ
   prune یا `--delete` نیست). مقصد دوم بی‌سقف رشد می‌کند.
 - `pg_backup.create()` هیچ شمارشی از محتوای dump ثبت نمی‌کند
@@ -402,7 +421,7 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
   `pg_restore` دستی بیرون از پنل است (بخش 6، بند 1)، از `_run()` نمی‌گذرد و این
   سقف را ندارد.
   dump قبل از deploy هم بعداً (حدود 5 GB) deploy را متوقف می‌کند
-  (`deploy/padyar-deploy.sh:112-115`). سرور واقعی احتمالاً سریع‌تر است؛
+  (`deploy/padyar-deploy.sh:121-124`). سرور واقعی احتمالاً سریع‌تر است؛
   اندازه‌گیری نشده است. restore آزمایش 4 (یک جدول، 250 MB) در 9.6 ثانیه تمام شد؛
   آزمایش 2 چندین جدول و index دارد، پس این دو عدد مستقیم قابل مقایسه نیستند.
 - **شکست آرشیو می‌تواند دیسک را پر کند.** وقتی `archive-push` شکست بخورد (repo
@@ -415,7 +434,7 @@ ADR-014 و ADR-015 هستند (جدول‌های قفل و محدودکننده�
 - **روشن کردن `archive_mode` یک restart کل cluster لازم دارد** (مستند
   runtime-config-wal). یعنی هر دو نصب چند ثانیه قطع می‌شوند. این کار در ساعت
   آرام انجام می‌شود، با همان قاعدهٔ «در زمان رویداد مستقر نکنید»
-  (`deploy/padyar-deploy.sh:40-42`).
+  (`deploy/padyar-deploy.sh:49-51`).
 - **نمونهٔ جدای PITR باید آرشیو خاموش داشته باشد** (آزمایش 4). وگرنه در repo
   production یک timeline تازه می‌نویسد.
 - **با repo بیرونی، قطع مقصد کل آرشیو را نگه می‌دارد** (آزمایش 5). repo1 محلی
@@ -595,13 +614,15 @@ RTO از snapshot استفاده نمی‌شود.
 ### 5.6 Rollback
 
 - **کد:** rollback خودکار بعد از health قرمز کار می‌کند
-  (`deploy/padyar-deploy.sh:185-200`). rollback دستی به یک sha قدیمی کار
-  نمی‌کند (اصلاح 3). راهی که امروز **بدون تغییر اسکریپت** کار می‌کند: یک
+  (`deploy/padyar-deploy.sh:194-209`). rollback دستی به یک sha قدیمی کار
+  نمی‌کند (اصلاح 3)، و از PR #165 خود اسکریپت هم همین را می‌گوید و مسیر درست را
+  می‌نویسد (`deploy/padyar-deploy.sh:18-24`). راهی که امروز **بدون تغییر اسکریپت**
+  کار می‌کند: یک
   `git revert` روی `main`، سبز شدن CI، و بعد اپراتور روی سرور `padyar-deploy` را
   با sha تازه (همان revert) اجرا می‌کند. چون آن sha نوک `main` است، قاعدهٔ
   `SUPERSEDED` آن را رد نمی‌کند. استقرار خودکار از CI دیگر وجود ندارد
   (`docs/engineering/DEPLOYMENT_RUNBOOK.md:21-27`).
-- **داده:** dump قبل از deploy (`deploy/padyar-deploy.sh:108-115`) و restore از
+- **داده:** dump قبل از deploy (`deploy/padyar-deploy.sh:117-124`) و restore از
   پنل ادمین. این برای یک نصب کار می‌کند و به نصب دیگر دست نمی‌زند.
 - **مشکل اصلی:** با migration مخرب، rollback کد به‌تنهایی کافی نیست. کد قدیمی
   ممکن است ستونی را بخواند که دیگر نیست (مثلاً کد قبل از `0028` ستون
@@ -610,7 +631,9 @@ RTO از snapshot استفاده نمی‌شود.
   انجام شود، وقتی کدی که از آن استفاده نمی‌کند قبلاً مستقر و پایدار شده است
   (الگوی expand/contract). آن‌وقت rollback کد یک deploy هیچ‌وقت از روی یک حذف
   عبور نمی‌کند. `0028` تقریباً همین را رعایت کرد (خوانندهٔ آن در همان تغییر حذف
-  شد، طبق توضیح خود فایل)، ولی در یک deploy.
+  شد، طبق توضیح خود فایل)، ولی در یک deploy. **این قاعده با PR #165 در
+  2026-10-02 نوشته شد** (`docs/engineering/DATABASE.md:15-32`)، همراه با این نکته
+  که `git revert` یک deploy حذف‌کننده به dump مرحلهٔ 1 نیاز دارد.
 
 ### 5.7 Connection pooling
 
@@ -797,7 +820,7 @@ flowchart TB
    یک نگاه کوتاه در مرورگر) ← اپراتور همان sha را روی production مستقر می‌کند.
    اگر بین انتخاب sha و اجرای دستور، `main` جلو رفته باشد، `padyar-deploy` با پیام
    `SUPERSEDED` و کد 0 تمام می‌شود و هیچ چیزی مستقر نمی‌کند
-   (`deploy/padyar-deploy.sh:129-139`)؛ اپراتور همان مسیر را با sha تازه دوباره
+   (`deploy/padyar-deploy.sh:138-148`)؛ اپراتور همان مسیر را با sha تازه دوباره
    اجرا می‌کند، از staging.
    CI هیچ job استقراری ندارد و نباید دوباره بگیرد؛ این قدم یک دستور در runbook
    است، نه یک job. داده: فقط محتوا (`dataset`، `questions`، `synonyms`،
@@ -812,7 +835,7 @@ flowchart TB
 
    | سناریو | هدف RPO | چطور برآورده می‌شود | چطور اندازه گرفته می‌شود | هدف RTO | چطور اندازه گرفته می‌شود |
    |---|---|---|---|---|---|
-   | خطای یک نصب، سرور سالم | 5 دقیقه | آرشیو WAL با `archive_timeout=60` | سن آخرین WAL آرشیوشده (`pg_stat_archiver.last_archived_time`) | 1 ساعت | **هنوز از سر تا ته اندازه‌گیری نشده.** زنجیرهٔ کامل (restore جدا، replay تا T، `pg_dump` یک نصب، dump ایمنی، `pg_restore`، ری‌استارت سرویس، بوت برنامه) را اسکریپت PR C روی سرور زمان می‌گیرد. اولین عدد: 49.9 ثانیه برای یک نصب 250 MB روی Mac، بدون ری‌استارت و بوت برنامه (آزمایش 4). بوت برنامه تا یک دقیقه طول می‌کشد (`deploy/padyar-deploy.sh:167-178`) |
+   | خطای یک نصب، سرور سالم | 5 دقیقه | آرشیو WAL با `archive_timeout=60` | سن آخرین WAL آرشیوشده (`pg_stat_archiver.last_archived_time`) | 1 ساعت | **هنوز از سر تا ته اندازه‌گیری نشده.** زنجیرهٔ کامل (restore جدا، replay تا T، `pg_dump` یک نصب، dump ایمنی، `pg_restore`، ری‌استارت سرویس، بوت برنامه) را اسکریپت PR C روی سرور زمان می‌گیرد. اولین عدد: 49.9 ثانیه برای یک نصب 250 MB روی Mac، بدون ری‌استارت و بوت برنامه (آزمایش 4). بوت برنامه تا یک دقیقه طول می‌کشد (`deploy/padyar-deploy.sh:176-187`) |
    | خرابی cluster، سرور سالم | 5 دقیقه | همان | همان | 2 ساعت | هنوز اندازه‌گیری نشده؛ تست PITR دوره‌ای (اسکریپت PR C) |
    | از دست رفتن سرور | **امروز: همه‌چیز از دست می‌رود.** بعد از PR H **و** وجود یک مقصد SFTP: 5 دقیقه، **هدف مشتق‌شده، تأییدنشده** | WAL هر حداکثر 60 ثانیه به repo2 روی SFTP، رمزشده؛ dump شبانهٔ رمزشده هم به همان مقصد | سن `pg_stat_archiver.last_archived_time` (آرشیو منتظر هر دو repo می‌ماند، آزمایش 5)، `pgbackrest verify` روی repo2، و وضعیت `offsite` در manifest | 1 روز کاری (تخمین) | فقط با یک تمرین بازسازی کامل روی سرور دیگر؛ امروز انجام نشده. همان زنجیره روی Mac، برای 42 MB، 7.7 ثانیه بود (آزمایش 5)، که سرور تازه، نصب بسته‌ها و کلید را شامل نمی‌شود |
 
@@ -829,8 +852,11 @@ flowchart TB
    rollback صریح می‌گیرد که sha قدیمی را فقط اگر جد (ancestor) `main` باشد
    می‌پذیرد، و قبل از هر کار، migrationهایی که دیتابیس دارد و کد قدیمی ندارد را
    فهرست می‌کند و بدون تأیید صریح اپراتور ادامه نمی‌دهد. توضیح‌های غلط اسکریپت
-   («additive-only»، «`/health × 3`»، «sha قدیمی») اصلاح می‌شوند. قاعدهٔ
-   expand/contract در `docs/engineering/DATABASE.md` نوشته می‌شود.
+   («additive-only»، «`/health × 3`»، «sha قدیمی») و قاعدهٔ expand/contract در
+   `docs/engineering/DATABASE.md` **با PR #165 در 2026-10-02 انجام شد**. آنچه مانده،
+   متن لاگ «they are additive» (`deploy/padyar-deploy.sh:196-197`) و اشاره‌های
+   `deploy/README.md` به استقرار حذف‌شدهٔ CI (`deploy/README.md:19`، `:270`)، جزو PR D
+   است.
 7. **Pooling:** همان `psycopg_pool` داخل برنامه. PgBouncer نه. شرط بازبینی: اگر
    جمع اتصال‌ها بالای 80 رفت (همان هشدار `prodcheck`) یا بیش از سه نصب روی یک
    cluster آمد.
@@ -969,11 +995,11 @@ flowchart TB
 
 | # | PR | علت ریشه‌ای | فایل‌هایی که لمس می‌کند | وابسته به | تغییر روی سرور |
 |---|---|---|---|---|---|
-| A | اصلاح مستندات و توضیح‌های غلط | اسناد و توضیح‌ها با کد نمی‌خوانند (SQLite در runbook، additive-only، `/health × 3`، sha قدیمی) | `docs/engineering/DEPLOYMENT_RUNBOOK.md`، `docs/engineering/DATABASE.md` (قاعدهٔ expand/contract)، `deploy/padyar-deploy.sh` (فقط توضیح) | هیچ | نه |
+| A | اصلاح مستندات و توضیح‌های غلط | اسناد و توضیح‌ها با کد نمی‌خواندند (SQLite در runbook، additive-only، `/health × 3`، sha قدیمی) | **انجام شد در PR #165 (2026-10-02):** `docs/engineering/DEPLOYMENT_RUNBOOK.md`، `docs/engineering/DATABASE.md` (قاعدهٔ expand/contract، `:15-32`)، `deploy/padyar-deploy.sh` (توضیح‌ها). باقی‌مانده‌ها به PR D رفتند | هیچ | نه |
 | B1 | شمارش ردیف در manifest | پشتیبان ثبت نمی‌کند چه چیزی در آن است | `app/services/pg_backup.py` (`create()` با snapshot صادرشده)، `tests/postgres/test_pg_backup_counts.py` | هیچ | نه |
 | B2 | تمرین بازیابی شبانه | هیچ‌کس ثابت نمی‌کند پشتیبان‌ها قابل بازیابی‌اند | `app/services/restore_drill.py` (تازه)، `app/services/pg_backup.py` (`validate_restored_database` روی اتصال دلخواه؛ **سقف زمان restore و drill جدا از سقف dump و بزرگ‌تر**؛ بررسی فضای آزاد بر اساس اندازهٔ دیتابیس)، `app/services/backup.py` (قدم drill بعد از verify؛ تصمیم شمارش جدای پشتیبان‌های deploy در `prune`)، `deploy/05-create-databases.sh` (دیتابیس `_drill`)، `app/routers/backups.py`، `templates/admin/infra_backups.html` و JS آن، `app/services/metrics.py` (سه gauge با `multiprocess_mode`، الگوی `backup_last_success_timestamp_seconds`) و پر کردن آن‌ها در شروع برنامه از manifestها (مثل `pg_backup.seed_last_success_metric()`)، `tests/test_metrics_multiprocess.py`، `tests/postgres/test_restore_drill.py` (با نقش بدون CREATEDB که خود تست می‌سازد، تست منفی «دیتابیس زنده را هدف نگیر»، و تست سقف زمان)، `docs/engineering/MONITORING.md` | B1 | بله: ساخت `padyar_<slug>_drill` با superuser |
 | C | آرشیو WAL و PITR | امروز هیچ بازیابی تا یک لحظه ممکن نیست | `deploy/55-pitr.sh` (تازه: نصب از apt اوبونتو، پیکربندی با `archive-push-queue-max`، `ALTER SYSTEM`، **restart کل cluster در ساعت آرام**، `stanza-create`، `check`، اولین full)، `deploy/systemd/padyar-pgbackrest-*.service/.timer` (تازه)، `deploy/pitr-restore-test.sh` (تازه: زنجیرهٔ کامل آزمایش 4 برای یک نصب، **با زمان هر مرحله و جمع**، نمونهٔ جدا با `archive_mode=off`، و بررسی اینکه نصب دیگر دست نخورده)، یک job در `.github/workflows/ci.yml` که این اسکریپت را در کانتینر **`ubuntu:24.04` با pgBackRest از apt اوبونتو** (همان منبع production) اجرا می‌کند، نمایش `pg_stat_archiver` (`failed_count`، `last_failed_time`، سن آخرین آرشیو) در `app/routers/backups.py` و `templates/admin/infra_backups.html`، `deploy/README.md`، runbook (مسیر دستی «پوشهٔ جدا، `pg_dump` یک نصب، توقف سرویس، `pg_restore` با نقش `padyar_<slug>`») | A | بله: نصب بسته، restart cluster، timerها |
-| D | حالت rollback امن | rollback دستی به sha قدیمی کار نمی‌کند | `deploy/padyar-deploy.sh` (حالت rollback اورژانسی با بررسی ancestor و فهرست migrationهای جلوتر)، runbook (مسیر عادی: `git revert`، CI سبز، اپراتور sha تازه را مستقر می‌کند) | A | بله: نصب دوبارهٔ `/usr/local/bin/padyar-deploy` |
+| D | حالت rollback امن | rollback دستی به sha قدیمی کار نمی‌کند | `deploy/padyar-deploy.sh` (حالت rollback اورژانسی با بررسی ancestor و فهرست migrationهای جلوتر؛ متن لاگ «they are additive» در `:196-197`؛ توضیح «The workflow» در `:140`)، `deploy/README.md` (اشاره به استقرار حذف‌شدهٔ CI در `:19` و `:270`)، runbook (مسیر عادی: `git revert`، CI سبز، اپراتور sha تازه را مستقر می‌کند) | A (انجام شد) | بله: نصب دوبارهٔ `/usr/local/bin/padyar-deploy` |
 | E | staging | مسیر استقرار قبل از production تست نمی‌شود | **بدون job استقرار در CI** (job `deploy` روی main حذف شد و نباید برگردد)؛ `deploy/README.md` و runbook (قدم دستی: اپراتور اول `padyar-deploy staging` و بعد همان sha را روی production مستقر می‌کند)، `deploy/env/instance.env.template` (نکتهٔ staging: SMS `dev`، کلید AI جدا، `WEB_CONCURRENCY=1`)، اسکریپت کپی فقط محتوا (`dataset`، `questions`، `synonyms`، `settings` بدون اعتبارها)، runbook | D | بله: نصب slug تازه |
 | F | جدایی اتصال بین دو نصب | هر نقش به دیتابیس نصب دیگر وصل می‌شود؛ فقط سد schema جلویش را می‌گیرد | `deploy/05-create-databases.sh` (`REVOKE CONNECT ON DATABASE padyar_<slug> FROM PUBLIC` و `GRANT CONNECT` به نقش خود نصب؛ **بدون** نقش فقط خواندنی و **بدون** `pg_read_all_data`)، `docs/engineering/SECURITY.md` | هیچ | بله: اجرای دوبارهٔ دستورها روی دیتابیس‌های موجود |
 | H | کپی رمزشده به یک مقصد SFTP | امروز هیچ نسخه‌ای از سرور بیرون نمی‌رود | `deploy/55-pitr.sh` (repo2: `repo2-type=sftp`، `repo2-cipher-type=aes-256-cbc`، کلید SSH کاربر `postgres`، ثبت همهٔ کلیدهای میزبان مقصد)، `app/services/backup_offsite.py` (نوع هدف `sftp:` با argv ثابت، رمزنگاری با **کلید عمومی** gpg (`gpg -e -r <fingerprint>`) قبل از آپلود؛ سرور فقط کلید عمومی دارد، و prune کپی‌های قدیمی مقصد)، `app/config.py`، `.env.example`، `tests/test_backup_offsite.py`، و یک job در `.github/workflows/ci.yml` که در برابر یک **کانتینر SFTP موقت فقط-SFTP** (همان شکل آزمایش 5) این‌ها را ثابت می‌کند: آپلود رمزشده، خوانا نبودن مقصد بدون کلید، شکست با کلید غلط، و بازیابی کامل بعد از پاک کردن «سرور» با روش دو قدمی 2.50 (دانلود، بعد restore). صفحهٔ Backups: «هیچ نسخه‌ای بیرون از سرور نیست» تا وقتی مقصد تنظیم نشده. runbook: فرایند کلید کاغذی و بازیابی بعد از از دست رفتن سرور. **بدون rclone و بدون Google Drive.** | C | بله، ولی فقط وقتی مقصد SFTP ساخته شد: کلید SSH، کلید رمز، پیکربندی repo2 و `OFFSITE_BACKUP_TARGET`. تا آن روز روی سرور خالی می‌ماند |

@@ -1131,6 +1131,6 @@ https://knowledge.workspace.google.com/admin/support/troubleshooting/countries-o
 - pgBackRest اوبونتو به نسخه‌ای رسید که مستقیم از SFTP بازیابی می‌کند، یا PGDG
   از سرور در دسترس شد. آن‌وقت قدم دانلود حذف می‌شود.
 
-**قدم‌ها:** PRهای A تا H در بخش 9 همان RESEARCH.md، به همان ترتیب. ستون
+**قدم‌ها:** PRهای A تا H در بخش 9 همان RESEARCH.md، به همان ترتیب. PR A (اصلاح توضیح‌های اسکریپت استقرار، runbook، و قاعدهٔ expand/contract در `docs/engineering/DATABASE.md`) با PR #165 در 2026-10-02 انجام شد. ستون
 «تغییر روی سرور» آنجا می‌گوید کدام PR کار روی gpuserver لازم دارد، که فقط با
 تأیید مالک محصول انجام می‌شود.
