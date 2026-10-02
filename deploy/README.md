@@ -39,6 +39,8 @@ sudo bash deploy/10-install-app.sh myevent
 sudo bash deploy/15-nginx-and-ssl.sh myevent 8010 myevent.example.com   # needs a Cloudflare API token, see below
 sudo MAINTENANCE_TITLE="چت‌بات رویداد من" \
   bash deploy/17-watchdog.sh myevent 8010 myevent.example.com           # down-SMS watchdog + maintenance page
+# After deploy/40-cloudflare-tunnel.sh has published the site ("Going public" below):
+sudo bash deploy/55-monitoring.sh myevent   # host monitoring; needs METRICS_TOKEN in the .env, see "Monitoring"
 
 # GPU + TTS (independent of the app above):
 sudo bash deploy/20-gpu-driver.sh
@@ -285,6 +287,60 @@ rm -f "$TMP"
 
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
+
+## Monitoring
+
+`deploy/55-monitoring.sh` installs one Prometheus, one Alertmanager and three
+exporters for the whole host, from the Ubuntu archive, under systemd, every
+one on `127.0.0.1` only. Full description: `docs/engineering/MONITORING.md`.
+
+```bash
+# 1. Once per host, and again after every rule change. Run the FIRST time
+#    outside event hours: it restarts cloudflared, and every site on the host
+#    drops for a few seconds.
+sudo bash deploy/55-monitoring.sh myevent [otherevent ...] [--host-alerts myevent]
+
+# 2. An install without a usable METRICS_TOKEN stops the run before anything
+#    is installed, with the exact command for that install. Run it (it
+#    restarts the app), then step 1 again. The two forms it prints:
+#    installs created before the key was in the template (no line at all):
+echo "METRICS_TOKEN=$(openssl rand -hex 32)" | sudo tee -a /opt/padyar-myevent/.env >/dev/null \
+  && sudo systemctl restart padyar-myevent
+#    the line is there but empty:
+sudo sed -i "s/^METRICS_TOKEN=.*/METRICS_TOKEN=$(openssl rand -hex 32)/" /opt/padyar-myevent/.env \
+  && sudo systemctl restart padyar-myevent
+
+# 3. Look at it from your own machine, through SSH only. There is no public URL.
+ssh -N -L 9090:127.0.0.1:9090 -L 9093:127.0.0.1:9093 <user>@<host>
+#    http://127.0.0.1:9090  Prometheus (Alerts, Graph)
+#    http://127.0.0.1:9093  Alertmanager (user operator, password in /root/.secrets/alertmanager-operator.pass)
+
+# Silence an alert before planned work (maintenance mode answers 503):
+sudo amtool silence add alertname=PadyarHigh5xxRate install=myevent --duration=2h --comment="maintenance"
+```
+
+Firing alerts show in those two UIs only. Nothing texts them yet: the
+watchdog step that will is a separate change. The watchdog's own "the app is
+down" SMS works as before.
+
+The `location = /metrics { return 404; }` block is in
+`deploy/nginx/instance.conf.template`. If the script warns that `/metrics` is
+reachable through nginx, that install's vhost was not re-rendered since the
+block was added. Re-render it with the install's own visitor-facing name (see
+"Closing `/metrics` on an existing host" below):
+
+```bash
+sudo MAINTENANCE_TITLE='<visitor-facing name>' bash deploy/17-watchdog.sh myevent 8010 myevent.example.com
+```
+
+`MAINTENANCE_TITLE` is required: without it the maintenance page visitors see
+goes back to the default title. Removing the stack:
+`docs/engineering/MONITORING.md`, "Removing the stack".
+
+Running it again with fewer slugs never removes another install's scrape job
+or probe. Passwords and token files are created only when missing.
+`deploy/padyar-deploy.sh` does not touch the stack: new rules reach the host
+only by re-running `55-monitoring.sh`.
 
 ## Watchdog & maintenance page
 

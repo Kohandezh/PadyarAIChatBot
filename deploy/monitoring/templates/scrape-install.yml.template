@@ -1,0 +1,12 @@
+# Rendered by deploy/55-monitoring.sh into
+# /etc/prometheus/scrape.d/padyar-{{SLUG}}.yml. Do not edit on the host.
+# The token is read from a file on every scrape and never written here.
+scrape_configs:
+  - job_name: "padyar-{{SLUG}}"
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: "/etc/prometheus/secrets/{{SLUG}}.token"
+    static_configs:
+      - targets: ["127.0.0.1:{{PORT}}"]
+        labels: {app: padyar, install: "{{SLUG}}"}

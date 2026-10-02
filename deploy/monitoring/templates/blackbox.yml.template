@@ -1,0 +1,4 @@
+# Rendered by deploy/55-monitoring.sh into /etc/prometheus/blackbox.yml from
+# EVERY /etc/padyar-monitoring/installs/*.conf, not only the slugs of the
+# last run. Do not edit on the host.
+modules:

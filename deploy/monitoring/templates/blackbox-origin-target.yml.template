@@ -1,0 +1,2 @@
+      - targets: ["https://127.0.0.1:443/api/health"]
+        labels: {domain: "{{DOMAIN}}", probe_install: "{{SLUG}}"}

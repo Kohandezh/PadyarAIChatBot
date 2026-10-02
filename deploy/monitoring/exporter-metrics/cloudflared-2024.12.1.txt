@@ -1,0 +1,8 @@
+# Metric names the alert rules may read from cloudflared, with the source
+# line at tag 2024.12.1. deploy/40-cloudflare-tunnel.sh installs cloudflared
+# from pkg.cloudflare.com, so the version on a host is not pinned:
+# deploy/55-monitoring.sh warns when it differs, and its live name check
+# shows whether the series still exists.
+# Namespace "cloudflared" and subsystem "tunnel" are constants in
+# connection/metrics.go#L10-L11.
+cloudflared_tunnel_ha_connections https://github.com/cloudflare/cloudflared/blob/2024.12.1/supervisor/metrics.go#L15-L17
