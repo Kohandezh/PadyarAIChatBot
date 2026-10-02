@@ -491,6 +491,20 @@ def _read_settings():
     return phone, threshold
 
 
+def _app_unimportable(install: str) -> bool:
+    """True, after one clear journal line, when the app package cannot be
+    imported. Every app-backed reader would then fail on its own with a
+    vague note; this line names the cause. `app/__init__.py` only reads
+    VERSION, so the check touches no database and no network."""
+    try:
+        import app  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        print(f"[watchdog] {install}: cannot import the app ({type(e).__name__}): "
+              "SMS disabled; check PYTHONPATH in the unit", flush=True)
+        return True
+    return False
+
+
 def _send(destination: str, text: str) -> None:
     """Send via Asanak, translating to the gateway's number form at the edge
     (the app stores `+98…`; Asanak rejects the plus — see sms.py)."""
@@ -800,6 +814,14 @@ def run_cycle(
     path = (os.fspath(state_path) if state_path
             else os.path.join(STATE_DIR, install, "state.json"))
     state = _load_state(path, install)
+    # Without the app the default readers and the sender can only fail. Keep
+    # the cached phone and skip the credit check and every send, so the cycle
+    # reports the cause once and marks no alert as sent.
+    app_missing = settings_reader is _read_settings and _app_unimportable(install)
+    if app_missing:
+        settings_reader = lambda: (state.get("cached_phone", ""), "300000")  # noqa: E731
+        credit_reader = lambda: None  # noqa: E731
+        sender = lambda destination, text: None  # noqa: E731
 
     try:
         # The SMS names the install by its slug, uppercased — exactly the
@@ -871,10 +893,13 @@ def run_cycle(
 
         # Last: Alertmanager alerts. Its own try, so a bug in this step can
         # never cost the probe verdict or the down-SMS state above.
+        # Without the app the step could only mark alerts as sent that never
+        # went out, so it is skipped and its state stays as it was.
         try:
-            _alert_step(install, state, phone, now,
-                        alerts_reader, owner_reader, silences_reader, sender,
-                        persist=lambda: _persist(path, state))
+            if not app_missing:
+                _alert_step(install, state, phone, now,
+                            alerts_reader, owner_reader, silences_reader, sender,
+                            persist=lambda: _persist(path, state))
         except Exception as e:  # noqa: BLE001
             print(f"[watchdog] {install}: alert step error: {type(e).__name__}", flush=True)
     except Exception as e:  # noqa: BLE001 — the shell is total: journal, persist, return

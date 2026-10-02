@@ -822,6 +822,45 @@
   اجرا می‌شود.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): watchdog در production نمی‌توانست app را import کند
+
+- **مدل و نقش‌ها:** Claude Opus 5.5 (claude-opus-5-5). یک عامل پیاده‌ساز و یک
+  عامل بازبین مستقل که تست پذیرش خودش را جدا از روی قرارداد نوشت.
+- **ریشهٔ مشکل:** `deploy/systemd/padyar-watchdog@.service` اسکریپت را از
+  `/opt/padyar-watchdog/watchdog.py` اجرا می‌کند و `WorkingDirectory` آن
+  `/opt/padyar-<slug>` است. Python پوشهٔ خود اسکریپت را در `sys.path` می‌گذارد،
+  نه پوشهٔ کاری را. هیچ جای دیگری هم پوشهٔ app را اضافه نمی‌کرد. پس هر
+  `from app...` در خواننده‌های تنبل watchdog با `ModuleNotFoundError` شکست
+  می‌خورد: نه شمارهٔ هشدار، نه اعتبار، نه ارسال پیامک. در journal فقط
+  `settings unreadable (ModuleNotFoundError)` دیده می‌شد.
+- **کارهای انجام‌شده:**
+  1. `Environment=PYTHONPATH=/opt/padyar-%i` در unit، با یک توضیح کوتاه.
+  2. `_app_unimportable()` در `deploy/watchdog/watchdog.py` و یک فراخوانی در
+     `run_cycle`: اگر `import app` شکست بخورد، در هر چرخه یک خط روشن
+     `cannot import the app (...)` چاپ می‌شود. probe، شمارش خطا و شمارهٔ
+     cache شده مثل قبل کار می‌کنند. بررسی اعتبار، هر ارسال پیامک و مرحلهٔ
+     پیامک Alertmanager رد می‌شوند، پس خط `send failed` نمی‌آید و هیچ هشداری
+     «ارسال‌شده» ثبت نمی‌شود.
+  3. تست‌ها پیش از کد: `tests/test_watchdog_unit_import.py` (اسکریپت را بیرون
+     از repo کپی می‌کند و در یک پوشهٔ نصب موقت، مثل systemd، اجرا می‌کند؛ و
+     بررسی می‌کند که `.env` واقعی repo خوانده نشود) و یک تست در
+     `tests/test_watchdog_io.py` برای خط روشن و نبودن هیچ ارسال.
+  4. سند: §6، §8، §9 و §10 در `docs/features/critical-watchdog/SPEC.md` و بخش
+     watchdog در `docs/engineering/MONITORING.md`، با گام‌های اجرای دوبارهٔ
+     `deploy/17-watchdog.sh` و یک دستور `journalctl --since` برای بررسی (فقط
+     journal بعد از اجرای دوباره را می‌خواند).
+- **راستی‌آزمایی ماشینی همین نشست:** بازتولید محلی در همان شکل unit (کپی
+  اسکریپت بیرون از repo، cwd پوشهٔ app، محیط خالی): پیش از اصلاح
+  `ModuleNotFoundError`، با `PYTHONPATH` بدون آن. تست تازهٔ subprocess پیش از
+  اصلاح شکست خورد و بعد از آن موفق شد. با برداشتن موقت خط `PYTHONPATH` از unit
+  دوباره شکست خورد. تست «بدون ارسال» با برداشتن موقت sender بی‌اثر یا شرط
+  مرحلهٔ هشدار شکست خورد. `tests/test_watchdog*.py` و
+  `tests/test_critical_alert_settings.py`: ۹۴ موفق. کل suite محلی اجرا **نشد**؛
+  CI دروازه است.
+- **روی سرور راستی‌آزمایی نشده است.** unit روی میزبان فقط با اجرای دوبارهٔ
+  `deploy/17-watchdog.sh` عوض می‌شود.
+- **بازبینی انسانی:** pending.
+
 ## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): انتشار وضعیت ذخیره‌شدهٔ circuit موقع شروع برنامه
 
 - **مدل/ارکستراتور:** Claude Opus 5.5 (claude-opus-5-5). بخش برنامهٔ WU3 از

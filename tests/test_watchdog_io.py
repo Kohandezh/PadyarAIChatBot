@@ -936,3 +936,41 @@ def test_the_unit_ends_only_a_truly_stuck_cycle():
     assert int(timeout.group(1)) == 300
     assert int(timeout.group(1)) > 2 * watchdog.ALERTMANAGER_DEADLINE_SECONDS + 5, \
         "room for the 5 s probe and two Alertmanager GETs"
+
+
+def test_an_app_that_cannot_be_imported_is_one_clear_line_and_no_send(tmp_path, monkeypatch, capsys):
+    """When the unit's PYTHONPATH does not reach the app, every app-backed
+    reader and the SMS sender fail. That used to read as "settings unreadable"
+    and "send failed" each cycle, and no SMS ever went out. Now one line names
+    the real cause and no send is tried, so the line "SMS disabled" is true.
+    The probe verdict, the down streak and the cached phone keep working, and
+    no alert is marked as sent, so it still goes out once the unit is fixed."""
+    import sys
+
+    def gateway_needs_the_app(destination, text):
+        raise ModuleNotFoundError("No module named 'app'")
+
+    monkeypatch.setitem(sys.modules, "app", None)
+    monkeypatch.setattr(watchdog, "_send", gateway_needs_the_app)
+    state_path = tmp_path / f"{INSTALL}.json"
+    state_path.write_text(json.dumps({"cached_phone": PHONE}), encoding="utf-8")
+    alert = _alert("PadyarHigh5xxRate", "fp1")
+
+    for now in (1000, 1060, 1120):
+        _cycle(tmp_path, now=now, sender=None, settings_reader=None, credit_reader=None,
+               alerts_reader=lambda: [alert, HEARTBEAT], owner_reader=lambda: INSTALL,
+               silences_reader=lambda: [])
+        out = capsys.readouterr().out
+        assert out.count(f"[watchdog] {INSTALL}: cannot import the app (ModuleNotFoundError): "
+                         "SMS disabled; check PYTHONPATH in the unit") == 1, out
+        assert "send failed" not in out and "unreadable" not in out, out
+    disk = _disk_state(tmp_path)
+    assert disk["fail_count"] == 3 and disk["down_since"] == 1000
+    assert disk["alert_sent"] == {} and disk["alert_sms_today"] == 0
+
+    _cycle(tmp_path, now=1180, probe=lambda port: True, sender=None, settings_reader=None,
+           credit_reader=None)
+    out = capsys.readouterr().out
+    assert "cannot import the app" in out and "unreadable" not in out, out
+    assert _disk_state(tmp_path)["fail_count"] == 0
+    assert _disk_state(tmp_path)["cached_phone"] == PHONE
