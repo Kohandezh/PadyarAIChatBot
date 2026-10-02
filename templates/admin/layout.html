@@ -93,6 +93,17 @@
                      </li>
                      {% endif %}
 
+                    {# The ingest module owns this page and its API. Without the module
+                       the page is a 404, so the link must go too. #}
+                    {% if 'ingest' in (enabled_modules or []) %}
+                    <li class="nav-item {% if active_page == 'ingest' %}active{% endif %}">
+                        <a class="nav-link" href="/secure-panel-admin/ingest">
+                            <span class="nav-link-icon"><i class="fas fa-file-import"></i></span>
+                            <span class="nav-link-title">افزودن دانش از فایل</span>
+                        </a>
+                    </li>
+                    {% endif %}
+
                     <li class="nav-item dropdown {% if active_page and active_page.startswith('ai_') %}active show{% endif %}">
                         <a class="nav-link dropdown-toggle" href="#navbar-ai" data-bs-toggle="dropdown"
                            role="button" aria-expanded="false">
