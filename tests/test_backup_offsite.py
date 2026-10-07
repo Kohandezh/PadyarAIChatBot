@@ -686,3 +686,23 @@ def test_the_view_reads_the_newest_manifest_and_leaks_no_target_or_error(monkeyp
     assert view["state"] == state
     assert view["backup_id"] == BACKUP_ID
     assert set(view) == {"configured", "state", "attempted_at", "backup_id"}
+
+
+@needs_gpg
+@pytest.mark.parametrize("setting", ["OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS"])
+def test_an_ssh_path_with_a_space_is_refused(backup_dir, events, sftp_setup, remote,
+                                             monkeypatch, tmp_path, setting):
+    """ssh splits UserKnownHostsFile on whitespace, so a path with a space
+    would quietly become two other files. Refuse it instead."""
+    import app.config as config
+    from app.services import backup_offsite
+    spaced = tmp_path / "my keys"
+    spaced.mkdir()
+    (spaced / "file").write_text("x\n")
+    monkeypatch.setattr(config, setting, str(spaced / "file"))
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "failed"
+    assert setting in result["error"]
+    assert sftp_setup.calls == []

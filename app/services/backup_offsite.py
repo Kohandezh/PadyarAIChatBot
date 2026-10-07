@@ -276,6 +276,11 @@ def _sftp_settings() -> dict:
               "OFFSITE_GPG_PUBLIC_KEY"):
         if not os.path.isfile(values[n]):
             raise FileNotFoundError(f"{n} is not a file; nothing uploaded")
+    # ssh reads UserKnownHostsFile as a whitespace-separated LIST of files,
+    # so a space would quietly point it at two other paths.
+    for n in ("OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS"):
+        if any(c.isspace() for c in values[n]):
+            raise ValueError(f"{n} may not contain spaces; nothing uploaded")
     return values
 
 
