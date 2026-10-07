@@ -323,6 +323,17 @@ rm -f "$TMP"
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
 
+Off-site copy: today no destination exists, so every backup sits on this
+server, and Infrastructure > Backups says so in red. The day an SFTP-only
+account exists, set these in `/opt/padyar-<slug>/.env` and restart:
+`OFFSITE_BACKUP_TARGET=sftp:user@host[:port]:/path`,
+`OFFSITE_SFTP_IDENTITY_FILE`, `OFFSITE_SFTP_KNOWN_HOSTS` (all host keys of
+the destination), `OFFSITE_GPG_PUBLIC_KEY` (the PUBLIC key only),
+`OFFSITE_GPG_FINGERPRINT`, and optionally `OFFSITE_REMOTE_KEEP`. Each dump is
+gpg-encrypted before upload; the private key lives on paper. Key creation,
+the paper key, and restore after losing the server are in
+`docs/engineering/DEPLOYMENT_RUNBOOK.md` ("کپی رمزشده بیرون از سرور").
+
 ## Monitoring
 
 `deploy/55-monitoring.sh` installs one Prometheus, one Alertmanager and three

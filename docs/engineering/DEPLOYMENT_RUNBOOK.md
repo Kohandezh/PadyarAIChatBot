@@ -93,6 +93,8 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
   `offsite` همان manifest.json ثبت می‌شود. شکست کپی هرگز پشتیبان محلی را
   باطل نمی‌کند؛ فقط رخداد `backup.offsite.failed` در لاگ سرویس ثبت می‌شود
   — هر شب مقصد را از روی همین رخداد ببینید، نه با فرض.
+  نوع سوم `sftp:` است: کپی رمزشده به یک حساب فقط-SFTP. پایین، «کپی رمزشده
+  بیرون از سرور» را ببینید.
 - پیش از هر استقرار: `deploy/padyar-deploy.sh` (گام ۱) قبل از هر تغییر یک dump
   با `reason=deploy` می‌گیرد. اگر dump شکست بخورد، استقرار هیچ چیز را تغییر نمی‌دهد.
 - دستی: پنل ادمین → Infrastructure → Backups → ساخت پشتیبان.
@@ -103,6 +105,139 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
   `pg_restore --single-transaction`، اعتبارسنجی. شناسهٔ پشتیبان ایمنی در نتیجه
   برمی‌گردد. اگر چند پروسه اجرا می‌شود، بعد از بازیابی بقیه را ری‌استارت کنید.
   سپس `/api/ready` و شمارش dataset در `/api/health` را بررسی کنید.
+
+### کپی رمزشده بیرون از سرور (`sftp:`)
+
+**امروز هیچ مقصدی وجود ندارد.** روی سرور `OFFSITE_BACKUP_TARGET` خالی است. پس
+همهٔ پشتیبان‌ها روی همین سرور هستند. اگر سرور از دست برود، همه‌چیز از دست
+می‌رود. صفحهٔ Backups همین را با یک خط قرمز می‌گوید: «هیچ نسخه‌ای بیرون از سرور
+نیست.» کد آماده است و job `offsite-sftp` در CI آن را در برابر یک سرور SFTP موقت
+ثابت می‌کند. روزی که حساب SFTP ساخته شد، راه‌اندازی فقط قدم‌های زیر است.
+
+**کار این کد** (`app/services/backup_offsite.py`): بعد از هر dump که verify موفق
+داشته باشد، dump را با **کلید عمومی** gpg رمز می‌کند و فقط فایل
+`pg_<تاریخ>_<ساعت>_<شناسه>.dump.gpg` را آپلود می‌کند. بعد اندازهٔ فایل در مقصد را با
+فایل محلی مقایسه می‌کند و sha256 فایل رمزشده را در بلوک `offsite` همان
+manifest.json می‌نویسد. سپس فقط `OFFSITE_REMOTE_KEEP` نسخهٔ جدیدتر را در مقصد نگه
+می‌دارد (خالی یعنی همان عدد نگه‌داری محلی، پیش‌فرض ۱۴). فقط فایل‌هایی با همین الگوی
+نام پاک می‌شوند. هر شکست در manifest و رخداد `backup.offsite.failed` ثبت می‌شود و
+پشتیبان محلی را خراب نمی‌کند.
+
+سرور فقط کلید عمومی دارد. پس خود سرور نمی‌تواند نسخه‌های بیرونی را باز کند، و کسی
+هم که سرور را بگیرد نمی‌تواند. کلید خصوصی فقط روی کاغذ، در گاوصندوق است.
+
+**۱. ساختن کلید gpg، بیرون از سرور.** روی یک کامپیوتر جدا، اگر ممکن است بدون
+اینترنت. کلید اصلی فقط امضا می‌کند و یک زیرکلید فقط رمز می‌کند:
+
+```bash
+export GNUPGHOME=$(mktemp -d)
+gpg --batch --pinentry-mode loopback --passphrase "" --quick-gen-key "padyar-backup" ed25519 cert never
+FPR=$(gpg --with-colons --list-keys padyar-backup | awk -F: '/^fpr/{print $10; exit}')
+gpg --batch --pinentry-mode loopback --passphrase "" --quick-add-key "$FPR" cv25519 encr never
+gpg --armor --export "$FPR" > backup-public.asc            # فقط این به سرور می‌رود
+gpg --batch --pinentry-mode loopback --passphrase "" --armor --export-secret-keys "$FPR" > backup-secret.asc
+echo "$FPR"                                                # fingerprint، 40 حرف
+```
+
+**۲. کلید خصوصی روی کاغذ.** `backup-secret.asc` و fingerprint را چاپ کنید (حدود
+۷۲۰ بایت متن، آزمایش 6 در `docs/features/db-maturity/RESEARCH.md`). دو نسخه چاپ
+کنید و در گاوصندوق بگذارید. خط آخرِ پیش از `END` که با `=` شروع می‌شود، checksum
+است: اگر هنگام تایپ دوباره یک حرف اشتباه شود، gpg خطا می‌دهد.
+
+کاغذ را **همین حالا** آزمایش کنید، نه روز حادثه. روی یک کامپیوتر دیگر، متن کاغذ را
+در `typed-secret.asc` تایپ کنید و:
+
+```bash
+export GNUPGHOME=$(mktemp -d)
+gpg --batch --import typed-secret.asc
+echo test > t.txt
+gpg --batch --recipient-file backup-public.asc --encrypt --output t.gpg t.txt
+gpg --batch --decrypt t.gpg                                # باید «test» چاپ کند
+```
+
+بعد از آزمایش، `backup-secret.asc`، `typed-secret.asc` و هر دو `GNUPGHOME` را پاک
+کنید. هیچ نسخهٔ دیجیتالی از کلید خصوصی نماند.
+
+**۳. حساب SFTP در مقصد.** فقط SFTP، بدون shell، با chroot و بدون رمز عبور (همان
+شکل آزمایش 5):
+
+```text
+Match User backup
+    ChrootDirectory /srv/sftp/backup
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    PasswordAuthentication no
+```
+
+پوشهٔ قابل نوشتن داخل chroot: `/upload`. روی سرور، کلید SSH برای کاربر اپ:
+
+```bash
+sudo -u padyar-myevent install -d -m 700 /opt/padyar-myevent/offsite
+sudo -u padyar-myevent ssh-keygen -t ed25519 -N "" -f /opt/padyar-myevent/offsite/id_ed25519
+```
+
+محتوای `id_ed25519.pub` را در `authorized_keys` حساب `backup` در مقصد بگذارید.
+
+**۴. کلیدهای میزبان مقصد.** **همهٔ** کلیدها لازم است، نه فقط ed25519 (در آزمایش 5،
+کلاینت نوع دیگری را انتخاب کرد):
+
+```bash
+ssh-keyscan -p <port> <host> > /opt/padyar-myevent/offsite/known_hosts
+ssh-keygen -lf /opt/padyar-myevent/offsite/known_hosts
+```
+
+fingerprintها را با مدیر مقصد مقایسه کنید (`ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub`
+روی مقصد). به خروجی `ssh-keyscan` بدون مقایسه اعتماد نکنید: ممکن است کسی وسط راه
+باشد. کپی با `StrictHostKeyChecking=yes` اجرا می‌شود. پس کلید ناشناخته یا عوض‌شده
+اتصال را رد می‌کند و چیزی آپلود نمی‌شود.
+
+**۵. تنظیمات** در `/opt/padyar-myevent/.env`، بعد ری‌استارت سرویس:
+
+```bash
+OFFSITE_BACKUP_TARGET=sftp:backup@<host>:<port>:/upload
+OFFSITE_SFTP_IDENTITY_FILE=/opt/padyar-myevent/offsite/id_ed25519
+OFFSITE_SFTP_KNOWN_HOSTS=/opt/padyar-myevent/offsite/known_hosts
+OFFSITE_GPG_PUBLIC_KEY=/opt/padyar-myevent/offsite/backup-public.asc
+OFFSITE_GPG_FINGERPRINT=<FPR از قدم ۱>
+OFFSITE_REMOTE_KEEP=
+```
+
+از پنل یک پشتیبان دستی بگیرید. صفحهٔ Backups باید «آخرین کپی موفق بود» را نشان
+دهد. اگر «ناموفق» دید، علت در بخش گزارش‌ها است (رخداد `backup.offsite.failed`).
+
+**بازیابی بعد از از دست رفتن سرور:**
+
+1. سرور تازه را با `deploy/README.md` برپا کنید (`00`، `05`، `10`).
+2. کلید SSH سرور قبلی با خود سرور رفته است. یک کلید تازه در `authorized_keys`
+   مقصد بگذارید، بعد جدیدترین نسخه را دانلود کنید:
+
+   ```bash
+   sftp -P <port> backup@<host>
+   sftp> ls -l /upload
+   sftp> get /upload/pg_<تاریخ>_<ساعت>_<شناسه>.dump.gpg
+   ```
+
+3. روی کامپیوتری که کلید کاغذی در آن تایپ شده (قدم ۲)، باز کنید و بررسی کنید:
+
+   ```bash
+   gpg --batch --output padyar.dump --decrypt pg_<...>.dump.gpg
+   pg_restore --list padyar.dump | head                     # باید فهرست جدول‌ها را نشان دهد
+   ```
+
+   gpg خودش سلامت فایل را بررسی می‌کند: فایل دست‌کاری‌شده یا ناقص خطا می‌دهد.
+4. `padyar.dump` را به سرور تازه ببرید و با همان flagهای پنل، با نقش خود نصب،
+   برگردانید:
+
+   ```bash
+   sudo systemctl stop padyar-myevent
+   sudo -u padyar-myevent bash -c 'set -a; . /opt/padyar-myevent/.env; set +a;
+     pg_restore --dbname "$DATABASE_URL" --clean --if-exists --no-owner --no-privileges \
+       --single-transaction padyar.dump'
+   sudo systemctl start padyar-myevent
+   ```
+
+5. `/api/ready` و شمارش dataset در `/api/health` را بررسی کنید. پس از بازیابی،
+   `padyar.dump` و فایل باز‌شده را از کامپیوتر کمکی پاک کنید: داده‌های شخصی در آن است.
 
 ## بازگشت (Rollback)
 - بازگشت دانش (reset): `scripts/reset-content-to-defaults.py` پیش از هر کار با
