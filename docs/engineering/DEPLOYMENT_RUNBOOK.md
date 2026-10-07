@@ -221,8 +221,16 @@ OFFSITE_GPG_FINGERPRINT=<FPR از قدم ۱>
 OFFSITE_REMOTE_KEEP=
 ```
 
-از پنل یک پشتیبان دستی بگیرید. صفحهٔ Backups باید «آخرین کپی موفق بود» را نشان
-دهد. اگر «ناموفق» دید، علت در بخش گزارش‌ها است (رخداد `backup.offsite.failed`).
+کپی بیرون از سرور فقط بعد از یک **بررسی سلامت موفق** انجام می‌شود
+(`pg_backup.verify()`). پشتیبان خودکار شبانه خودش بررسی می‌کند، پس هر شب کپی
+می‌شود (`app/services/backup.py:197`). ولی «گرفتن نسخهٔ پشتیبان جدید» در پنل فقط
+dump می‌گیرد و چیزی کپی نمی‌کند. پس برای آزمودن:
+
+1. در صفحهٔ Backups، «گرفتن نسخهٔ پشتیبان جدید» را بزنید.
+2. در ردیف همان پشتیبان، «بررسی سلامت» را بزنید. کپی همین‌جا انجام می‌شود.
+3. صفحه را دوباره باز کنید. خط بالای صفحه باید «آخرین کپی موفق بود» را نشان دهد.
+
+اگر «ناموفق» دید، علت در بخش گزارش‌ها است (رخداد `backup.offsite.failed`).
 
 **بازیابی بعد از از دست رفتن سرور:**
 
@@ -244,14 +252,28 @@ OFFSITE_REMOTE_KEEP=
    ```
 
    gpg خودش سلامت فایل را بررسی می‌کند: فایل دست‌کاری‌شده یا ناقص خطا می‌دهد.
-4. `padyar.dump` را به سرور تازه ببرید و با همان flagهای پنل، با نقش خود نصب،
-   برگردانید:
+4. `padyar.dump` را در `/opt/padyar-myevent/` بگذارید (مالک: کاربر اپ) و با همان
+   flagهای پنل، با نقش خود نصب، برگردانید.
+
+   **رمز دیتابیس نباید روی خط فرمان باشد.** هر کاربر سرور خط فرمان هر پروسه را با
+   `ps` یا `/proc/<pid>/cmdline` می‌بیند، ولی محیط (environment) یک پروسه را فقط
+   خود همان کاربر و root می‌بینند. پس `pg_restore --dbname "$DATABASE_URL"` رمز را لو
+   می‌دهد. خود برنامه هم همین قاعده را دارد: رمز را در `PGPASSWORD` می‌گذارد
+   (`app/services/pg_backup.py`، `_conn_parts()` و `_env()`). دستور زیر همان دو تابع را
+   صدا می‌زند، پس `DATABASE_URL` را دقیقاً مثل برنامه تجزیه می‌کند:
 
    ```bash
    sudo systemctl stop padyar-myevent
-   sudo -u padyar-myevent bash -c 'set -a; . /opt/padyar-myevent/.env; set +a;
-     pg_restore --dbname "$DATABASE_URL" --clean --if-exists --no-owner --no-privileges \
-       --single-transaction padyar.dump'
+   cd /opt/padyar-myevent && sudo -u padyar-myevent bash -c \
+     'set -a; . ./.env; set +a; .venv/bin/python - padyar.dump' <<'PY'
+   import os, sys
+   from app.services import pg_backup
+   p = pg_backup._conn_parts()
+   os.execvpe("pg_restore", ["pg_restore", "--host", p["host"], "--port", p["port"],
+       "--username", p["user"], "--dbname", p["dbname"], "--clean", "--if-exists",
+       "--no-owner", "--no-privileges", "--single-transaction", sys.argv[1]],
+       pg_backup._env(p))
+   PY
    sudo systemctl start padyar-myevent
    ```
 

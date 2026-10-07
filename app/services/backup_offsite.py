@@ -66,9 +66,11 @@ path, a bare `pg_<id>` pattern would let each delete the other's copies.
 Anything else at the destination is never touched, including copies an
 older version of this module wrote without the database name. On sftp:,
 the same prefix rule also removes this install's own leftover `.part`
-files (from a cut or timed-out upload) after the next good copy. rsync: is not pruned: it would
-need a remote shell command or an `rsync --delete` filter run against a
-directory the operator may share with other files.
+files (from a cut or timed-out upload) after the next good copy.
+
+rsync: is not pruned: it would need a remote shell command or an
+`rsync --delete` filter run against a directory the operator may share
+with other files.
 """
 import hashlib
 import json
