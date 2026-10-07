@@ -210,7 +210,7 @@ def _remote_keep() -> int:
     try:
         from app.services import backup
         return max(1, backup.configured_keep())
-    except Exception:  # noqa: BLE001 — a settings read must not stop a copy
+    except Exception:  # noqa: BLE001 (a settings read must not stop a copy)
         from app.services import pg_backup
         return pg_backup.KEEP
 
