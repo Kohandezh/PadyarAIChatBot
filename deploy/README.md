@@ -326,7 +326,9 @@ Backups: schedule them in the admin panel (Backup Centre). It shells out to
 Off-site copy: today no destination exists, so every backup sits on this
 server, and Infrastructure > Backups says so in red. The day an SFTP-only
 account exists, set these in `/opt/padyar-<slug>/.env` and restart:
-`OFFSITE_BACKUP_TARGET=sftp:user@host[:port]:/path`,
+`OFFSITE_BACKUP_TARGET=sftp:user@host[:port]:/path` (one path per install,
+e.g. `/upload/<slug>`; copies are also named after the install's database, so
+two installs on one path never prune each other's),
 `OFFSITE_SFTP_IDENTITY_FILE`, `OFFSITE_SFTP_KNOWN_HOSTS` (all host keys of
 the destination), `OFFSITE_GPG_PUBLIC_KEY` (the PUBLIC key only),
 `OFFSITE_GPG_FINGERPRINT`, and optionally `OFFSITE_REMOTE_KEEP`. Each dump is

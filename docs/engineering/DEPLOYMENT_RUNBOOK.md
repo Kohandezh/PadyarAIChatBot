@@ -116,11 +116,15 @@ python3 scripts/reset-content-to-defaults.py   # پشتیبان خودکار + s
 
 **کار این کد** (`app/services/backup_offsite.py`): بعد از هر dump که verify موفق
 داشته باشد، dump را با **کلید عمومی** gpg رمز می‌کند و فقط فایل
-`pg_<تاریخ>_<ساعت>_<شناسه>.dump.gpg` را آپلود می‌کند. بعد اندازهٔ فایل در مقصد را با
+`padyar_<slug>.pg_<تاریخ>_<ساعت>_<شناسه>.dump.gpg` را آپلود می‌کند. بخش اول نام،
+نام دیتابیس همین نصب از `DATABASE_URL` است. بعد اندازهٔ فایل در مقصد را با
 فایل محلی مقایسه می‌کند و sha256 فایل رمزشده را در بلوک `offsite` همان
 manifest.json می‌نویسد. سپس فقط `OFFSITE_REMOTE_KEEP` نسخهٔ جدیدتر را در مقصد نگه
-می‌دارد (خالی یعنی همان عدد نگه‌داری محلی، پیش‌فرض ۱۴). فقط فایل‌هایی با همین الگوی
-نام پاک می‌شوند. هر شکست در manifest و رخداد `backup.offsite.failed` ثبت می‌شود و
+می‌دارد (خالی یعنی همان عدد نگه‌داری محلی، پیش‌فرض ۱۴). فقط فایل‌هایی پاک می‌شوند که
+با نام دیتابیس **همین نصب** شروع می‌شوند. پس اگر دو نصب این سرور به یک مسیر بنویسند،
+هیچ‌کدام نسخه‌های دیگری را پاک نمی‌کند. فایل‌هایی که نسخهٔ قبلی این کد بدون نام
+دیتابیس نوشته (`pg_<...>.dump.gpg`) هرگز پاک نمی‌شوند؛ اگر لازم شد، دستی پاکشان
+کنید. هر شکست در manifest و رخداد `backup.offsite.failed` ثبت می‌شود و
 پشتیبان محلی را خراب نمی‌کند.
 
 سرور فقط کلید عمومی دارد. پس خود سرور نمی‌تواند نسخه‌های بیرونی را باز کند، و کسی
@@ -169,7 +173,22 @@ Match User backup
     PasswordAuthentication no
 ```
 
-پوشهٔ قابل نوشتن داخل chroot: `/upload`. روی سرور، کلید SSH برای کاربر اپ:
+پوشهٔ قابل نوشتن داخل chroot: `/upload`.
+
+**هر نصب یک مسیر جدا.** این سرور دو نصب دارد. برای هر نصب یک پوشهٔ جدا بسازید، مثلاً
+`/upload/myevent`، و همان را در `OFFSITE_BACKUP_TARGET` بگذارید. نام فایل‌ها هم
+نام دیتابیس نصب را دارد، پس حتی با یک مسیر مشترک، prune یک نصب به فایل‌های نصب دیگر
+دست نمی‌زند. مسیر جدا یک لایهٔ حفاظت دوم است. کد پوشه را نمی‌سازد، پس یک بار بسازید:
+
+```bash
+sudo -u padyar-myevent sh -c 'echo "mkdir /upload/myevent" | sftp -b - \
+  -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/opt/padyar-myevent/offsite/known_hosts \
+  -i /opt/padyar-myevent/offsite/id_ed25519 -P <port> backup@<host>'
+```
+
+(این دستور بعد از قدم ۴ کار می‌کند، وقتی کلید و known_hosts آماده است.)
+
+روی سرور، کلید SSH برای کاربر اپ:
 
 ```bash
 sudo -u padyar-myevent install -d -m 700 /opt/padyar-myevent/offsite
@@ -194,7 +213,7 @@ fingerprintها را با مدیر مقصد مقایسه کنید (`ssh-keygen -
 **۵. تنظیمات** در `/opt/padyar-myevent/.env`، بعد ری‌استارت سرویس:
 
 ```bash
-OFFSITE_BACKUP_TARGET=sftp:backup@<host>:<port>:/upload
+OFFSITE_BACKUP_TARGET=sftp:backup@<host>:<port>:/upload/myevent
 OFFSITE_SFTP_IDENTITY_FILE=/opt/padyar-myevent/offsite/id_ed25519
 OFFSITE_SFTP_KNOWN_HOSTS=/opt/padyar-myevent/offsite/known_hosts
 OFFSITE_GPG_PUBLIC_KEY=/opt/padyar-myevent/offsite/backup-public.asc
@@ -213,14 +232,14 @@ OFFSITE_REMOTE_KEEP=
 
    ```bash
    sftp -P <port> backup@<host>
-   sftp> ls -l /upload
-   sftp> get /upload/pg_<تاریخ>_<ساعت>_<شناسه>.dump.gpg
+   sftp> ls -l /upload/myevent
+   sftp> get /upload/myevent/padyar_myevent.pg_<تاریخ>_<ساعت>_<شناسه>.dump.gpg
    ```
 
 3. روی کامپیوتری که کلید کاغذی در آن تایپ شده (قدم ۲)، باز کنید و بررسی کنید:
 
    ```bash
-   gpg --batch --output padyar.dump --decrypt pg_<...>.dump.gpg
+   gpg --batch --output padyar.dump --decrypt padyar_myevent.pg_<...>.dump.gpg
    pg_restore --list padyar.dump | head                     # باید فهرست جدول‌ها را نشان دهد
    ```
 
