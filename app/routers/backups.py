@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from app.auth.security import verify_admin
 from app.config import logger
 from app.routers.public import _render, _require_admin
-from app.services import applog, backup_center
+from app.services import applog, backup_center, backup_offsite
 
 router = APIRouter()
 
@@ -141,13 +141,15 @@ def list_backups():
         logger.warning("Backup schedule unreadable: %s", type(exc).__name__)
         schedule = {}
     engine, is_pg = _engine()
-    rows = ([_pg_row(m) for m in engine.list_backups()] if is_pg
-             else backup_center.list_sets())
+    manifests = engine.list_backups() if is_pg else []
+    rows = [_pg_row(m) for m in manifests] if is_pg else backup_center.list_sets()
     return {
         "backups": rows,
         "engine": "postgresql" if is_pg else "sqlite",
         "schedule": schedule,
         "labels": backup_center.ROLE_LABELS,
+        # State and time only; the target and error stay on the server.
+        "offsite": backup_offsite.last_result_view(manifests),
     }
 
 

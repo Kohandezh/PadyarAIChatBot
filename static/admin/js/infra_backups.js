@@ -131,6 +131,28 @@ function renderSchedule(schedule) {
     el('sched-next').textContent = formatDate(s.next_run);
 }
 
+/* Off-site copy. With no target set, every backup sits on this server, so
+ * losing the server loses them all: say that, in plain words. */
+function renderOffsite(offsite) {
+    const o = offsite || {};
+    const box = el('offsite-status');
+    if (!o.configured) {
+        box.className = 'small mb-3 text-danger fw-bold';
+        box.textContent = 'هیچ نسخه‌ای بیرون از سرور نیست.';
+        return;
+    }
+    if (o.state === 'copied') {
+        box.className = 'small mb-3 text-success';
+        box.textContent = `نسخهٔ بیرون از سرور: آخرین کپی موفق بود (${formatDate(o.attempted_at)}).`;
+    } else if (o.state === 'failed') {
+        box.className = 'small mb-3 text-danger fw-bold';
+        box.textContent = `نسخهٔ بیرون از سرور: آخرین کپی ناموفق بود (${formatDate(o.attempted_at)}). جزئیات در بخش گزارش‌ها ثبت شد.`;
+    } else {
+        box.className = 'small mb-3 text-warning';
+        box.textContent = 'نسخهٔ بیرون از سرور: جدیدترین پشتیبان هنوز بیرون کپی نشده است.';
+    }
+}
+
 /* Row checkboxes for bulk delete. Kept in a Set of backup ids; rebuilt from
  * scratch on every render so it can never hold an id that is no longer on
  * disk. */
@@ -235,6 +257,7 @@ async function load() {
         }
         const data = await res.json();
         renderSchedule(data.schedule);
+        renderOffsite(data.offsite);
         renderRows(data.backups || []);
     } catch {
         showMsg('backups-msg', 'خطای ارتباط با سرور', 'danger');
