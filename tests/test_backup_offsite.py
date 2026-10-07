@@ -172,7 +172,7 @@ def test_dir_copy_writes_the_dump(backup_dir, events, tmp_path, monkeypatch):
     result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
 
     assert result["status"] == "copied"
-    dest = mount / f"{BACKUP_ID}.dump"
+    dest = mount / _ours(BACKUP_ID, ".dump")
     assert dest.read_bytes() == DUMP_BYTES
     assert (os.stat(dest).st_mode & 0o777) == 0o600
     block = _manifest(backup_dir)["offsite"]
@@ -267,8 +267,22 @@ needs_gpg = pytest.mark.skipif(not offsite_keys.gpg_available(),
 SFTP_TARGET = "sftp:backup@offsite.example:2222:/upload"
 
 
+DB = "padyar_alpha"
+
+
+@pytest.fixture(autouse=True)
+def install_db(monkeypatch):
+    """Every remote name carries the install's database name, read from
+    DATABASE_URL at call time. Pin one install for the whole file."""
+    monkeypatch.setenv("DATABASE_URL", f"postgresql://u:p@127.0.0.1:5432/{DB}")
+
+
 def _old_id(day):
     return f"pg_202609{day:02d}_030000_{day:06x}"
+
+
+def _ours(backup_id, ext, db=DB):
+    return f"{db}.{backup_id}{ext}"
 
 
 class FakeSftp:
@@ -424,7 +438,7 @@ def test_an_sftp_copy_is_encrypted_uploaded_and_recorded(backup_dir, events, sft
     result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir), actor="t")
 
     assert result["status"] == "copied", result["error"]
-    name = f"{BACKUP_ID}.dump.gpg"
+    name = _ours(BACKUP_ID, ".dump.gpg")
     assert _uploaded(remote) == [name], "only the .gpg file, no plain dump, no .part"
     uploaded = remote / "upload" / name
     assert DUMP_BYTES not in uploaded.read_bytes()
@@ -548,7 +562,7 @@ def test_encryption_never_touches_the_users_default_keyring(backup_dir, events, 
 def test_a_refused_connection_is_nonfatal_and_prunes_nothing(backup_dir, events, sftp_setup,
                                                              remote):
     from app.services import backup_offsite
-    old = remote / "upload" / f"{_old_id(1)}.dump.gpg"
+    old = remote / "upload" / _ours(_old_id(1), ".dump.gpg")
     old.write_bytes(b"old")
     sftp_setup.rc = 255
 
@@ -581,9 +595,11 @@ def test_prune_keeps_the_newest_n_and_never_touches_other_files(backup_dir, even
     from app.services import backup_offsite
     up = remote / "upload"
     for day in range(1, 6):
-        (up / f"{_old_id(day)}.dump.gpg").write_bytes(b"old")
-    foreign = ["notes.txt", f"{_old_id(1)}.dump", "pg_manual.dump.gpg",
-               f"{_old_id(2)}.dump.gpg.part", f"x{_old_id(3)}.dump.gpg"]
+        (up / _ours(_old_id(day), ".dump.gpg")).write_bytes(b"old")
+    foreign = ["notes.txt", _ours(_old_id(1), ".dump"), f"{DB}.pg_manual.dump.gpg",
+               _ours(_old_id(2), ".dump.gpg.part"), f"x{_ours(_old_id(3), '.dump.gpg')}",
+               f"{_old_id(1)}.dump.gpg", _ours(_old_id(1), ".dump.gpg", db="padyar_beta"),
+               _ours(_old_id(2), ".dump.gpg", db="padyar_alpha2")]
     for name in foreign:
         (up / name).write_bytes(b"not ours")
     monkeypatch.setattr(config, "OFFSITE_REMOTE_KEEP", 3)
@@ -593,10 +609,10 @@ def test_prune_keeps_the_newest_n_and_never_touches_other_files(backup_dir, even
 
     assert result["status"] == "copied", result["error"]
     ours = sorted(n for n in _uploaded(remote) if n not in foreign)
-    assert ours == [f"{_old_id(4)}.dump.gpg", f"{_old_id(5)}.dump.gpg",
-                    f"{BACKUP_ID}.dump.gpg"]
+    assert ours == [_ours(_old_id(4), ".dump.gpg"), _ours(_old_id(5), ".dump.gpg"),
+                    _ours(BACKUP_ID, ".dump.gpg")]
     assert all((up / n).exists() for n in foreign)
-    assert sorted(result["pruned"]) == [f"{_old_id(d)}.dump.gpg" for d in (1, 2, 3)]
+    assert sorted(result["pruned"]) == [_ours(_old_id(d), ".dump.gpg") for d in (1, 2, 3)]
 
 
 @needs_gpg
@@ -604,13 +620,13 @@ def test_remote_keep_defaults_to_the_local_keep_setting(backup_dir, events, sftp
                                                         remote, monkeypatch):
     from app.services import backup, backup_offsite
     for day in range(1, 4):
-        (remote / "upload" / f"{_old_id(day)}.dump.gpg").write_bytes(b"old")
+        (remote / "upload" / _ours(_old_id(day), ".dump.gpg")).write_bytes(b"old")
     monkeypatch.setattr(backup, "configured_keep", lambda: 2)
 
     result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
 
     assert result["remote_keep"] == 2
-    assert _uploaded(remote) == [f"{_old_id(3)}.dump.gpg", f"{BACKUP_ID}.dump.gpg"]
+    assert _uploaded(remote) == [_ours(_old_id(3), ".dump.gpg"), _ours(BACKUP_ID, ".dump.gpg")]
 
 
 def test_a_dir_target_is_pruned_with_the_same_rule(backup_dir, events, tmp_path,
@@ -620,9 +636,10 @@ def test_a_dir_target_is_pruned_with_the_same_rule(backup_dir, events, tmp_path,
     mount = tmp_path / "offsite-mount"
     mount.mkdir()
     for day in range(1, 4):
-        (mount / f"{_old_id(day)}.dump").write_bytes(b"old")
+        (mount / _ours(_old_id(day), ".dump")).write_bytes(b"old")
     (mount / "README.txt").write_text("operator file")
-    (mount / f"{_old_id(1)}.dump.gpg").write_bytes(b"not this pattern")
+    (mount / _ours(_old_id(1), ".dump.gpg")).write_bytes(b"not this pattern")
+    (mount / f"{_old_id(1)}.dump").write_bytes(b"written before names carried the db")
     monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", f"dir:{mount}")
     monkeypatch.setattr(config, "OFFSITE_REMOTE_KEEP", 2)
 
@@ -630,7 +647,8 @@ def test_a_dir_target_is_pruned_with_the_same_rule(backup_dir, events, tmp_path,
 
     assert result["status"] == "copied"
     assert sorted(p.name for p in mount.iterdir()) == sorted([
-        f"{_old_id(3)}.dump", f"{BACKUP_ID}.dump", "README.txt", f"{_old_id(1)}.dump.gpg"])
+        _ours(_old_id(3), ".dump"), _ours(BACKUP_ID, ".dump"), "README.txt",
+        _ours(_old_id(1), ".dump.gpg"), f"{_old_id(1)}.dump"])
 
 
 def test_an_rsync_target_is_not_pruned(backup_dir, events, monkeypatch):
@@ -706,3 +724,103 @@ def test_an_ssh_path_with_a_space_is_refused(backup_dir, events, sftp_setup, rem
     assert result["status"] == "failed"
     assert setting in result["error"]
     assert sftp_setup.calls == []
+
+
+# ── Two installs, one destination path ──────────────────────────────────
+#
+# This server runs two installs. If both point at the same destination path
+# and prune matched any pg_<id> name, each install would delete the other's
+# copies. Names carry the install's database name, and prune only matches
+# its own. (The runbook also asks for one path per install.)
+
+def _as_install(monkeypatch, db):
+    monkeypatch.setenv("DATABASE_URL", f"postgresql://u:p@127.0.0.1:5432/{db}")
+
+
+def _seed(directory, ext):
+    for db in ("padyar_alpha", "padyar_beta"):
+        for day in (1, 2, 3):
+            (directory / _ours(_old_id(day), ext, db=db)).write_bytes(b"old")
+
+
+def _names(directory, db, ext):
+    return sorted(p.name for p in directory.iterdir()
+                  if p.name.startswith(f"{db}.") and p.name.endswith(ext))
+
+
+def test_two_installs_sharing_one_dir_path_prune_only_their_own(backup_dir, events,
+                                                                tmp_path, monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    mount = tmp_path / "shared"
+    mount.mkdir()
+    _seed(mount, ".dump")
+    legacy = mount / f"{_old_id(1)}.dump"
+    legacy.write_bytes(b"written before names carried the db")
+    monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", f"dir:{mount}")
+    monkeypatch.setattr(config, "OFFSITE_REMOTE_KEEP", 2)
+
+    _as_install(monkeypatch, "padyar_alpha")
+    assert backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))["status"] == "copied"
+
+    assert _names(mount, "padyar_alpha", ".dump") == [
+        _ours(_old_id(3), ".dump", db="padyar_alpha"), _ours(BACKUP_ID, ".dump", db="padyar_alpha")]
+    assert len(_names(mount, "padyar_beta", ".dump")) == 3, "the other install's copies survive"
+
+    _as_install(monkeypatch, "padyar_beta")
+    assert backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))["status"] == "copied"
+
+    assert _names(mount, "padyar_beta", ".dump") == [
+        _ours(_old_id(3), ".dump", db="padyar_beta"), _ours(BACKUP_ID, ".dump", db="padyar_beta")]
+    assert len(_names(mount, "padyar_alpha", ".dump")) == 2, "beta's prune left alpha alone"
+    assert legacy.exists(), "a name without a db is never deleted by this code"
+
+
+@needs_gpg
+def test_two_installs_sharing_one_sftp_path_prune_only_their_own(backup_dir, events,
+                                                                 sftp_setup, remote,
+                                                                 monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    up = remote / "upload"
+    _seed(up, ".dump.gpg")
+    legacy = up / f"{_old_id(1)}.dump.gpg"
+    legacy.write_bytes(b"written before names carried the db")
+    monkeypatch.setattr(config, "OFFSITE_REMOTE_KEEP", 2)
+
+    _as_install(monkeypatch, "padyar_alpha")
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "copied", result["error"]
+    assert result["remote_file"] == _ours(BACKUP_ID, ".dump.gpg", db="padyar_alpha")
+    assert _names(up, "padyar_alpha", ".dump.gpg") == [
+        _ours(_old_id(3), ".dump.gpg", db="padyar_alpha"),
+        _ours(BACKUP_ID, ".dump.gpg", db="padyar_alpha")]
+    assert len(_names(up, "padyar_beta", ".dump.gpg")) == 3, "the other install's copies survive"
+
+    _as_install(monkeypatch, "padyar_beta")
+    assert backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))["status"] == "copied"
+
+    assert len(_names(up, "padyar_beta", ".dump.gpg")) == 2
+    assert len(_names(up, "padyar_alpha", ".dump.gpg")) == 2, "beta's prune left alpha alone"
+    assert legacy.exists(), "a name without a db is never deleted by this code"
+
+
+@pytest.mark.parametrize("url", [
+    "postgresql://u:p@127.0.0.1:5432/bad name",
+    "postgresql://u:p@127.0.0.1:5432/a.b",
+    "postgresql://u:p@127.0.0.1:5432/x;y",
+])
+def test_a_database_name_unsafe_for_a_file_name_fails_the_copy(backup_dir, events, tmp_path,
+                                                               monkeypatch, url):
+    import app.config as config
+    from app.services import backup_offsite
+    mount = tmp_path / "offsite-mount"
+    mount.mkdir()
+    monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", f"dir:{mount}")
+    monkeypatch.setenv("DATABASE_URL", url)
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "failed"
+    assert list(mount.iterdir()) == []

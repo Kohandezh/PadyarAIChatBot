@@ -58,9 +58,13 @@ PRUNE
 -----
 After a successful copy, sftp: and dir: destinations keep the newest
 OFFSITE_REMOTE_KEEP copies (default: the local keep setting) and delete the
-older ones. Only names this module writes are ever candidates:
-`pg_<date>_<time>_<6 hex>.dump.gpg` for sftp:, `.dump` for dir:. Anything
-else at the destination is never touched. rsync: is not pruned: it would
+older ones. Only names this module writes FOR THIS INSTALL are candidates:
+`<database>.pg_<date>_<time>_<6 hex>.dump.gpg` for sftp:, `.dump` for dir:,
+where <database> is the install's own database name from DATABASE_URL
+(padyar_<slug>). One server runs two installs; if both pointed at the same
+path, a bare `pg_<id>` pattern would let each delete the other's copies.
+Anything else at the destination is never touched, including copies an
+older version of this module wrote without the database name. rsync: is not pruned: it would
 need a remote shell command or an `rsync --delete` filter run against a
 directory the operator may share with other files.
 """
@@ -82,11 +86,13 @@ _RSYNC_PREFIX = "rsync:"
 _DIR_PREFIX = "dir:"
 _SFTP_PREFIX = "sftp:"
 
-# The names this module writes, and so the only names prune may delete.
-# Same id pattern as pg_backup._ID_RE.
+# The names this module writes are `<database>.<backup id><ext>`, and only
+# this install's own names may be pruned. Same id pattern as pg_backup._ID_RE.
 _ID = r"pg_\d{8}_\d{6}_[0-9a-f]{6}"
-_SFTP_NAME_RE = re.compile(rf"^{_ID}\.dump\.gpg$")
-_DIR_NAME_RE = re.compile(rf"^{_ID}\.dump$")
+_SFTP_EXT = ".dump.gpg"
+_DIR_EXT = ".dump"
+# A database name goes into a remote file name and an sftp batch command.
+_DB_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
 
 # user@host[:port]:/path. A host name or IPv4 only: an IPv6 literal would
 # need brackets and colons, which this format cannot tell from the port.
@@ -109,6 +115,27 @@ def _target() -> str:
 def _timeout() -> int:
     from app.config import OFFSITE_BACKUP_TIMEOUT
     return OFFSITE_BACKUP_TIMEOUT
+
+
+def _install_name() -> str:
+    """This install's database name (padyar_<slug>), the prefix of every
+    remote name. Taken from pg_backup's own DATABASE_URL split, so the
+    dump and its copy name the same database."""
+    from app.services import pg_backup
+    name = pg_backup._conn_parts()["dbname"]
+    if not _DB_NAME_RE.match(name or ""):
+        raise ValueError("the database name in DATABASE_URL cannot be used in a "
+                         "file name (letters, digits, _ and - only)")
+    return name
+
+
+def _remote_name(backup_id: str, ext: str) -> str:
+    return f"{_install_name()}.{backup_id}{ext}"
+
+
+def _own_names_re(ext: str):
+    """The names this install writes with `ext`, and nothing else."""
+    return re.compile(rf"^{re.escape(_install_name())}\.{_ID}{re.escape(ext)}$")
 
 
 def copy_verified_dump(backup_id: str, manifest: dict, actor: str = ""):
@@ -181,7 +208,7 @@ def _dir_copy(dump: str, directory: str, backup_id: str) -> str:
     # single-host failure this feature exists to remove.
     if not os.path.isdir(directory):
         raise FileNotFoundError(f"{directory} is not a mounted directory")
-    dest = os.path.join(directory, f"{backup_id}.dump")
+    dest = os.path.join(directory, _remote_name(backup_id, _DIR_EXT))
     shutil.copyfile(dump, dest)
     os.chmod(dest, 0o600)
     fd = os.open(dest, os.O_RDONLY)
@@ -216,8 +243,9 @@ def _remote_keep() -> int:
 
 
 def _to_delete(names, pattern, keep: int) -> list:
-    """The names matching `pattern` beyond the newest `keep`. Backup ids
-    start with their timestamp, so name order is age order."""
+    """The names matching `pattern` beyond the newest `keep`. Within one
+    install's prefix the backup id starts with its timestamp, so name order
+    is age order."""
     ours = sorted((n for n in names if pattern.match(n)), reverse=True)
     return ours[keep:]
 
@@ -227,7 +255,7 @@ def _prune_dir(directory: str, result: dict) -> None:
     result["remote_keep"] = keep
     result["pruned"] = []
     try:
-        for name in _to_delete(os.listdir(directory), _DIR_NAME_RE, keep):
+        for name in _to_delete(os.listdir(directory), _own_names_re(_DIR_EXT), keep):
             os.remove(os.path.join(directory, name))
             result["pruned"].append(name)
     except OSError as e:
@@ -353,8 +381,8 @@ def _remote_sizes(listing: str) -> dict:
 def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict) -> None:
     target = parse_sftp_target(target_text)
     settings = _sftp_settings()
-    name = f"{backup_id}.dump.gpg"
-    if not _SFTP_NAME_RE.match(name):
+    name = _remote_name(backup_id, _SFTP_EXT)
+    if not _own_names_re(_SFTP_EXT).match(name):
         raise ValueError("unexpected backup id")
     encrypted = os.path.join(os.path.dirname(dump), f".{name}.tmp")
     if _SFTP_UNSAFE_LOCAL.search(encrypted):
@@ -399,7 +427,7 @@ def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict) -> Non
     keep = _remote_keep()
     result["remote_keep"] = keep
     result["pruned"] = []
-    old = _to_delete(sizes, _SFTP_NAME_RE, keep)
+    old = _to_delete(sizes, _own_names_re(_SFTP_EXT), keep)
     if old:
         pruned = _sftp(target, settings,
                        "".join(f"rm {target.path.rstrip('/')}/{n}\n" for n in old))

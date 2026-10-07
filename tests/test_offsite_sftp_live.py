@@ -176,9 +176,13 @@ def install(tmp_path, monkeypatch, sftp_server, postgres, vault):
     monkeypatch.setattr(applog, "service", lambda *a, **k: 0)
     dump = postgres["dump"]
 
-    def copy(backup_id):
+    def copy(backup_id, db=DB):
         from app.services import backup_offsite
-        d = root / backup_id
+        monkeypatch.setenv("DATABASE_URL", f"postgresql://u:p@127.0.0.1:5432/{db}")
+        d = root / f"{db}-{backup_id}"
+        d.mkdir()
+        monkeypatch.setattr(pg_backup, "BACKUP_DIR", str(d))
+        d = d / backup_id
         d.mkdir()
         (d / "padyar.dump").write_bytes(dump)
         manifest = {"backup_id": backup_id, "file": "padyar.dump",
@@ -190,8 +194,15 @@ def install(tmp_path, monkeypatch, sftp_server, postgres, vault):
     return copy
 
 
+DB = "padyar_alpha"
+
+
 def _id(day):
     return f"pg_202610{day:02d}_030000_{day:06x}"
+
+
+def _name(day, db=DB):
+    return f"{db}.{_id(day)}.dump.gpg"
 
 
 def test_the_copy_is_encrypted_and_the_paper_key_restores_the_exact_dump(
@@ -202,7 +213,7 @@ def test_the_copy_is_encrypted_and_the_paper_key_restores_the_exact_dump(
     result = install(_id(1))
 
     assert result["status"] == "copied", result["error"]
-    name = f"{_id(1)}.dump.gpg"
+    name = _name(1)
     assert _remote_names(sftp_server) == [name]
     fetched = tmp_path / name
     assert _sftp(sftp_server, f'get /upload/{name} "{fetched}"\n').returncode == 0
@@ -241,7 +252,7 @@ def test_prune_keeps_exactly_n_of_our_copies(install, sftp_server, monkeypatch, 
         assert install(_id(day))["status"] == "copied"
 
     assert _remote_names(sftp_server) == sorted(
-        [f"{_id(4)}.dump.gpg", f"{_id(5)}.dump.gpg", "operator-notes.txt"])
+        [_name(4), _name(5), "operator-notes.txt"])
 
 
 def test_a_wrong_host_key_is_refused(install, sftp_server, monkeypatch):
@@ -253,3 +264,19 @@ def test_a_wrong_host_key_is_refused(install, sftp_server, monkeypatch):
     assert result["status"] == "failed"
     assert result["exit_code"] == 255
     assert _remote_names(sftp_server) == []
+
+
+def test_two_installs_sharing_one_path_prune_only_their_own(install, sftp_server,
+                                                            monkeypatch):
+    """This server runs two installs. Pointed at the same path, each must
+    prune only the copies that carry its own database name."""
+    import app.config as config
+    monkeypatch.setattr(config, "OFFSITE_REMOTE_KEEP", 1)
+
+    for day in (7, 8):
+        assert install(_id(day), db="padyar_alpha")["status"] == "copied"
+    for day in (7, 8):
+        assert install(_id(day), db="padyar_beta")["status"] == "copied"
+
+    assert _remote_names(sftp_server) == sorted(
+        [_name(8, "padyar_alpha"), _name(8, "padyar_beta")])
