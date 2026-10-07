@@ -64,7 +64,9 @@ where <database> is the install's own database name from DATABASE_URL
 (padyar_<slug>). One server runs two installs; if both pointed at the same
 path, a bare `pg_<id>` pattern would let each delete the other's copies.
 Anything else at the destination is never touched, including copies an
-older version of this module wrote without the database name. rsync: is not pruned: it would
+older version of this module wrote without the database name. On sftp:,
+the same prefix rule also removes this install's own leftover `.part`
+files (from a cut or timed-out upload) after the next good copy. rsync: is not pruned: it would
 need a remote shell command or an `rsync --delete` filter run against a
 directory the operator may share with other files.
 """
@@ -427,12 +429,18 @@ def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict) -> Non
     keep = _remote_keep()
     result["remote_keep"] = keep
     result["pruned"] = []
+    result["removed_parts"] = []
     old = _to_delete(sizes, _own_names_re(_SFTP_EXT), keep)
-    if old:
+    # A cut or timed-out upload leaves its .part behind, and nothing else ever
+    # removes it. This upload just renamed its own .part, so any .part with
+    # this install's prefix that is still listed is a leftover.
+    parts = sorted(n for n in sizes if _own_names_re(_SFTP_EXT + ".part").match(n))
+    if old or parts:
         pruned = _sftp(target, settings,
-                       "".join(f"rm {target.path.rstrip('/')}/{n}\n" for n in old))
+                       "".join(f"rm {target.path.rstrip('/')}/{n}\n" for n in old + parts))
         if pruned.returncode == 0:
             result["pruned"] = old
+            result["removed_parts"] = parts
         else:
             # The new copy is safe; a failed prune costs space, not data.
             result["prune_error"] = f"sftp rm exited {pruned.returncode}"

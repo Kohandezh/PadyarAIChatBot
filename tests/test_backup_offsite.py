@@ -597,7 +597,7 @@ def test_prune_keeps_the_newest_n_and_never_touches_other_files(backup_dir, even
     for day in range(1, 6):
         (up / _ours(_old_id(day), ".dump.gpg")).write_bytes(b"old")
     foreign = ["notes.txt", _ours(_old_id(1), ".dump"), f"{DB}.pg_manual.dump.gpg",
-               _ours(_old_id(2), ".dump.gpg.part"), f"x{_ours(_old_id(3), '.dump.gpg')}",
+               f"x{_ours(_old_id(3), '.dump.gpg')}",
                f"{_old_id(1)}.dump.gpg", _ours(_old_id(1), ".dump.gpg", db="padyar_beta"),
                _ours(_old_id(2), ".dump.gpg", db="padyar_alpha2")]
     for name in foreign:
@@ -824,3 +824,40 @@ def test_a_database_name_unsafe_for_a_file_name_fails_the_copy(backup_dir, event
 
     assert result["status"] == "failed"
     assert list(mount.iterdir()) == []
+
+
+
+@needs_gpg
+def test_a_stale_part_file_is_removed_only_when_it_is_this_installs_own(backup_dir, events,
+                                                                        sftp_setup, remote):
+    """A cut or timed-out upload leaves <db>.<id>.dump.gpg.part behind, and
+    nothing else ever removes it. The next good copy removes this install's
+    own leftovers, never another install's."""
+    from app.services import backup_offsite
+    up = remote / "upload"
+    own = up / _ours(_old_id(2), ".dump.gpg.part")
+    other = up / _ours(_old_id(2), ".dump.gpg.part", db="padyar_beta")
+    legacy = up / f"{_old_id(2)}.dump.gpg.part"
+    for f in (own, other, legacy):
+        f.write_bytes(b"half an upload")
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "copied", result["error"]
+    assert not own.exists(), "this install's stale .part is removed"
+    assert other.exists(), "another install's .part is never touched"
+    assert legacy.exists(), "a name without a db is never touched"
+    assert result["removed_parts"] == [own.name]
+
+
+@needs_gpg
+def test_no_part_file_is_removed_when_the_upload_failed(backup_dir, events, sftp_setup, remote):
+    from app.services import backup_offsite
+    own = remote / "upload" / _ours(_old_id(2), ".dump.gpg.part")
+    own.write_bytes(b"half an upload")
+    sftp_setup.rc = 255
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "failed"
+    assert own.exists()
