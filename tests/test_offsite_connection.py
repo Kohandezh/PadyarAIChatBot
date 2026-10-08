@@ -356,6 +356,10 @@ ECHO_TO_RM = (ECHO_PUT + "sftp> chmod 600 x.part\nsftp> rename x.part x\n"
                           "Connection closed by 127.0.0.1 port 2222\r\n", "refused_for_now"),
     ("password", 255, "", "kex_exchange_identification: read: Connection reset by peer\r\n",
      "refused_for_now"),
+    # What OpenSSH 10.3 really prints when sshd's PerSourcePenalties turns it
+    # away (seen live): no kex line, just the close, before any login.
+    ("password", 255, "", "Connection closed by 127.0.0.1 port 51659\r\n"
+                          "Connection closed\r\n", "refused_for_now"),
     ("password", 1, ECHO_PUT, 'remote open("/upload/myevent/x.part"): Permission denied',
      "not_writable"),
     ("password", 1, ECHO_PUT, 'remote open("/nope/x.part"): No such file or directory',
@@ -565,6 +569,7 @@ def test_a_failed_put_also_gets_a_cleanup_try(fake):
     "Host key verification failed.\r\n",
     "kex_exchange_identification: Connection closed by remote host\r\n",
     "ssh: connect to host h port 2222: Connection refused\r\n",
+    "Connection closed by 127.0.0.1 port 51659\r\nConnection closed\r\n",
 ])
 def test_no_cleanup_when_the_login_itself_failed(fake, err):
     _save()
@@ -629,34 +634,78 @@ def test_the_cleanup_fits_inside_the_hard_deadline(fake, monkeypatch):
 # once, before its banner. ssh-keyscan then finds no key, and a plain
 # connect sees the close. That is not "check the address and port".
 
-@needs_keyscan
-def test_a_server_that_closes_at_once_is_a_temporary_refusal(app_db):
-    from app.services import offsite_destination
+def _answer_every_connection_with(greeting: bytes, close: bool):
+    """A local TCP server that says `greeting` to each connection, then
+    closes it (or keeps it open and silent). Returns (port, stop)."""
     server = socket.socket()
     server.bind(("127.0.0.1", 0))
     server.listen(16)
     stop = threading.Event()
+    held = []
 
-    def accept_and_close():
+    def serve():
         server.settimeout(0.2)
         while not stop.is_set():
             try:
-                server.accept()[0].close()
+                conn = server.accept()[0]
             except OSError:
                 continue
+            if greeting:
+                conn.sendall(greeting)
+            if close:
+                conn.close()
+            else:
+                held.append(conn)
 
-    thread = threading.Thread(target=accept_and_close, daemon=True)
+    thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    try:
-        _save(host="127.0.0.1", port=server.getsockname()[1])
-        result = _try()
-    finally:
+
+    def shutdown():
         stop.set()
         thread.join(2)
+        for conn in held:
+            conn.close()
         server.close()
+
+    return server.getsockname()[1], shutdown
+
+
+@needs_keyscan
+@pytest.mark.parametrize("greeting", [
+    b"Not allowed at this time\r\n",   # sshd, PerSourcePenalties (seen live)
+    b"Exceeded MaxStartups\r\n",        # sshd, too many half-open logins
+    b"",                                 # accepted and closed without a word
+])
+def test_a_server_that_turns_us_away_is_a_temporary_refusal(app_db, greeting):
+    from app.services import offsite_destination
+    port, shutdown = _answer_every_connection_with(greeting, close=True)
+    try:
+        _save(host="127.0.0.1", port=port)
+        result = _try()
+    finally:
+        shutdown()
 
     assert result["reason"] == "refused_for_now"
     assert result["message"] == offsite_destination.MESSAGES["refused_for_now"]
+
+
+@needs_keyscan
+@pytest.mark.parametrize("close", [True, False])
+def test_a_server_that_speaks_another_protocol_is_not_a_refusal(app_db, monkeypatch, close):
+    """Control: not every non-SSH answer is a refusal. An FTP-like greeting
+    means the address or port is wrong, and the sentence says to check them.
+    (Held open, ssh-keyscan waits past its own -T and the scan times out.)"""
+    from app.services import offsite_destination
+    monkeypatch.setattr(offsite_destination, "SCAN_TIMEOUT", 2)
+    port, shutdown = _answer_every_connection_with(b"220 ftp server ready\r\n", close=close)
+    try:
+        _save(host="127.0.0.1", port=port)
+        result = _try()
+    finally:
+        shutdown()
+
+    assert result["reason"] == ("unreachable" if close else "timeout")
+    assert "نشانی و درگاه" in result["message"]
 
 
 def test_the_temporary_refusal_says_to_wait_not_to_check_the_address():

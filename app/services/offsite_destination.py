@@ -452,6 +452,10 @@ def _remaining(deadline, cap: float) -> float:
     return min(cap, left)
 
 
+# What sshd writes instead of its banner when it turns an address away.
+_REFUSAL_LINES = (b"Not allowed at this time", b"Exceeded MaxStartups")
+
+
 def _why_no_keys(dest: PanelDestination, timeout: float) -> str:
     """The scan found no key. Unreachable, too slow, or refusing us for now?
     One plain socket connect tells them apart (only on this failure path,
@@ -460,8 +464,11 @@ def _why_no_keys(dest: PanelDestination, timeout: float) -> str:
 
     OpenSSH 9.8+ refuses an address for a while once more than 15 s of
     penalty has built up (5 s per failed login, 1 s per connection that
-    never logs in): it accepts the TCP connection and closes it before its
-    banner. Seen after two wrong-password tests in review."""
+    never logs in): it accepts the TCP connection, writes one line instead
+    of its banner and closes. Seen after two wrong-password tests in review;
+    the line, seen live from sshd 10.3, is "Not allowed at this time".
+    "Exceeded MaxStartups" is sshd turning us away for being busy. Both
+    pass by themselves, and so may a close with no line at all."""
     try:
         conn = socket.create_connection((dest.host, dest.port), timeout=timeout)
     except (socket.timeout, TimeoutError):
@@ -478,7 +485,9 @@ def _why_no_keys(dest: PanelDestination, timeout: float) -> str:
             return "refused_for_now"
         except OSError:
             return "unreachable"
-    return "refused_for_now" if not banner else "unreachable"
+    if not banner or banner.startswith(_REFUSAL_LINES):
+        return "refused_for_now"
+    return "unreachable"
 
 
 def _pinned_key(dest: PanelDestination, deadline) -> tuple:
@@ -572,7 +581,21 @@ def _failed_command(stdout: str) -> str:
 # closing before its banner: PerSourcePenalties (or MaxStartups) refusing.
 _BEFORE_LOGIN = ("Permission denied", "Host key verification failed",
                  "IDENTIFICATION HAS CHANGED", "kex_exchange_identification",
-                 "ssh: connect to host", "Could not resolve hostname")
+                 "ssh: connect to host", "Could not resolve hostname",
+                 "Connection closed by ")
+
+
+def _refused_before_login(proc) -> bool:
+    """sshd turned this sftp run away before any login. OpenSSH 10.3 then
+    prints only "Connection closed by <host> port <port>" (seen live under
+    PerSourcePenalties): no batch echo, no "Permission denied". sftp echoes
+    each batch command line by line (also checked live), so no echo means
+    no command ran."""
+    err = proc.stderr or ""
+    return ("kex_exchange_identification" in err
+            or (proc.returncode == 255 and "Connection closed by " in err
+                and "Permission denied" not in err
+                and "sftp> " not in (proc.stdout or "")))
 
 
 def _classify(proc, auth: str) -> str:
@@ -581,7 +604,7 @@ def _classify(proc, auth: str) -> str:
     err = proc.stderr or ""
     if "Host key verification failed" in err or "IDENTIFICATION HAS CHANGED" in err:
         return "host_key"
-    if "kex_exchange_identification" in err:
+    if _refused_before_login(proc):
         return "refused_for_now"
     if proc.returncode == 255:
         if "Permission denied" in err:
