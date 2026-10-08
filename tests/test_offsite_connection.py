@@ -473,6 +473,142 @@ def test_a_server_that_never_answers_is_a_timeout(app_db, monkeypatch):
         server.close()
 
 
+# ── Review fix 1: no test file is left behind ───────────────────────────
+#
+# The batch may have written the .part (or the renamed file) on every path
+# where sftp got as far as the put: a timeout, a connection lost mid-batch,
+# any failed step. A second, best-effort rm on a new connection runs then.
+# It never runs when the login itself failed (nothing can exist), and it
+# never changes the reason the operator reads.
+
+def _remote_files(remote):
+    return sorted(p.name for p in (remote / "upload" / "myevent").iterdir())
+
+
+def _put_only(fake, batch):
+    """Run the first line of a batch (the put) against the fake server."""
+    fake.run_batch(batch.splitlines()[0] + "\n")
+
+
+def test_a_timeout_after_the_put_still_removes_the_test_file(fake, remote):
+    _save()
+    batches = []
+
+    def put_then_hang(argv, kwargs):
+        batches.append(kwargs["input"])
+        if len(batches) == 1:
+            _put_only(fake, kwargs["input"])
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        return fake.run_batch(kwargs["input"])
+
+    fake.on_sftp = put_then_hang
+
+    result = _try()
+
+    assert result["reason"] == "timeout"
+    assert len(batches) == 2
+    assert [line.split()[0] for line in batches[1].splitlines()] == ["-rm", "-rm"]
+    assert _remote_files(remote) == []
+
+
+def test_a_connection_lost_mid_batch_still_removes_the_test_file(fake, remote):
+    _save()
+    batches = []
+
+    def drop_after_rename(argv, kwargs):
+        batches.append(kwargs["input"])
+        if len(batches) == 1:
+            first_three = "".join(kwargs["input"].splitlines(True)[:3])
+            out = fake.run_batch(first_three)[1]
+            return 255, out, "Connection closed\r\n"
+        return fake.run_batch(kwargs["input"])
+
+    fake.on_sftp = drop_after_rename
+
+    result = _try()
+
+    assert result["reason"] == "unreachable"
+    assert len(batches) == 2
+    assert _remote_files(remote) == []
+
+
+def test_a_failed_put_also_gets_a_cleanup_try(fake):
+    """A put cut half way can leave a short .part behind."""
+    _save()
+    batches = []
+
+    def put_refused(argv, kwargs):
+        batches.append(kwargs["input"])
+        return (1, ECHO_PUT, "write remote: Failure") if len(batches) == 1 else (0, "", "")
+
+    fake.on_sftp = put_refused
+
+    assert _try()["reason"] == "not_writable"
+    assert len(batches) == 2 and batches[1].startswith("-rm ")
+
+
+@pytest.mark.parametrize("err", [
+    "backup@h: Permission denied (publickey,password).\r\n",
+    "Host key verification failed.\r\n",
+    "kex_exchange_identification: Connection closed by remote host\r\n",
+    "ssh: connect to host h port 2222: Connection refused\r\n",
+])
+def test_no_cleanup_when_the_login_itself_failed(fake, err):
+    _save()
+    fake.on_sftp = lambda argv, kwargs: (255, "", err)
+
+    _try()
+
+    assert len(fake.sftp_calls()) == 1, "a second connection for a file that cannot exist"
+
+
+def test_a_cleanup_that_fails_keeps_the_real_reason(fake):
+    _save()
+    batches = []
+
+    def rename_refused_then_hang(argv, kwargs):
+        batches.append(kwargs["input"])
+        if len(batches) == 1:
+            return 1, ECHO_PUT + "sftp> chmod 600 x.part\nsftp> rename x.part x\n", "denied"
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    fake.on_sftp = rename_refused_then_hang
+
+    result = _try()
+
+    assert result["reason"] == "not_writable"
+    assert len(batches) == 2
+
+
+def test_a_timeout_before_the_batch_starts_runs_no_sftp_at_all(fake, monkeypatch):
+    _save()
+
+    def scan_hangs(argv, **kwargs):
+        if argv[0] == "ssh-keyscan":
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        return fake(argv, **kwargs)
+
+    from app.services import offsite_destination
+    monkeypatch.setattr(offsite_destination.subprocess, "run", scan_hangs)
+
+    assert _try()["reason"] == "timeout"
+    assert fake.sftp_calls() == []
+
+
+def test_the_cleanup_fits_inside_the_hard_deadline(fake, monkeypatch):
+    from app.services import offsite_destination
+    monkeypatch.setattr(offsite_destination, "TEST_TIMEOUT", 20)
+    _save()
+    fake.on_sftp = lambda argv, kwargs: (1, ECHO_PUT, "denied")
+
+    _try()
+
+    timeouts = [kwargs["timeout"] for _, kwargs in fake.calls]
+    assert len(fake.sftp_calls()) == 2
+    assert all(0 < t <= 20 for t in timeouts)
+    assert sum(kwargs["timeout"] for _, kwargs in fake.sftp_calls()) <= 20
+
+
 # ── Review fix 2: a temporary refusal has its own reason ────────────────
 #
 # OpenSSH 9.8+ (PerSourcePenalties) refuses this server's address for a

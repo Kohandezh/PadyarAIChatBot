@@ -79,6 +79,8 @@ DEFAULT_PORT = 22
 TEST_TIMEOUT = 30
 # How long one host-key scan may take, inside that budget.
 SCAN_TIMEOUT = 10
+# The slice of that budget kept back for removing a half-written test file.
+CLEANUP_TIMEOUT = 8
 # Connection tests one admin may run per window. Each test opens a few SSH
 # connections, and OpenSSH 9.8+ (PerSourcePenalties) refuses this server's
 # address for a while after a burst of failed logins.
@@ -559,6 +561,14 @@ def _failed_command(stdout: str) -> str:
     return echoed[-1].split()[1] if echoed and len(echoed[-1].split()) > 1 else ""
 
 
+# stderr markers of an sftp run that ended before any login, so it cannot
+# have written the test file. `kex_exchange_identification` is the server
+# closing before its banner: PerSourcePenalties (or MaxStartups) refusing.
+_BEFORE_LOGIN = ("Permission denied", "Host key verification failed",
+                 "IDENTIFICATION HAS CHANGED", "kex_exchange_identification",
+                 "ssh: connect to host", "Could not resolve hostname")
+
+
 def _classify(proc, auth: str) -> str:
     if proc.returncode == 0:
         return "ok"
@@ -578,39 +588,45 @@ def _classify(proc, auth: str) -> str:
     return "not_deletable"
 
 
+def _may_have_written(proc) -> bool:
+    """Could this run have left the test file (or its .part) behind? Not
+    after exit 0 (its own rm ran) and not when it ended before any login.
+    Yes for everything else: a failed step, a connection lost mid-batch,
+    or an ending we cannot place."""
+    if proc.returncode == 0:
+        return False
+    if "sftp> " in (proc.stdout or ""):
+        return True  # sftp echoes each batch command, so it had logged in
+    return not any(marker in (proc.stderr or "") for marker in _BEFORE_LOGIN)
+
+
+def _clean_up(target, session, remote: str, deadline) -> None:
+    """Best effort, on a new connection: remove both names the test may have
+    left. Its outcome is never the operator's answer, so nothing it raises
+    or returns reaches them."""
+    from app.services import backup_offsite
+    try:
+        backup_offsite._sftp(
+            target, session, f"-rm {remote}.part\n-rm {remote}\n",
+            timeout=max(1.0, min(CLEANUP_TIMEOUT, deadline - time.monotonic())),
+            connect_timeout=max(1, int(min(CLEANUP_TIMEOUT, SCAN_TIMEOUT))))
+    except Exception as e:  # noqa: BLE001 (best effort by design)
+        logger.warning("[offsite_destination] test file cleanup failed: %s",
+                       type(e).__name__)
+
+
 def try_connection() -> dict:
     """Try the SAVED destination once: pinned host key, login, then the same
     steps a copy takes (put a .part, chmod, rename, list, delete) on one
     small file that holds no backup data. Returns {"ok", "reason",
     "message"}; never raises, never runs longer than TEST_TIMEOUT."""
-    from app.services import backup_offsite
     dest = stored()
     if dest is None:
         return _outcome("not_saved")
     deadline = time.monotonic() + TEST_TIMEOUT
     work = tempfile.mkdtemp(prefix="padyar-sftp-test-")
     try:
-        target = backup_offsite.parse_sftp_target(dest.target[len("sftp:"):])
-        local = os.path.join(work, "probe")
-        with open(local, "w", encoding="utf-8") as f:
-            f.write("Padyar off-site connection test. Safe to delete.\n")
-        remote = f"{target.path.rstrip('/')}/.padyar-connection-test-{secrets.token_hex(8)}"
-        batch = (f'put "{local}" {remote}.part\n'
-                 f"chmod 600 {remote}.part\n"
-                 f"rename {remote}.part {remote}\n"
-                 f"ls -ln {target.path}\n"
-                 f"rm {remote}\n")
-        with login(dest, deadline) as session:
-            proc = backup_offsite._sftp(
-                target, session, batch, timeout=_remaining(deadline, TEST_TIMEOUT),
-                connect_timeout=max(1, int(_remaining(deadline, SCAN_TIMEOUT))))
-            code = _classify(proc, dest.auth)
-            if code in ("not_writable", "not_deletable") and \
-                    _failed_command(proc.stdout) != "put":
-                # Best effort: leave nothing behind after a half-done test.
-                backup_offsite._sftp(target, session, f"-rm {remote}.part\n-rm {remote}\n",
-                                     timeout=_remaining(deadline, 10))
-        return _outcome(code)
+        return _outcome(_connect_and_write(dest, deadline, work))
     except LoginRefused as e:
         return _outcome(e.code if e.code in MESSAGES else "error")
     except subprocess.TimeoutExpired:
@@ -621,3 +637,38 @@ def try_connection() -> dict:
         return _outcome("error")
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _connect_and_write(dest: PanelDestination, deadline, work: str) -> str:
+    """The network half of try_connection. Returns the reason code; raises
+    LoginRefused / TimeoutExpired from the login step. Once the batch has
+    started, the test file is removed on every path where it may exist."""
+    from app.services import backup_offsite
+    target = backup_offsite.parse_sftp_target(dest.target[len("sftp:"):])
+    local = os.path.join(work, "probe")
+    with open(local, "w", encoding="utf-8") as f:
+        f.write("Padyar off-site connection test. Safe to delete.\n")
+    remote = f"{target.path.rstrip('/')}/.padyar-connection-test-{secrets.token_hex(8)}"
+    batch = (f'put "{local}" {remote}.part\n'
+             f"chmod 600 {remote}.part\n"
+             f"rename {remote}.part {remote}\n"
+             f"ls -ln {target.path}\n"
+             f"rm {remote}\n")
+    with login(dest, deadline) as session:
+        # The batch gets the budget minus the cleanup's slice, so a cleanup
+        # after a timeout still fits inside TEST_TIMEOUT.
+        budget = _remaining(deadline, TEST_TIMEOUT) - CLEANUP_TIMEOUT
+        if budget < 1:
+            raise subprocess.TimeoutExpired("sftp", 0)
+        try:
+            proc = backup_offsite._sftp(
+                target, session, batch, timeout=budget,
+                connect_timeout=max(1, int(min(budget, SCAN_TIMEOUT))))
+        except subprocess.TimeoutExpired:
+            # Killed mid-batch: the put may have run. A timeout leaves no
+            # trustworthy output to tell, so always try.
+            _clean_up(target, session, remote, deadline)
+            raise
+        if _may_have_written(proc):
+            _clean_up(target, session, remote, deadline)
+        return _classify(proc, dest.auth)
