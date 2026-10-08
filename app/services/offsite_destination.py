@@ -140,6 +140,10 @@ MESSAGES = {
     "not_deletable": "فایل آزمایشی نوشته شد، ولی دیدن یا پاک کردن فایل‌ها در این پوشه ممکن "
                      "نشد. حساب SFTP باید اجازهٔ پاک کردن هم داشته باشد.",
     "unreachable": "به سرور مقصد وصل نشد. نشانی و درگاه را بررسی کنید و مطمئن شوید سرور روشن است.",
+    "refused_for_now": "سرور مقصد فعلاً اتصال این سرور را نمی‌پذیرد. این معمولاً بعد از چند "
+                       "تلاش با رمز یا کلید نادرست پیش می‌آید و بعد از کمی صبر خودش برطرف "
+                       "می‌شود. یک دقیقه صبر کنید و دوباره امتحان کنید. اگر باز هم همین پیام "
+                       "آمد، از سرویس‌دهنده بپرسید آیا نشانی این سرور را بسته است.",
     "timeout": "سرور مقصد در زمان مجاز پاسخ نداد. نشانی و درگاه را بررسی کنید یا کمی بعد "
                "دوباره امتحان کنید.",
     "error": "آزمایش انجام نشد. جزئیات در بخش گزارش‌ها ثبت شد.",
@@ -441,18 +445,32 @@ def _remaining(deadline, cap: float) -> float:
 
 
 def _why_no_keys(dest: PanelDestination, timeout: float) -> str:
-    """The scan found no key. Unreachable, or too slow? One plain socket
-    connect tells them apart (only on this failure path, since every connect
-    that does not log in costs a PerSourcePenalties second)."""
+    """The scan found no key. Unreachable, too slow, or refusing us for now?
+    One plain socket connect tells them apart (only on this failure path,
+    since every connect that does not log in costs a PerSourcePenalties
+    second).
+
+    OpenSSH 9.8+ refuses an address for a while once more than 15 s of
+    penalty has built up (5 s per failed login, 1 s per connection that
+    never logs in): it accepts the TCP connection and closes it before its
+    banner. Seen after two wrong-password tests in review."""
     try:
-        with socket.create_connection((dest.host, dest.port), timeout=timeout) as s:
-            s.settimeout(timeout)
-            s.recv(64)
+        conn = socket.create_connection((dest.host, dest.port), timeout=timeout)
     except (socket.timeout, TimeoutError):
         return "timeout"
     except OSError:
         return "unreachable"
-    return "unreachable"
+    with conn:
+        conn.settimeout(timeout)
+        try:
+            banner = conn.recv(64)
+        except (socket.timeout, TimeoutError):
+            return "timeout"
+        except ConnectionResetError:
+            return "refused_for_now"
+        except OSError:
+            return "unreachable"
+    return "refused_for_now" if not banner else "unreachable"
 
 
 def _pinned_key(dest: PanelDestination, deadline) -> tuple:
@@ -547,6 +565,8 @@ def _classify(proc, auth: str) -> str:
     err = proc.stderr or ""
     if "Host key verification failed" in err or "IDENTIFICATION HAS CHANGED" in err:
         return "host_key"
+    if "kex_exchange_identification" in err:
+        return "refused_for_now"
     if proc.returncode == 255:
         if "Permission denied" in err:
             return "auth_password" if auth == "password" else "auth_key"

@@ -339,6 +339,10 @@ ECHO_TO_RM = (ECHO_PUT + "sftp> chmod 600 x.part\nsftp> rename x.part x\n"
     ("password", 255, "", "ssh: connect to host h port 2222: Operation timed out\r\n",
      "timeout"),
     ("password", 255, "", "Connection closed\r\n", "unreachable"),
+    ("password", 255, "", "kex_exchange_identification: Connection closed by remote host\r\n"
+                          "Connection closed by 127.0.0.1 port 2222\r\n", "refused_for_now"),
+    ("password", 255, "", "kex_exchange_identification: read: Connection reset by peer\r\n",
+     "refused_for_now"),
     ("password", 1, ECHO_PUT, 'remote open("/upload/myevent/x.part"): Permission denied',
      "not_writable"),
     ("password", 1, ECHO_PUT, 'remote open("/nope/x.part"): No such file or directory',
@@ -467,3 +471,48 @@ def test_a_server_that_never_answers_is_a_timeout(app_db, monkeypatch):
         for conn in held:
             conn.close()
         server.close()
+
+
+# ── Review fix 2: a temporary refusal has its own reason ────────────────
+#
+# OpenSSH 9.8+ (PerSourcePenalties) refuses this server's address for a
+# while after wrong logins: it accepts the TCP connection and closes it at
+# once, before its banner. ssh-keyscan then finds no key, and a plain
+# connect sees the close. That is not "check the address and port".
+
+@needs_keyscan
+def test_a_server_that_closes_at_once_is_a_temporary_refusal(app_db):
+    from app.services import offsite_destination
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(16)
+    stop = threading.Event()
+
+    def accept_and_close():
+        server.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                server.accept()[0].close()
+            except OSError:
+                continue
+
+    thread = threading.Thread(target=accept_and_close, daemon=True)
+    thread.start()
+    try:
+        _save(host="127.0.0.1", port=server.getsockname()[1])
+        result = _try()
+    finally:
+        stop.set()
+        thread.join(2)
+        server.close()
+
+    assert result["reason"] == "refused_for_now"
+    assert result["message"] == offsite_destination.MESSAGES["refused_for_now"]
+
+
+def test_the_temporary_refusal_says_to_wait_not_to_check_the_address():
+    from app.services import offsite_destination
+    text = offsite_destination.MESSAGES["refused_for_now"]
+
+    assert "صبر کنید" in text
+    assert text != offsite_destination.MESSAGES["unreachable"]
