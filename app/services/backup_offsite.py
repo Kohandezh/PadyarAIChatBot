@@ -22,7 +22,7 @@ COMMAND SAFETY
 The target comes from OFFSITE_BACKUP_TARGET (operator env), or from an
 sftp: destination an admin saved in the panel (offsite_destination.py,
 checked there field by field and again by parse_sftp_target below). It is
-dispatched by strict prefix. rsync runs with a FIXED argv list — no shell,
+dispatched by strict prefix. rsync runs with a FIXED argv list: no shell,
 no interpolation of anything except the dump path and the operator's own
 target string, the same discipline pg_backup applies to pg_dump/pg_restore.
 

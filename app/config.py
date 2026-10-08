@@ -440,6 +440,8 @@ METRICS_TOKEN = (os.getenv("METRICS_TOKEN") or "").strip()
 #   OFFSITE_BACKUP_TARGET=sftp:user@host:2222:/upload   (another port)
 # Failure to copy is NON-fatal by design — the local backup stays valid and
 # the failure is recorded (manifest `offsite` block + service event).
+# An sftp: destination saved in the admin panel (offsite_destination.py)
+# wins over this; this is used only when the panel has none.
 OFFSITE_BACKUP_TARGET = (os.getenv("OFFSITE_BACKUP_TARGET") or "").strip()
 # Ceiling for the rsync subprocess, in seconds. Generous on purpose: the
 # first copy of a large dump over a slow uplink is slow, and a killed copy
