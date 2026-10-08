@@ -198,7 +198,7 @@ jobs:
       - name: Run the off-site copy tests
         env:
           OFFSITE_SFTP_LIVE: "1"
-        run: pytest tests/test_offsite_sftp_live.py tests/test_backup_offsite.py -q -rs
+        run: pytest tests/test_offsite_sftp_live.py tests/test_offsite_panel_live.py tests/test_backup_offsite.py -q -rs
 
   # Reporting, NOT blocking. An advisory can name a fix version that has not
   # been published yet, and a build that hard-fails on an unfixable finding is
