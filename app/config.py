@@ -433,11 +433,15 @@ METRICS_TOKEN = (os.getenv("METRICS_TOKEN") or "").strip()
 # Where a VERIFIED dump is additionally copied after every successful
 # backup+verify, so a host-level failure cannot take the database and every
 # copy of it together. Empty (the default) = the feature is off: nothing is
-# copied and no event is written. Two target forms:
+# copied and no event is written. Three target forms:
 #   OFFSITE_BACKUP_TARGET=rsync:user@host:/srv/padyar-backups
 #   OFFSITE_BACKUP_TARGET=dir:/mnt/offsite-backup
+#   OFFSITE_BACKUP_TARGET=sftp:user@host:/upload        (port 22)
+#   OFFSITE_BACKUP_TARGET=sftp:user@host:2222:/upload   (another port)
 # Failure to copy is NON-fatal by design — the local backup stays valid and
 # the failure is recorded (manifest `offsite` block + service event).
+# An sftp: destination saved in the admin panel (offsite_destination.py)
+# wins over this; this is used only when the panel has none.
 OFFSITE_BACKUP_TARGET = (os.getenv("OFFSITE_BACKUP_TARGET") or "").strip()
 # Ceiling for the rsync subprocess, in seconds. Generous on purpose: the
 # first copy of a large dump over a slow uplink is slow, and a killed copy
@@ -446,3 +450,30 @@ try:
     OFFSITE_BACKUP_TIMEOUT = max(1, int(os.getenv("OFFSITE_BACKUP_TIMEOUT", "600")))
 except ValueError:
     OFFSITE_BACKUP_TIMEOUT = 600
+
+# --- sftp: target (encrypted off-site copy, PR H) --------------------------
+# Used only when OFFSITE_BACKUP_TARGET starts with `sftp:`. All empty by
+# default, so an install that sets nothing behaves exactly as before. With an
+# sftp: target, every one of the four paths below is required: a missing one
+# fails the copy and nothing is uploaded.
+#
+# SSH private key for the SFTP account. Key login only, never a password.
+OFFSITE_SFTP_IDENTITY_FILE = (os.getenv("OFFSITE_SFTP_IDENTITY_FILE") or "").strip()
+# known_hosts file with EVERY host key of the destination (ed25519, ecdsa,
+# rsa). The copy runs with StrictHostKeyChecking=yes, so an unknown or
+# changed host key refuses the connection instead of trusting it.
+OFFSITE_SFTP_KNOWN_HOSTS = (os.getenv("OFFSITE_SFTP_KNOWN_HOSTS") or "").strip()
+# The armored PUBLIC gpg key every dump is encrypted to before upload. The
+# private key lives only on paper, off the server, so the server cannot read
+# its own off-site copies and neither can anyone who takes the server.
+OFFSITE_GPG_PUBLIC_KEY = (os.getenv("OFFSITE_GPG_PUBLIC_KEY") or "").strip()
+# Full fingerprint (40 hex characters) the key file must match. A different
+# key in the file means nothing is uploaded.
+OFFSITE_GPG_FINGERPRINT = (os.getenv("OFFSITE_GPG_FINGERPRINT") or "").replace(" ", "").strip().upper()
+# How many encrypted copies stay at the destination; older ones are deleted
+# after a successful upload. Empty = the same number the local backups keep
+# (Settings > Backup, default 14).
+try:
+    OFFSITE_REMOTE_KEEP = int(os.getenv("OFFSITE_REMOTE_KEEP") or 0) or None
+except ValueError:
+    OFFSITE_REMOTE_KEEP = None

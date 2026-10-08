@@ -18,6 +18,9 @@ const el = (id) => document.getElementById(id);
 
 let restoreTarget = '';
 let deleteTarget = '';
+// Told the off-site state after each load (the destination card shows its
+// own warning from it). Set by initBackups().
+let onOffsiteState = () => {};
 
 /* ── formatting ─────────────────────────────────────────────────────── */
 
@@ -325,6 +328,36 @@ function renderSchedule(schedule) {
     el('sched-next').textContent = formatDate(s.next_run);
 }
 
+/* Off-site copy. With no target set, every backup sits on this server, so
+ * losing the server loses them all: say that, in plain words. */
+function renderOffsite(offsite) {
+    const o = offsite || {};
+    const box = el('offsite-status');
+    onOffsiteState(o);
+    // A destination whose copies cannot be encrypted sends nothing, so it is
+    // not "configured": say both facts (review fix 3).
+    if (o.state === 'not_ready') {
+        box.className = 'small mb-1 text-danger fw-bold';
+        box.textContent = 'مقصد تنظیم شده، ولی رمزگذاری نسخه‌ها روی خود سرور آماده نیست، پس هیچ نسخه‌ای بیرون از سرور نیست.';
+        return;
+    }
+    if (!o.configured) {
+        box.className = 'small mb-1 text-danger fw-bold';
+        box.textContent = 'هیچ نسخه‌ای بیرون از سرور نیست.';
+        return;
+    }
+    if (o.state === 'copied') {
+        box.className = 'small mb-1 text-success';
+        box.textContent = `نسخهٔ بیرون از سرور: آخرین کپی موفق بود (${formatDate(o.attempted_at)}).`;
+    } else if (o.state === 'failed') {
+        box.className = 'small mb-1 text-danger fw-bold';
+        box.textContent = `نسخهٔ بیرون از سرور: آخرین کپی ناموفق بود (${formatDate(o.attempted_at)}). جزئیات در بخش گزارش‌ها ثبت شد.`;
+    } else {
+        box.className = 'small mb-1 text-warning';
+        box.textContent = 'نسخهٔ بیرون از سرور: جدیدترین پشتیبان هنوز بیرون کپی نشده است.';
+    }
+}
+
 /* Row checkboxes for bulk delete. Kept in a Set of backup ids; rebuilt from
  * scratch on every render so it can never hold an id that is no longer on
  * disk. */
@@ -442,6 +475,7 @@ async function load(fromPoll = false) {
         const data = await res.json();
         if (fromPoll && dialogOpen()) return;
         renderSchedule(data.schedule);
+        renderOffsite(data.offsite);
         const isPg = data.engine === 'postgresql';
         // The drill exists only for PostgreSQL, so SQLite shows no drill box.
         el('drill-box').hidden = !isPg;
@@ -668,7 +702,10 @@ async function doBulkDelete() {
     }
 }
 
-export function initBackups() {
+export { load as reloadBackups };
+
+export function initBackups(options = {}) {
+    if (options.onOffsiteState) onOffsiteState = options.onOffsiteState;
     loadProfile();
     el('create-btn').addEventListener('click', createBackup);
     el('restore-confirm-btn').addEventListener('click', doRestore);
