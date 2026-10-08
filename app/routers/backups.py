@@ -11,7 +11,9 @@ Every endpoint is admin-only, and three things here are deliberate:
     happens — the check runs before any file is touched.
   * Download only ever serves a file that the set's own manifest lists, resolved
     through app/services/backup_center.py's allowlist. There is no endpoint
-    anywhere here that accepts a path from the browser.
+    anywhere here that accepts a local filesystem path from the browser. (The
+    off-site form takes a folder on the REMOTE SFTP server, limited to
+    letters, digits and . _ - / by app/services/offsite_destination.py.)
 
 The heavy endpoints are plain `def`, not `async def`: they run blocking SQLite
 and disk work, so FastAPI hands them to the threadpool instead of stalling the

@@ -223,6 +223,24 @@ def test_only_the_pinned_key_is_trusted_and_only_its_type_is_offered(fake, pin, 
     assert argv[argv.index("-P") + 1] == "2222"
 
 
+def test_on_port_22_the_known_hosts_line_names_the_bare_host(fake):
+    """OpenSSH looks a port-22 host up without brackets; `[host]:22` would
+    never match and every connection would fail as a host-key error."""
+    fake.scan = _scan_output(ED, host="backup.example.com")
+    _save(port=22)
+    seen = {}
+
+    def inspect(argv, kwargs):
+        with open(_opt(argv, "UserKnownHostsFile")) as f:
+            seen["known_hosts"] = f.read()
+        return fake.run_batch(kwargs["input"])
+
+    fake.on_sftp = inspect
+
+    assert _try()["ok"] is True
+    assert seen["known_hosts"] == f"backup.example.com {ED[0]} {ED[1]}\n"
+
+
 def test_a_scanned_line_whose_blob_names_another_type_is_ignored(fake):
     fake.scan = _scan_output(ED, ("ssh-ed25519", RSA[1]))
     _save(pin=RSA)
