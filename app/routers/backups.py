@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from app.auth.security import verify_admin
 from app.config import logger
 from app.routers.public import _render, _require_admin
-from app.services import applog, backup_center
+from app.services import applog, backup_center, pg_backup, restore_drill
 
 router = APIRouter()
 
@@ -51,6 +51,13 @@ FA_NOT_FOUND = "نسخهٔ پشتیبان پیدا نشد."
 FA_GENERIC = "انجام نشد. جزئیات در بخش گزارش‌ها ثبت شد."
 FA_BAD_CONFIRM = "عبارت تأیید درست نیست. هیچ تغییری انجام نشد."
 FA_FILE_GONE = "این فایل در نسخهٔ پشتیبان وجود ندارد."
+FA_DRILL_POSTGRES_ONLY = "تمرین بازیابی فقط برای پایگاه دادهٔ پستگرس انجام می‌شود."
+FA_DRILL_BUSY = ("یک تمرین بازیابی همین حالا در حال اجراست. "
+                 "چند دقیقه بعد دوباره امتحان کنید.")
+FA_DRILL_LOCK_UNAVAILABLE = ("تمرین بازیابی الان ممکن نیست. "
+                             "چند دقیقه بعد دوباره امتحان کنید.")
+FA_DRILL_STARTED = ("تمرین بازیابی شروع شد. نتیجه چند دقیقه دیگر "
+                    "در همین صفحه نشان داده می‌شود.")
 
 
 class RestoreRequest(BaseModel):
@@ -95,11 +102,14 @@ def _pg_row(manifest: dict) -> dict:
             "created_at": None, "created_by": "", "kind": "",
             "files": [], "total_bytes": 0,
             "verification": {"state": "unknown", "checked_at": None, "problems": []},
+            "drill": None,
         }
     reason = manifest.get("reason", "manual")
     kind = "safety" if reason.startswith("safety-before-restore-of-") else reason
     verification = manifest.get("verification") or {}
     file_name = manifest.get("file", "padyar.dump")
+    # Old manifests have no `drill` key. None tells the page "no drill yet".
+    drill = manifest.get("drill")
     return {
         "backup_id": manifest.get("backup_id", ""),
         "created_at": manifest.get("created_at"),
@@ -116,6 +126,7 @@ def _pg_row(manifest: dict) -> dict:
             "checked_at": verification.get("checked_at"),
             "problems": verification.get("problems", []),
         },
+        "drill": drill if isinstance(drill, dict) else None,
     }
 
 
@@ -141,13 +152,21 @@ def list_backups():
         logger.warning("Backup schedule unreadable: %s", type(exc).__name__)
         schedule = {}
     engine, is_pg = _engine()
-    rows = ([_pg_row(m) for m in engine.list_backups()] if is_pg
-             else backup_center.list_sets())
+    latest_drill = None
+    if is_pg:
+        manifests = engine.list_backups()
+        rows = [_pg_row(m) for m in manifests]
+        latest_drill = restore_drill.latest_drill(manifests)
+    else:
+        rows = backup_center.list_sets()
     return {
         "backups": rows,
         "engine": "postgresql" if is_pg else "sqlite",
         "schedule": schedule,
         "labels": backup_center.ROLE_LABELS,
+        # The newest restore drill on any backup, for the status line. Always
+        # None on SQLite: the drill exists only for PostgreSQL.
+        "latest_drill": latest_drill,
     }
 
 
@@ -174,6 +193,39 @@ def verify_backup(backup_id: str, username: str = Depends(verify_admin)):
     except Exception as exc:  # noqa: BLE001
         raise _fail(500, FA_GENERIC, "backup.api.verify_failed", username,
                     backup_id, exc)
+
+
+@router.post("/admin/api/infra/backups/{backup_id}/drill",
+             status_code=202, dependencies=[Depends(verify_admin)])
+def drill_backup(backup_id: str, username: str = Depends(verify_admin)):
+    """Start a restore drill for one backup and answer at once.
+
+    A drill takes minutes. restore_drill.start() checks the id and takes the
+    one-at-a-time lock in this request, then runs the work in a background
+    thread. So "already running" and "no such backup" come back immediately,
+    and the request never waits long enough for a proxy to cut it.
+    """
+    _, is_pg = _engine()
+    if not is_pg:
+        raise HTTPException(status_code=409, detail=FA_DRILL_POSTGRES_ONLY)
+    try:
+        restore_drill.start(backup_id, username)
+    except pg_backup.BackupError:
+        # A malformed id (caught by _safe_dir) and a missing backup look the
+        # same to the caller on purpose.
+        raise HTTPException(status_code=404, detail=FA_NOT_FOUND)
+    except restore_drill.DrillAlreadyRunning:
+        raise HTTPException(status_code=409, detail=FA_DRILL_BUSY)
+    except restore_drill.DrillLockUnavailable:
+        # The skipped block is already saved. 409, not 500: the drill was not
+        # tried, and a retry in a few minutes is the right next step.
+        raise HTTPException(status_code=409, detail=FA_DRILL_LOCK_UNAVAILABLE)
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(500, FA_GENERIC, "backup.api.drill_failed", username,
+                    backup_id, exc)
+    applog.audit("admin.backup.drill.requested", "درخواست تمرین بازیابی پشتیبان",
+                 actor=username, target=backup_id, outcome="requested")
+    return {"started": True, "backup_id": backup_id, "message": FA_DRILL_STARTED}
 
 
 @router.get("/admin/api/infra/backups/{backup_id}/download",

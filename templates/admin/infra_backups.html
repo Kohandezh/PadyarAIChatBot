@@ -28,6 +28,10 @@
     }
 
     .backup-files { line-height: 1.9; }
+
+    /* The drill result badge is a real button so the keyboard can reach it. */
+    .drill-badge { cursor: pointer; font-size: .8rem; }
+    .drill-badge:focus-visible { outline: 2px solid var(--tblr-primary, #206bc4); outline-offset: 2px; }
 </style>
 
 <!-- Topbar -->
@@ -65,6 +69,19 @@
                     <a class="small" href="/secure-panel-admin/settings/backup">تغییر زمان‌بندی</a>
                 </div>
 
+                <!-- The newest restore drill, in one plain line. The script fills it. -->
+                <div class="border rounded p-3 mb-3" id="drill-box">
+                    <div class="fw-bold" id="drill-status" aria-live="polite">در حال بارگذاری...</div>
+                    <div class="small text-muted" id="drill-reason"></div>
+                    <div class="small text-info" id="drill-running" hidden>
+                        یک تمرین بازیابی در حال اجراست. نتیجه چند دقیقه دیگر همین‌جا نشان داده می‌شود.
+                    </div>
+                    <div class="small text-muted mt-2">
+                        پس از هر پشتیبان‌گیری خودکار، همان پشتیبان در یک پایگاه دادهٔ جدا بازگردانی و بررسی می‌شود
+                        تا مطمئن شویم پشتیبان واقعاً کار می‌کند.
+                    </div>
+                </div>
+
                 <button type="button" class="btn btn-success" id="create-btn">
                     <i class="fas fa-plus me-1"></i>گرفتن نسخهٔ پشتیبان جدید
                 </button>
@@ -94,12 +111,13 @@
                                 <th>حجم</th>
                                 <th>آرشیو</th>
                                 <th>وضعیت بررسی</th>
+                                <th>تمرین بازیابی</th>
                                 <th class="text-end">عملیات</th>
                             </tr>
                         </thead>
                         <tbody id="backups-body">
                             <tr>
-                                <td colspan="7" class="text-center text-muted">در حال بارگذاری...</td>
+                                <td colspan="8" class="text-center text-muted">در حال بارگذاری...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -107,6 +125,56 @@
             </div>
         </div>
 
+    </div>
+</div>
+
+<!-- Restore drill result -->
+<div class="modal fade" id="drillModal" tabindex="-1" aria-hidden="true" aria-labelledby="drill-modal-title">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="drill-modal-title">نتیجهٔ تمرین بازیابی</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+            </div>
+            <div class="modal-body">
+                <dl class="row mb-3">
+                    <dt class="col-sm-4">نتیجه</dt>
+                    <dd class="col-sm-8 fw-bold" id="drill-m-status">—</dd>
+                    <dt class="col-sm-4">نسخهٔ پشتیبان</dt>
+                    <dd class="col-sm-8 backup-id" id="drill-m-backup">—</dd>
+                    <dt class="col-sm-4">زمان</dt>
+                    <dd class="col-sm-8" id="drill-m-date">—</dd>
+                    <dt class="col-sm-4">مدت کل</dt>
+                    <dd class="col-sm-8" id="drill-m-total">—</dd>
+                    <dt class="col-sm-4">مدت بازگردانی</dt>
+                    <dd class="col-sm-8" id="drill-m-restore">—</dd>
+                </dl>
+                <p class="mb-3" id="drill-m-reason"></p>
+
+                <h6>بررسی‌ها</h6>
+                <ul class="list-unstyled mb-3" id="drill-m-checks"></ul>
+
+                <h6>تعداد ردیف هر جدول</h6>
+                <p class="text-muted small mb-0" id="drill-m-no-tables" hidden>
+                    تعداد ردیف‌ها بررسی نشد.
+                </p>
+                <div class="table-responsive" id="drill-m-tables-wrap">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>جدول</th>
+                                <th>تعداد در پشتیبان</th>
+                                <th>تعداد پس از بازگردانی</th>
+                            </tr>
+                        </thead>
+                        <tbody id="drill-m-tables"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">بستن</button>
+            </div>
+        </div>
     </div>
 </div>
 

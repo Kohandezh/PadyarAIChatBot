@@ -97,6 +97,200 @@ function verificationBadge(verification) {
     return span;
 }
 
+/* ── restore drill ──────────────────────────────────────────────────── */
+
+/* The three results a drill can have, in the words the operator reads.
+ * Colours are Bootstrap classes: green, red, gray. */
+const DRILL_STATUS = {
+    passed: { label: 'موفق', badge: 'bg-success', text: 'text-success' },
+    failed: { label: 'ناموفق', badge: 'bg-danger', text: 'text-danger' },
+    skipped: { label: 'انجام نشد', badge: 'bg-secondary', text: 'text-muted' },
+};
+
+const CHECK_LABELS = [
+    ['row_counts', 'تعداد ردیف‌ها'],
+    ['schema_migrations', 'نسخه‌های پایگاه داده'],
+    ['validation', 'سلامت پایگاه داده'],
+];
+
+const CHECK_RESULTS = {
+    passed: { label: 'درست', text: 'text-success' },
+    failed: { label: 'نادرست', text: 'text-danger' },
+    skipped: { label: 'بررسی نشد', text: 'text-muted' },
+};
+
+function faNumber(n) {
+    return typeof n === 'number' ? n.toLocaleString('fa-IR') : '—';
+}
+
+/* "۴ دقیقه و ۲۳ ثانیه", or "کمتر از یک دقیقه". Minutes are the unit that
+ * matters for a drill, so seconds are dropped under a minute. */
+function formatDuration(ms) {
+    if (typeof ms !== 'number' || ms < 0) return '—';
+    const total = Math.round(ms / 1000);
+    if (total < 60) return 'کمتر از یک دقیقه';
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    const m = `${faNumber(minutes)} دقیقه`;
+    return seconds ? `${m} و ${faNumber(seconds)} ثانیه` : m;
+}
+
+function drillBadge(row) {
+    const drill = row.drill;
+    const info = drill && DRILL_STATUS[drill.status];
+    if (!info) return cell('—', 'text-muted');
+    const td = document.createElement('td');
+    // A button, not a span, so the keyboard can reach it and Enter opens it.
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `badge border-0 drill-badge ${info.badge}`;
+    b.textContent = info.label;
+    b.title = 'دیدن نتیجهٔ تمرین بازیابی';
+    b.addEventListener('click', () => openDrill(row.backup_id, drill));
+    td.appendChild(b);
+    return td;
+}
+
+/* Remember the newest drill time we have seen. After the operator starts a
+ * drill we watch for this to change: that is how the page knows it finished. */
+let lastDrillAt = null;
+let watchFrom = null;
+let watchUntil = 0;
+let watchTimer = null;
+
+function startWatching() {
+    watchFrom = lastDrillAt;
+    // A drill may restore a large database. Stop looking after 45 minutes.
+    watchUntil = Date.now() + 45 * 60 * 1000;
+    el('drill-running').hidden = false;
+    if (!watchTimer) watchTimer = setInterval(poll, 20000);
+}
+
+/* True while a Bootstrap dialog is open or opening. Bootstrap adds
+ * `modal-open` to the body at once, and `.show` to the dialog only after its
+ * fade, so both are checked. */
+function dialogOpen() {
+    return document.body.classList.contains('modal-open')
+        || Boolean(document.querySelector('.modal.show'));
+}
+
+/* The 20 second refresh after a manual drill. load() rebuilds the rows, and
+ * that clears the ticked backups. An operator with the bulk-delete dialog open
+ * would lose the choice while typing the confirmation. So the poll does
+ * nothing while a dialog is open, and tries again on the next tick. */
+function poll() {
+    if (dialogOpen()) return;
+    load(true);
+}
+
+function stopWatching() {
+    el('drill-running').hidden = true;
+    if (watchTimer) clearInterval(watchTimer);
+    watchTimer = null;
+}
+
+function renderDrillStatus(latest) {
+    const box = el('drill-status');
+    const reason = el('drill-reason');
+    box.replaceChildren();
+    reason.textContent = '';
+    lastDrillAt = (latest && latest.checked_at) || null;
+    if (watchTimer && (lastDrillAt !== watchFrom || Date.now() > watchUntil)) {
+        stopWatching();
+    }
+
+    const info = latest && DRILL_STATUS[latest.status];
+    if (!info) {
+        box.textContent = 'هنوز هیچ تمرین بازیابی انجام نشده است.';
+        box.className = 'fw-bold text-muted';
+        return;
+    }
+    box.className = 'fw-bold';
+    box.appendChild(document.createTextNode('آخرین تمرین بازیابی: '));
+    const status = document.createElement('span');
+    status.className = info.text;
+    status.textContent = info.label;
+    box.appendChild(status);
+    const when = formatDate(latest.checked_at);
+    box.appendChild(document.createTextNode(
+        ` · ${when} · مدت ${formatDuration(latest.duration_ms)} `));
+    const more = button('دیدن جزئیات', 'btn btn-link btn-sm p-0 align-baseline',
+        () => openDrill(latest.backup_id, latest));
+    box.appendChild(more);
+    reason.textContent = latest.reason || '';
+}
+
+function setText(id, text) {
+    el(id).textContent = text;
+}
+
+function openDrill(backupId, drill) {
+    const info = DRILL_STATUS[drill.status] || DRILL_STATUS.skipped;
+    const status = el('drill-m-status');
+    status.textContent = info.label;
+    status.className = `col-sm-8 fw-bold ${info.text}`;
+    setText('drill-m-backup', backupId || '—');
+    setText('drill-m-date', formatDate(drill.checked_at));
+    setText('drill-m-total', formatDuration(drill.duration_ms));
+    setText('drill-m-restore', formatDuration(drill.restore_duration_ms));
+    setText('drill-m-reason', drill.reason || '');
+
+    const checks = el('drill-m-checks');
+    checks.replaceChildren();
+    CHECK_LABELS.forEach(([key, label]) => {
+        const result = CHECK_RESULTS[(drill.checks || {})[key]] || CHECK_RESULTS.skipped;
+        const li = document.createElement('li');
+        li.appendChild(document.createTextNode(`${label}: `));
+        const mark = document.createElement('b');
+        mark.className = result.text;
+        mark.textContent = result.label;
+        li.appendChild(mark);
+        checks.appendChild(li);
+    });
+
+    // Table names come from the backup, so they go in with textContent only.
+    const tables = drill.tables || {};
+    const names = Object.keys(tables).sort();
+    const body = el('drill-m-tables');
+    body.replaceChildren();
+    names.forEach((name) => {
+        const counts = tables[name] || {};
+        const tr = document.createElement('tr');
+        if (counts.expected !== counts.actual) tr.className = 'table-danger';
+        tr.appendChild(cell(name, 'backup-id'));
+        tr.appendChild(cell(faNumber(counts.expected)));
+        tr.appendChild(cell(faNumber(counts.actual)));
+        body.appendChild(tr);
+    });
+    el('drill-m-tables-wrap').hidden = names.length === 0;
+    el('drill-m-no-tables').hidden = names.length !== 0;
+
+    new bootstrap.Modal(el('drillModal')).show();
+}
+
+async function runDrill(id, btn) {
+    btn.disabled = true;
+    showMsg('backups-msg', '⏳ در حال شروع تمرین بازیابی...', 'muted');
+    try {
+        const res = await fetchAuth(`${API}/${encodeURIComponent(id)}/drill`,
+            { method: 'POST' });
+        if (res.ok) {
+            const data = await res.json();
+            showMsg('backups-msg', data.message || 'تمرین بازیابی شروع شد', 'success');
+            startWatching();
+            // Reload soon so the page shows the drill has started.
+            setTimeout(load, 2000);
+        } else {
+            showMsg('backups-msg', await detail(res, 'شروع تمرین بازیابی ناموفق بود'),
+                'danger');
+        }
+    } catch {
+        showMsg('backups-msg', 'خطای ارتباط با سرور', 'danger');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 function filesCell(row) {
     const td = document.createElement('td');
     td.className = 'backup-files small';
@@ -167,7 +361,7 @@ function checkboxCell(row) {
     return td;
 }
 
-function renderRows(rows) {
+function renderRows(rows, isPg) {
     const body = el('backups-body');
     body.replaceChildren();
     selected.clear();
@@ -176,7 +370,7 @@ function renderRows(rows) {
         const tr = document.createElement('tr');
         const td = cell('هنوز هیچ نسخهٔ پشتیبانی گرفته نشده است.',
             'text-center text-muted');
-        td.colSpan = 7;
+        td.colSpan = 8;
         tr.appendChild(td);
         body.appendChild(tr);
         syncBulkButton();
@@ -204,12 +398,21 @@ function renderRows(rows) {
         healthTd.appendChild(verificationBadge(row.verification));
         tr.appendChild(healthTd);
 
+        tr.appendChild(drillBadge(row));
+
         const actions = document.createElement('td');
         actions.className = 'text-end';
         const group = document.createElement('div');
         group.className = 'd-flex gap-2 justify-content-end flex-wrap';
         group.appendChild(button('بررسی سلامت', 'btn btn-sm btn-outline-primary',
             () => verifyBackup(row.backup_id)));
+        // The drill exists only for PostgreSQL. On SQLite the server says 409,
+        // so the button is not shown at all.
+        if (isPg) {
+            const drillBtn = button('تمرین بازیابی', 'btn btn-sm btn-outline-secondary',
+                () => runDrill(row.backup_id, drillBtn));
+            group.appendChild(drillBtn);
+        }
         group.appendChild(button('حذف نسخه', 'btn btn-sm btn-outline-danger',
             () => openDelete(row.backup_id)));
         // Restore replaces the WHOLE database — it must never read like just
@@ -226,7 +429,10 @@ function renderRows(rows) {
     syncBulkButton();
 }
 
-async function load() {
+/* `fromPoll` is true only for the timer. A normal load() always draws. The
+ * timer's request may have been sent before a dialog opened, so the dialog is
+ * checked again when the answer arrives. */
+async function load(fromPoll = false) {
     try {
         const res = await fetchAuth(API);
         if (!res.ok) {
@@ -234,8 +440,13 @@ async function load() {
             return;
         }
         const data = await res.json();
+        if (fromPoll && dialogOpen()) return;
         renderSchedule(data.schedule);
-        renderRows(data.backups || []);
+        const isPg = data.engine === 'postgresql';
+        // The drill exists only for PostgreSQL, so SQLite shows no drill box.
+        el('drill-box').hidden = !isPg;
+        renderRows(data.backups || [], isPg);
+        renderDrillStatus(data.latest_drill);
     } catch {
         showMsg('backups-msg', 'خطای ارتباط با سرور', 'danger');
     }

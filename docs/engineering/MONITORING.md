@@ -31,9 +31,9 @@ On a host without the stack, the numbers below are produced correctly, held
 in memory (with several workers: in memory-mapped files in one shared
 directory, see the section «چند worker و /metrics» below), and **nothing
 reads them** except a human who opens `/metrics` with an admin session. The
-moment the app restarts, every counter goes back to zero. The one exception
-is `backup_last_success_timestamp_seconds`: at startup it is read back from
-the backup manifests on disk.
+moment the app restarts, every counter goes back to zero. The exceptions
+are `backup_last_success_timestamp_seconds` and the three `backup_drill_*`
+gauges: at startup they are read back from the backup manifests on disk.
 
 ## The monitoring stack
 
@@ -223,13 +223,13 @@ it has not been run by a test, and running it on a host is a separate step.
 
 `/metrics` serves a **dedicated** `CollectorRegistry`, not the library default
 (`app/services/metrics.py:80`). Anything a third-party package registers onto
-`prometheus_client.REGISTRY` never appears. Only the twelve families below are
+`prometheus_client.REGISTRY` never appears. Only the fifteen families below are
 exposed.
 
 With several workers (multiprocess mode) the dedicated registry alone is not
 enough, because every metric of every library lands in the shared directory.
 `exposition()` therefore filters the merged result by `FAMILY_NAMES`, which is
-built from the dedicated registry. The rule is the same in both modes: twelve
+built from the dedicated registry. The rule is the same in both modes: fifteen
 families, nothing else.
 
 The reason is review: every series on this endpoint was chosen by a person. A
@@ -238,7 +238,7 @@ looked at.
 
 ## Metric list
 
-All twelve are defined in `app/services/metrics.py:82-184`. The two `intent_*` gauges are the newest.
+All fifteen are defined in `app/services/metrics.py:82-216`. The three `backup_drill_*` gauges are the newest.
 
 | Metric | Type | Labels | Meaning | Hooked at |
 |---|---|---|---|---|
@@ -251,6 +251,9 @@ All twelve are defined in `app/services/metrics.py:82-184`. The two `intent_*` g
 | `backup_outcome_total` | counter | `result` | PostgreSQL backup attempts made by the scheduler path: `success` = created AND verified, `failed` = any other ending. Both series start at 0 | `app/services/backup.py:187`, `:205` and `:207` (`_run_backup_now`) |
 | `backup_last_success_timestamp_seconds` | gauge | none | Unix time (`created_at`) of the newest PostgreSQL backup that passed verification. `0` = none known. Seeded from disk at startup | `app/services/pg_backup.py:302` (`record_verified`), called from `verify()` (`:271`), `_run_backup_now` (`app/services/backup.py:204`) and the startup seed (`app/main.py:174`) |
 | `backup_schedule_interval_seconds` | gauge | none | فاصله‌ی پشتیبان‌گیری خودکار به ثانیه (`backup_interval_hours × 3600`). `0` = پشتیبان‌گیری خودکار خاموش است. بخش «فاصله‌ی زمان‌بند پشتیبان» را ببینید | `app/services/backup.py:70` (`_set_schedule_metric`)، صدا زده از `:241` (شروع حلقه‌ی زمان‌بند) و `:249` (هر چک) |
+| `backup_drill_last_success_timestamp_seconds` | gauge | none | Unix time (`checked_at`) of the newest restore drill that passed. `0` = no passed drill is known. Seeded from disk at startup. Never moves backward | `app/services/restore_drill.py:673` (`_move_success_time`, called from `_publish_metrics` at `:656`), the startup seed (`app/main.py:179`) |
+| `backup_drill_last_duration_seconds` | gauge | none | How long the most recent restore drill took, in seconds. Any status counts (passed, failed, skipped) | `app/services/restore_drill.py:656` (`_publish_metrics`, called from `_finish`) and the startup seed |
+| `backup_drill_last_ok` | gauge | none | `1` if the most recent restore drill passed. `0` if it failed **or was skipped** | `app/services/restore_drill.py:656` (`_publish_metrics`) and the startup seed |
 | `health_score` | gauge | none | The 0 to 100 system health score | `app/services/health.py:339` |
 | `intent_holdout_accuracy` | gauge | none | Holdout accuracy (0 to 1) of the intent model this install serves. NaN when there is no measurement | `app/services/intent.py:813` (`_publish_gauges`, called by `record_artifact` on every reindex) |
 | `intent_model_version` | gauge | none | Version of the served intent model. Rises by one per newly trained model; a model loaded unchanged keeps its number. NaN when no recorded model is served | `app/services/intent.py:815` (same function) |
@@ -375,6 +378,55 @@ Prometheus نشان می‌دهد. زمان‌بند در جدول `settings` ا
 
 **موتور SQLite.** مسیر `backup_center` (فقط backend تست و نسخه‌ی بازگشت) مثل
 قبل است. این دو متریک فقط پشتیبان‌های پستگرس (`pg_dump`) را توصیف می‌کنند.
+
+## Restore drill metrics
+
+`verify()` only proves a backup file can be read. The restore drill restores a
+backup into a separate database and checks it, so it proves a database comes
+back. What it does and how an operator reads the result is in
+`docs/engineering/DEPLOYMENT_RUNBOOK.md`, section "Restore drill". These
+metrics show the result of the newest drill.
+
+**`backup_drill_last_success_timestamp_seconds`** is the Unix time of the newest
+drill that passed.
+
+- `0` means no passed drill is known, from this start or from the manifests on
+  disk. A gauge with no label shows `0` before its first `set()`.
+- It never moves backward. A manual drill on an older backup, or the startup
+  seed, cannot make the newest pass look older.
+- A `checked_at` more than one hour in the future is ignored and logged. The
+  gauge never goes down, so one wrong clock would pin it in the future.
+- Only a drill with status `passed` moves it. A failed or skipped drill does not.
+- It survives a restart. At startup `restore_drill.seed_metrics()` reads the
+  manifests and takes the newest passed drill, even when a newer drill failed.
+  The read never stops the app from booting.
+
+**`backup_drill_last_duration_seconds`** is how long the most recent drill took,
+in seconds. It is set for every status, including skipped. It is `0` until a
+drill has run or has been seeded from disk. The value is the whole drill, not
+only the restore step.
+
+**`backup_drill_last_ok`** is `1` when the most recent drill passed and `0` when
+it failed or was skipped.
+
+- A skipped drill counts as `0` on purpose. It was skipped because the drill
+  database is missing, there is not enough disk, or the database name is not
+  safe to use. In all three cases the drill did not prove that a backup can be
+  restored, and a person should look.
+- It follows the most recent drill, not the best one. A failed drill after a
+  pass must show `0`. The aggregation mode is `mostrecent` for that reason.
+- A drill started by the button on the Backups page also sets these two gauges,
+  so a manual run after the nightly one replaces its value. At startup they are
+  seeded from the newest drill of any status.
+
+The drill never changes `backup_outcome_total` or
+`backup_last_success_timestamp_seconds`. A backup is counted as a success when it
+was created and verified, whatever the drill says later.
+
+**There are no alert rules for these three metrics yet.** The alert rules belong
+to the monitoring stack (`deploy/monitoring/rules/padyar.rules.yml`), and none
+of them reads the drill metrics. Until a rule is added, a person has to look at
+the Backups page or at `/metrics`.
 
 ## Cardinality: why `route` is a template
 
@@ -623,6 +675,8 @@ memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metr
 |---|---|---|---|
 | `http_requests_total`، `chat_tier_served_total`، `ai_calls_total`، `backup_outcome_total` | counter | جمع (sum) | هر worker فقط سهم خودش را می‌شمارد |
 | `backup_last_success_timestamp_seconds` | gauge | `max`: بیشترین مقدار بین همه‌ی process ها | worker ای که backup گرفته زمان را set می‌کند. worker های دیگر ۰ یا یک زمان قدیمی‌تر دارند و نباید آن را پنهان یا کم کنند. `live` نیست، چون backup بعد از خروج worker هنوز روی دیسک هست |
+| `backup_drill_last_success_timestamp_seconds` | gauge | `max`: بیشترین مقدار بین همه‌ی process ها | مثل `backup_last_success_timestamp_seconds`: worker ای که تمرین را اجرا کرده زمان را set می‌کند و بقیه ۰ یا زمان قدیمی‌تر دارند. `live` نیست، چون نتیجه‌ی تمرین بعد از خروج worker هنوز در manifest روی دیسک است |
+| `backup_drill_last_duration_seconds`، `backup_drill_last_ok` | gauge | `mostrecent` | یک تمرین یک رویداد است و تازه‌ترین تمرین جواب فعلی است. با `max`، یک تمرین ناموفق (۰) که بعد از یک تمرین موفق (۱) نوشته شود پشت ۱ قدیمی پنهان می‌ماند. `live` نیست، چون نتیجه بعد از خروج worker هنوز درست است |
 | `http_request_duration_seconds` | histogram | جمع `_count` و `_sum` و همه‌ی bucketها | همان دلیل |
 | `http_inflight` | gauge | `livesum`: جمع روی worker های زنده | درخواست‌های در حال انجام همه‌ی worker ها باید جمع شوند. فایل worker ای که خارج شود حذف می‌شود |
 | `ai_circuit_state` (به ازای هر `instance`) | gauge | `mostrecent`: آخرین مقداری که هر process set کرده | دلیلش پایین‌تر آمده |
@@ -657,12 +711,12 @@ memory-mapped داخل همان پوشه می‌نویسد. با هر `GET /metr
   `mostrecent` تا تغییر بعدی یا شروع بعدی یک worker مقدار قدیمی را نشان می‌دهد.
   این پنجره به اندازهٔ یک SELECT است، پس قفلی اضافه نشده است.
 
-### فقط دوازده خانواده
+### فقط پانزده خانواده
 
 پوشه‌ی مشترک هر متریکی را نگه می‌دارد که هر کدی در هر worker ساخته، از جمله
 متریک‌های کتابخانه‌های دیگر. برای همین `exposition()` نتیجه‌ی جمع‌شده را با
 `FAMILY_NAMES` فیلتر می‌کند. این مجموعه از registry اختصاصی ساخته می‌شود، پس
-هنوز همان یک منبع حقیقت است. در هر دو حالت همان دوازده خانواده دیده می‌شود.
+هنوز همان یک منبع حقیقت است. در هر دو حالت همان پانزده خانواده دیده می‌شود.
 خانواده‌ای که هنوز هیچ worker در آن ننوشته (مثلاً `ai_circuit_state` وقتی جدول
 `ai_circuit_state` هیچ ردیفی ندارد)
 بدون sample لیست می‌شود، مثل حالت یک process.
