@@ -125,3 +125,8 @@ def test_an_sftp_target_without_working_encryption_is_not_shown_as_configured(cl
                                      "attempted_at": None, "backup_id": None}
     assert "OFFSITE_GPG" not in res.text and "secret-host" not in res.text
 
+
+def test_the_page_has_a_sentence_for_the_not_ready_state():
+    js = (ROOT / "static/admin/js/infra_backups.js").read_text(encoding="utf-8")
+    assert "'not_ready'" in js
+    assert "رمزگذاری" in js

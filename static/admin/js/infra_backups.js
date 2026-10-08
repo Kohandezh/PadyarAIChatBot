@@ -18,6 +18,9 @@ const el = (id) => document.getElementById(id);
 
 let restoreTarget = '';
 let deleteTarget = '';
+// Told the off-site state after each load (the destination card shows its
+// own warning from it). Set by initBackups().
+let onOffsiteState = () => {};
 
 /* ── formatting ─────────────────────────────────────────────────────── */
 
@@ -136,6 +139,14 @@ function renderSchedule(schedule) {
 function renderOffsite(offsite) {
     const o = offsite || {};
     const box = el('offsite-status');
+    onOffsiteState(o);
+    // A destination whose copies cannot be encrypted sends nothing, so it is
+    // not "configured": say both facts (review fix 3).
+    if (o.state === 'not_ready') {
+        box.className = 'small mb-3 text-danger fw-bold';
+        box.textContent = 'مقصد تنظیم شده، ولی رمزگذاری نسخه‌ها روی خود سرور آماده نیست، پس هیچ نسخه‌ای بیرون از سرور نیست.';
+        return;
+    }
     if (!o.configured) {
         box.className = 'small mb-3 text-danger fw-bold';
         box.textContent = 'هیچ نسخه‌ای بیرون از سرور نیست.';
@@ -482,7 +493,8 @@ async function doBulkDelete() {
 
 export { load as reloadBackups };
 
-export function initBackups() {
+export function initBackups(options = {}) {
+    if (options.onOffsiteState) onOffsiteState = options.onOffsiteState;
     loadProfile();
     el('create-btn').addEventListener('click', createBackup);
     el('restore-confirm-btn').addEventListener('click', doRestore);

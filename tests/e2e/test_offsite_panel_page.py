@@ -47,6 +47,7 @@ class FakeApi:
     def __init__(self, html, settings):
         self.html, self.settings, self.requests = html, dict(settings), []
         self.save_answer = None
+        self.offsite = None  # the list endpoint's `offsite` view, when a test sets it
         self.test_answer = (200, {"ok": True,
                                   "message": "اتصال برقرار شد و نوشتن فایل آزمایشی موفق بود."})
 
@@ -74,9 +75,10 @@ class FakeApi:
             status, body = 200, {"csrf_token": "t"}
         elif path == "/admin/api/infra/backups":
             status, body = 200, {"backups": [], "schedule": {}, "labels": {},
-                                 "offsite": {"configured": self.settings["source"] != "none",
-                                             "state": "none", "attempted_at": None,
-                                             "backup_id": None}}
+                                 "offsite": self.offsite or {
+                                     "configured": self.settings["source"] != "none",
+                                     "state": "none", "attempted_at": None,
+                                     "backup_id": None}}
         elif path == API and request.method == "GET":
             status, body = 200, self.settings
         elif path == API and request.method == "POST":
@@ -171,7 +173,7 @@ async def test_a_saved_secret_shows_as_saved_and_its_field_stays_empty(html, ope
     assert await page.input_value("#offsite-port") == "2222"
     assert await page.input_value("#offsite-password") == ""
     assert await _text(page, "#offsite-password-state") == "✅ ذخیره شده"
-    assert await _text(page, "#offsite-source") == "مقصد از همین صفحه تنظیم شده است."
+    assert await _text(page, "#offsite-source") == "مقصد در همین صفحه ذخیره شده است."
     assert await page.is_enabled("#offsite-test-btn")
     assert await page.is_visible("#offsite-password")
     assert not await page.is_visible("#offsite-key")
@@ -282,3 +284,44 @@ async def test_a_phone_never_scrolls_sideways(html, open_page):
 
     width = await page.evaluate("document.scrollingElement.scrollWidth")
     assert width <= 375, width
+
+
+# ── Review fix 3: "ready" needs the destination AND the encryption ──────
+
+NOT_READY = {"configured": False, "state": "not_ready", "attempted_at": None, "backup_id": None}
+
+
+async def test_without_working_encryption_the_page_says_not_ready(html, open_page):
+    api = FakeApi(html, SAVED)
+    api.offsite = NOT_READY
+    page = await open_page(api)
+    await page.wait_for_function(
+        "document.getElementById('offsite-status').textContent.length > 0", polling=50)
+
+    status = await _text(page, "#offsite-status")
+    assert "رمزگذاری" in status and "هیچ نسخه‌ای بیرون از سرور نیست" in status
+    assert "text-danger" in (await page.get_attribute("#offsite-status", "class"))
+    assert await page.is_visible("#offsite-encryption")
+    assert "رمزگذاری نسخه‌ها روی خود سرور آماده نیست" in await _text(page, "#offsite-encryption")
+    assert "text-success" not in (await page.get_attribute("#offsite-source", "class"))
+
+
+async def test_with_encryption_ready_there_is_no_encryption_warning(html, open_page):
+    api = FakeApi(html, SAVED)
+    api.offsite = {"configured": True, "state": "none", "attempted_at": None,
+                   "backup_id": None}
+    page = await open_page(api)
+    await page.wait_for_function(
+        "document.getElementById('offsite-status').textContent.length > 0", polling=50)
+
+    assert not await page.is_visible("#offsite-encryption")
+    assert "رمزگذاری" not in await _text(page, "#offsite-status")
+
+
+async def test_the_cards_own_line_never_reads_as_ready(html, open_page):
+    """Whether copies can leave the server is the status line's job, which
+    knows about encryption. The card only says the destination is saved."""
+    page = await open_page(FakeApi(html, SAVED))
+
+    assert "text-success" not in (await page.get_attribute("#offsite-source", "class"))
+    assert "تنظیم شده" not in await _text(page, "#offsite-source")

@@ -124,7 +124,8 @@
                     این سرور فرستاده می‌شود. اگر سرور اصلی از دست برود، اطلاعات از دست نمی‌رود.
                     اطلاعات این فرم را سرویس‌دهندهٔ فضای SFTP به شما می‌دهد.
                 </p>
-                <div id="offsite-source" class="small mb-3" role="status"></div>
+                <div id="offsite-source" class="small mb-2" role="status"></div>
+                <div id="offsite-encryption" class="small fw-bold text-danger mb-3" role="status" hidden></div>
 
                 <form id="offsite-form" autocomplete="off" novalidate>
                     <div class="row g-3">
@@ -302,8 +303,8 @@
 {% block page_js %}
 <script type="module">
     import { initBackups, reloadBackups } from '/static/admin/js/infra_backups.js';
-    import { initOffsiteSettings } from '/static/admin/js/infra_backups_offsite.js';
-    initBackups();
+    import { initOffsiteSettings, showOffsiteState } from '/static/admin/js/infra_backups_offsite.js';
+    initBackups({ onOffsiteState: showOffsiteState });
     // A saved destination changes the "copy off the server" line above.
     initOffsiteSettings({ onSaved: reloadBackups });
 </script>

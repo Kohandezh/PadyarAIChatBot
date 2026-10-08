@@ -20,8 +20,11 @@ let dirty = false;
 let source = 'none';
 let onSaved = () => {};
 
+// Neutral on purpose: whether copies can really leave the server also needs
+// the encryption key on the server, and the status line above (fed by
+// showOffsiteState) is the one place that knows both.
 const SOURCE_TEXT = {
-    panel: ['text-success', 'مقصد از همین صفحه تنظیم شده است.'],
+    panel: ['text-body', 'مقصد در همین صفحه ذخیره شده است.'],
     env: ['text-info', 'اکنون مقصد از تنظیمات خود سرور خوانده می‌شود. اگر اینجا مقصدی ذخیره کنید، جای آن را می‌گیرد.'],
     none: ['text-muted', 'هنوز مقصدی تنظیم نشده است.'],
 };
@@ -166,6 +169,17 @@ async function testConnection() {
     } finally {
         setDirty(dirty);
     }
+}
+
+/* The page's off-site state, from the backups list. 'not_ready' = a
+ * destination is set but copies cannot be encrypted on this server. */
+export function showOffsiteState(offsite) {
+    const box = el('offsite-encryption');
+    const notReady = (offsite || {}).state === 'not_ready';
+    box.hidden = !notReady;
+    box.textContent = notReady
+        ? 'رمزگذاری نسخه‌ها روی خود سرور آماده نیست، پس با این مقصد هنوز هیچ نسخه‌ای بیرون فرستاده نمی‌شود. از کسی که برنامه را نصب کرده بخواهید کلید عمومی رمزگذاری را روی سرور بگذارد.'
+        : '';
 }
 
 export function initOffsiteSettings(options = {}) {
