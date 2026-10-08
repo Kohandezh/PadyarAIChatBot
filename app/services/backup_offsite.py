@@ -357,11 +357,59 @@ def _login(settings: dict, panel):
         yield login
 
 
-def _gpg(home: str, *args):
+# A readiness check runs while an admin page loads; a copy may wait longer.
+READY_CHECK_TIMEOUT = 15
+
+
+def _gpg(home: str, *args, timeout: float = None):
     return subprocess.run(
         ["gpg", "--homedir", home, "--batch", "--no-tty", "--no-autostart", *args],
-        capture_output=True, text=True, timeout=_timeout(),
+        capture_output=True, text=True, timeout=timeout or _timeout(),
         env={**os.environ, "GNUPGHOME": home})
+
+
+def _check_key(home: str, key_file: str, fingerprint: str, timeout: float = None) -> None:
+    """Raise ValueError unless `key_file` holds exactly one PUBLIC key whose
+    fingerprint is `fingerprint`. The one check behind both the copy
+    (_encrypt) and the readiness view (encryption_problem)."""
+    shown = _gpg(home, "--with-colons", "--show-keys", key_file, timeout=timeout)
+    if shown.returncode != 0:
+        raise ValueError("OFFSITE_GPG_PUBLIC_KEY is not a readable gpg key")
+    records = [line.split(":") for line in shown.stdout.splitlines()]
+    if any(r[0] in ("sec", "ssb") for r in records):
+        raise ValueError("OFFSITE_GPG_PUBLIC_KEY holds a PRIVATE key; put only "
+                         "the public key on the server")
+    primaries = [i for i, r in enumerate(records) if r[0] == "pub"]
+    if len(primaries) != 1:
+        raise ValueError("OFFSITE_GPG_PUBLIC_KEY must hold exactly one key")
+    fprs = [r[9] for r in records[primaries[0] + 1:] if r[0] == "fpr"]
+    if not fprs or fprs[0].upper() != fingerprint:
+        raise ValueError("gpg fingerprint mismatch: OFFSITE_GPG_PUBLIC_KEY is "
+                         "not the key OFFSITE_GPG_FINGERPRINT names")
+
+
+def encryption_problem() -> str:
+    """Why an sftp: copy could not be encrypted right now, or "" when it can.
+
+    The same steps a copy takes before it uploads anything: both gpg
+    settings set, the key file there, one readable PUBLIC key with the named
+    fingerprint. A connection test passes without any of that (it sends no
+    dump), so the test and the page ask here before they say "ready".
+    The reason is English and names settings, never a key or a secret.
+    """
+    try:
+        settings = _sftp_settings(ssh_files=False)
+    except (ValueError, FileNotFoundError) as e:
+        return str(e)
+    home = tempfile.mkdtemp(prefix="padyar-gpg-")
+    try:
+        _check_key(home, settings["OFFSITE_GPG_PUBLIC_KEY"],
+                   settings["OFFSITE_GPG_FINGERPRINT"], timeout=READY_CHECK_TIMEOUT)
+        return ""
+    except (ValueError, OSError, subprocess.SubprocessError) as e:
+        return f"{type(e).__name__}: {e}"[:300]
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
 
 
 def _encrypt(dump: str, out: str, key_file: str, fingerprint: str) -> None:
@@ -369,20 +417,7 @@ def _encrypt(dump: str, out: str, key_file: str, fingerprint: str) -> None:
     Raises before writing anything when the key is not the expected one."""
     home = tempfile.mkdtemp(prefix="padyar-gpg-")
     try:
-        shown = _gpg(home, "--with-colons", "--show-keys", key_file)
-        if shown.returncode != 0:
-            raise ValueError("OFFSITE_GPG_PUBLIC_KEY is not a readable gpg key")
-        records = [line.split(":") for line in shown.stdout.splitlines()]
-        if any(r[0] in ("sec", "ssb") for r in records):
-            raise ValueError("OFFSITE_GPG_PUBLIC_KEY holds a PRIVATE key; put only "
-                             "the public key on the server")
-        primaries = [i for i, r in enumerate(records) if r[0] == "pub"]
-        if len(primaries) != 1:
-            raise ValueError("OFFSITE_GPG_PUBLIC_KEY must hold exactly one key")
-        fprs = [r[9] for r in records[primaries[0] + 1:] if r[0] == "fpr"]
-        if not fprs or fprs[0].upper() != fingerprint:
-            raise ValueError("gpg fingerprint mismatch: OFFSITE_GPG_PUBLIC_KEY is "
-                             "not the key OFFSITE_GPG_FINGERPRINT names")
+        _check_key(home, key_file, fingerprint)
         enc = _gpg(home, "--recipient-file", key_file, "--output", out,
                    "--encrypt", "--", dump)
         if enc.returncode != 0:
@@ -523,9 +558,16 @@ def last_result_view(manifests: list) -> dict:
     `manifests` is newest first (pg_backup.list_backups()). Only a state and
     a time leave the server: the target string and the error text can hold
     a host, a user and a path, and they stay in the manifest and the log.
+
+    An sftp: destination whose gpg key is not usable is "not_ready", never
+    "configured": every copy to it would fail before upload (review fix 3).
     """
-    if not _target():
+    target = _target()
+    if not target:
         return {"configured": False, "state": "off", "attempted_at": None,
+                "backup_id": None}
+    if target.startswith(_SFTP_PREFIX) and encryption_problem():
+        return {"configured": False, "state": "not_ready", "attempted_at": None,
                 "backup_id": None}
     newest = (manifests or [{}])[0] or {}
     block = newest.get("offsite") or {}

@@ -129,6 +129,19 @@ def remote(tmp_path):
     return root
 
 
+@pytest.fixture(autouse=True)
+def encryption(monkeypatch):
+    """The gpg pair on the server is ready unless a test says otherwise
+    (review fix 3). Set `encryption.problem` to a reason to make it not."""
+    from types import SimpleNamespace
+
+    from app.services import backup_offsite
+    state = SimpleNamespace(problem="")
+    monkeypatch.setattr(backup_offsite, "encryption_problem", lambda: state.problem,
+                        raising=False)
+    return state
+
+
 @pytest.fixture
 def fake(app_db, remote, monkeypatch):
     from app.services import offsite_destination
@@ -652,3 +665,39 @@ def test_the_temporary_refusal_says_to_wait_not_to_check_the_address():
 
     assert "صبر کنید" in text
     assert text != offsite_destination.MESSAGES["unreachable"]
+
+
+# ── Review fix 3: a working connection without encryption is not ready ─
+
+def test_a_working_connection_without_encryption_is_not_ok(fake, remote, encryption):
+    from app.services import offsite_destination
+    encryption.problem = "sftp: target needs OFFSITE_GPG_PUBLIC_KEY; nothing uploaded"
+    _save()
+
+    result = _try()
+
+    assert result["ok"] is False and result["reason"] == "encryption_not_ready"
+    assert result["message"] == offsite_destination.MESSAGES["encryption_not_ready"]
+    assert fake.sftp_calls(), "the connection itself is still tested"
+    assert _remote_files(remote) == []
+    assert "OFFSITE_GPG" not in result["message"]
+
+
+def test_a_failed_connection_without_encryption_names_both_problems(fake, encryption):
+    from app.services import offsite_destination
+    encryption.problem = "gpg fingerprint mismatch"
+    _save()
+    fake.on_sftp = lambda argv, kwargs: (255, "", "backup@h: Permission denied (password).\r\n")
+
+    result = _try()
+
+    assert result["ok"] is False and result["reason"] == "auth_password"
+    assert result["message"] == (offsite_destination.MESSAGES["auth_password"] + " "
+                                 + offsite_destination.MESSAGES["also_no_encryption"])
+
+
+def test_with_encryption_ready_a_working_connection_is_ok(fake, encryption):
+    encryption.problem = ""
+    _save()
+
+    assert _try()["ok"] is True

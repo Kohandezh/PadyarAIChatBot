@@ -704,6 +704,7 @@ def test_the_view_reads_the_newest_manifest_and_leaks_no_target_or_error(monkeyp
     import app.config as config
     from app.services import backup_offsite
     monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", SFTP_TARGET)
+    monkeypatch.setattr(backup_offsite, "encryption_problem", lambda: "", raising=False)
     newest = {"backup_id": BACKUP_ID}
     if block:
         newest["offsite"] = block
@@ -1003,3 +1004,94 @@ def test_the_panel_password_reaches_neither_the_manifest_nor_the_event(backup_di
 
     assert PANEL_PASSWORD not in (backup_dir / "manifest.json").read_text(encoding="utf-8")
     assert PANEL_PASSWORD not in json.dumps(events, default=str)
+
+
+# ── Review fix 3: is encryption ready? ──────────────────────────────────
+#
+# A destination without a usable gpg key passes a connection test, and then
+# every nightly copy fails. encryption_problem() is the check, and the copy
+# itself runs the very same key check before it encrypts.
+
+def test_an_sftp_target_without_working_encryption_is_not_ready(monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", SFTP_TARGET)
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", "")
+    monkeypatch.setattr(config, "OFFSITE_GPG_FINGERPRINT", "")
+
+    view = backup_offsite.last_result_view([{"backup_id": BACKUP_ID,
+                                             "offsite": {"status": "failed"}}])
+
+    assert view == {"configured": False, "state": "not_ready", "attempted_at": None,
+                    "backup_id": None}
+
+
+@needs_gpg
+def test_an_sftp_target_with_working_encryption_is_configured(sftp_setup):
+    from app.services import backup_offsite
+
+    assert backup_offsite.encryption_problem() == ""
+    assert backup_offsite.last_result_view([])["configured"] is True
+
+
+def test_an_rsync_target_needs_no_gpg_key_to_be_configured(monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", "rsync:user@offsite:/srv/x")
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", "")
+
+    assert backup_offsite.last_result_view([])["configured"] is True
+
+
+@pytest.mark.parametrize("setting", ["OFFSITE_GPG_PUBLIC_KEY", "OFFSITE_GPG_FINGERPRINT"])
+def test_encryption_is_not_ready_without_either_gpg_setting(monkeypatch, setting):
+    import app.config as config
+    from app.services import backup_offsite
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", "/some/key.asc")
+    monkeypatch.setattr(config, "OFFSITE_GPG_FINGERPRINT", "AB" * 20)
+    monkeypatch.setattr(config, setting, "")
+
+    assert setting in backup_offsite.encryption_problem()
+
+
+@needs_gpg
+def test_encryption_is_not_ready_when_the_key_file_is_gone(sftp_setup, monkeypatch, tmp_path):
+    import app.config as config
+    from app.services import backup_offsite
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", str(tmp_path / "gone.asc"))
+
+    assert "OFFSITE_GPG_PUBLIC_KEY" in backup_offsite.encryption_problem()
+
+
+@needs_gpg
+def test_encryption_is_not_ready_when_the_fingerprint_names_another_key(sftp_setup, vault,
+                                                                        monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    _, other = vault
+    monkeypatch.setattr(config, "OFFSITE_GPG_FINGERPRINT", other.fingerprint)
+
+    assert "mismatch" in backup_offsite.encryption_problem()
+
+
+@needs_gpg
+def test_encryption_is_not_ready_when_the_file_holds_a_private_key(sftp_setup, vault,
+                                                                   monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    key, _ = vault
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", key.secret_file)
+
+    assert "PRIVATE" in backup_offsite.encryption_problem()
+
+
+@needs_gpg
+def test_the_readiness_check_does_not_touch_the_users_keyring(sftp_setup, monkeypatch,
+                                                              tmp_path):
+    from app.services import backup_offsite
+    home = tmp_path / "user-gnupg"
+    home.mkdir()
+    monkeypatch.setenv("GNUPGHOME", str(home))
+
+    assert backup_offsite.encryption_problem() == ""
+    assert list(home.iterdir()) == []

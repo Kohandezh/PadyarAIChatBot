@@ -149,6 +149,12 @@ MESSAGES = {
     "timeout": "سرور مقصد در زمان مجاز پاسخ نداد. نشانی و درگاه را بررسی کنید یا کمی بعد "
                "دوباره امتحان کنید.",
     "error": "آزمایش انجام نشد. جزئیات در بخش گزارش‌ها ثبت شد.",
+    "encryption_not_ready": "اتصال برقرار شد و نوشتن فایل آزمایشی موفق بود، ولی رمزگذاری "
+                            "نسخه‌ها روی خود سرور آماده نیست، پس هنوز هیچ نسخه‌ای بیرون "
+                            "فرستاده نمی‌شود. از کسی که برنامه را نصب کرده بخواهید کلید "
+                            "عمومی رمزگذاری را روی سرور بگذارد.",
+    "also_no_encryption": "رمزگذاری نسخه‌ها هم روی خود سرور آماده نیست. از کسی که برنامه را "
+                          "نصب کرده بخواهید کلید عمومی رمزگذاری را روی سرور بگذارد.",
 }
 
 
@@ -615,28 +621,47 @@ def _clean_up(target, session, remote: str, deadline) -> None:
                        type(e).__name__)
 
 
+def _with_encryption(code: str, problem: str) -> dict:
+    """A copy needs the connection AND a usable gpg key. A test that only
+    connected must not read as ready (review fix 3)."""
+    if not problem:
+        return _outcome(code)
+    if code == "ok":
+        return _outcome("encryption_not_ready")
+    result = _outcome(code)
+    result["message"] = f"{MESSAGES[code]} {MESSAGES['also_no_encryption']}"
+    return result
+
+
 def try_connection() -> dict:
     """Try the SAVED destination once: pinned host key, login, then the same
     steps a copy takes (put a .part, chmod, rename, list, delete) on one
-    small file that holds no backup data. Returns {"ok", "reason",
-    "message"}; never raises, never runs longer than TEST_TIMEOUT."""
+    small file that holds no backup data, and check that a copy could also
+    be ENCRYPTED. Returns {"ok", "reason", "message"} (plus "encryption",
+    the English reason, for the audit row only); never raises, never runs
+    longer than TEST_TIMEOUT."""
+    from app.services import backup_offsite
     dest = stored()
     if dest is None:
         return _outcome("not_saved")
     deadline = time.monotonic() + TEST_TIMEOUT
+    problem = backup_offsite.encryption_problem()
     work = tempfile.mkdtemp(prefix="padyar-sftp-test-")
     try:
-        return _outcome(_connect_and_write(dest, deadline, work))
+        result = _with_encryption(_connect_and_write(dest, deadline, work), problem)
     except LoginRefused as e:
-        return _outcome(e.code if e.code in MESSAGES else "error")
+        result = _with_encryption(e.code if e.code in MESSAGES else "error", problem)
     except subprocess.TimeoutExpired:
-        return _outcome("timeout")
+        result = _with_encryption("timeout", problem)
     except Exception as e:  # noqa: BLE001 (the page gets a sentence, the log the detail)
         applog.exception("backup", "backup.offsite.test_error", e,
                          "آزمایش اتصال مقصد بیرون از سرور خطا داد", outcome="error")
-        return _outcome("error")
+        result = _outcome("error")
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    if problem:
+        result["encryption"] = problem
+    return result
 
 
 def _connect_and_write(dest: PanelDestination, deadline, work: str) -> str:

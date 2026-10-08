@@ -367,6 +367,7 @@ def test_a_panel_destination_beats_the_env_target(client, monkeypatch):
     import app.config as config
     from app.services import backup_offsite
     monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", ENV_TARGET)
+    monkeypatch.setattr(backup_offsite, "encryption_problem", lambda: "", raising=False)
 
     client.post(API, json=_valid())
 
@@ -518,3 +519,17 @@ def test_the_limit_is_per_admin_not_per_address(anon, monkeypatch):
     _signed_in(anon, "second")
 
     assert anon.post(TEST_API).status_code == 200
+
+
+def test_the_encryption_reason_goes_to_the_audit_row_not_to_the_browser(client, monkeypatch):
+    from app.services import offsite_destination
+    monkeypatch.setattr(offsite_destination, "try_connection", lambda: {
+        "ok": False, "reason": "encryption_not_ready", "message": "پیام",
+        "encryption": "sftp: target needs OFFSITE_GPG_PUBLIC_KEY; nothing uploaded"})
+
+    res = client.post(TEST_API)
+
+    assert res.json() == {"ok": False, "message": "پیام"}
+    meta = json.loads(_audit("admin.backup.offsite_settings.tested")[0]["metadata"])
+    assert meta["reason"] == "encryption_not_ready"
+    assert "OFFSITE_GPG_PUBLIC_KEY" in meta["encryption"]

@@ -83,7 +83,9 @@ def test_no_target_means_the_page_is_told_off(client, monkeypatch):
 
 def test_a_failed_copy_is_shown_without_the_target_or_the_error(client, monkeypatch):
     import app.config as config
+    from app.services import backup_offsite
     monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", "sftp:backup@secret-host:/upload")
+    monkeypatch.setattr(backup_offsite, "encryption_problem", lambda: "", raising=False)
     _use(monkeypatch, {"status": "failed", "attempted_at": "2026-10-07T03:01:00+00:00",
                        "target": "sftp:backup@secret-host:/upload",
                        "error": "FileNotFoundError: /opt/padyar-x/offsite/id_ed25519"})
@@ -104,3 +106,22 @@ def test_the_page_has_a_place_for_the_line_and_the_plain_sentence():
     assert 'id="offsite-status"' in html
     assert "هیچ نسخه‌ای بیرون از سرور نیست" in js
     assert "renderOffsite(data.offsite)" in js
+
+
+def test_an_sftp_target_without_working_encryption_is_not_shown_as_configured(client,
+                                                                            monkeypatch):
+    """Review fix 3: with no usable gpg key every nightly copy fails, so the
+    page must not call the destination configured."""
+    import app.config as config
+    monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", "sftp:backup@secret-host:/upload")
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", "")
+    monkeypatch.setattr(config, "OFFSITE_GPG_FINGERPRINT", "")
+    _use(monkeypatch, None)
+    _login(client)
+
+    res = client.get("/admin/api/infra/backups")
+
+    assert res.json()["offsite"] == {"configured": False, "state": "not_ready",
+                                     "attempted_at": None, "backup_id": None}
+    assert "OFFSITE_GPG" not in res.text and "secret-host" not in res.text
+

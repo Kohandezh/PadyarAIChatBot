@@ -402,9 +402,13 @@ def test_offsite_settings(request: Request, username: str = Depends(verify_admin
                      metadata={"reason": "rate_limited"})
         raise HTTPException(status_code=429, detail=FA_TOO_MANY_TESTS)
     result = offsite_destination.try_connection()
+    meta = {"reason": result["reason"]}
+    if result.get("encryption"):
+        # The English reason names settings, never a key; it is for whoever
+        # installs the gpg key, so it goes to the audit row, not the page.
+        meta["encryption"] = result["encryption"]
     applog.audit("admin.backup.offsite_settings.tested",
                  "آزمایش اتصال مقصد بیرون از سرور",
                  actor=username, target="offsite-sftp",
-                 outcome="ok" if result["ok"] else "failed",
-                 metadata={"reason": result["reason"]})
+                 outcome="ok" if result["ok"] else "failed", metadata=meta)
     return {"ok": result["ok"], "message": result["message"]}
