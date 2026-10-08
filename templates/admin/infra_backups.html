@@ -66,7 +66,8 @@
                 </div>
 
                 <!-- Off-site copy. Says plainly when no copy leaves the server. -->
-                <div id="offsite-status" class="small mb-3"></div>
+                <div id="offsite-status" class="small mb-1"></div>
+                <a class="small d-inline-block mb-3" href="#offsite-card">تنظیم جای نگه‌داری نسخه‌ها بیرون از سرور</a>
 
                 <button type="button" class="btn btn-success" id="create-btn">
                     <i class="fas fa-plus me-1"></i>گرفتن نسخهٔ پشتیبان جدید
@@ -107,6 +108,104 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <!-- Off-site destination (SPEC-H2). Typed here, so setting it needs no
+             shell on the server. The password and the key are write-only: the
+             page only ever learns whether one is saved. -->
+        <div class="content-card mt-4" id="offsite-card">
+            <div class="card-header">
+                <span><i class="fas fa-cloud-arrow-up me-2"></i>جای نگه‌داری نسخه‌ها بیرون از سرور</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    هر نسخهٔ پشتیبانی که سالم بودنش تأیید شود، رمزگذاری می‌شود و یک نسخه از آن به
+                    این سرور فرستاده می‌شود. اگر سرور اصلی از دست برود، اطلاعات از دست نمی‌رود.
+                    اطلاعات این فرم را سرویس‌دهندهٔ فضای SFTP به شما می‌دهد.
+                </p>
+                <div id="offsite-source" class="small mb-3" role="status"></div>
+
+                <form id="offsite-form" autocomplete="off" novalidate>
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label" for="offsite-host">نشانی سرور</label>
+                            <input type="text" id="offsite-host" class="form-control" dir="ltr"
+                                spellcheck="false" placeholder="مثلا backup.example.com">
+                            <small class="text-muted">نام یا IP سروری که نسخه‌ها آنجا نگه داشته می‌شوند. برای حذف این مقصد، خالی بگذارید و ذخیره کنید.</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="offsite-port">درگاه (پورت)</label>
+                            <input type="text" id="offsite-port" class="form-control" dir="ltr"
+                                inputmode="numeric" placeholder="22">
+                            <small class="text-muted">معمولاً ۲۲ است. اگر عدد دیگری به شما داده‌اند، همان را بنویسید.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="offsite-user">نام کاربری</label>
+                            <input type="text" id="offsite-user" class="form-control" dir="ltr"
+                                spellcheck="false" placeholder="مثلا backup">
+                            <small class="text-muted">نام کاربری حساب SFTP، همانی که سرویس‌دهنده داده است.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="offsite-path">پوشه روی سرور</label>
+                            <input type="text" id="offsite-path" class="form-control" dir="ltr"
+                                spellcheck="false" placeholder="مثلا /upload/myevent">
+                            <small class="text-muted">پوشه‌ای که نسخه‌ها در آن گذاشته می‌شوند. باید با / شروع شود.</small>
+                        </div>
+
+                        <div class="col-12">
+                            <span class="form-label d-block" id="offsite-auth-label">روش ورود</span>
+                            <div class="btn-group" role="radiogroup" aria-labelledby="offsite-auth-label">
+                                <input type="radio" class="btn-check" name="offsite-auth"
+                                    id="offsite-auth-password" value="password" checked>
+                                <label class="btn btn-outline-primary" for="offsite-auth-password">رمز عبور</label>
+                                <input type="radio" class="btn-check" name="offsite-auth"
+                                    id="offsite-auth-key" value="key">
+                                <label class="btn btn-outline-primary" for="offsite-auth-key">کلید خصوصی</label>
+                            </div>
+                            <small class="text-muted d-block mt-1">همان روشی را انتخاب کنید که سرویس‌دهنده برای ورود به شما داده است.</small>
+                        </div>
+                        <div class="col-md-6" data-auth-pane="password">
+                            <label class="form-label" for="offsite-password">رمز عبور</label>
+                            <input type="password" id="offsite-password" class="form-control" dir="ltr"
+                                autocomplete="new-password" placeholder="برای نگه‌داشتن رمز فعلی خالی بگذارید">
+                            <small class="text-muted d-block">رمز حساب SFTP. رمزگذاری‌شده نگه داشته می‌شود و هیچ‌جا نمایش داده نمی‌شود.</small>
+                            <small id="offsite-password-state"></small>
+                        </div>
+                        <div class="col-12" data-auth-pane="key" hidden>
+                            <label class="form-label" for="offsite-key">کلید خصوصی</label>
+                            <textarea id="offsite-key" class="form-control font-monospace" dir="ltr" rows="5"
+                                spellcheck="false" autocomplete="off"
+                                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+                            <small class="text-muted d-block">متن کامل کلید را از خط BEGIN تا خط END بچسبانید. برای نگه‌داشتن کلید فعلی خالی بگذارید.</small>
+                            <small id="offsite-key-state"></small>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label" for="offsite-fingerprint">اثر انگشت کلید سرور</label>
+                            <input type="text" id="offsite-fingerprint" class="form-control" dir="ltr"
+                                spellcheck="false" placeholder="مثلا SHA256:...">
+                            <small class="text-muted">متنی که با SHA256: شروع می‌شود و سرویس‌دهنده به شما می‌دهد. با آن مطمئن می‌شویم نسخه‌ها فقط به همان سرور درست می‌روند.</small>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="offsite-clear">
+                                <label class="form-check-label" for="offsite-clear">رمز و کلید ذخیره‌شده با زدن «ذخیره» پاک شوند</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button type="submit" class="btn btn-primary" id="offsite-save-btn">
+                            <i class="fas fa-floppy-disk me-1"></i>ذخیره
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="offsite-test-btn" disabled>
+                            <i class="fas fa-plug me-1"></i>آزمایش اتصال
+                        </button>
+                    </div>
+                    <div id="offsite-test-hint" class="small text-muted mt-2"></div>
+                    <div id="offsite-msg" class="fw-bold mt-2" role="status" aria-live="polite"></div>
+                </form>
             </div>
         </div>
 
@@ -202,7 +301,10 @@
 
 {% block page_js %}
 <script type="module">
-    import { initBackups } from '/static/admin/js/infra_backups.js';
+    import { initBackups, reloadBackups } from '/static/admin/js/infra_backups.js';
+    import { initOffsiteSettings } from '/static/admin/js/infra_backups_offsite.js';
     initBackups();
+    // A saved destination changes the "copy off the server" line above.
+    initOffsiteSettings({ onSaved: reloadBackups });
 </script>
 {% endblock %}

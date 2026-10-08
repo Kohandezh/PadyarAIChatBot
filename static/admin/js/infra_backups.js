@@ -480,6 +480,8 @@ async function doBulkDelete() {
     }
 }
 
+export { load as reloadBackups };
+
 export function initBackups() {
     loadProfile();
     el('create-btn').addEventListener('click', createBackup);
