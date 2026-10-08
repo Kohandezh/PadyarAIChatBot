@@ -400,6 +400,7 @@ sudo bash deploy/05-create-databases.sh <slug>
 
 The script is safe to run again. It leaves the live database alone and only
 adds the missing `padyar_<slug>_drill` database.
+It also lets only the install's own role connect to both databases; to apply only that, with no new password, use the two SQL lines in `docs/engineering/SECURITY.md` ("Database Isolation Between Installs").
 
 **Warning: this also sets a new password for the database role.** The script
 does this every time the role exists. The old `DATABASE_URL` in `.env` stops
