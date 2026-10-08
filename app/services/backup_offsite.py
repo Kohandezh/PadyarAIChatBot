@@ -77,7 +77,6 @@ rsync: is not pruned: it would need a remote shell command or an
 with other files.
 """
 import hashlib
-import json
 import os
 import re
 import shutil
@@ -581,21 +580,21 @@ def _record(backup_id: str, manifest: dict, result: dict, actor: str = "") -> No
     """Persist the offsite block into the backup's manifest + one service
     event. Recording must never raise either — it runs after the copy, in
     the success path of verify().
+
+    The write goes through pg_backup._update_manifest, like verify() and the
+    restore drill: under the manifest's lock, a fresh read, only the
+    `offsite` key. Its own read-and-replace without the lock could erase a
+    key one of them wrote at the same moment, or be erased by theirs.
     """
     from app.services import pg_backup
 
     if manifest is not None:
         manifest["offsite"] = result
     try:
-        path = os.path.join(pg_backup.backup_dir(backup_id), "manifest.json")
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                stored = json.load(f)
-            stored["offsite"] = result
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(stored, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, path)
+        # A backup deleted meanwhile has no manifest to record into; checking
+        # first also keeps a lock file out of a folder that has no manifest.
+        if os.path.exists(os.path.join(pg_backup.backup_dir(backup_id), "manifest.json")):
+            pg_backup._update_manifest(backup_id, {"offsite": result})
     except Exception as e:  # noqa: BLE001
         logger.error("[backup_offsite] could not record result: %s",
                      type(e).__name__)

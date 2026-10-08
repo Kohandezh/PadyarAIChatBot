@@ -1095,3 +1095,86 @@ def test_the_readiness_check_does_not_touch_the_users_keyring(sftp_setup, monkey
 
     assert backup_offsite.encryption_problem() == ""
     assert list(home.iterdir()) == []
+
+
+# ── One manifest, several writers (final review of PR #180) ─────────────
+#
+# verify() and the restore drill write their keys through
+# pg_backup._update_manifest: an exclusive lock, a fresh read, only their
+# own keys, then replace. _record() wrote `offsite` with its own read and
+# replace and no lock, so a drill write in flight could erase it, or it
+# could erase the drill's key. Now it goes through the same function.
+
+def _result(status="copied"):
+    return {"target": "dir:/mnt/x", "source_sha256": DUMP_SHA, "status": status,
+            "attempted_at": "2026-10-08T03:00:00+00:00", "exit_code": 0, "error": "",
+            "duration_ms": 5}
+
+
+@pytest.mark.parametrize("other_key,other_value", [
+    ("drill", {"status": "passed", "finished_at": "2026-10-08T03:05:00+00:00"}),
+    ("verification", {"status": "verified", "checked_at": "2026-10-08T03:01:00+00:00"}),
+])
+def test_an_offsite_write_during_another_manifest_write_loses_no_key(
+        backup_dir, events, monkeypatch, other_key, other_value):
+    """The other writer is paused AFTER it read the manifest and BEFORE it
+    writes. The off-site result is recorded in that gap. Both keys must be
+    in the file afterwards, whichever order the writes end in."""
+    import tempfile
+    import threading
+
+    from app.services import backup_offsite, pg_backup
+    read_done, release = threading.Event(), threading.Event()
+    real_mkstemp = tempfile.mkstemp
+
+    def pause_the_other_writer(*args, **kwargs):
+        if threading.current_thread().name == "other-writer":
+            read_done.set()
+            release.wait(10)
+        return real_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(pg_backup.tempfile, "mkstemp", pause_the_other_writer)
+    other = threading.Thread(name="other-writer", target=pg_backup._update_manifest,
+                             args=(BACKUP_ID, {other_key: other_value}))
+    other.start()
+    assert read_done.wait(10), "the other writer never reached its write"
+    offsite = threading.Thread(target=backup_offsite._record,
+                               args=(BACKUP_ID, None, _result()))
+    offsite.start()
+    offsite.join(1.0)   # old code: finished here, with no lock to wait for
+    release.set()
+    other.join(10)
+    offsite.join(10)
+
+    stored = _manifest(backup_dir)
+    assert stored[other_key] == other_value, f"the {other_key} write was lost"
+    assert stored["offsite"]["status"] == "copied", "the offsite write was lost"
+    assert stored["sha256"] == DUMP_SHA and stored["file"] == "padyar.dump"
+
+
+def test_the_offsite_result_goes_through_the_manifest_lock(backup_dir, events, monkeypatch):
+    from app.services import backup_offsite, pg_backup
+    calls = []
+    real = pg_backup._update_manifest
+    monkeypatch.setattr(pg_backup, "_update_manifest",
+                        lambda backup_id, fields: calls.append((backup_id, fields))
+                        or real(backup_id, fields))
+    manifest = _manifest(backup_dir)
+
+    backup_offsite._record(BACKUP_ID, manifest, _result())
+
+    assert calls == [(BACKUP_ID, {"offsite": _result()})], "only its own key, via the lock"
+    assert manifest["offsite"] == _result(), "the caller's copy is updated too"
+    assert _manifest(backup_dir)["offsite"] == _result()
+
+
+def test_recording_never_raises_when_the_backup_is_gone(backup_dir, events):
+    import shutil
+
+    from app.services import backup_offsite
+    shutil.rmtree(backup_dir)
+
+    backup_offsite._record(BACKUP_ID, None, _result("failed"))
+
+    assert not backup_dir.exists(), "no folder or lock file is created for a deleted backup"
+    assert [e["event"] for e in events] == ["backup.offsite.failed"]
