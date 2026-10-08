@@ -1151,6 +1151,58 @@
   با تست promtool گرفته شدند. نصب روی میزبان انجام **نشد**.
 - **بازبینی انسانی:** pending.
 
+## نشست ۱۴۰۵/۰۷/۱۰ (2026-10-02): تمرین بازیابی شبانه (B2)
+
+- **مدل/ارکستراتور:** Claude Opus 5.5، عامل پیاده‌ساز `drill-t1-impl` در تیم
+  foreman `drill-t1` (رهبر `foreman7`)، کار B2 از مأموریت `20260930-dbmaturity`.
+  کدنویسی هر قدم را زیرعامل‌های Claude Sonnet انجام دادند؛ طراحی، بازبینی کد،
+  آزمون جهش و commit با عامل پیاده‌ساز بود.
+- **کارهای انجام‌شده (پچ‌های پیشنهادی روی شاخهٔ `feat/backup-restore-drill`):**
+  1. `app/services/restore_drill.py` (تازه): پشتیبان را در پایگاه دادهٔ
+     `<live>_drill` بازگردانی می‌کند (نام مشتق‌شده، نه ورودی؛ برای نام `_drill` و
+     نام بلندتر از 63 بایت رد می‌شود)، شمارش ردیف‌ها و `schema_migrations` ثبت‌شده
+     در زمان dump را مقایسه می‌کند، `validate_restored_database()` را روی اتصال
+     تمرین اجرا می‌کند، schemaها را دوباره پاک می‌کند، و بلوک `drill` را در
+     `manifest.json` می‌نویسد. نبودن پایگاه دادهٔ تمرین یا کمبود دیسک «انجام نشد»
+     است، نه «ناموفق». یک تمرین در هر نصب با advisory lock پستگرس.
+  2. `app/services/pg_backup.py`: `schema_migrations` در همان snapshot شمارش‌ها؛
+     سقف زمان جدای 1800 ثانیه برای restore و تمرین؛ `validate_restored_database(conn)`.
+  3. `app/services/backup.py`: تمرین بعد از پشتیبان زمان‌بندی‌شدهٔ سالم، پیش از
+     prune؛ نتیجهٔ تمرین هرگز پشتیبان را شکست نمی‌دهد.
+  4. `app/services/metrics.py` و `app/main.py`: سه gauge
+     `backup_drill_last_success_timestamp_seconds` (max)،
+     `backup_drill_last_duration_seconds` و `backup_drill_last_ok` (mostrecent)،
+     پر شده در شروع برنامه از manifestها.
+  5. `app/routers/backups.py`، `templates/admin/infra_backups.html`،
+     `static/admin/js/infra_backups.js`: خط وضعیت فارسی آخرین تمرین، وضعیت هر
+     پشتیبان با جزئیات شمارش هر جدول، و دکمهٔ «تمرین بازیابی» (POST پشت
+     `verify_admin` و CSRF، پاسخ 202، و 409 برای تمرین در حال اجرا).
+  6. `deploy/05-create-databases.sh`: ساخت `<database>_drill` خالی برای هر نصب.
+     `docs/engineering/MONITORING.md` و `docs/engineering/DEPLOYMENT_RUNBOOK.md`.
+  7. اصلاح‌های بازبینی نهایی: بلوک `drill` آخرین چیزی است که دیده می‌شود (اول
+     آزاد کردن قفل، بعد metricها، بعد نوشتن بلوک)؛ پاک‌سازی بازماندهٔ تمرین
+     پیش از بررسی دیسک؛ دلیل شکست restore متن واقعی خطا را نگه می‌دارد و
+     timeout را جدا می‌گوید (`BackupTimeout`)؛ `search_path` برای پایگاه دادهٔ
+     تمرین در `deploy/05`؛ poll بیست‌ثانیه‌ای وقتی پنجره باز است صبر می‌کند؛
+     توضیح درست دربارهٔ تأخیر پشتیبان بعدی؛ یک نام برای هر بررسی در سرور و
+     صفحه؛ و `pg_backup._update_manifest` (قفل `flock` + نوشتن اتمی) تا
+     `verify()` و تمرین فقط کلید خودشان را عوض کنند.
+  8. تست‌ها: `tests/postgres/test_restore_drill.py` (31 تست روی PostgreSQL
+     واقعی، با یک جفت پایگاه دادهٔ دورریختنی)، و هشت فایل تازهٔ بدون سرور:
+     unit (18)، lock (9)، API (25)، metrics (24)، scheduler (10)، order (5)،
+     text (13) و manifest (12)، جمعاً 116 تست. به‌علاوه یک فایل مرورگر واقعی،
+     `tests/e2e/test_backups_poll_e2e.py` (3 تست، Playwright async). در
+     `tests/test_metrics_multiprocess.py` فقط فهرست خانواده‌های metric
+     (اصلاحیه‌های 1 و 2 در SPEC-B2).
+- **پچ‌های ردشده/بازگردانده:** هیچ.
+- **راستی‌آزمایی ماشینی همین نشست:** هر قدم پیش از commit دوباره اجرا شد و
+  برای هر قدم دو آزمون جهش تست خودش را قرمز کرد. تست‌های بازگردانی روی این Mac
+  با ابزارهای PostgreSQL 16 داخل container اجرا شدند، چون `pg_restore` نسخهٔ 18
+  این Mac به سرور 16 دستور `SET transaction_timeout` می‌فرستد که سرور 16 آن را
+  نمی‌شناسد (production و CI ابزار 16 دارند). خروجی دقیق در گزارش تحویل این نوبت
+  است. مجموعهٔ کامل تست‌ها محلی اجرا نشد (CI دروازه است).
+- **بازبینی انسانی:** pending.
+
 ## نشست‌های پیش از این تاریخ
 کارهای قبلی (ساخت اولیهٔ CMS، سیستم ماژول، تم liquid-glass، امبدینگ اولیه)
 نیز با کمک AI و توسط عامل‌های قبلی انجام شده و در تاریخچهٔ git ثبت است.

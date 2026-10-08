@@ -41,8 +41,8 @@ is set, every worker writes into that directory and exposition() merges the
 files on each scrape. The mode is chosen at import time, by the library, for
 EVERY metric in the process. That is also why the dedicated registry alone
 is not enough: a metric from any dependency would land in the same
-directory. exposition() therefore keeps only the ten families defined
-here. See docs/engineering/MONITORING.md.
+directory. exposition() therefore keeps only the families defined
+here (FAMILY_NAMES). See docs/engineering/MONITORING.md.
 """
 import os
 import threading
@@ -157,6 +157,38 @@ backup_schedule_interval_seconds = Gauge(
     "Automatic backup interval in seconds; 0 when automatic backups are off.",
     registry=registry, multiprocess_mode="mostrecent")
 
+# The nightly restore drill (app/services/restore_drill.py). It restores the
+# newest backup into a separate database and checks the result.
+#
+# max, like backup_last_success_timestamp_seconds: the newest PASSED drill any
+# worker knows. The worker that ran the drill set it, the others hold 0 or an
+# older seeded value and must not hide it. A drill result stays true after its
+# worker exits, so not live. Only set() is used, through
+# set_backup_drill_last_success() below, which never lowers the value.
+# 0 means no passed drill is known.
+backup_drill_last_success_timestamp_seconds = Gauge(
+    "backup_drill_last_success_timestamp_seconds",
+    "Unix time of the newest restore drill that passed; 0 when none is known.",
+    registry=registry, multiprocess_mode="max")
+
+# mostrecent, not max: a drill is one event and the newest one is the current
+# answer. Not live: the result is still true after the worker that ran the
+# drill exits. Only set() is used.
+backup_drill_last_duration_seconds = Gauge(
+    "backup_drill_last_duration_seconds",
+    "How long the most recent restore drill took, in seconds.",
+    registry=registry, multiprocess_mode="mostrecent")
+
+# mostrecent, not max. Under max a failed drill (0) written after a pass (1)
+# would stay hidden behind the old 1 and the alert would never see the failure.
+# A skipped drill counts as 0 on purpose. A drill that was skipped (the drill
+# database is missing, or there is not enough disk) did not prove that a backup
+# can be restored, and an alert should see that. Only set() is used.
+backup_drill_last_ok = Gauge(
+    "backup_drill_last_ok",
+    "1 if the most recent restore drill passed, 0 if it failed or was skipped.",
+    registry=registry, multiprocess_mode="mostrecent")
+
 # mostrecent: every worker computes the same score from the same checks, so
 # the newest value is the current one. Only set() is used (never inc/dec).
 health_score = Gauge(
@@ -231,6 +263,20 @@ def route_template(request) -> str:
 
 
 _backup_last_success_lock = threading.Lock()
+_backup_drill_last_success_lock = threading.Lock()
+
+
+def _move_gauge_forward(gauge, lock, timestamp: float) -> None:
+    """Set `gauge` to `timestamp` only when that is higher than its value.
+
+    The current value is read from the gauge itself, so a reset of the gauge is
+    a reset of this rule too. The lock keeps two threads of one worker from
+    both reading the old value.
+    """
+    with lock:
+        current = next(iter(gauge.collect())).samples[0].value
+        if timestamp > current:
+            gauge.set(timestamp)
 
 
 def set_backup_last_success(timestamp: float) -> None:
@@ -238,19 +284,24 @@ def set_backup_last_success(timestamp: float) -> None:
 
     Never backward. Verifying an older backup (the admin panel's verify
     button, the restore pre-check) must not make the newest good backup look
-    older. The current value is read from the gauge itself, so a reset of the
-    gauge is a reset of this rule too. The lock keeps two threads of one
-    worker from both reading the old value.
+    older.
     """
-    gauge = backup_last_success_timestamp_seconds
-    with _backup_last_success_lock:
-        current = next(iter(gauge.collect())).samples[0].value
-        if timestamp > current:
-            gauge.set(timestamp)
+    _move_gauge_forward(backup_last_success_timestamp_seconds,
+                        _backup_last_success_lock, timestamp)
+
+
+def set_backup_drill_last_success(timestamp: float) -> None:
+    """Move backup_drill_last_success_timestamp_seconds forward to `timestamp`.
+
+    Never backward. Re-running a drill on an older backup, or seeding at
+    startup, must not make the newest passed drill look older.
+    """
+    _move_gauge_forward(backup_drill_last_success_timestamp_seconds,
+                        _backup_drill_last_success_lock, timestamp)
 
 
 class _OurFamiliesFromFiles:
-    """Collector for one multiprocess scrape: merge the files, keep our ten.
+    """Collector for one multiprocess scrape: merge the files, keep our families.
 
     The directory holds every metric any code in any worker created, so the
     merged result is filtered by name. This is the multiprocess twin of the
@@ -262,7 +313,7 @@ class _OurFamiliesFromFiles:
         for family in multiprocess.MultiProcessCollector(
                 None, path=MULTIPROC_DIR).collect():
             # The filter is by family NAME only. A metric with one of these
-            # ten names, created by other code in the process, would be
+            # names, created by other code in the process, would be
             # merged in. No dependency does that today.
             if family.name in FAMILY_NAMES:
                 seen.add(family.name)
@@ -271,7 +322,7 @@ class _OurFamiliesFromFiles:
         # when the ai_circuit_state table has no row: every worker publishes
         # the stored rows at start, see circuit.publish_stored_states).
         # List it with no samples, as single-process mode does, so /metrics
-        # always shows the same twelve families.
+        # always shows the same families.
         for name, (documentation, typ) in _FAMILY_META.items():
             if name not in seen:
                 yield Metric(name, documentation, typ)
