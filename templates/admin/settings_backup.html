@@ -50,9 +50,15 @@
                         <input type="time" id="backup-time" class="form-control" value="03:00">
                     </div>
                     <div class="col-md-2">
+                        {% if backup_engine == 'postgres' %}
+                        <label class="form-label" for="backup-keep">تعداد پشتیبان‌های خودکار شبانه</label>
+                        <input type="number" id="backup-keep" class="form-control" min="1" max="100" value="14">
+                        <small class="text-muted">بیشتر از این تعداد، قدیمی‌ترین پشتیبان‌های خودکار پاک می‌شوند. پشتیبان‌های دیگر (دستی، پیش از به‌روزرسانی و مانند آن) جدا شمرده می‌شوند و تعداد خودشان را دارند.</small>
+                        {% else %}
                         <label class="form-label" for="backup-keep">حداکثر نسخه‌ها</label>
                         <input type="number" id="backup-keep" class="form-control" min="1" max="100" value="14">
                         <small class="text-muted">بیشتر از این تعداد، قدیمی‌ترها خودکار پاک می‌شوند.</small>
+                        {% endif %}
                     </div>
                     <div class="col-md-2">
                         <button id="save-schedule-btn" class="btn btn-primary w-100">ذخیره زمان‌بندی</button>

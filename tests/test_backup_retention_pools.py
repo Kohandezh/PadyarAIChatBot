@@ -463,3 +463,45 @@ def test_the_page_script_passes_the_response_keep_other_to_the_schedule_line():
     source = _page_js()
     assert re.search(r"renderSchedule\(\s*data\.schedule\s*,\s*data\.keep_other",
                      source)
+
+
+# ── Settings > Backup says the number limits only the nightly backups ──
+
+def _page_admin(monkeypatch):
+    """The page route's own admin check reads the session from the DB_BACKEND
+    database. With DB_BACKEND forced to postgres and no server, that check
+    would redirect, so it is bypassed here, the same way
+    tests/test_backup_scheduler_dispatch.py tests this page."""
+    async def yes(request):
+        return None
+    from app.routers import public
+    monkeypatch.setattr(public, "_require_admin", yes)
+
+
+def test_the_settings_keep_label_says_nightly_and_that_others_count_apart(
+        client, monkeypatch):
+    import app.config as config
+    from app.db import pg
+    monkeypatch.setattr(config, "DB_BACKEND", "postgres")
+    _page_admin(monkeypatch)
+    # No PostgreSQL server here. Without this, every database read during the
+    # render waits for a connection timeout (minutes in total). Refusing at
+    # once sends the page down its own fallbacks, which is all this test needs.
+    def no_server():
+        raise pg.psycopg.OperationalError("no server in this test")
+    monkeypatch.setattr(pg, "pool", no_server)
+
+    html = client.get("/secure-panel-admin/settings/backup").text
+
+    assert "تعداد پشتیبان‌های خودکار شبانه" in html
+    assert "پشتیبان‌های دیگر" in html and "جدا شمرده می‌شوند" in html
+    assert "حداکثر نسخه‌ها" not in html
+
+
+def test_the_sqlite_settings_page_keeps_its_one_pool_wording(client):
+    _login(client)
+
+    html = client.get("/secure-panel-admin/settings/backup").text
+
+    assert "حداکثر نسخه‌ها" in html
+    assert "تعداد پشتیبان‌های خودکار شبانه" not in html
