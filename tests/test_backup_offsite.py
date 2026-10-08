@@ -29,6 +29,18 @@ DUMP_BYTES = b"fake-dump-bytes"
 DUMP_SHA = hashlib.sha256(DUMP_BYTES).hexdigest()
 
 
+@pytest.fixture(autouse=True)
+def _own_settings_db(tmp_path, monkeypatch):
+    """The copy reads the admin panel's destination from the settings table
+    first (SPEC-H2). An empty throwaway database here, so a destination saved
+    in a developer's own database cannot change these results."""
+    import app.config as config
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "settings.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    from app.db.connection import init_db
+    init_db()
+
+
 @pytest.fixture
 def backup_dir(tmp_path, monkeypatch):
     """A pg_backup.BACKUP_DIR holding one already-verified-looking backup."""
@@ -861,3 +873,133 @@ def test_no_part_file_is_removed_when_the_upload_failed(backup_dir, events, sftp
 
     assert result["status"] == "failed"
     assert own.exists()
+
+
+# ── A destination saved in the admin panel (SPEC-H2) ────────────────────
+#
+# The panel destination wins over OFFSITE_BACKUP_TARGET and brings its own
+# login: a pasted secret and a pinned host key instead of the two env files.
+# The env files point nowhere here, so a copy that still read them would fail.
+
+PANEL_TARGET = "sftp:backup@offsite.example:2222:/upload"
+PANEL_PASSWORD = "Panel-pw-" + "7c1e9b2a"
+
+
+def _host_blob():
+    import base64
+
+    def ssh_string(b):
+        return len(b).to_bytes(4, "big") + b
+    return base64.b64encode(ssh_string(b"ssh-ed25519") + ssh_string(b"\x44" * 32)).decode()
+
+
+@pytest.fixture
+def panel(sftp_setup, monkeypatch):
+    """sftp_setup's install with the destination saved in the panel. Returns
+    what each sftp call trusted (its known_hosts text) and its argv."""
+    import app.config as config
+    from app.services import backup_offsite, offsite_destination
+    monkeypatch.setattr(config, "OFFSITE_SFTP_IDENTITY_FILE", "/nonexistent/id")
+    monkeypatch.setattr(config, "OFFSITE_SFTP_KNOWN_HOSTS", "/nonexistent/known_hosts")
+    monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", "sftp:env@env.example:/env")
+    blob = _host_blob()
+    seen = {"known_hosts": [], "argv": [], "scans": 0}
+
+    def run(argv, **kwargs):
+        if argv[0] == "ssh-keyscan":
+            seen["scans"] += 1
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=f"[offsite.example]:2222 ssh-ed25519 {blob}\n", stderr="")
+        if argv[0] == "sftp":
+            known = next(a.split("=", 1)[1] for a in argv
+                         if a.startswith("UserKnownHostsFile="))
+            with open(known) as f:
+                seen["known_hosts"].append(f.read())
+            seen["argv"].append(list(argv))
+        return sftp_setup(argv, **kwargs)
+
+    monkeypatch.setattr(backup_offsite.subprocess, "run", run)
+    offsite_destination.save({
+        "host": "offsite.example", "port": 2222, "user": "backup", "path": "/upload",
+        "auth": "password", "password": PANEL_PASSWORD,
+        "fingerprint": offsite_destination.fingerprint_of(blob)})
+    return seen
+
+
+@needs_gpg
+def test_a_panel_destination_is_copied_to_instead_of_the_env_target(backup_dir, events,
+                                                                    panel, remote):
+    from app.services import backup_offsite
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "copied", result["error"]
+    assert result["target"] == PANEL_TARGET
+    assert _uploaded(remote) == [_ours(BACKUP_ID, ".dump.gpg")]
+    assert panel["scans"] == 1, "one host-key scan per copy, not one per sftp call"
+    assert len(panel["argv"]) == 2
+    for known, argv in zip(panel["known_hosts"], panel["argv"]):
+        assert known.startswith("[offsite.example]:2222 ssh-ed25519 ")
+        assert argv.index("BatchMode=no") < argv.index("-b")
+        assert not any("/nonexistent" in a or PANEL_PASSWORD in a for a in argv)
+
+
+@needs_gpg
+def test_a_panel_destination_whose_host_key_does_not_match_uploads_nothing(
+        backup_dir, events, panel, remote):
+    import base64
+    import hashlib
+
+    from app.services import backup_offsite, offsite_destination
+    other = "SHA256:" + base64.b64encode(hashlib.sha256(b"x").digest()).decode().rstrip("=")
+    offsite_destination.save({
+        "host": "offsite.example", "port": 2222, "user": "backup", "path": "/upload",
+        "auth": "password", "fingerprint": other})
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "failed"
+    assert "host_key" in result["error"]
+    assert panel["argv"] == []
+    assert _uploaded(remote) == []
+
+
+@needs_gpg
+def test_a_panel_destination_still_needs_the_gpg_key_and_scans_nothing_without_it(
+        backup_dir, events, panel, remote, monkeypatch):
+    import app.config as config
+    from app.services import backup_offsite
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", "")
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "failed"
+    assert "OFFSITE_GPG_PUBLIC_KEY" in result["error"]
+    assert "OFFSITE_SFTP_IDENTITY_FILE" not in result["error"]
+    assert panel["scans"] == 0 and panel["argv"] == []
+
+
+@needs_gpg
+def test_a_panel_destination_without_its_password_uploads_nothing(backup_dir, events,
+                                                                  panel, remote):
+    from app.services import backup_offsite, offsite_destination
+    offsite_destination.save({
+        "host": "offsite.example", "port": 2222, "user": "backup", "path": "/upload",
+        "auth": "password", "clear_secret": True,
+        "fingerprint": offsite_destination.fingerprint_of(_host_blob())})
+
+    result = backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert result["status"] == "failed" and "no_password" in result["error"]
+    assert panel["scans"] == 0 and _uploaded(remote) == []
+
+
+@needs_gpg
+def test_the_panel_password_reaches_neither_the_manifest_nor_the_event(backup_dir, events,
+                                                                       panel):
+    from app.services import backup_offsite
+
+    backup_offsite.copy_verified_dump(BACKUP_ID, _manifest(backup_dir))
+
+    assert PANEL_PASSWORD not in (backup_dir / "manifest.json").read_text(encoding="utf-8")
+    assert PANEL_PASSWORD not in json.dumps(events, default=str)

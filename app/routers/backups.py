@@ -18,15 +18,17 @@ and disk work, so FastAPI hands them to the threadpool instead of stalling the
 event loop for every other request in the app.
 """
 import os
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from app.auth import security
 from app.auth.security import verify_admin
 from app.config import logger
 from app.routers.public import _render, _require_admin
-from app.services import applog, backup_center, backup_offsite
+from app.services import applog, backup_center, backup_offsite, offsite_destination
 
 router = APIRouter()
 
@@ -51,6 +53,7 @@ FA_NOT_FOUND = "نسخهٔ پشتیبان پیدا نشد."
 FA_GENERIC = "انجام نشد. جزئیات در بخش گزارش‌ها ثبت شد."
 FA_BAD_CONFIRM = "عبارت تأیید درست نیست. هیچ تغییری انجام نشد."
 FA_FILE_GONE = "این فایل در نسخهٔ پشتیبان وجود ندارد."
+FA_TOO_MANY_TESTS = "چند بار پشت سر هم آزمایش کردید. چند دقیقه صبر کنید و دوباره امتحان کنید."
 
 
 class RestoreRequest(BaseModel):
@@ -328,3 +331,78 @@ def restore_backup(backup_id: str, body: RestoreRequest,
         " می‌بینند، برنامه را یک‌بار راه‌اندازی مجدد کنید."
     )
     return result
+
+
+# ── Off-site destination (SPEC-H2) ──────────────────────────────────────
+# The SFTP destination the operator types into this page. The rules live in
+# app/services/offsite_destination.py; here are only the door, the audit and
+# the rate limit. No response ever carries the password or the key.
+
+class OffsiteSettingsRequest(BaseModel):
+    """SPEC-H2 Amendment 1. Every field is `Any` on purpose: the service checks
+    each one, so a wrong type gets the same plain Persian 400 as a wrong
+    value, instead of a 422 in English."""
+    host: Any = ""
+    port: Any = None
+    user: Any = ""
+    path: Any = ""
+    auth: Any = ""
+    fingerprint: Any = ""
+    password: Any = None
+    private_key: Any = None
+    clear_secret: Any = False
+
+
+@router.get("/admin/api/infra/backups/offsite-settings",
+            dependencies=[Depends(verify_admin)])
+def get_offsite_settings():
+    return offsite_destination.view()
+
+
+@router.post("/admin/api/infra/backups/offsite-settings",
+             dependencies=[Depends(verify_admin)])
+def save_offsite_settings(body: OffsiteSettingsRequest,
+                          username: str = Depends(verify_admin)):
+    try:
+        changed = offsite_destination.save(body.model_dump())
+    except offsite_destination.DestinationError as exc:
+        applog.audit("admin.backup.offsite_settings.saved",
+                     "تنظیم مقصد بیرون از سرور رد شد", actor=username,
+                     target="offsite-sftp", outcome="refused",
+                     metadata={"reason": exc.code})
+        raise HTTPException(status_code=400, detail=exc.message_fa)
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(500, FA_GENERIC, "backup.api.offsite_settings_failed", username,
+                    "offsite-sftp", exc)
+    applog.audit("admin.backup.offsite_settings.saved",
+                 "مقصد بیرون از سرور حذف شد" if changed["removed"]
+                 else "مقصد بیرون از سرور ذخیره شد",
+                 actor=username, target="offsite-sftp", outcome="ok", metadata=changed)
+    return offsite_destination.view()
+
+
+@router.post("/admin/api/infra/backups/offsite-settings/test",
+             dependencies=[Depends(verify_admin)])
+def test_offsite_settings(request: Request, username: str = Depends(verify_admin)):
+    """Try the SAVED destination. Saved, not the form: the browser never holds
+    the stored secret, and what passes here is exactly what tonight's copy
+    will use. Limited per admin, not per address (Amendment 2)."""
+    try:
+        security.check_rate_limit(request, key=f"offsite-test:{username}",
+                                  limit=offsite_destination.TEST_LIMIT,
+                                  window=offsite_destination.TEST_WINDOW)
+    except HTTPException as exc:
+        if exc.status_code != 429:
+            raise
+        applog.audit("admin.backup.offsite_settings.tested",
+                     "آزمایش اتصال مقصد بیرون از سرور به‌خاطر تعداد زیاد رد شد",
+                     actor=username, target="offsite-sftp", outcome="refused",
+                     metadata={"reason": "rate_limited"})
+        raise HTTPException(status_code=429, detail=FA_TOO_MANY_TESTS)
+    result = offsite_destination.try_connection()
+    applog.audit("admin.backup.offsite_settings.tested",
+                 "آزمایش اتصال مقصد بیرون از سرور",
+                 actor=username, target="offsite-sftp",
+                 outcome="ok" if result["ok"] else "failed",
+                 metadata={"reason": result["reason"]})
+    return {"ok": result["ok"], "message": result["message"]}

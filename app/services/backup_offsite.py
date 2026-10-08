@@ -19,11 +19,12 @@ manifest.json (`offsite` block) and as a service event, then swallowed.
 
 COMMAND SAFETY
 --------------
-The target comes from OFFSITE_BACKUP_TARGET (operator env, never the
-browser) and is dispatched by strict prefix. rsync runs with a FIXED argv
-list — no shell, no interpolation of anything except the dump path and the
-operator's own target string, the same discipline pg_backup applies to
-pg_dump/pg_restore.
+The target comes from OFFSITE_BACKUP_TARGET (operator env), or from an
+sftp: destination an admin saved in the panel (offsite_destination.py,
+checked there field by field and again by parse_sftp_target below). It is
+dispatched by strict prefix. rsync runs with a FIXED argv list — no shell,
+no interpolation of anything except the dump path and the operator's own
+target string, the same discipline pg_backup applies to pg_dump/pg_restore.
 
 THE sftp: TARGET (PR H)
 -----------------------
@@ -37,10 +38,13 @@ run there). Three rules, each one a reason this target exists:
     gpg runs with a throwaway --homedir per copy and --recipient-file, so
     nothing is imported into any keyring and the app user's own GnuPG home
     is never touched. A key file that holds a PRIVATE key is refused.
-  * Strict host keys, key login only. StrictHostKeyChecking=yes against
-    OFFSITE_SFTP_KNOWN_HOSTS, the identity in OFFSITE_SFTP_IDENTITY_FILE,
-    BatchMode and no password or keyboard-interactive login. -F /dev/null so
-    the app user's ~/.ssh/config cannot change any of that.
+  * Strict host keys. For the env destination, key login only:
+    StrictHostKeyChecking=yes against OFFSITE_SFTP_KNOWN_HOSTS, the identity
+    in OFFSITE_SFTP_IDENTITY_FILE, BatchMode and no password or
+    keyboard-interactive login. A panel destination (SPEC-H2) logs in with
+    its own pasted key or password and a pinned host key instead; see
+    offsite_destination.login(). -F /dev/null either way, so the app user's
+    ~/.ssh/config cannot change any of that.
   * Nothing reaches sftp's own command parser unchecked. The batch commands
     go to `sftp -b -` on stdin, and sftp parses quotes and glob characters in
     them. So the target path is limited to letters, digits and . _ - /, the
@@ -80,7 +84,8 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from app.config import logger
@@ -100,20 +105,39 @@ _DB_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
 
 # user@host[:port]:/path. A host name or IPv4 only: an IPv6 literal would
 # need brackets and colons, which this format cannot tell from the port.
+# The three parts are also what the admin panel's form accepts
+# (offsite_destination.py), so the panel cannot save a target this refuses.
+SFTP_USER = r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}"
+SFTP_HOST = r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?"
+SFTP_PATH = r"/[A-Za-z0-9._/-]*"
 _SFTP_TARGET_RE = re.compile(
-    r"^(?P<user>[A-Za-z0-9_][A-Za-z0-9_.-]{0,31})"
-    r"@(?P<host>[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)"
+    rf"^(?P<user>{SFTP_USER})"
+    rf"@(?P<host>{SFTP_HOST})"
     r"(?::(?P<port>\d{1,5}))?"
-    r":(?P<path>/[A-Za-z0-9._/-]*)$")
+    rf":(?P<path>{SFTP_PATH})$")
 # Characters sftp's batch parser would treat as quoting, escaping or globbing.
 _SFTP_UNSAFE_LOCAL = re.compile(r'["\'\\*?\[\]\n\r]')
 
 
-def _target() -> str:
-    # Read at CALL time, not import time, so tests (and a .env edited after
-    # boot on a future install) monkeypatch one source of truth.
+def _destination():
+    """(target text, panel destination or None).
+
+    A destination saved in the admin panel wins over OFFSITE_BACKUP_TARGET
+    (SPEC-H2, see offsite_destination.py); with the panel empty, the env
+    target works exactly as before. Both are read at CALL time, not import
+    time, so a panel save applies to the next copy and tests monkeypatch one
+    source of truth.
+    """
+    from app.services import offsite_destination
+    panel = offsite_destination.stored()
+    if panel is not None:
+        return panel.target, panel
     from app.config import OFFSITE_BACKUP_TARGET
-    return (OFFSITE_BACKUP_TARGET or "").strip()
+    return (OFFSITE_BACKUP_TARGET or "").strip(), None
+
+
+def _target() -> str:
+    return _destination()[0]
 
 
 def _timeout() -> int:
@@ -148,7 +172,7 @@ def copy_verified_dump(backup_id: str, manifest: dict, actor: str = ""):
     """
     from app.services import pg_backup
 
-    target = _target()
+    target, panel = _destination()
     if not target:
         return None
 
@@ -175,7 +199,7 @@ def copy_verified_dump(backup_id: str, manifest: dict, actor: str = ""):
             result["exit_code"] = 0
             _prune_dir(directory, result)
         elif target.startswith(_SFTP_PREFIX):
-            _sftp_copy(dump, target[len(_SFTP_PREFIX):], backup_id, result)
+            _sftp_copy(dump, target[len(_SFTP_PREFIX):], backup_id, result, panel)
         else:
             raise ValueError(
                 f"unrecognized OFFSITE_BACKUP_TARGET (expected "
@@ -294,26 +318,43 @@ def parse_sftp_target(text: str) -> SftpTarget:
     return SftpTarget(m.group("user"), m.group("host"), port, path)
 
 
-def _sftp_settings() -> dict:
+_SSH_FILE_SETTINGS = ("OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS")
+_GPG_SETTINGS = ("OFFSITE_GPG_PUBLIC_KEY", "OFFSITE_GPG_FINGERPRINT")
+
+
+def _sftp_settings(ssh_files: bool = True) -> dict:
+    """The env settings one sftp: copy needs. A panel destination brings its
+    own login (pasted secret, pinned host key), so it needs only the gpg
+    pair; the env destination also needs the two ssh files."""
     from app import config
-    names = ("OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS",
-             "OFFSITE_GPG_PUBLIC_KEY", "OFFSITE_GPG_FINGERPRINT")
+    names = (_SSH_FILE_SETTINGS if ssh_files else ()) + _GPG_SETTINGS
     values = {n: (getattr(config, n, "") or "").strip() for n in names}
     missing = [n for n, v in values.items() if not v]
     if missing:
         raise ValueError(f"sftp: target needs {', '.join(missing)}; nothing uploaded")
     values["OFFSITE_GPG_FINGERPRINT"] = (
         values["OFFSITE_GPG_FINGERPRINT"].replace(" ", "").upper())
-    for n in ("OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS",
-              "OFFSITE_GPG_PUBLIC_KEY"):
+    for n in (n for n in names if n != "OFFSITE_GPG_FINGERPRINT"):
         if not os.path.isfile(values[n]):
             raise FileNotFoundError(f"{n} is not a file; nothing uploaded")
     # ssh reads UserKnownHostsFile as a whitespace-separated LIST of files,
     # so a space would quietly point it at two other paths.
-    for n in ("OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS"):
+    for n in _SSH_FILE_SETTINGS if ssh_files else ():
         if any(c.isspace() for c in values[n]):
             raise ValueError(f"{n} may not contain spaces; nothing uploaded")
     return values
+
+
+@contextmanager
+def _login(settings: dict, panel):
+    """The env login, or the panel's (which pins the host key over the
+    network and removes its temp files when the copy is done)."""
+    if panel is None:
+        yield _env_login(settings)
+        return
+    from app.services import offsite_destination
+    with offsite_destination.login(panel) as login:
+        yield login
 
 
 def _gpg(home: str, *args):
@@ -351,24 +392,46 @@ def _encrypt(dump: str, out: str, key_file: str, fingerprint: str) -> None:
         shutil.rmtree(home, ignore_errors=True)
 
 
-def _sftp(target: SftpTarget, settings: dict, batch: str):
+@dataclass
+class SftpLogin:
+    """How one sftp run trusts the server and proves who it is.
+
+    `before_batch` goes in front of `-b`: sftp's `-b` adds BatchMode=yes,
+    ssh keeps the FIRST value it sees for an option, and BatchMode=yes turns
+    password login off. Only the panel's password login puts anything here.
+    """
+    known_hosts: str
+    options: list
+    before_batch: list = field(default_factory=list)
+    env: dict = None
+
+
+def _env_login(settings: dict) -> SftpLogin:
+    """H1's login: the key file and known_hosts file named in env."""
+    return SftpLogin(
+        known_hosts=settings["OFFSITE_SFTP_KNOWN_HOSTS"],
+        options=["-o", "BatchMode=yes",
+                 "-o", "IdentitiesOnly=yes",
+                 "-o", "PasswordAuthentication=no",
+                 "-o", "KbdInteractiveAuthentication=no",
+                 "-i", settings["OFFSITE_SFTP_IDENTITY_FILE"]])
+
+
+def _sftp(target: SftpTarget, login: SftpLogin, batch: str, timeout: float = None,
+          connect_timeout: int = 30):
     argv = [
-        "sftp", "-b", "-", "-F", "/dev/null",
-        "-o", "BatchMode=yes",
+        "sftp", *login.before_batch, "-b", "-", "-F", "/dev/null",
         "-o", "StrictHostKeyChecking=yes",
-        "-o", f"UserKnownHostsFile={settings['OFFSITE_SFTP_KNOWN_HOSTS']}",
+        "-o", f"UserKnownHostsFile={login.known_hosts}",
         "-o", "GlobalKnownHostsFile=/dev/null",
         "-o", "UpdateHostKeys=no",
-        "-o", "IdentitiesOnly=yes",
-        "-o", "PasswordAuthentication=no",
-        "-o", "KbdInteractiveAuthentication=no",
-        "-o", "ConnectTimeout=30",
-        "-i", settings["OFFSITE_SFTP_IDENTITY_FILE"],
+        *login.options,
+        "-o", f"ConnectTimeout={connect_timeout}",
         "-P", str(target.port),
         "--", f"{target.user}@{target.host}",
     ]
     return subprocess.run(argv, input=batch, capture_output=True, text=True,
-                          timeout=_timeout())
+                          timeout=timeout or _timeout(), env=login.env)
 
 
 def _remote_sizes(listing: str) -> dict:
@@ -382,9 +445,10 @@ def _remote_sizes(listing: str) -> dict:
     return sizes
 
 
-def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict) -> None:
+def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict,
+               panel=None) -> None:
     target = parse_sftp_target(target_text)
-    settings = _sftp_settings()
+    settings = _sftp_settings(ssh_files=panel is None)
     name = _remote_name(backup_id, _SFTP_EXT)
     if not _own_names_re(_SFTP_EXT).match(name):
         raise ValueError("unexpected backup id")
@@ -392,60 +456,63 @@ def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict) -> Non
     if _SFTP_UNSAFE_LOCAL.search(encrypted):
         raise ValueError("the backup directory path holds a quote or glob character")
     remote = f"{target.path.rstrip('/')}/{name}"
-    try:
-        _encrypt(dump, encrypted, settings["OFFSITE_GPG_PUBLIC_KEY"],
-                 settings["OFFSITE_GPG_FINGERPRINT"])
-        with open(encrypted, "rb") as f:
-            result["encrypted_sha256"] = hashlib.sha256(f.read()).hexdigest()
-        local_size = os.path.getsize(encrypted)
-        result["encrypted_bytes"] = local_size
-        result["remote_file"] = name
-
-        # Upload under .part, then rename: a cut connection leaves a .part,
-        # never a short file under the final name that prune would count.
-        up = _sftp(target, settings,
-                   f'put "{encrypted}" {remote}.part\n'
-                   f"chmod 600 {remote}.part\n"
-                   f"-rm {remote}\n"
-                   f"rename {remote}.part {remote}\n")
-        result["exit_code"] = up.returncode
-        if up.returncode != 0:
-            logger.error("[backup_offsite] sftp upload failed rc=%s: %s",
-                         up.returncode, (up.stderr or "")[-400:])
-            raise RuntimeError(f"sftp exited {up.returncode}")
-    finally:
+    with _login(settings, panel) as login:
         try:
-            os.remove(encrypted)
-        except OSError:
-            pass
+            _encrypt(dump, encrypted, settings["OFFSITE_GPG_PUBLIC_KEY"],
+                     settings["OFFSITE_GPG_FINGERPRINT"])
+            with open(encrypted, "rb") as f:
+                result["encrypted_sha256"] = hashlib.sha256(f.read()).hexdigest()
+            local_size = os.path.getsize(encrypted)
+            result["encrypted_bytes"] = local_size
+            result["remote_file"] = name
 
-    listed = _sftp(target, settings, f"ls -ln {target.path}\n")
-    if listed.returncode != 0:
-        raise RuntimeError(f"sftp listing exited {listed.returncode}")
-    sizes = _remote_sizes(listed.stdout)
-    result["remote_bytes"] = sizes.get(name)
-    if sizes.get(name) != local_size:
-        raise RuntimeError(f"remote size {sizes.get(name)} does not match the "
-                           f"encrypted file's {local_size} bytes")
+            # Upload under .part, then rename: a cut connection leaves a
+            # .part, never a short file under the final name that prune
+            # would count.
+            up = _sftp(target, login,
+                       f'put "{encrypted}" {remote}.part\n'
+                       f"chmod 600 {remote}.part\n"
+                       f"-rm {remote}\n"
+                       f"rename {remote}.part {remote}\n")
+            result["exit_code"] = up.returncode
+            if up.returncode != 0:
+                logger.error("[backup_offsite] sftp upload failed rc=%s: %s",
+                             up.returncode, (up.stderr or "")[-400:])
+                raise RuntimeError(f"sftp exited {up.returncode}")
+        finally:
+            try:
+                os.remove(encrypted)
+            except OSError:
+                pass
 
-    keep = _remote_keep()
-    result["remote_keep"] = keep
-    result["pruned"] = []
-    result["removed_parts"] = []
-    old = _to_delete(sizes, _own_names_re(_SFTP_EXT), keep)
-    # A cut or timed-out upload leaves its .part behind, and nothing else ever
-    # removes it. This upload just renamed its own .part, so any .part with
-    # this install's prefix that is still listed is a leftover.
-    parts = sorted(n for n in sizes if _own_names_re(_SFTP_EXT + ".part").match(n))
-    if old or parts:
-        pruned = _sftp(target, settings,
-                       "".join(f"rm {target.path.rstrip('/')}/{n}\n" for n in old + parts))
-        if pruned.returncode == 0:
-            result["pruned"] = old
-            result["removed_parts"] = parts
-        else:
-            # The new copy is safe; a failed prune costs space, not data.
-            result["prune_error"] = f"sftp rm exited {pruned.returncode}"
+        listed = _sftp(target, login, f"ls -ln {target.path}\n")
+        if listed.returncode != 0:
+            raise RuntimeError(f"sftp listing exited {listed.returncode}")
+        sizes = _remote_sizes(listed.stdout)
+        result["remote_bytes"] = sizes.get(name)
+        if sizes.get(name) != local_size:
+            raise RuntimeError(f"remote size {sizes.get(name)} does not match the "
+                               f"encrypted file's {local_size} bytes")
+
+        keep = _remote_keep()
+        result["remote_keep"] = keep
+        result["pruned"] = []
+        result["removed_parts"] = []
+        old = _to_delete(sizes, _own_names_re(_SFTP_EXT), keep)
+        # A cut or timed-out upload leaves its .part behind, and nothing else
+        # ever removes it. This upload just renamed its own .part, so any
+        # .part with this install's prefix that is still listed is a leftover.
+        parts = sorted(n for n in sizes
+                       if _own_names_re(_SFTP_EXT + ".part").match(n))
+        if old or parts:
+            pruned = _sftp(target, login, "".join(
+                f"rm {target.path.rstrip('/')}/{n}\n" for n in old + parts))
+            if pruned.returncode == 0:
+                result["pruned"] = old
+                result["removed_parts"] = parts
+            else:
+                # The new copy is safe; a failed prune costs space, not data.
+                result["prune_error"] = f"sftp rm exited {pruned.returncode}"
 
 
 # ── What the admin page shows ────────────────────────────────────────────

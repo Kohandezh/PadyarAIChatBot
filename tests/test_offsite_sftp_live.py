@@ -159,8 +159,14 @@ def install(tmp_path, monkeypatch, sftp_server, postgres, vault):
     """One configured install with an empty destination. Returns a helper
     that makes a verified-looking backup and copies it off-site."""
     import app.config as config
+    from app.db.connection import init_db
     from app.services import applog, backup, pg_backup
     key, _ = vault
+    # A panel destination would win over the env target (SPEC-H2): start
+    # from an empty settings table, never the developer's own database.
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "settings.db"))
+    monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
+    init_db()
     _sftp(sftp_server, "-rm /upload/*\n")
     root = tmp_path / "postgres"
     root.mkdir()
