@@ -315,12 +315,22 @@ function filesCell(row) {
 
 /* ── data ───────────────────────────────────────────────────────────── */
 
-function renderSchedule(schedule) {
+/* keepOther is the size of the second pool (manual, before an update, ...).
+ * The server sends it on PostgreSQL only, so on SQLite it is null and the line
+ * keeps its old one-number text. */
+function renderSchedule(schedule, keepOther) {
     const s = schedule || {};
     el('sched-enabled').textContent = s.enabled ? 'روشن' : 'خاموش';
     el('sched-interval').textContent = s.interval_hours
         ? `${s.interval_hours} ساعت` : '—';
-    el('sched-keep').textContent = s.keep ? `حداکثر ${s.keep} نسخه` : '—';
+    if (!s.keep) {
+        el('sched-keep').textContent = '—';
+    } else if (Number.isInteger(keepOther)) {
+        el('sched-keep').textContent = `${s.keep} پشتیبان خودکار شبانه و `
+            + `${keepOther} پشتیبان دیگر (دستی، پیش از به‌روزرسانی و مانند آن)`;
+    } else {
+        el('sched-keep').textContent = `حداکثر ${s.keep} نسخه`;
+    }
     el('sched-last').textContent = formatDate(s.last_run);
     el('sched-next').textContent = formatDate(s.next_run);
 }
@@ -441,7 +451,7 @@ async function load(fromPoll = false) {
         }
         const data = await res.json();
         if (fromPoll && dialogOpen()) return;
-        renderSchedule(data.schedule);
+        renderSchedule(data.schedule, data.keep_other);
         const isPg = data.engine === 'postgresql';
         // The drill exists only for PostgreSQL, so SQLite shows no drill box.
         el('drill-box').hidden = !isPg;

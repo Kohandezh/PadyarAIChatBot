@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from app.auth.security import verify_admin
-from app.config import logger
+from app.config import BACKUP_KEEP_OTHER, logger
 from app.routers.public import _render, _require_admin
 from app.services import applog, backup_center, pg_backup, restore_drill
 
@@ -163,6 +163,10 @@ def list_backups():
         "backups": rows,
         "engine": "postgresql" if is_pg else "sqlite",
         "schedule": schedule,
+        # How many non-nightly backups are kept (manual, before deploy, ...).
+        # The page shows it next to schedule.keep. PostgreSQL only: the SQLite
+        # engine has one pool, so None there.
+        "keep_other": BACKUP_KEEP_OTHER if is_pg else None,
         "labels": backup_center.ROLE_LABELS,
         # The newest restore drill on any backup, for the status line. Always
         # None on SQLite: the drill exists only for PostgreSQL.
