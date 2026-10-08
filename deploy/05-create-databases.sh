@@ -6,6 +6,9 @@
 # already exist (0001_initial.sql opens with `CREATE TABLE app.schema_migrations`),
 # so this script creates them and hands ownership to the app role.
 #
+# Several installs share one cluster, so each database (and its drill database)
+# accepts connections from its own role only: deploy/05-connect-isolation.sql.
+#
 # Passwords are generated here and printed ONCE. Copy them into the .env
 # file immediately; they are not stored anywhere else.
 #
@@ -17,6 +20,13 @@ if [[ $EUID -ne 0 ]]; then echo "Run with sudo: sudo bash $0 <slug>" >&2; exit 1
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 psql_su() { sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"; }
+
+# Read here, by root, and handed to psql on stdin: the postgres user may not be
+# allowed to read the checkout. Checked before anything is created.
+ISOLATION_SQL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/05-connect-isolation.sql"
+if [[ ! -r "$ISOLATION_SQL" ]]; then
+  echo "Missing ${ISOLATION_SQL}; run this script from the repository checkout." >&2; exit 1
+fi
 
 INSTALLS=("$@")
 if [[ ${#INSTALLS[@]} -eq 0 ]]; then
@@ -88,6 +98,14 @@ for slug in "${INSTALLS[@]}"; do
   # this differed, such a check could pass live and fail only in the drill,
   # and that would look like a bad backup.
   psql_su -d "${drill_db}" -c "ALTER DATABASE ${drill_db} SET search_path = app, observability, public;"
+
+  # Only this install's role may connect to its two databases. Without this,
+  # PUBLIC keeps CONNECT and another install's role can open them. Safe to
+  # repeat on an existing install (see the SQL file).
+  for target in "${db}" "${drill_db}"; do
+    psql_su -q -v db="${target}" -v role="${role}" < "${ISOLATION_SQL}"
+  done
+  echo "  only ${role} may connect to ${db} and ${drill_db}"
 done
 
 log "Checking the connection budget"
