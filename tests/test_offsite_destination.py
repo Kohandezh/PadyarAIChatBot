@@ -263,6 +263,22 @@ def test_bad_input_is_refused_with_a_plain_message_and_nothing_is_saved(client, 
     assert _rows() == before, "a refused save changed the stored settings"
 
 
+@pytest.mark.parametrize("field,value,code", [
+    ("host", "bad host", "bad_host"), ("port", "abc", "bad_port"),
+    ("user", "", "missing_user"), ("user", "bad user", "bad_user"),
+    ("path", "", "missing_path"), ("path", "upload/myevent", "relative_path"),
+    ("path", "/up load", "bad_path"), ("auth", "both", "bad_auth"),
+    ("fingerprint", "", "missing_fingerprint"), ("fingerprint", "SHA256:x", "bad_fingerprint"),
+    ("password", "a\nb", "bad_password"), ("private_key", "not a key", "bad_key"),
+])
+def test_each_bad_field_gets_the_sentence_that_names_it(client, field, value, code):
+    from app.services import offsite_destination
+
+    res = client.post(API, json=_valid(**{field: value}))
+
+    assert res.json()["detail"] == offsite_destination.MESSAGES[code]
+
+
 @pytest.mark.parametrize("missing", ["user", "path", "fingerprint"])
 def test_a_host_without_the_rest_of_the_form_is_bad_input(client, missing):
     body = _valid()
