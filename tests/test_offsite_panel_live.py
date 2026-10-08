@@ -130,11 +130,15 @@ def _logins(server):
 
 
 @pytest.fixture
-def client(server, tmp_path, monkeypatch):
+def client(server, vault, tmp_path, monkeypatch):
+    """An admin client on a fresh database, with the encryption key in place
+    (a test is ok only when copies can also be encrypted)."""
     import app.config as config
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "panel-live.db"))
     monkeypatch.setattr(config, "SEED_DEFAULT_CONTENT", False)
     monkeypatch.setattr(config, "OFFSITE_BACKUP_TARGET", "")
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", vault.public_file)
+    monkeypatch.setattr(config, "OFFSITE_GPG_FINGERPRINT", vault.fingerprint)
     _admin_sftp(server, "-rm /upload/*\n-rm /upload/.padyar*\n")
     from app.auth.csrf import token_for_session
     from app.db.connection import get_db_connection, init_db
@@ -244,6 +248,94 @@ def test_a_path_that_cannot_be_written_is_its_own_reason(client, server, path):
 
     assert _test(client) == {"ok": False, "message": _messages()["not_writable"]}
     assert _remote_names(server) == []
+
+
+# ── Review round 1 ──────────────────────────────────────────────────────
+
+def test_a_timeout_after_the_put_leaves_no_test_file(client, server, monkeypatch):
+    """Fix 1 against the real server: the batch is cut after a REAL put and
+    chmod (a timeout), and the cleanup runs for real on a new connection."""
+    from app.services import backup_offsite
+    real_sftp = backup_offsite._sftp
+    calls = []
+
+    def cut_after_chmod(target, login, batch, **kwargs):
+        calls.append(batch)
+        if len(calls) == 1:
+            real_sftp(target, login, "".join(batch.splitlines(True)[:2]), **kwargs)
+            assert any(n.endswith(".part") for n in _remote_names(server))
+            raise subprocess.TimeoutExpired("sftp", kwargs.get("timeout") or 0)
+        return real_sftp(target, login, batch, **kwargs)
+
+    monkeypatch.setattr(backup_offsite, "_sftp", cut_after_chmod)
+    _save(client, server)
+
+    assert _test(client) == {"ok": False, "message": _messages()["timeout"]}
+    assert len(calls) == 2 and calls[1].startswith("-rm ")
+    assert _remote_names(server) == []
+
+
+def test_a_working_connection_without_encryption_is_not_ok(client, server, monkeypatch):
+    """Fix 3: the connection works, but no copy could be encrypted."""
+    import app.config as config
+    monkeypatch.setattr(config, "OFFSITE_GPG_PUBLIC_KEY", "")
+    _save(client, server)
+
+    assert _test(client) == {"ok": False, "message": _messages()["encryption_not_ready"]}
+    assert _remote_names(server) == []
+    offsite = client.get("/admin/api/infra/backups").json()["offsite"]
+    assert offsite["configured"] is False and offsite["state"] == "not_ready"
+
+
+PENALTY = ('#!/bin/sh\n'
+           'echo "PerSourcePenalties authfail:30s noauth:1s min:15s max:60s" '
+           '>> /etc/ssh/sshd_config\n')
+
+
+@pytest.fixture(scope="module")
+def penalised_server(tools, tmp_path_factory):
+    """sshd with PerSourcePenalties ON, set so that ONE failed login (30 s)
+    passes the 15 s threshold: the refusal happens every run, not only when
+    the timing of several tries lines up."""
+    keys = tmp_path_factory.mktemp("penalised")
+    hook = keys / "penalty.sh"
+    hook.write_text(PENALTY)
+    os.chmod(hook, 0o755)
+    name = f"{PREFIX}-penalised-{secrets.token_hex(3)}"
+    started = _run(["docker", "run", "-d", "--name", name, "-p", "127.0.0.1::22",
+                    "-v", f"{hook}:/etc/sftp.d/penalty.sh:ro",
+                    SFTP_IMAGE, f"backup:{PASSWORD}:1001::upload"])
+    assert started.returncode == 0, started.stderr
+    try:
+        port = _run(["docker", "port", name, "22"], text=True).stdout.split(":")[-1].strip()
+        scanned = {}
+
+        def scan():
+            scanned["text"] = _run(["ssh-keyscan", "-t", "ed25519", "-p", port, "127.0.0.1"],
+                                   text=True).stdout
+            return "ssh-ed25519" in scanned["text"]
+
+        _wait(scan, "the penalised SFTP server's host key")
+        yield {"name": name, "port": int(port),
+               "fingerprints": _fingerprints(scanned["text"])}
+    finally:
+        _run(["docker", "rm", "-fv", name])
+
+
+def test_after_a_wrong_password_the_refusal_says_wait_not_check_the_address(
+        client, penalised_server):
+    """Fix 2: sshd's PerSourcePenalties refuses this address after a wrong
+    login, so even the right password is turned away for a while. That is
+    its own reason, not "check the address and port"."""
+    _save(client, penalised_server, password="Wrong-password-" + secrets.token_hex(4))
+    assert _test(client) == {"ok": False, "message": _messages()["auth_password"]}
+
+    _save(client, penalised_server)
+    result = _test(client)
+
+    assert result == {"ok": False, "message": _messages()["refused_for_now"]}
+    logs = _run(["docker", "logs", penalised_server["name"]], text=True)
+    assert "penalty" in logs.stdout + logs.stderr, "sshd did not refuse: nothing was proven"
 
 
 # ── The nightly copy ────────────────────────────────────────────────────
