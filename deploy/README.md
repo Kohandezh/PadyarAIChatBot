@@ -30,6 +30,7 @@ cd /tmp/padyar-deploy
 
 sudo bash deploy/00-bootstrap-server.sh myevent   # packages, users, dirs, PG, UFW, fail2ban
 sudo bash deploy/05-create-databases.sh myevent   # 1 DB + role — SAVE THE PRINTED PASSWORD
+# 05 needs deploy/05-connect-isolation.sql next to it: run it from the checkout, not as a lone copy
 
 # Fill in the .env file before installing:
 sudo install -m 0600 deploy/env/instance.env.template /opt/padyar-myevent/.env
