@@ -661,3 +661,5 @@ While a drill runs, the data exists twice on disk. This lasts a few minutes.
 The drill checks free space first and skips itself when there is not enough.
 The restored copy holds the same visitor and admin records as the live database,
 so the drill drops it as soon as the checks are done, also when they fail.
+
+اهداف بازیابی (RPO و RTO)، rollback و ظرفیت، به وضع امروز: `docs/engineering/RECOVERY_OBJECTIVES.md`.
