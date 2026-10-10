@@ -178,7 +178,7 @@ export function showOffsiteState(offsite) {
     const notReady = (offsite || {}).state === 'not_ready';
     box.hidden = !notReady;
     box.textContent = notReady
-        ? 'رمزگذاری نسخه‌ها روی خود سرور آماده نیست، پس با این مقصد هنوز هیچ نسخه‌ای بیرون فرستاده نمی‌شود. از کسی که برنامه را نصب کرده بخواهید کلید عمومی رمزگذاری را روی سرور بگذارد.'
+        ? 'رمزگذاری نسخه‌ها روی خود سرور آماده نیست، پس با این مقصد هنوز هیچ نسخه‌ای بیرون فرستاده نمی‌شود. کلید عمومی رمزگذاری را در همین صفحه، در بخش «کلید عمومی رمزگذاری» پایین‌تر، بگذارید.'
         : '';
 }
 
@@ -194,4 +194,130 @@ export function initOffsiteSettings(options = {}) {
     });
     el('offsite-test-btn').addEventListener('click', testConnection);
     load();
+}
+
+/* ── Encryption public key (SPEC-H3) ─────────────────────────────────────
+ *
+ * Only the PUBLIC key is handled here. The server answers with its
+ * fingerprint, user id and date, never the key text, and the textarea and the
+ * file input are emptied after every save and clear so the key does not stay
+ * on the page.
+ *
+ * A pasted key goes as JSON. A chosen file goes as multipart (FormData). For
+ * FormData we set NO Content-Type header: the browser must add it, because
+ * only the browser knows the boundary. fetchAuth never sets a content type
+ * itself, it only adds the CSRF header, so both kinds of save stay protected.
+ *
+ * Server text (key id, date, refusal sentences) is set with .textContent only.
+ */
+const GPG_API = '/admin/api/infra/backups/offsite-gpg';
+
+const GPG_SOURCE_TEXT = {
+    panel: 'از پنل',
+    env: 'از تنظیمات سرور',
+    none: 'تنظیم نشده',
+};
+
+function setGpgMsg(text, tone) {
+    const box = el('gpg-msg');
+    box.className = `fw-bold mt-2 text-${tone}`;
+    box.textContent = text;
+}
+
+function renderGpg(d) {
+    const source = d.source || 'none';
+    const has = Boolean(d.fingerprint);
+    el('gpg-none').hidden = has;
+    el('gpg-details').hidden = !has;
+    el('gpg-none').textContent = has ? ''
+        : 'هنوز کلید عمومی تنظیم نشده است؛ تا وقتی نباشد هیچ نسخه‌ای بیرون از سرور فرستاده نمی‌شود.';
+    if (has) {
+        el('gpg-fpr').textContent = d.fingerprint;
+        el('gpg-uid').textContent = d.uid || '';
+        el('gpg-uid-row').hidden = !d.uid;
+        el('gpg-created').textContent = d.created || '';
+        el('gpg-created-row').hidden = !d.created;
+        el('gpg-source').textContent = GPG_SOURCE_TEXT[source] || GPG_SOURCE_TEXT.none;
+        const ready = el('gpg-ready');
+        ready.textContent = d.ready ? 'رمزگذاری با این کلید آماده است.'
+            : 'این کلید قابل استفاده نیست، پس نسخه‌ای بیرون فرستاده نمی‌شود.';
+        ready.className = `fw-bold ${d.ready ? 'text-success' : 'text-danger'}`;
+    }
+    // Only a key saved in the panel can be removed here. A key from the
+    // server settings is changed on the server, so the button stays away.
+    el('gpg-clear-btn').hidden = source !== 'panel';
+    // The key text must not stay on the page after a save or a clear.
+    el('gpg-text').value = '';
+    el('gpg-file').value = '';
+}
+
+async function loadGpg() {
+    try {
+        const res = await fetchAuth(GPG_API);
+        if (!res.ok) {
+            setGpgMsg('خواندن کلید عمومی ناموفق بود.', 'danger');
+            return;
+        }
+        renderGpg(await res.json());
+    } catch {
+        setGpgMsg('خطای ارتباط با سرور', 'danger');
+    }
+}
+
+// One place for both buttons: send, then show the answer or the reason.
+async function sendGpg(options, doneText, onSaved) {
+    const saveBtn = el('gpg-save-btn');
+    const clearBtn = el('gpg-clear-btn');
+    saveBtn.disabled = true;
+    clearBtn.disabled = true;
+    setGpgMsg('⏳ در حال ذخیره...', 'muted');
+    try {
+        const res = await fetchAuth(GPG_API, { method: 'POST', ...options });
+        const data = await readJson(res);
+        if (res.ok) {
+            renderGpg(data);
+            setGpgMsg(doneText, 'success');
+            onSaved();
+        } else {
+            // Kept as text. The paste box and the file input are emptied: a
+            // refused key may be a PRIVATE key pasted by mistake, and this page
+            // can be open on a shared screen. A public key is easy to paste again.
+            setGpgMsg(data.detail || 'ذخیره نشد.', 'danger');
+            el('gpg-text').value = '';
+            el('gpg-file').value = '';
+        }
+    } catch {
+        setGpgMsg('خطای ارتباط با سرور', 'danger');
+    } finally {
+        saveBtn.disabled = false;
+        clearBtn.disabled = false;
+    }
+}
+
+export function initGpgKey(options = {}) {
+    const onSaved = options.onSaved || (() => {});
+    el('gpg-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = el('gpg-text').value.trim();
+        const file = el('gpg-file').files[0];
+        if (text) {
+            sendGpg({
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ public_key: text }),
+            }, 'کلید ذخیره شد.', onSaved);
+        } else if (file) {
+            const form = new FormData();
+            form.append('file', file);
+            sendGpg({ body: form }, 'کلید ذخیره شد.', onSaved);
+        } else {
+            setGpgMsg('اول متن کلید عمومی را بچسبانید یا یک فایل انتخاب کنید.', 'danger');
+        }
+    });
+    el('gpg-clear-btn').addEventListener('click', () => {
+        sendGpg({
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clear: true }),
+        }, 'کلید پاک شد.', onSaved);
+    });
+    loadGpg();
 }

@@ -37,6 +37,24 @@ HostKeyAlgorithms to its type. sftp then runs with StrictHostKeyChecking=yes
 against that file, so a server that shows another key on the real
 connection is refused too. No match, or no pin saved: no connection at all.
 
+THE GPG PUBLIC KEY (SPEC-H3)
+----------------------------
+Every off-site copy is encrypted to a gpg PUBLIC key, and that key can be set
+here too (save_gpg_key). Same order as the destination: a key saved in the
+panel wins, else the OFFSITE_GPG_PUBLIC_KEY + OFFSITE_GPG_FINGERPRINT env
+pair, else none (backup_offsite._gpg_key picks it).
+
+The key is public, so it is stored as plain text, not with secure_store, and
+the response shows only its fingerprint, user id and creation date. What is
+never allowed in is a PRIVATE key: it stays on paper, off the server. The
+check is backup_offsite._inspect_key, run in a throwaway GNUPGHOME with
+`gpg --show-keys`, which shows its input and imports nothing. The key is fed
+to gpg on stdin and is never written to a file, so a refused private key
+reaches no keyring, no disk, no row, no log line and no response. What is
+stored is not the pasted text but gpg's own armored copy of the one key it
+accepted (`--import-options import-export`, which keeps nothing), so a binary
+.gpg upload works and anything pasted around the key is dropped.
+
 NO SECRET ON ARGV
 -----------------
 Key login: the key is written to a 0600 file in a private temp dir for the
@@ -72,6 +90,12 @@ KEYS = {
     "private_key": "offsite_sftp_private_key",
     "fingerprint": "offsite_sftp_host_fingerprint",
 }
+# The gpg public key rows (SPEC-H3). The fingerprint is saved with the key, so
+# the key's own fingerprint is the expected one: no second field to mistype.
+GPG_KEYS = {"public_key": "offsite_gpg_public_key", "fingerprint": "offsite_gpg_fingerprint"}
+# Measured on the raw bytes, before anything else looks at them. A public key
+# with a few user ids is a few KB; 64 KB leaves room for a photo id.
+MAX_GPG_KEY = 64 * 1024
 AUTH_METHODS = ("password", "key")
 DEFAULT_PORT = 22
 
@@ -150,11 +174,30 @@ MESSAGES = {
                "دوباره امتحان کنید.",
     "error": "آزمایش انجام نشد. جزئیات در بخش گزارش‌ها ثبت شد.",
     "encryption_not_ready": "اتصال برقرار شد و نوشتن فایل آزمایشی موفق بود، ولی رمزگذاری "
-                            "نسخه‌ها روی خود سرور آماده نیست، پس هنوز هیچ نسخه‌ای بیرون "
-                            "فرستاده نمی‌شود. از کسی که برنامه را نصب کرده بخواهید کلید "
-                            "عمومی رمزگذاری را روی سرور بگذارد.",
-    "also_no_encryption": "رمزگذاری نسخه‌ها هم روی خود سرور آماده نیست. از کسی که برنامه را "
-                          "نصب کرده بخواهید کلید عمومی رمزگذاری را روی سرور بگذارد.",
+                            "نسخه‌ها آماده نیست، پس هنوز هیچ نسخه‌ای بیرون فرستاده نمی‌شود. "
+                            "کلید عمومی رمزگذاری را در همین صفحه بگذارید.",
+    "also_no_encryption": "رمزگذاری نسخه‌ها هم آماده نیست. کلید عمومی رمزگذاری را در همین "
+                          "صفحه بگذارید.",
+    # The gpg public key (SPEC-H3). One sentence per refusal, and every one
+    # says nothing was saved. The private-key one says what to do instead.
+    "gpg_empty": "کلیدی وارد نشده است. متن کلید عمومی را بچسبانید یا فایل آن را انتخاب کنید. "
+                 "چیزی ذخیره نشد.",
+    "gpg_too_big": "این متن یا فایل بزرگ‌تر از ۶۴ کیلوبایت است و کلید عمومی نیست. "
+                   "چیزی ذخیره نشد.",
+    "gpg_unreadable": "این متن یا فایل یک کلید قابل خواندن نیست. متن کامل کلید عمومی را از "
+                      "-----BEGIN PGP PUBLIC KEY BLOCK----- تا -----END PGP PUBLIC KEY BLOCK----- "
+                      "بچسبانید. چیزی ذخیره نشد.",
+    "gpg_private": "این یک کلید خصوصی است. اینجا فقط کلید عمومی گذاشته می‌شود. کلید خصوصی "
+                   "باید فقط روی کاغذ بماند و هرگز روی سرور نیاید. چیزی ذخیره نشد.",
+    "gpg_not_one": "در این متن یا فایل بیشتر از یک کلید هست. فقط یک کلید عمومی بگذارید. "
+                   "چیزی ذخیره نشد.",
+    "gpg_revoked": "این کلید باطل شده است و نمی‌شود با آن رمزگذاری کرد. کلید دیگری بگذارید. "
+                   "چیزی ذخیره نشد.",
+    "gpg_expired": "این کلید منقضی شده است. یک کلید تازه بسازید و آن را بگذارید. "
+                   "چیزی ذخیره نشد.",
+    "gpg_cannot_encrypt": "این کلید نمی‌تواند رمزگذاری کند (فقط برای امضا است، یا زیرکلید "
+                          "رمزگذاری‌اش منقضی یا باطل شده). کلیدی بگذارید که رمزگذاری هم بکند. "
+                          "چیزی ذخیره نشد.",
 }
 
 
@@ -165,6 +208,18 @@ class DestinationError(ValueError):
         super().__init__(code)
         self.code = code
         self.message_fa = MESSAGES[code]
+
+
+class GpgKeyRefused(ValueError):
+    """The pasted or uploaded gpg key was refused. Nothing was saved. `code`
+    is the reason (a key of MESSAGES without the gpg_ prefix); `message_fa` is
+    for the operator. The text holds the code only, never any of the input,
+    so a refused private key cannot leak through an exception."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+        self.message_fa = MESSAGES["gpg_" + code]
 
 
 class LoginRefused(Exception):
@@ -411,6 +466,143 @@ def _write(writes: dict) -> None:
     finally:
         conn.close()
     clear_settings_cache()
+
+
+# ── The gpg public key (SPEC-H3) ────────────────────────────────────────
+
+def _read_gpg_rows() -> dict:
+    """The two key rows, read fresh like _read. {} when the table cannot be
+    read: the caller then falls back to the env key, and a settings outage
+    never stops a copy."""
+    from app.db.queries import read_settings_strict
+    try:
+        return read_settings_strict(GPG_KEYS.values())
+    except Exception as e:  # noqa: BLE001 (a settings read must not stop a copy)
+        logger.error("[offsite_destination] settings unreadable: %s", type(e).__name__)
+        return {}
+
+
+def stored_gpg_key():
+    """(armored public key, fingerprint) saved in the panel, or None. Both
+    rows must be there: a key without its fingerprint is not used."""
+    rows = _read_gpg_rows()
+    key = rows.get(GPG_KEYS["public_key"]) or ""
+    fingerprint = (rows.get(GPG_KEYS["fingerprint"]) or "").replace(" ", "").upper()
+    if not key.strip() or not fingerprint:
+        return None
+    return key, fingerprint
+
+
+def _grouped(fingerprint: str) -> str:
+    """40 hex characters in groups of 4, the way gpg --fingerprint prints it
+    and the way a person reads one out."""
+    return " ".join(fingerprint[i:i + 4] for i in range(0, len(fingerprint), 4))
+
+
+def gpg_key_view() -> dict:
+    """What the page may see about the key in use. Never the key text.
+
+    `ready` is the same answer the copy and "Test connection" use
+    (backup_offsite.encryption_problem), so the page cannot say ready for a
+    key the next copy would refuse. The fields come from gpg looking at the
+    key itself, also for the env key; when it cannot (a broken file, an
+    expired panel key) they stay empty and ready is False, except that a
+    panel key still shows the fingerprint it was saved with."""
+    from app.services import backup_offsite
+    source, _key, saved_fingerprint = backup_offsite._key_source()
+    view = {"fingerprint": None, "uid": None, "created": None, "source": source,
+            "ready": False}
+    if source == "none":
+        return view
+    home = tempfile.mkdtemp(prefix="padyar-gpg-")
+    try:
+        with backup_offsite._gpg_key(home) as (key_file, _fingerprint, _source):
+            info = backup_offsite._inspect_key(
+                home, key_file, timeout=backup_offsite.READY_CHECK_TIMEOUT)
+        view.update(fingerprint=_grouped(info.fingerprint), uid=info.uid,
+                    created=info.created)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        if source == "panel":
+            view["fingerprint"] = _grouped(saved_fingerprint)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+    view["ready"] = backup_offsite.encryption_problem() == ""
+    return view
+
+
+def _vet_gpg_key(home: str, data: bytes) -> tuple:
+    """(armored public key, fingerprint) for the one key in `data`, or
+    GpgKeyRefused. `home` is a throwaway GNUPGHOME for gpg's own state.
+
+    The key bytes go to gpg on stdin and are never written to a file, here or
+    in gpg's home: a private key pasted by mistake must not reach this
+    server's disk even for a moment (owner decision, ADR-028)."""
+    from app.services import backup_offsite
+    wait = backup_offsite.READY_CHECK_TIMEOUT
+    try:
+        info = backup_offsite._inspect_key(home, data, timeout=wait)
+    except backup_offsite.KeyProblem as e:
+        raise GpgKeyRefused(e.code) from None
+    # Only now, with one valid PUBLIC key shown, is it re-written. The stored
+    # text is gpg's own armored copy of that key, not the pasted text: this
+    # takes a binary .gpg file as well as armor, and drops anything else that
+    # was pasted around the key. import-export prints the key as an import
+    # would have kept it and stores nothing (GnuPG 2.1.14 and newer), so no
+    # keyring is touched and no key file is written.
+    copied = backup_offsite._gpg(home, "--armor", "--import-options", "import-export",
+                                 "--import", input=data, timeout=wait)
+    armored = copied.stdout
+    if copied.returncode != 0 or "BEGIN PGP PUBLIC KEY BLOCK" not in armored:
+        raise GpgKeyRefused("unreadable")
+    # What is stored must be what the copy will accept: look at it once more.
+    try:
+        same = backup_offsite._inspect_key(home, armored.encode("utf-8"),
+                                           timeout=wait).fingerprint
+    except backup_offsite.KeyProblem:
+        raise GpgKeyRefused("unreadable") from None
+    if same != info.fingerprint:
+        raise GpgKeyRefused("unreadable")
+    return armored, info.fingerprint
+
+
+def save_gpg_key(raw) -> dict:
+    """Check the pasted or uploaded key and, only if it is one valid PUBLIC
+    key, store it. Returns gpg_key_view(). Raises GpgKeyRefused with nothing
+    written; the input is never logged, returned or put in an exception.
+
+    `raw` is a str for pasted text and bytes for an uploaded file. Pasted text
+    is trimmed (an operator's copy often carries spaces or blank lines around
+    the key); a file is not, because a binary .gpg export may begin or end
+    with a byte that looks like whitespace. The 64 KB limit looks at what
+    arrived, before any trimming, so padding cannot get around it."""
+    pasted = isinstance(raw, str)
+    # surrogatepass only to MEASURE: JSON may carry a lone surrogate
+    # ("\ud800"), which strict UTF-8 cannot encode. It is still counted, so
+    # the size rule holds, and then refused below as unreadable, not a 500.
+    data = raw.encode("utf-8", "surrogatepass") if pasted else bytes(raw or b"")
+    if len(data) > MAX_GPG_KEY:
+        raise GpgKeyRefused("too_big")
+    if pasted:
+        try:
+            data = raw.strip().encode("utf-8")
+        except UnicodeEncodeError:
+            raise GpgKeyRefused("unreadable") from None
+    if not data.strip():
+        raise GpgKeyRefused("empty")
+    home = tempfile.mkdtemp(prefix="padyar-gpg-")
+    try:
+        armored, fingerprint = _vet_gpg_key(home, data)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+    # Both rows in one transaction: a key without its fingerprint is no key.
+    _write({GPG_KEYS["public_key"]: armored, GPG_KEYS["fingerprint"]: fingerprint})
+    return gpg_key_view()
+
+
+def clear_gpg_key() -> dict:
+    """Remove the panel key, so the env pair (if any) is used again."""
+    _write({key: None for key in GPG_KEYS.values()})
+    return gpg_key_view()
 
 
 # ── Login ───────────────────────────────────────────────────────────────
