@@ -65,12 +65,14 @@ The safe path is the two statements, once per database, as the `postgres`
 superuser. They change nothing else: no password, no data, no running
 connection. The app keeps working, because its own role keeps `CONNECT`.
 
-First check that no other role is connected to the install's databases (an
-empty result is the expected one):
+First check that no other role is connected to the install's databases. The
+`postgres` superuser may always connect, so the query leaves it out. An empty
+result is the expected one:
 
 ```bash
 sudo -u postgres psql -tAc "SELECT DISTINCT usename, datname FROM pg_stat_activity
-  WHERE datname IN ('padyar_<slug>', 'padyar_<slug>_drill') AND usename <> 'padyar_<slug>'"
+  WHERE datname IN ('padyar_<slug>', 'padyar_<slug>_drill')
+  AND usename NOT IN ('padyar_<slug>', 'postgres')"
 ```
 
 Then, from the repository checkout:
@@ -97,6 +99,25 @@ Check it with another install's role (`f` means it cannot connect):
 sudo -u postgres psql -tAc \
   "SELECT has_database_privilege('padyar_<other-slug>', 'padyar_<slug>', 'CONNECT')"
 ```
+
+**A session that was already open stays open.** The `REVOKE` stops new
+connections only. It does not end a connection made before it. So run the
+first query (the `pg_stat_activity` one) again. If it still returns a row,
+that role connected before the change and can stay connected. Do one of these:
+
+- If the role is another install's role (`padyar_<other-slug>`), restart that
+  install: `sudo systemctl restart padyar-<other-slug>`. Its old connections
+  close, and a new one to this database is refused.
+- Otherwise, or if that install must not restart now, end those sessions as
+  the `postgres` superuser:
+
+```bash
+sudo -u postgres psql -tAc "SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+  WHERE datname IN ('padyar_<slug>', 'padyar_<slug>_drill')
+  AND usename NOT IN ('padyar_<slug>', 'postgres')"
+```
+
+Then run the first query again. Now it must return nothing.
 
 To undo it, if something unexpected needed that access:
 `GRANT CONNECT ON DATABASE padyar_<slug> TO PUBLIC;` (and the same for the
