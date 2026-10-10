@@ -75,6 +75,10 @@ sudo -u postgres psql -tAc "SELECT DISTINCT usename, datname FROM pg_stat_activi
   AND usename NOT IN ('padyar_<slug>', 'postgres')"
 ```
 
+An install made before the restore drill has no `padyar_<slug>_drill`
+database yet. Then leave that database out of the steps below. The next run of
+05 creates it, with this rule already on.
+
 Then, from the repository checkout:
 
 ```bash
@@ -84,14 +88,22 @@ for db in padyar_<slug> padyar_<slug>_drill; do
 done
 ```
 
-The same thing by hand, in `sudo -u postgres psql`:
+The file runs its two statements in one transaction. If a name is wrong, psql
+prints the error and that database stays exactly as it was.
+
+The same thing by hand, in `sudo -u postgres psql`, also in one transaction:
 
 ```sql
+BEGIN;
 REVOKE CONNECT ON DATABASE padyar_<slug> FROM PUBLIC;
 GRANT CONNECT ON DATABASE padyar_<slug> TO padyar_<slug>;
 REVOKE CONNECT ON DATABASE padyar_<slug>_drill FROM PUBLIC;
 GRANT CONNECT ON DATABASE padyar_<slug>_drill TO padyar_<slug>;
+COMMIT;
 ```
+
+If psql answers `ROLLBACK` instead of `COMMIT`, a line failed and nothing
+changed. Fix the name and run all of it again.
 
 Check it with another install's role (`f` means it cannot connect):
 
