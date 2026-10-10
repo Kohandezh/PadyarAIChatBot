@@ -576,11 +576,17 @@ def save_gpg_key(raw) -> dict:
     with a byte that looks like whitespace. The 64 KB limit looks at what
     arrived, before any trimming, so padding cannot get around it."""
     pasted = isinstance(raw, str)
-    data = raw.encode("utf-8") if pasted else bytes(raw or b"")
+    # surrogatepass only to MEASURE: JSON may carry a lone surrogate
+    # ("\ud800"), which strict UTF-8 cannot encode. It is still counted, so
+    # the size rule holds, and then refused below as unreadable, not a 500.
+    data = raw.encode("utf-8", "surrogatepass") if pasted else bytes(raw or b"")
     if len(data) > MAX_GPG_KEY:
         raise GpgKeyRefused("too_big")
     if pasted:
-        data = raw.strip().encode("utf-8")
+        try:
+            data = raw.strip().encode("utf-8")
+        except UnicodeEncodeError:
+            raise GpgKeyRefused("unreadable") from None
     if not data.strip():
         raise GpgKeyRefused("empty")
     home = tempfile.mkdtemp(prefix="padyar-gpg-")

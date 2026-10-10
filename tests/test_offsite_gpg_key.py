@@ -1274,3 +1274,26 @@ def test_the_key_check_reads_a_key_given_as_bytes_from_stdin(keys, watched):
     args, stdin = seen[0]
     assert stdin == keys.good_pub.encode()
     assert args[-1] == "--show-keys"
+
+
+# ── A pasted text that is not valid Unicode is refused, not a 500 ──────────
+
+def test_a_paste_with_a_lone_surrogate_is_refused_as_unreadable():
+    from app.services import offsite_destination as od
+    before = _stored()
+    with pytest.raises(od.GpgKeyRefused) as refused:
+        od.save_gpg_key("-----BEGIN PGP PUBLIC KEY BLOCK-----\n\ud800\n")
+    assert refused.value.code == "unreadable"
+    assert _stored() == before, "nothing is saved"
+
+
+def test_a_lone_surrogate_through_the_api_is_a_plain_400(client):
+    from app.services import offsite_destination as od
+    before = _stored()
+    # JSON allows the escape \ud800 on its own; json.loads turns it into a
+    # lone surrogate that cannot be encoded as UTF-8.
+    res = client.post(API, content='{"public_key": "abc \\ud800 def"}',
+                      headers={"Content-Type": "application/json"})
+    assert res.status_code == 400
+    assert res.json() == {"detail": od.MESSAGES["gpg_unreadable"]}
+    assert _stored() == before

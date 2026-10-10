@@ -10,7 +10,8 @@ What this file holds down:
   * after a save the textarea and the file input are empty (the key text does
     not stay on the page) and the new fingerprint shows;
   * a refusal shows the server's sentence as plain text (no HTML is built from
-    it) and keeps what was typed;
+    it) and empties the paste box and the file input, because a refused key may
+    be a private key pasted by mistake on a shared screen;
   * "remove" sends {"clear": true};
   * a phone never scrolls sideways.
 
@@ -266,9 +267,26 @@ async def test_a_refusal_shows_the_sentence_as_text_and_builds_no_html(html, ope
     assert await _text(page, "#gpg-msg") == "این کلید رد شد <b>x</b>"
     assert await page.locator("#gpg-msg b").count() == 0
     assert "text-danger" in (await page.get_attribute("#gpg-msg", "class"))
-    # What was typed stays, so one small mistake is not a reason to paste again.
-    assert await page.input_value("#gpg-text") == ARMORED
+    # A refused key does not stay on screen: it may be a PRIVATE key pasted by
+    # mistake, and this page can be open on a shared screen.
+    assert await page.input_value("#gpg-text") == ""
+    assert ARMORED not in await page.content()
     assert not await page.is_visible("#gpg-details")
+
+
+async def test_a_refused_upload_empties_the_file_input(html, open_page):
+    api = FakeApi(html, NONE)
+    api.save_answer = (400, {"detail": "این یک کلید خصوصی است."})
+    page = await open_page(api)
+
+    await page.set_input_files("#gpg-file", files=[{
+        "name": "secret.asc", "mimeType": "application/octet-stream",
+        "buffer": ARMORED.encode()}])
+    await page.click("#gpg-save-btn")
+    await _wait_msg(page, "این یک کلید خصوصی است")
+
+    assert await page.eval_on_selector("#gpg-file", "e => e.files.length") == 0
+    assert await page.input_value("#gpg-text") == ""
 
 
 async def test_remove_sends_clear_and_goes_back_to_not_set(html, open_page):

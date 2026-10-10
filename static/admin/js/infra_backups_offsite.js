@@ -279,9 +279,12 @@ async function sendGpg(options, doneText, onSaved) {
             setGpgMsg(doneText, 'success');
             onSaved();
         } else {
-            // Kept as text. What was typed stays, so a small mistake does not
-            // mean pasting the key again.
+            // Kept as text. The paste box and the file input are emptied: a
+            // refused key may be a PRIVATE key pasted by mistake, and this page
+            // can be open on a shared screen. A public key is easy to paste again.
             setGpgMsg(data.detail || 'ذخیره نشد.', 'danger');
+            el('gpg-text').value = '';
+            el('gpg-file').value = '';
         }
     } catch {
         setGpgMsg('خطای ارتباط با سرور', 'danger');
