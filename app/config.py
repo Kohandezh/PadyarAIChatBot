@@ -454,8 +454,9 @@ except ValueError:
 # --- sftp: target (encrypted off-site copy, PR H) --------------------------
 # Used only when OFFSITE_BACKUP_TARGET starts with `sftp:`. All empty by
 # default, so an install that sets nothing behaves exactly as before. With an
-# sftp: target, every one of the four paths below is required: a missing one
-# fails the copy and nothing is uploaded.
+# sftp: target set here, the two SSH files below and a gpg key (the panel's, or
+# the pair below) are required: a missing one fails the copy and nothing is
+# uploaded.
 #
 # SSH private key for the SFTP account. Key login only, never a password.
 OFFSITE_SFTP_IDENTITY_FILE = (os.getenv("OFFSITE_SFTP_IDENTITY_FILE") or "").strip()
@@ -466,6 +467,8 @@ OFFSITE_SFTP_KNOWN_HOSTS = (os.getenv("OFFSITE_SFTP_KNOWN_HOSTS") or "").strip()
 # The armored PUBLIC gpg key every dump is encrypted to before upload. The
 # private key lives only on paper, off the server, so the server cannot read
 # its own off-site copies and neither can anyone who takes the server.
+# A key an admin saved in the panel (Infrastructure > Backups) wins over this
+# pair; the pair is used only when the panel has none.
 OFFSITE_GPG_PUBLIC_KEY = (os.getenv("OFFSITE_GPG_PUBLIC_KEY") or "").strip()
 # Full fingerprint (40 hex characters) the key file must match. A different
 # key in the file means nothing is uploaded.

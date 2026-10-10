@@ -31,13 +31,15 @@ THE sftp: TARGET (PR H)
 For a destination that is an SFTP-only account (no shell, so rsync cannot
 run there). Three rules, each one a reason this target exists:
 
-  * Encrypted first. The dump is encrypted with gpg to a PUBLIC key
-    (OFFSITE_GPG_PUBLIC_KEY, checked against OFFSITE_GPG_FINGERPRINT) and
-    only the .gpg file is uploaded. The private key is on paper, off the
-    server, so neither this server nor the destination can read the copy.
-    gpg runs with a throwaway --homedir per copy and --recipient-file, so
-    nothing is imported into any keyring and the app user's own GnuPG home
-    is never touched. A key file that holds a PRIVATE key is refused.
+  * Encrypted first. The dump is encrypted with gpg to a PUBLIC key and
+    only the .gpg file is uploaded. The key is the one an admin saved in the
+    panel (SPEC-H3, offsite_destination.save_gpg_key), else the env pair
+    OFFSITE_GPG_PUBLIC_KEY + OFFSITE_GPG_FINGERPRINT (_gpg_key picks it).
+    The private key is on paper, off the server, so neither this server nor
+    the destination can read the copy. gpg runs with a throwaway --homedir
+    per copy and --recipient-file, so nothing is imported into any keyring
+    and the app user's own GnuPG home is never touched. A key that holds a
+    PRIVATE key is refused.
   * Strict host keys. For the env destination, key login only:
     StrictHostKeyChecking=yes against OFFSITE_SFTP_KNOWN_HOSTS, the identity
     in OFFSITE_SFTP_IDENTITY_FILE, BatchMode and no password or
@@ -318,27 +320,25 @@ def parse_sftp_target(text: str) -> SftpTarget:
 
 
 _SSH_FILE_SETTINGS = ("OFFSITE_SFTP_IDENTITY_FILE", "OFFSITE_SFTP_KNOWN_HOSTS")
-_GPG_SETTINGS = ("OFFSITE_GPG_PUBLIC_KEY", "OFFSITE_GPG_FINGERPRINT")
 
 
 def _sftp_settings(ssh_files: bool = True) -> dict:
     """The env settings one sftp: copy needs. A panel destination brings its
-    own login (pasted secret, pinned host key), so it needs only the gpg
-    pair; the env destination also needs the two ssh files."""
+    own login (pasted secret, pinned host key), so it needs none; the env
+    destination needs the two ssh files. The gpg key is not here: it can come
+    from the panel too, so _gpg_key resolves it."""
     from app import config
-    names = (_SSH_FILE_SETTINGS if ssh_files else ()) + _GPG_SETTINGS
+    names = _SSH_FILE_SETTINGS if ssh_files else ()
     values = {n: (getattr(config, n, "") or "").strip() for n in names}
     missing = [n for n, v in values.items() if not v]
     if missing:
         raise ValueError(f"sftp: target needs {', '.join(missing)}; nothing uploaded")
-    values["OFFSITE_GPG_FINGERPRINT"] = (
-        values["OFFSITE_GPG_FINGERPRINT"].replace(" ", "").upper())
-    for n in (n for n in names if n != "OFFSITE_GPG_FINGERPRINT"):
+    for n in names:
         if not os.path.isfile(values[n]):
             raise FileNotFoundError(f"{n} is not a file; nothing uploaded")
     # ssh reads UserKnownHostsFile as a whitespace-separated LIST of files,
     # so a space would quietly point it at two other paths.
-    for n in _SSH_FILE_SETTINGS if ssh_files else ():
+    for n in names:
         if any(c.isspace() for c in values[n]):
             raise ValueError(f"{n} may not contain spaces; nothing uploaded")
     return values
@@ -361,49 +361,190 @@ READY_CHECK_TIMEOUT = 15
 
 
 def _gpg(home: str, *args, timeout: float = None):
+    # errors="replace": a user id with bytes that are not UTF-8 must not turn
+    # into a UnicodeDecodeError while we only want to read the key's fields.
     return subprocess.run(
         ["gpg", "--homedir", home, "--batch", "--no-tty", "--no-autostart", *args],
-        capture_output=True, text=True, timeout=timeout or _timeout(),
-        env={**os.environ, "GNUPGHOME": home})
+        capture_output=True, text=True, errors="replace",
+        timeout=timeout or _timeout(), env={**os.environ, "GNUPGHOME": home})
+
+
+class KeyProblem(ValueError):
+    """The key is not one we can encrypt to. `code` says why, for the panel's
+    Persian refusal (offsite_destination.GpgKeyRefused); the text is English,
+    for logs and encryption_problem(), and never holds any key material."""
+
+    MESSAGES = {
+        "unreadable": "the gpg key is not readable by gpg",
+        "private": "the gpg key holds a PRIVATE key; put only the public key on the server",
+        "not_one": "the gpg key must hold exactly one key",
+        "revoked": "the gpg key is revoked",
+        "expired": "the gpg key is expired",
+        "cannot_encrypt": "the gpg key has no usable encryption key (it is sign-only, "
+                          "or its encryption subkey is expired or revoked)",
+    }
+
+    def __init__(self, code: str):
+        super().__init__(self.MESSAGES[code])
+        self.code = code
+
+
+@dataclass
+class KeyInfo:
+    fingerprint: str    # 40 hex, upper case
+    uid: str
+    created: str       # YYYY-MM-DD, UTC
+    can_encrypt: bool
+
+
+def _uid_text(field: str) -> str:
+    """A user id as gpg prints it in --with-colons: a colon, a backslash or a
+    control character comes as a C-style \\xNN escape. Done on bytes, so an
+    escaped byte of a multi-byte character still decodes whole."""
+    raw = re.sub(rb"\\x([0-9a-fA-F]{2})", lambda m: bytes([int(m.group(1), 16)]),
+                 field.encode("utf-8"))
+    return raw.decode("utf-8", "replace")
+
+
+def _gpg_time(value: str):
+    """Seconds since epoch, from a creation or expiry field of --with-colons
+    (gpg 2.1+ prints epoch seconds; older versions print an ISO date). None
+    when the field is empty (no expiry)."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if value.isdigit() and len(value) >= 9:
+        return int(value)
+    try:
+        return int(datetime.strptime(value[:8], "%Y%m%d")
+                   .replace(tzinfo=timezone.utc).timestamp())
+    except ValueError:
+        return None
+
+
+def _unusable(record: list, now: float) -> bool:
+    """A key or subkey record that is revoked, or expired by flag or by date."""
+    expires = _gpg_time(record[6] if len(record) > 6 else "")
+    flag = record[1] if len(record) > 1 else ""
+    return flag in ("r", "e") or (expires is not None and expires <= now)
+
+
+def _inspect_key(home: str, key_file: str, timeout: float = None) -> KeyInfo:
+    """What `key_file` holds, or KeyProblem. The one key check behind the
+    panel save, the env key, the nightly copy and the ready state.
+
+    `gpg --show-keys` only SHOWS the file. It imports nothing, so even a
+    refused PRIVATE key never lands in any keyring. Fields are the ones in
+    gpg's doc/DETAILS: 2 validity, 6 creation, 7 expiry, 10 user id, 12 key
+    capabilities (lower case = this key's own, upper case = the whole key).
+    """
+    shown = _gpg(home, "--with-colons", "--show-keys", key_file, timeout=timeout)
+    records = [line.split(":") for line in shown.stdout.splitlines() if line]
+    if shown.returncode != 0 or not records:
+        raise KeyProblem("unreadable")
+    if any(r[0] in ("sec", "ssb") for r in records):
+        raise KeyProblem("private")
+    primaries = [i for i, r in enumerate(records) if r[0] == "pub"]
+    if len(primaries) != 1:
+        raise KeyProblem("not_one")
+    now = time.time()
+    primary = records[primaries[0]]
+    if _unusable(primary, now):
+        raise KeyProblem("revoked" if primary[1] == "r" else "expired")
+    rest = records[primaries[0] + 1:]
+    fprs = [r[9] for r in rest if r[0] == "fpr" and len(r) > 9]
+    if not fprs:
+        raise KeyProblem("unreadable")
+    uids = [r for r in rest if r[0] == "uid" and len(r) > 9]
+    # Own capability letters only (lower case): the upper case ones on the
+    # primary record say what the whole key can do, subkeys included.
+    can_encrypt = any(
+        r[0] in ("pub", "sub") and len(r) > 11 and "e" in r[11] and not _unusable(r, now)
+        for r in [primary, *rest])
+    if not can_encrypt:
+        raise KeyProblem("cannot_encrypt")
+    created = _gpg_time(primary[5])
+    return KeyInfo(
+        fingerprint=fprs[0].upper(),
+        uid=_uid_text(uids[0][9]) if uids else "",
+        created=(datetime.fromtimestamp(created, timezone.utc).date().isoformat()
+                 if created is not None else ""),
+        can_encrypt=True)
 
 
 def _check_key(home: str, key_file: str, fingerprint: str, timeout: float = None) -> None:
-    """Raise ValueError unless `key_file` holds exactly one PUBLIC key whose
-    fingerprint is `fingerprint`. The one check behind both the copy
-    (_encrypt) and the readiness view (encryption_problem)."""
-    shown = _gpg(home, "--with-colons", "--show-keys", key_file, timeout=timeout)
-    if shown.returncode != 0:
-        raise ValueError("OFFSITE_GPG_PUBLIC_KEY is not a readable gpg key")
-    records = [line.split(":") for line in shown.stdout.splitlines()]
-    if any(r[0] in ("sec", "ssb") for r in records):
-        raise ValueError("OFFSITE_GPG_PUBLIC_KEY holds a PRIVATE key; put only "
-                         "the public key on the server")
-    primaries = [i for i, r in enumerate(records) if r[0] == "pub"]
-    if len(primaries) != 1:
-        raise ValueError("OFFSITE_GPG_PUBLIC_KEY must hold exactly one key")
-    fprs = [r[9] for r in records[primaries[0] + 1:] if r[0] == "fpr"]
-    if not fprs or fprs[0].upper() != fingerprint:
-        raise ValueError("gpg fingerprint mismatch: OFFSITE_GPG_PUBLIC_KEY is "
-                         "not the key OFFSITE_GPG_FINGERPRINT names")
+    """Raise ValueError unless `key_file` holds exactly one usable PUBLIC key
+    whose fingerprint is `fingerprint`. The one check behind both the copy
+    (_encrypt) and the readiness view (encryption_problem).
+
+    It is _inspect_key's check, so the env key now also has to be unexpired,
+    unrevoked and able to encrypt (before, only the panel save asked that).
+    That is intended: one check for both sources, and a dead env key shows
+    up as "not ready" instead of as a failed nightly copy."""
+    info = _inspect_key(home, key_file, timeout=timeout)
+    if info.fingerprint != (fingerprint or "").replace(" ", "").upper():
+        raise ValueError("gpg fingerprint mismatch: the key file is not the key "
+                         "its fingerprint names")
+
+
+def _key_source() -> tuple:
+    """(source, key text or path, fingerprint) of the key an off-site copy
+    encrypts to: ("panel", armored text, fingerprint), ("env", path,
+    fingerprint) or ("none", "", ""). Panel first, like the destination. The
+    panel rows are read fresh; a settings table that cannot be read falls
+    back to env (logged by offsite_destination), it never stops a copy."""
+    from app import config
+    from app.services import offsite_destination
+    panel = offsite_destination.stored_gpg_key()
+    if panel is not None:
+        return "panel", panel[0], panel[1]
+    path = (getattr(config, "OFFSITE_GPG_PUBLIC_KEY", "") or "").strip()
+    fingerprint = (getattr(config, "OFFSITE_GPG_FINGERPRINT", "") or "").replace(
+        " ", "").strip().upper()
+    if path and fingerprint:
+        return "env", path, fingerprint
+    return "none", "", ""
+
+
+@contextmanager
+def _gpg_key(home: str):
+    """Yield (key_file, fingerprint, source) for the key to encrypt to.
+
+    A panel key is written to a private (0600) file inside `home`, the
+    caller's throwaway GNUPGHOME, which the caller removes. The env key is
+    used where it is. Raises ValueError when there is no key at all, or when
+    the env path is not a file; nothing is uploaded then."""
+    source, key, fingerprint = _key_source()
+    if source == "none":
+        raise ValueError("no gpg public key: set it in the panel (Infrastructure > "
+                         "Backups) or OFFSITE_GPG_PUBLIC_KEY + OFFSITE_GPG_FINGERPRINT; "
+                         "nothing uploaded")
+    if source == "env":
+        if not os.path.isfile(key):
+            raise FileNotFoundError("OFFSITE_GPG_PUBLIC_KEY is not a file; nothing uploaded")
+        yield key, fingerprint, source
+        return
+    key_file = os.path.join(home, "panel-public-key.asc")
+    fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(key)
+    yield key_file, fingerprint, source
 
 
 def encryption_problem() -> str:
     """Why an sftp: copy could not be encrypted right now, or "" when it can.
 
-    The same steps a copy takes before it uploads anything: both gpg
-    settings set, the key file there, one readable PUBLIC key with the named
-    fingerprint. A connection test passes without any of that (it sends no
-    dump), so the test and the page ask here before they say "ready".
-    The reason is English and names settings, never a key or a secret.
+    The same steps a copy takes before it uploads anything: a key to use (the
+    panel's, else the env pair), one readable PUBLIC key with the named
+    fingerprint that can still encrypt. A connection test passes without any
+    of that (it sends no dump), so the test and the page ask here before
+    they say "ready". The reason is English and names settings, never a key
+    or a secret.
     """
-    try:
-        settings = _sftp_settings(ssh_files=False)
-    except (ValueError, FileNotFoundError) as e:
-        return str(e)
     home = tempfile.mkdtemp(prefix="padyar-gpg-")
     try:
-        _check_key(home, settings["OFFSITE_GPG_PUBLIC_KEY"],
-                   settings["OFFSITE_GPG_FINGERPRINT"], timeout=READY_CHECK_TIMEOUT)
+        with _gpg_key(home) as (key_file, fingerprint, _source):
+            _check_key(home, key_file, fingerprint, timeout=READY_CHECK_TIMEOUT)
         return ""
     except (ValueError, OSError, subprocess.SubprocessError) as e:
         return f"{type(e).__name__}: {e}"[:300]
@@ -490,10 +631,13 @@ def _sftp_copy(dump: str, target_text: str, backup_id: str, result: dict,
     if _SFTP_UNSAFE_LOCAL.search(encrypted):
         raise ValueError("the backup directory path holds a quote or glob character")
     remote = f"{target.path.rstrip('/')}/{name}"
-    with _login(settings, panel) as login:
+    # The key is resolved BEFORE the login: with no usable key there is
+    # nothing to send, so the panel login must not even scan the host key.
+    with (tempfile.TemporaryDirectory(prefix="padyar-gpg-", ignore_cleanup_errors=True) as key_home,
+          _gpg_key(key_home) as (key_file, fingerprint, _source),
+          _login(settings, panel) as login):
         try:
-            _encrypt(dump, encrypted, settings["OFFSITE_GPG_PUBLIC_KEY"],
-                     settings["OFFSITE_GPG_FINGERPRINT"])
+            _encrypt(dump, encrypted, key_file, fingerprint)
             with open(encrypted, "rb") as f:
                 result["encrypted_sha256"] = hashlib.sha256(f.read()).hexdigest()
             local_size = os.path.getsize(encrypted)

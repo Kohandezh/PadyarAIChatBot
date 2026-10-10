@@ -19,12 +19,15 @@ The heavy endpoints are plain `def`, not `async def`: they run blocking SQLite
 and disk work, so FastAPI hands them to the threadpool instead of stalling the
 event loop for every other request in the app.
 """
+import json
 import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.auth import security
 from app.auth.security import verify_admin
@@ -471,3 +474,118 @@ def test_offsite_settings(request: Request, username: str = Depends(verify_admin
                  actor=username, target="offsite-sftp",
                  outcome="ok" if result["ok"] else "failed", metadata=meta)
     return {"ok": result["ok"], "message": result["message"]}
+
+
+# ── Off-site gpg PUBLIC key (SPEC-H3) ───────────────────────────────────
+# The key every off-site copy is encrypted to, pasted or uploaded here. The
+# rules live in offsite_destination.save_gpg_key and backup_offsite._inspect_key;
+# here are the door, the body reading and the audit. No response, log line or
+# audit row ever carries the key text.
+
+# What the request body may be before the key's own 64 KB limit looks at it.
+# A JSON string can double the size of a key (every newline becomes \n) and
+# multipart adds boundaries, so twice the limit plus slack. Reading stops here,
+# so a huge body is refused without being read to the end.
+_GPG_BODY_CAP = 2 * offsite_destination.MAX_GPG_KEY + 16 * 1024
+
+
+class _BodyTooBig(Exception):
+    pass
+
+
+async def _capped_body(request: Request) -> bytes:
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _GPG_BODY_CAP:
+            raise _BodyTooBig()
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _gpg_request(request: Request):
+    """What the admin sent: ("key", bytes or str) or ("clear", None).
+
+    JSON {"public_key": text} or {"clear": true}, or multipart with a `file`
+    field. Raises GpgKeyRefused (too big, nothing there) or HTTPException 400
+    (a body that is not what the page sends)."""
+    refused = offsite_destination.GpgKeyRefused
+    bad = HTTPException(status_code=400, detail=offsite_destination.MESSAGES["bad_request"])
+    try:
+        body = await _capped_body(request)
+    except _BodyTooBig:
+        raise refused("too_big") from None
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith("multipart/form-data"):
+        async def one_piece():
+            yield body
+        try:
+            form = await MultiPartParser(request.headers, one_piece(),
+                                         max_files=1, max_fields=4).parse()
+        except MultiPartException:
+            raise bad from None
+        upload = form.get("file")
+        if upload is None or isinstance(upload, str):
+            raise refused("empty")
+        # +1 so a file one byte over the limit is seen as over it.
+        data = await upload.read(offsite_destination.MAX_GPG_KEY + 1)
+        await form.close()
+        return "key", data
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else {}
+    except (ValueError, UnicodeDecodeError):
+        raise bad from None
+    if not isinstance(payload, dict):
+        raise bad
+    clear = payload.get("clear", False)
+    key = payload.get("public_key")
+    if clear is None:
+        clear = False
+    if not isinstance(clear, bool) or not (key is None or isinstance(key, str)):
+        raise bad
+    if clear:
+        return "clear", None
+    return "key", key or ""
+
+
+@router.get("/admin/api/infra/backups/offsite-gpg",
+            dependencies=[Depends(verify_admin)])
+async def get_offsite_gpg():
+    return await run_in_threadpool(offsite_destination.gpg_key_view)
+
+
+@router.post("/admin/api/infra/backups/offsite-gpg",
+             dependencies=[Depends(verify_admin)])
+async def save_offsite_gpg(request: Request, username: str = Depends(verify_admin)):
+    """Save the pasted or uploaded public key, or clear it. Refusals are a
+    plain Persian 400 and change nothing."""
+    event = "admin.backup.offsite_gpg.saved"
+    try:
+        action, key = await _gpg_request(request)
+        if action == "clear":
+            event = "admin.backup.offsite_gpg.cleared"
+            old = await run_in_threadpool(offsite_destination.stored_gpg_key)
+            view = await run_in_threadpool(offsite_destination.clear_gpg_key)
+            applog.audit(event, "کلید عمومی رمزگذاری نسخه‌های بیرون از سرور حذف شد",
+                         actor=username, target="offsite-gpg", outcome="ok",
+                         metadata={"fingerprint": old[1] if old else None})
+            return view
+        view = await run_in_threadpool(offsite_destination.save_gpg_key, key)
+    except offsite_destination.GpgKeyRefused as exc:
+        applog.audit(event, "کلید عمومی رمزگذاری نسخه‌های بیرون از سرور رد شد",
+                     actor=username, target="offsite-gpg", outcome="refused",
+                     metadata={"code": exc.code})
+        raise HTTPException(status_code=400, detail=exc.message_fa)
+    except HTTPException as exc:
+        applog.audit(event, "کلید عمومی رمزگذاری نسخه‌های بیرون از سرور رد شد",
+                     actor=username, target="offsite-gpg", outcome="refused",
+                     metadata={"code": "bad_request"})
+        raise exc
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(500, FA_GENERIC, "backup.api.offsite_gpg_failed", username,
+                    "offsite-gpg", exc)
+    applog.audit(event, "کلید عمومی رمزگذاری نسخه‌های بیرون از سرور ذخیره شد",
+                 actor=username, target="offsite-gpg", outcome="ok",
+                 metadata={"fingerprint": (view["fingerprint"] or "").replace(" ", ""),
+                           "uid": view["uid"]})
+    return view
