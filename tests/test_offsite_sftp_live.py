@@ -115,8 +115,8 @@ def postgres(tools):
         def exec_(*argv, **kw):
             return _run(["docker", "exec", "-i", name, *argv], **kw)
 
-        _wait(lambda: exec_("pg_isready", "-U", "postgres").returncode == 0
-              and exec_("psql", "-U", "postgres", "-c", "select 1").returncode == 0,
+        # Over TCP: the image first starts a short init server on the socket only.
+        _wait(lambda: exec_("pg_isready", "-q", "-h", "127.0.0.1", "-U", "postgres").returncode == 0,
               "postgres")
         sql = (f"CREATE TABLE visitors (id int, phone text);"
                f"INSERT INTO visitors SELECT g, '{PHONE}' FROM generate_series(1, 500) g;")
