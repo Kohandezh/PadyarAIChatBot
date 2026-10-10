@@ -327,9 +327,12 @@ Off-site copy: today no destination exists, so every backup sits on this
 server, and Infrastructure > Backups says so in red. The day an SFTP-only
 account exists:
 
-1. Once, in `/opt/padyar-<slug>/.env`, then restart: `OFFSITE_GPG_PUBLIC_KEY`
-   (the PUBLIC key only) and `OFFSITE_GPG_FINGERPRINT`. Each dump is
-   gpg-encrypted before upload; the private key lives on paper.
+1. The gpg PUBLIC key goes in the same panel card, section "کلید عمومی
+   رمزگذاری" (paste it or upload the `.asc` file). The PUBLIC key only: the
+   private key lives on paper. Each dump is gpg-encrypted before upload. A panel
+   key wins. Fallback, only when the panel has no key: set
+   `OFFSITE_GPG_PUBLIC_KEY` and `OFFSITE_GPG_FINGERPRINT` once in
+   `/opt/padyar-<slug>/.env`, then restart.
 2. The operator sets the destination in the admin panel: Infrastructure >
    Backups, card "جای نگه‌داری نسخه‌ها بیرون از سرور". Host, port, user,
    folder (one per install, e.g. `/upload/<slug>`), password or private key,
