@@ -12,7 +12,9 @@ login role owning `<database>` and `<database>_drill`, with `app` and
     database, and the reverse;
   * allow: each role connects to its own two databases and still creates,
     writes and reads in its own `app` and `observability` schemas;
-  * the SQL is safe to run again: a second run changes no ACL.
+  * the SQL is safe to run again: a second run changes no ACL;
+  * a wrong role name (a typo on the manual path) changes nothing: the REVOKE
+    does not stay done without the GRANT.
 
 It needs a superuser in DATABASE_URL (to create roles and databases, and to
 change CONNECT on databases another role owns) and the `psql` client; without
@@ -96,12 +98,16 @@ def _acl(db: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def installs():
+def server():
     if not shutil.which("psql"):
         pytest.skip("the psql client is not on PATH (deploy/05 applies the SQL with psql)")
     if not _superuser():
         pytest.skip("DATABASE_URL is not a superuser: creating roles and databases and "
                     "changing CONNECT on another role's database need one")
+
+
+@pytest.fixture(scope="module")
+def installs(server):
     tag = secrets.token_hex(3)
     made = {}
     try:
@@ -167,3 +173,16 @@ def test_running_the_sql_again_changes_nothing(installs):
         # PUBLIC (`=...`) without CONNECT (`c`); its TEMPORARY needs a connection.
         assert not any(e.startswith("=") and "c" in e.split("/")[0]
                        for e in acl.strip("{}").split(",")), acl
+
+
+def test_a_wrong_role_name_changes_nothing(server):
+    name = f"padyar_isot{secrets.token_hex(3)}c"
+    _make_install(name, secrets.token_hex(12))
+    try:
+        before = _acl(name)
+        done = _apply(name, name + "_typo")
+        assert done.returncode != 0
+        assert f'role "{name}_typo" does not exist' in done.stderr
+        assert _acl(name) == before
+    finally:
+        _drop_install(name)

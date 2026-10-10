@@ -19,6 +19,11 @@
 -- resets the role's password. Safe to run again: revoking a privilege PUBLIC
 -- no longer has, or granting one the role already holds, changes nothing.
 -- :"db" and :"role" are psql variables, quoted as identifiers.
+--
+-- One transaction: role= is typed by hand on that path. With a wrong name the
+-- GRANT fails, and the REVOKE is undone with it, so nothing changes.
 
+BEGIN;
 REVOKE CONNECT ON DATABASE :"db" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"db" TO :"role";
+COMMIT;
