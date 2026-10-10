@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from app.auth import security
 from app.auth.security import verify_admin
-from app.config import logger
+from app.config import BACKUP_KEEP_OTHER, logger
 from app.routers.public import _render, _require_admin
 from app.services import (applog, backup_center, backup_offsite, offsite_destination,
                           pg_backup, restore_drill)
@@ -171,6 +171,10 @@ def list_backups():
         "backups": rows,
         "engine": "postgresql" if is_pg else "sqlite",
         "schedule": schedule,
+        # How many non-nightly backups are kept (manual, before deploy, ...).
+        # The page shows it next to schedule.keep. PostgreSQL only: the SQLite
+        # engine has one pool, so None there.
+        "keep_other": BACKUP_KEEP_OTHER if is_pg else None,
         "labels": backup_center.ROLE_LABELS,
         # State and time only; the target and error stay on the server.
         "offsite": backup_offsite.last_result_view(manifests),

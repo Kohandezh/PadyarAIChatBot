@@ -13,7 +13,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 import backup_db
-from app.config import logger
+from app.config import BACKUP_KEEP_OTHER, logger
 from app.db.connection import get_db_connection
 from app.db.queries import get_setting, set_setting
 
@@ -225,7 +225,10 @@ def _run_backup_now(actor: str = "scheduler", kind: str = "scheduled"):
         # taken.
         if kind == "scheduled" and backup_verified:
             _drill_backup(summary["backup_id"], actor)
-        removed = pg_backup.prune(keep=configured_keep())
+        # Two pools: nightly backups by the admin setting, every other kind by
+        # BACKUP_KEEP_OTHER. See pg_backup.prune().
+        removed = pg_backup.prune(keep=configured_keep(),
+                                  keep_other=BACKUP_KEEP_OTHER)
         set_setting("backup_last_run", datetime.now().isoformat())
         logger.info("PostgreSQL backup created: %s%s", summary["backup_id"],
                     f" (pruned {len(removed)})" if removed else "")

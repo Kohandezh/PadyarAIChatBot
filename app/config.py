@@ -477,3 +477,14 @@ try:
     OFFSITE_REMOTE_KEEP = int(os.getenv("OFFSITE_REMOTE_KEEP") or 0) or None
 except ValueError:
     OFFSITE_REMOTE_KEEP = None
+
+# How many backups of the OTHER kinds to keep: manual, before-deploy, rollback,
+# reset-content and the safety copy made before a restore. They have their own
+# pool, apart from the nightly backups (the admin setting "backup_keep"). Why:
+# one pool let a day with several deploys push the nightly backups out, and the
+# daily recovery window shrank without anyone deciding it. A bad value falls
+# back to 5. The number is held between 1 and 100, like the nightly setting.
+try:
+    BACKUP_KEEP_OTHER = max(1, min(100, int(os.getenv("BACKUP_KEEP_OTHER", "5"))))
+except ValueError:
+    BACKUP_KEEP_OTHER = 5

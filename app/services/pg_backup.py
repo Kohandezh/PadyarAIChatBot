@@ -659,26 +659,73 @@ def member_path(backup_id: str, name: str):
 KEEP = 14
 
 
-def prune(keep: int = KEEP) -> list:
-    """Delete the oldest backups beyond `keep`. Returns the removed ids.
+def prune(keep: int = KEEP, keep_other: int | None = None) -> list:
+    """Delete old backups, one pool at a time. Returns the removed ids.
 
-    Without this, a nightly scheduler on PostgreSQL grows backups/postgres/
-    forever — the SQLite engine always pruned, this one never did. Never
-    raises: a prune failure must not fail a backup that just succeeded; the
-    cost of skipping one prune is disk, not data.
+    Two pools, because one pool broke the daily recovery window. Pre-deploy,
+    rollback, manual, reset-content and safety dumps used to share the same 14
+    slots as the nightly backups. A day with several deploys pushed nightly
+    backups out, and nobody had decided to shrink the window.
+
+      * scheduled pool: the nightly backups. Keeps the newest `keep`.
+      * other pool: every other reason. Keeps the newest `keep_other`
+        (None reads config.BACKUP_KEEP_OTHER at call time).
+
+    A manifest with no `reason` (a backup made before reasons were written)
+    counts as scheduled. That is the safe side, it is kept longer. A manifest
+    that cannot be read has no reason either, so it is in the scheduled pool
+    too, and it is never deleted just because deploys piled up.
+
+    Safety rule: prune never leaves the install with zero verified scheduled
+    backups. If the newest `keep` scheduled backups all failed verify, the
+    newest verified one is kept as well, even beyond `keep`. Only that one.
+
+    Without prune, a nightly scheduler on PostgreSQL grows backups/postgres/
+    forever. Never raises: a prune failure must not fail a backup that just
+    succeeded; the cost of skipping one prune is disk, not data.
     """
     try:
-        ids = [b["backup_id"] for b in list_backups() if b.get("backup_id")]
+        if keep_other is None:
+            from app import config
+            keep_other = config.BACKUP_KEEP_OTHER
+        # list_backups() is newest first, so each pool keeps that order.
+        scheduled, other = [], []
+        for manifest in list_backups():
+            backup_id = manifest.get("backup_id")
+            if not backup_id:
+                continue
+            reason = manifest.get("reason")
+            if not reason or reason == "scheduled":
+                scheduled.append(manifest)
+            else:
+                other.append(manifest)
+
+        doomed = [m["backup_id"] for m in other[keep_other:]]
+        beyond = scheduled[keep:]
+        if beyond and not any(_is_verified(m) for m in scheduled[:keep]):
+            # Nothing verified is safe inside `keep`: spare the newest verified
+            # one that is beyond it, if there is one.
+            spared = next((m for m in beyond if _is_verified(m)), None)
+            if spared is not None:
+                beyond = [m for m in beyond if m is not spared]
+        doomed += [m["backup_id"] for m in beyond]
+
         removed = []
-        for backup_id in ids[keep:]:
+        for backup_id in doomed:
             try:
                 delete(backup_id, actor="prune")
                 removed.append(backup_id)
             except BackupError:
-                continue  # already gone — that is what prune wanted anyway
+                continue  # already gone, that is what prune wanted anyway
         return removed
-    except Exception:  # noqa: BLE001 — see docstring
+    except Exception:  # noqa: BLE001 (see docstring)
         return []
+
+
+def _is_verified(manifest: dict) -> bool:
+    verification = manifest.get("verification")
+    return (isinstance(verification, dict)
+            and verification.get("status") == "verified")
 
 
 # ── Restore ─────────────────────────────────────────────────────────────
