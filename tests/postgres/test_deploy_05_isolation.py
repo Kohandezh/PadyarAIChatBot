@@ -109,8 +109,9 @@ def _started_cluster():
         assert shim.returncode == 0, shim.stderr
         deadline = time.time() + 90
         while time.time() < deadline:
-            ready = _docker("exec", name, "psql", "-U", "postgres", "-tAc", "select 1")
-            if ready.returncode == 0 and ready.stdout.strip() == "1":
+            # Over TCP: the image first starts a short init server on the socket only.
+            ready = _docker("exec", name, "pg_isready", "-q", "-h", "127.0.0.1", "-U", "postgres")
+            if ready.returncode == 0:
                 break
             time.sleep(1)
         else:
