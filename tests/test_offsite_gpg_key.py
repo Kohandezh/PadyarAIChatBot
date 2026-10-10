@@ -1008,3 +1008,269 @@ def test_an_upload_save_is_audited_like_a_paste(client, keys):
     rows = _audit("admin.backup.offsite_gpg.saved")
     assert len(rows) == 1
     assert json.loads(rows[0]["metadata"])["fingerprint"] == keys.good.fingerprint
+
+
+# ── Whitespace around pasted text ───────────────────────────────────────
+
+def test_a_pasted_key_with_spaces_and_blank_lines_around_it_is_accepted(app_db, keys):
+    from app.services import offsite_destination as od
+    padded = "  \n\t\n   " + keys.good_pub + "   \n\n  "
+
+    view = od.save_gpg_key(padded)
+
+    assert view["fingerprint"] == _grouped(keys.good.fingerprint)
+    assert _stored()["offsite_gpg_fingerprint"] == keys.good.fingerprint
+
+
+def test_a_padded_paste_through_the_api_is_accepted(client, keys):
+    res = client.post(API, json={"public_key": "   " + keys.good_pub + "  \n  "})
+
+    assert res.status_code == 200, res.text
+    assert res.json()["fingerprint"] == _grouped(keys.good.fingerprint)
+
+
+@pytest.mark.parametrize("blank", ["   ", "\n\t \r\n", " " * 5000])
+def test_pasted_whitespace_alone_is_still_empty(app_db, blank):
+    from app.services import offsite_destination as od
+    with pytest.raises(od.GpgKeyRefused) as refused:
+        od.save_gpg_key(blank)
+
+    assert refused.value.code == "empty"
+
+
+def test_the_size_limit_looks_at_the_raw_paste_not_the_trimmed_one(app_db, keys):
+    """A key plus 64 KB of spaces is over the limit as it arrived. Trimming
+    first would let it through, and the cap would no longer bound the input."""
+    from app.services import offsite_destination as od
+    with pytest.raises(od.GpgKeyRefused) as refused:
+        od.save_gpg_key(" " * (64 * 1024) + keys.good_pub)
+
+    assert refused.value.code == "too_big"
+    assert _stored() == {}
+
+
+def test_an_uploaded_file_is_not_trimmed(app_db, keys, monkeypatch):
+    """A file may be a binary .gpg export, where a first or last byte that
+    looks like whitespace is data. Only pasted text is trimmed."""
+    from app.services import backup_offsite, offsite_destination as od
+    inputs = []
+    real = backup_offsite._gpg
+
+    def spy(home, *args, **kw):
+        if kw.get("input") is not None:
+            inputs.append(kw["input"])
+        return real(home, *args, **kw)
+
+    monkeypatch.setattr(backup_offsite, "_gpg", spy)
+    raw = b"\n\n" + keys.good_bin + b"  \n"
+
+    try:
+        od.save_gpg_key(raw)
+    except od.GpgKeyRefused:
+        pass  # whether gpg takes the padding is not the point
+
+    assert inputs and inputs[0] == raw
+
+
+def test_an_uploaded_binary_gpg_file_is_still_accepted(app_db, keys):
+    from app.services import offsite_destination as od
+    assert od.save_gpg_key(keys.good_bin)["fingerprint"] == _grouped(keys.good.fingerprint)
+
+
+# ── The pasted or uploaded bytes never touch the disk ───────────────────
+
+class _Watched:
+    """An empty directory that stands in for the system temp directory, and a
+    scan of every file under it for the bytes of one key."""
+
+    def __init__(self, path):
+        self.path = path
+        self.hits = []
+        self.paused = False
+
+    def files(self):
+        for root, _dirs, names in os.walk(self.path):
+            for name in names:
+                full = os.path.join(root, name)
+                if os.path.isfile(full) and not os.path.islink(full):
+                    yield full
+
+    def scan(self, needles, when):
+        if self.paused:
+            return
+        for full in self.files():
+            try:
+                with open(full, "rb") as f:
+                    blob = f.read()
+            except OSError:
+                continue
+            for label, needle in needles.items():
+                if needle in blob:
+                    self.hits.append(f"{when}: {label} found in {os.path.basename(full)}")
+
+
+@pytest.fixture
+def watched(monkeypatch):
+    # A SHORT path: gpg-agent's socket path has a length limit on macOS.
+    path = tempfile.mkdtemp(prefix="gpgw")
+    monkeypatch.setenv("TMPDIR", path)
+    monkeypatch.setattr(tempfile, "tempdir", path)  # tempfile caches the directory
+    yield _Watched(path)
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _needles(armored):
+    """What to look for: a long slice of the key's base64 body, the same
+    slice as raw packet bytes, and the armor header of a private key."""
+    import base64
+    body = [ln for ln in armored.splitlines()
+            if ln and not ln.startswith(("-----", "=", "Version", "Comment"))]
+    packed = base64.b64decode("".join(body))
+    found = {"base64 slice": _body_marker(armored).encode(),
+             "packet bytes": packed[len(packed) // 2: len(packed) // 2 + 32]}
+    assert len(found["base64 slice"]) >= 40
+    if "PRIVATE KEY BLOCK" in armored:
+        found["private header"] = b"PRIVATE KEY BLOCK"
+    return found
+
+
+def _scan_at_every_gpg_call(monkeypatch, watched, needles):
+    """Scan the watched directory just before and just after each gpg run.
+    Returns the list of gpg argvs, so a test can tell gpg really ran."""
+    from app.services import backup_offsite
+    real = subprocess.run
+    ran = []
+
+    def run(argv, *a, **kw):
+        is_gpg = bool(argv) and argv[0] == "gpg"
+        if is_gpg:
+            ran.append(list(argv))
+            watched.scan(needles, "before gpg")
+        done = real(argv, *a, **kw)
+        if is_gpg:
+            watched.scan(needles, "after gpg")
+        return done
+
+    monkeypatch.setattr(backup_offsite.subprocess, "run", run)
+    return ran
+
+
+def _no_scan_while_the_view_runs(monkeypatch, watched):
+    """After a save the page view is built. For an ACCEPTED key that view
+    writes the stored public key to a 0600 file for the moment it takes
+    (backup_offsite._gpg_key, unchanged: that key is public and is already in
+    the settings table). The scans of the save itself stay on; only the
+    view's own gpg calls are not scanned. The final scan still covers it."""
+    from app.services import offsite_destination as od
+    real = od.gpg_key_view
+
+    def view():
+        watched.paused = True
+        try:
+            return real()
+        finally:
+            watched.paused = False
+
+    monkeypatch.setattr(od, "gpg_key_view", view)
+
+
+def test_a_private_key_pasted_by_mistake_is_refused_without_ever_reaching_the_disk(
+        app_db, keys, watched, monkeypatch):
+    from app.services import offsite_destination as od
+    needles = _needles(keys.good_secret)
+    ran = _scan_at_every_gpg_call(monkeypatch, watched, needles)
+
+    with pytest.raises(od.GpgKeyRefused) as refused:
+        od.save_gpg_key(keys.good_secret)
+
+    watched.scan(needles, "after the refusal")
+    assert refused.value.code == "private"
+    assert refused.value.message_fa == od.MESSAGES["gpg_private"]
+    assert ran, "gpg must have looked at the key"
+    assert watched.hits == []
+    assert _stored() == {}
+
+
+@pytest.mark.parametrize("tiny_spool", [False, True], ids=["default-spool", "tiny-spool"])
+def test_a_private_key_uploaded_by_mistake_never_reaches_the_disk(
+        client, keys, watched, monkeypatch, tiny_spool):
+    """The multipart parser keeps a small upload in memory and spills a big
+    one to a temp FILE. The route must never let it spill, whatever the
+    parser's own default is."""
+    from starlette import formparsers
+    needles = _needles(keys.good_secret)
+    ran = _scan_at_every_gpg_call(monkeypatch, watched, needles)
+    spools = []
+
+    class Recording(tempfile.SpooledTemporaryFile):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            spools.append(self)
+
+    monkeypatch.setattr(formparsers, "SpooledTemporaryFile", Recording)
+    if tiny_spool:
+        monkeypatch.setattr(formparsers.MultiPartParser, "spool_max_size", 64)
+
+    res = client.post(API, files={"file": ("secret.asc", keys.good_secret.encode())})
+
+    watched.scan(needles, "after the request")
+    assert res.status_code == 400
+    assert res.json() == {"detail": __import__("app.services.offsite_destination",
+                          fromlist=["MESSAGES"]).MESSAGES["gpg_private"]}
+    assert ran, "gpg must have looked at the key"
+    assert spools, "the upload must have gone through the parser"
+    assert [s for s in spools if getattr(s, "_rolled", False)] == []
+    assert watched.hits == []
+    assert _stored() == {}
+
+
+def test_an_accepted_public_key_leaves_no_file_with_its_bytes(
+        app_db, keys, watched, monkeypatch):
+    from app.services import offsite_destination as od
+    needles = _needles(keys.good_pub)
+    ran = _scan_at_every_gpg_call(monkeypatch, watched, needles)
+    _no_scan_while_the_view_runs(monkeypatch, watched)
+
+    od.save_gpg_key(keys.good_pub)
+
+    watched.scan(needles, "after the save")
+    assert ran
+    assert watched.hits == []
+    assert "BEGIN PGP PUBLIC KEY BLOCK" in _stored()["offsite_gpg_public_key"]
+
+
+def test_an_accepted_upload_through_the_api_leaves_no_file_with_its_bytes(
+        client, keys, watched, monkeypatch):
+    needles = _needles(keys.second_pub)
+    ran = _scan_at_every_gpg_call(monkeypatch, watched, needles)
+    _no_scan_while_the_view_runs(monkeypatch, watched)
+
+    res = client.post(API, files={"file": ("k.gpg", keys.second_pub.encode())})
+
+    watched.scan(needles, "after the request")
+    assert res.status_code == 200, res.text
+    assert ran
+    assert watched.hits == []
+
+
+def test_the_key_check_reads_a_key_given_as_bytes_from_stdin(keys, watched):
+    """The key is handed to gpg on stdin: no key path is on the command line."""
+    from app.services import backup_offsite
+    home = tempfile.mkdtemp(prefix="padyar-gpg-")
+    seen = []
+    real = backup_offsite._gpg
+    try:
+        def spy(h, *args, **kw):
+            seen.append((args, kw.get("input")))
+            return real(h, *args, **kw)
+
+        backup_offsite._gpg = spy
+        info = backup_offsite._inspect_key(home, keys.good_pub.encode())
+    finally:
+        backup_offsite._gpg = real
+        shutil.rmtree(home, ignore_errors=True)
+
+    assert info.fingerprint == keys.good.fingerprint
+    args, stdin = seen[0]
+    assert stdin == keys.good_pub.encode()
+    assert args[-1] == "--show-keys"

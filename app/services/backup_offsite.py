@@ -360,13 +360,25 @@ def _login(settings: dict, panel):
 READY_CHECK_TIMEOUT = 15
 
 
-def _gpg(home: str, *args, timeout: float = None):
+def _gpg(home: str, *args, timeout: float = None, input: bytes = None):
+    """Run gpg in the throwaway `home`. `input` (bytes) goes to gpg's stdin:
+    this is how a pasted or uploaded key reaches gpg without being written to
+    a file first. Output comes back as text."""
+    done = subprocess.run(
+        ["gpg", "--homedir", home, "--batch", "--no-tty", "--no-autostart", *args],
+        input=input, capture_output=True,
+        timeout=timeout or _timeout(), env={**os.environ, "GNUPGHOME": home})
     # errors="replace": a user id with bytes that are not UTF-8 must not turn
     # into a UnicodeDecodeError while we only want to read the key's fields.
-    return subprocess.run(
-        ["gpg", "--homedir", home, "--batch", "--no-tty", "--no-autostart", *args],
-        capture_output=True, text=True, errors="replace",
-        timeout=timeout or _timeout(), env={**os.environ, "GNUPGHOME": home})
+    # The input may be binary, so the pipes are bytes and are decoded here.
+    return subprocess.CompletedProcess(
+        done.args, done.returncode, _as_text(done.stdout), _as_text(done.stderr))
+
+
+def _as_text(output) -> str:
+    if isinstance(output, (bytes, bytearray)):
+        return bytes(output).decode("utf-8", "replace")
+    return output or ""
 
 
 class KeyProblem(ValueError):
@@ -429,16 +441,33 @@ def _unusable(record: list, now: float) -> bool:
     return flag in ("r", "e") or (expires is not None and expires <= now)
 
 
-def _inspect_key(home: str, key_file: str, timeout: float = None) -> KeyInfo:
-    """What `key_file` holds, or KeyProblem. The one key check behind the
-    panel save, the env key, the nightly copy and the ready state.
+def _key_bytes(key) -> bytes:
+    """The key as bytes. Bytes are used as they are; a str is the path of the
+    env key file, which is read into memory so one parser serves both."""
+    if isinstance(key, (bytes, bytearray)):
+        return bytes(key)
+    try:
+        with open(key, "rb") as f:
+            return f.read()
+    except OSError:
+        raise KeyProblem("unreadable") from None
 
-    `gpg --show-keys` only SHOWS the file. It imports nothing, so even a
-    refused PRIVATE key never lands in any keyring. Fields are the ones in
-    gpg's doc/DETAILS: 2 validity, 6 creation, 7 expiry, 10 user id, 12 key
-    capabilities (lower case = this key's own, upper case = the whole key).
+
+def _inspect_key(home: str, key, timeout: float = None) -> KeyInfo:
+    """What `key` holds, or KeyProblem. The one key check behind the panel
+    save, the env key, the nightly copy and the ready state. `key` is the
+    key's bytes (a paste or an upload) or the path of the env key file.
+
+    `gpg --show-keys` only SHOWS what it reads. It imports nothing, so even a
+    refused PRIVATE key never lands in any keyring. The key goes to gpg on
+    stdin, never into a file: a private key pasted by mistake must not reach
+    this server's disk, not even for the moment it takes to refuse it. Fields
+    are the ones in gpg's doc/DETAILS: 2 validity, 6 creation, 7 expiry, 10
+    user id, 12 key capabilities (lower case = this key's own, upper case =
+    the whole key).
     """
-    shown = _gpg(home, "--with-colons", "--show-keys", key_file, timeout=timeout)
+    shown = _gpg(home, "--with-colons", "--show-keys", input=_key_bytes(key),
+                 timeout=timeout)
     records = [line.split(":") for line in shown.stdout.splitlines() if line]
     if shown.returncode != 0 or not records:
         raise KeyProblem("unreadable")
@@ -472,16 +501,17 @@ def _inspect_key(home: str, key_file: str, timeout: float = None) -> KeyInfo:
         can_encrypt=True)
 
 
-def _check_key(home: str, key_file: str, fingerprint: str, timeout: float = None) -> None:
-    """Raise ValueError unless `key_file` holds exactly one usable PUBLIC key
-    whose fingerprint is `fingerprint`. The one check behind both the copy
-    (_encrypt) and the readiness view (encryption_problem).
+def _check_key(home: str, key, fingerprint: str, timeout: float = None) -> None:
+    """Raise ValueError unless `key` (a key file path, or the key's bytes)
+    holds exactly one usable PUBLIC key whose fingerprint is `fingerprint`.
+    The one check behind both the copy (_encrypt) and the readiness view
+    (encryption_problem).
 
     It is _inspect_key's check, so the env key now also has to be unexpired,
     unrevoked and able to encrypt (before, only the panel save asked that).
     That is intended: one check for both sources, and a dead env key shows
     up as "not ready" instead of as a failed nightly copy."""
-    info = _inspect_key(home, key_file, timeout=timeout)
+    info = _inspect_key(home, key, timeout=timeout)
     if info.fingerprint != (fingerprint or "").replace(" ", "").upper():
         raise ValueError("gpg fingerprint mismatch: the key file is not the key "
                          "its fingerprint names")

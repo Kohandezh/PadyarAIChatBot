@@ -48,11 +48,12 @@ The key is public, so it is stored as plain text, not with secure_store, and
 the response shows only its fingerprint, user id and creation date. What is
 never allowed in is a PRIVATE key: it stays on paper, off the server. The
 check is backup_offsite._inspect_key, run in a throwaway GNUPGHOME with
-`gpg --show-keys`, which shows a file and imports nothing, so a refused
-private key reaches no keyring, no row, no log line and no response. What is
-stored is not the pasted text but gpg's own armored export of the one key it
-accepted, so a binary .gpg upload works and anything pasted around the key is
-dropped.
+`gpg --show-keys`, which shows its input and imports nothing. The key is fed
+to gpg on stdin and is never written to a file, so a refused private key
+reaches no keyring, no disk, no row, no log line and no response. What is
+stored is not the pasted text but gpg's own armored copy of the one key it
+accepted (`--import-options import-export`, which keeps nothing), so a binary
+.gpg upload works and anything pasted around the key is dropped.
 
 NO SECRET ON ARGV
 -----------------
@@ -531,35 +532,32 @@ def gpg_key_view() -> dict:
 
 def _vet_gpg_key(home: str, data: bytes) -> tuple:
     """(armored public key, fingerprint) for the one key in `data`, or
-    GpgKeyRefused. Everything happens in `home`, a throwaway GNUPGHOME."""
+    GpgKeyRefused. `home` is a throwaway GNUPGHOME for gpg's own state.
+
+    The key bytes go to gpg on stdin and are never written to a file, here or
+    in gpg's home: a private key pasted by mistake must not reach this
+    server's disk even for a moment (owner decision, ADR-028)."""
     from app.services import backup_offsite
     wait = backup_offsite.READY_CHECK_TIMEOUT
-    pasted = os.path.join(home, "pasted-key")
-    fd = os.open(pasted, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
     try:
-        info = backup_offsite._inspect_key(home, pasted, timeout=wait)
+        info = backup_offsite._inspect_key(home, data, timeout=wait)
     except backup_offsite.KeyProblem as e:
         raise GpgKeyRefused(e.code) from None
-    # Only now, with one valid PUBLIC key shown, is anything imported. The
-    # stored text is gpg's own export of that key, not the pasted text: this
+    # Only now, with one valid PUBLIC key shown, is it re-written. The stored
+    # text is gpg's own armored copy of that key, not the pasted text: this
     # takes a binary .gpg file as well as armor, and drops anything else that
-    # was pasted around the key.
-    imported = backup_offsite._gpg(home, "--import", pasted, timeout=wait)
-    exported = backup_offsite._gpg(home, "--armor", "--export", info.fingerprint,
-                                   timeout=wait)
-    armored = exported.stdout
-    if (imported.returncode != 0 or exported.returncode != 0
-            or "BEGIN PGP PUBLIC KEY BLOCK" not in armored):
+    # was pasted around the key. import-export prints the key as an import
+    # would have kept it and stores nothing (GnuPG 2.1.14 and newer), so no
+    # keyring is touched and no key file is written.
+    copied = backup_offsite._gpg(home, "--armor", "--import-options", "import-export",
+                                 "--import", input=data, timeout=wait)
+    armored = copied.stdout
+    if copied.returncode != 0 or "BEGIN PGP PUBLIC KEY BLOCK" not in armored:
         raise GpgKeyRefused("unreadable")
     # What is stored must be what the copy will accept: look at it once more.
-    again = os.path.join(home, "exported-key.asc")
-    fd = os.open(again, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(armored)
     try:
-        same = backup_offsite._inspect_key(home, again, timeout=wait).fingerprint
+        same = backup_offsite._inspect_key(home, armored.encode("utf-8"),
+                                           timeout=wait).fingerprint
     except backup_offsite.KeyProblem:
         raise GpgKeyRefused("unreadable") from None
     if same != info.fingerprint:
@@ -570,10 +568,19 @@ def _vet_gpg_key(home: str, data: bytes) -> tuple:
 def save_gpg_key(raw) -> dict:
     """Check the pasted or uploaded key and, only if it is one valid PUBLIC
     key, store it. Returns gpg_key_view(). Raises GpgKeyRefused with nothing
-    written; the input is never logged, returned or put in an exception."""
-    data = raw.encode("utf-8") if isinstance(raw, str) else bytes(raw or b"")
+    written; the input is never logged, returned or put in an exception.
+
+    `raw` is a str for pasted text and bytes for an uploaded file. Pasted text
+    is trimmed (an operator's copy often carries spaces or blank lines around
+    the key); a file is not, because a binary .gpg export may begin or end
+    with a byte that looks like whitespace. The 64 KB limit looks at what
+    arrived, before any trimming, so padding cannot get around it."""
+    pasted = isinstance(raw, str)
+    data = raw.encode("utf-8") if pasted else bytes(raw or b"")
     if len(data) > MAX_GPG_KEY:
         raise GpgKeyRefused("too_big")
+    if pasted:
+        data = raw.strip().encode("utf-8")
     if not data.strip():
         raise GpgKeyRefused("empty")
     home = tempfile.mkdtemp(prefix="padyar-gpg-")

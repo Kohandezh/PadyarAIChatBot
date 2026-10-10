@@ -519,9 +519,18 @@ async def _gpg_request(request: Request):
     if content_type.startswith("multipart/form-data"):
         async def one_piece():
             yield body
+        # Starlette keeps an uploaded file in memory up to spool_max_size and
+        # spills it to a temp FILE above that. A key must never reach the
+        # disk (a private one pasted by mistake included), so the spool size
+        # is set here, not left to the library. The body is already capped at
+        # _GPG_BODY_CAP, so no part can be bigger than that. (Starlette 1.6.0
+        # defaults to 1 MiB, which is above the cap, but a default can change.)
+        parser = MultiPartParser(request.headers, one_piece(),
+                                 max_files=1, max_fields=4,
+                                 max_part_size=_GPG_BODY_CAP)
+        parser.spool_max_size = _GPG_BODY_CAP + 1
         try:
-            form = await MultiPartParser(request.headers, one_piece(),
-                                         max_files=1, max_fields=4).parse()
+            form = await parser.parse()
         except MultiPartException:
             raise bad from None
         upload = form.get("file")
