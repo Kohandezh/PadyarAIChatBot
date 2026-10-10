@@ -21,7 +21,13 @@ existing install must be safe). It proves:
     predefined role (no pg_read_all_data);
   * the manual path for an install made before this change (the two SQL
     lines in deploy/05-connect-isolation.sql) closes a database that still
-    lets PUBLIC connect.
+    lets PUBLIC connect;
+  * the new 05, run over installs the OLD 05 made, closes them too. Every
+    other test here starts from databases the new 05 created, so a 05 that
+    isolated only the databases it creates would pass them all. The old
+    script is 05-create-databases-01183a6.sh next to this file, byte for
+    byte `git show 01183a6:deploy/05-create-databases.sh` (CI checks out one
+    commit, so the test cannot ask git for it). It runs in its own container.
 
 The container has every tool 05 uses except `sudo`, so a two-line shim maps
 `sudo -u postgres ...` (the only way 05 calls it) to the image's own gosu.
@@ -29,6 +35,7 @@ Needs Docker; without it the module skips. Containers are named
 DEPLOY05_TEST_CONTAINER_PREFIX-* (default padyar-deploy05-test) and removed
 with `docker rm -fv`.
 """
+import contextlib
 import os
 import re
 import secrets
@@ -42,6 +49,7 @@ import pytest
 from tests.postgres.conftest import REPO_ROOT as _ROOT
 
 REPO_ROOT = Path(_ROOT)
+OLD_05 = Path(__file__).with_name("05-create-databases-01183a6.sh")
 
 PREFIX = os.environ.get("DEPLOY05_TEST_CONTAINER_PREFIX", "padyar-deploy05-test")
 IMAGE = "postgres:16"
@@ -50,6 +58,8 @@ SUDO_SHIM = ('#!/bin/sh\n'
              '[ "$1" = "-u" ] && { user="$2"; shift 2; exec gosu "$user" "$@"; }\n'
              'exec "$@"\n')
 INSTALLS = ("alpha", "beta")
+DENY = [("alpha", "padyar_beta"), ("alpha", "padyar_beta_drill"),
+        ("beta", "padyar_alpha"), ("beta", "padyar_alpha_drill")]
 
 
 def _docker(*argv, **kwargs):
@@ -72,9 +82,8 @@ class Cluster:
         assert done.returncode == 0, done.stderr
         return done.stdout.strip()
 
-    def run_05(self, *slugs: str) -> str:
-        done = _docker("exec", "-u", "root", self.name, "bash",
-                       "/deploy/05-create-databases.sh", *slugs)
+    def run_05(self, *slugs: str, script: str = "/deploy/05-create-databases.sh") -> str:
+        done = _docker("exec", "-u", "root", self.name, "bash", script, *slugs)
         assert done.returncode == 0, done.stdout + done.stderr
         return done.stdout
 
@@ -84,8 +93,8 @@ class Cluster:
         return container_url.replace("@127.0.0.1:5432/", f"@127.0.0.1:{self.port}/")
 
 
-@pytest.fixture(scope="module")
-def cluster():
+@contextlib.contextmanager
+def _started_cluster():
     if not _docker_ready():
         pytest.skip("Docker is not available: this test runs the real 05 in a container")
     name = f"{PREFIX}-{secrets.token_hex(3)}"
@@ -110,6 +119,12 @@ def cluster():
         yield Cluster(name, port)
     finally:
         _docker("rm", "-fv", name)
+
+
+@pytest.fixture(scope="module")
+def cluster():
+    with _started_cluster() as started:
+        yield started
 
 
 def _urls(output: str) -> dict:
@@ -146,10 +161,7 @@ def test_the_real_script_runs_twice_on_the_same_installs(installs):
         assert f"database {_db(slug)}_drill already exists" in installs["second"]
 
 
-@pytest.mark.parametrize("who,target", [
-    ("alpha", "padyar_beta"), ("alpha", "padyar_beta_drill"),
-    ("beta", "padyar_alpha"), ("beta", "padyar_alpha_drill"),
-])
+@pytest.mark.parametrize("who,target", DENY)
 def test_no_install_role_can_connect_to_another_installs_databases(installs, who, target):
     import psycopg
     with pytest.raises(psycopg.OperationalError) as refused:
@@ -236,3 +248,40 @@ def test_the_two_sql_lines_close_an_install_made_before_this_change(installs):
     finally:
         cluster.sql("DROP DATABASE IF EXISTS padyar_gamma WITH (FORCE)")
         cluster.sql("DROP ROLE IF EXISTS padyar_gamma")
+
+
+@pytest.fixture(scope="module")
+def upgraded():
+    """Two installs made by the OLD 05, then the new 05 run over them, in a
+    container of their own. Which cross-install connections worked in between
+    is recorded, to show the hole was really open before the new 05 ran."""
+    import psycopg
+    with _started_cluster() as cluster:
+        copied = _docker("cp", str(OLD_05), f"{cluster.name}:/old-05.sh")
+        assert copied.returncode == 0, copied.stderr
+        old = _urls(cluster.run_05(*INSTALLS, script="/old-05.sh"))
+        open_before = set()
+        for who, target in DENY:
+            try:
+                _connect(cluster.host_url(old[who]), target).close()
+                open_before.add((who, target))
+            except psycopg.OperationalError:
+                pass
+        new = cluster.run_05(*INSTALLS)
+        yield {"new": new, "open_before": open_before,
+               "urls": {slug: cluster.host_url(url) for slug, url in _urls(new).items()}}
+
+
+def test_the_new_script_ran_over_databases_the_old_script_made(upgraded):
+    for slug in INSTALLS:
+        assert f"database {_db(slug)} already exists" in upgraded["new"]
+        assert f"database {_db(slug)}_drill already exists" in upgraded["new"]
+
+
+@pytest.mark.parametrize("who,target", DENY)
+def test_the_new_script_closes_installs_the_old_script_made(upgraded, who, target):
+    import psycopg
+    assert (who, target) in upgraded["open_before"], "the old 05 should leave this open"
+    with pytest.raises(psycopg.OperationalError) as refused:
+        _connect(upgraded["urls"][who], target).close()
+    assert "permission denied for database" in str(refused.value)
