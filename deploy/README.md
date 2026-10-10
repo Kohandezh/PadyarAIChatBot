@@ -324,6 +324,31 @@ rm -f "$TMP"
 Backups: schedule them in the admin panel (Backup Centre). It shells out to
 `pg_dump --format=custom`, which `00-bootstrap-server.sh` installs.
 
+Off-site copy: today no destination exists, so every backup sits on this
+server, and Infrastructure > Backups says so in red. The day an SFTP-only
+account exists:
+
+1. Once, in `/opt/padyar-<slug>/.env`, then restart: `OFFSITE_GPG_PUBLIC_KEY`
+   (the PUBLIC key only) and `OFFSITE_GPG_FINGERPRINT`. Each dump is
+   gpg-encrypted before upload; the private key lives on paper.
+2. The operator sets the destination in the admin panel: Infrastructure >
+   Backups, card "جای نگه‌داری نسخه‌ها بیرون از سرور". Host, port, user,
+   folder (one per install, e.g. `/upload/<slug>`), password or private key,
+   and the server's host-key fingerprint (`SHA256:...`, as `ssh-keygen -lf`
+   prints it). Then "Save" and "Test connection". The secret is stored
+   encrypted and never shown again; the host key is pinned to that
+   fingerprint.
+
+The env form still works, and is used only when the panel has no
+destination (a panel destination wins):
+`OFFSITE_BACKUP_TARGET=sftp:user@host[:port]:/path`,
+`OFFSITE_SFTP_IDENTITY_FILE`, `OFFSITE_SFTP_KNOWN_HOSTS` (all host keys of
+the destination). `OFFSITE_REMOTE_KEEP` is optional in both forms. Copies are
+named after the install's database, so two installs on one path never prune
+each other's. Key creation, the paper key, keeping the destination details
+off the server, and restore after losing the server are in
+`docs/engineering/DEPLOYMENT_RUNBOOK.md` ("کپی رمزشده بیرون از سرور").
+
 ## Monitoring
 
 `deploy/55-monitoring.sh` installs one Prometheus, one Alertmanager and three
