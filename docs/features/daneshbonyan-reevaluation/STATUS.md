@@ -4,7 +4,7 @@ Written by the main Claude session that coordinated the work (closed after this 
 Started 2026-09-30. Goal: fix every reason the evaluator gave for rejecting
 PadyarAIChatbot, then file the re-evaluation request ("darkhast-e barresi-ye mojadad").
 
-The per-track briefs and Herdr sessions were deleted after this handoff. The re-evaluation form draft is `FORM_DRAFT.md` in this folder.
+The per-track briefs, the Herdr sessions, their worktrees and the per-mission ledgers under ~/foreman/ were all deleted after this handoff, so this file is the only record. The re-evaluation form draft is `FORM_DRAFT.md` in this folder.
 
 ## Evaluator's reasons and where each stands
 
@@ -25,17 +25,15 @@ the self-hosted deploy job was removed in #155, so merging does NOT deploy.
 
 | Tab | Agent | State |
 |---|---|---|
-| DB7 db-maturity | `foreman7` | Closed. Done except C (pgBackRest) and E (staging), both need the server. Ledger: ~/foreman/20260930-dbmaturity/ |
+| DB7 db-maturity | `foreman7` | Closed. Done except C (pgBackRest, Ubuntu 2.50 with a two-step restore: download from SFTP, then restore locally) and E (staging), both need the server |
 | DB8 reeval-form | `db8-form` | Closed. Its draft is `FORM_DRAFT.md` here, written 2026-09-30 before any PR, so it is outdated |
 
-DB1-DB6 are finished and closed. Their reports stay in ~/foreman/ (20260930-eval-benchmark, 20260930-danesh-t2,
-20260930-db3-localllm, 20260930-monitoring, 20260930-danesh-t5-ingest, 20260930-review-governance).
+DB1-DB6 are finished and closed.
 
 ## Server work (needs the Mac on the gpuserver LAN, 192.168.100.x)
 
 Last check: not reachable (Mac on 192.168.1.x; a VPN tunnel `utun6` answers TCP on port 22 but sends no SSH banner).
-Access: GPUSERVER-CREDENTIALS.env at the repo root (0600, git-ignored). `/tmp/.pdyr-pw` is wiped on reboot;
-re-create it from that file. Shared socket /tmp/.pdyr-cm.sock. Test and deploy only on inotex; never the second install.
+Access: password SSH as `gpu` (no keys), through an expect wrapper that reads the password from a 0600 file and one ControlMaster socket. The local credential files were deleted on 2026-10-29; ask Sina for the password. Test and deploy only on inotex; never the second install.
 
 1. Deploy current main to inotex by hand: `sudo PADYAR_GIT_TOKEN=<read-only> /usr/local/bin/padyar-deploy <slug> <port> <sha>`. None of the ~40 PRs is live yet.
 2. Re-install /usr/local/bin/padyar-deploy from the repo (for `--rollback`, #176).
